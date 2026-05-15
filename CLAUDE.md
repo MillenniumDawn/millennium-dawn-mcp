@@ -16,8 +16,8 @@ live under [`docs/`](./docs/).
 paradox-script parser. It exposes:
 
 - **24 tools** (`resolve_*`, `find_*`, `parse_*`, `validate*`, `generate_*`,
-  `focus_graph`, `diff_summary`, `check_encoding`, `lint_common_mistakes`,
-  `review_branch`, `list_country_content`)
+  `focus_graph`, `diff_summary`, `check_encoding`, `lint`, `review_branch`,
+  `list_country_content`)
 - **6 resources** under the `md://` URI scheme (`md://focus/{id}` etc.)
 
 It is **read-only** by design. Generators return content as strings; the agent

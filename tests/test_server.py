@@ -57,7 +57,7 @@ EXPECTED_TOOLS = {
     # M2 validation
     "validate",
     "validate_list",
-    "lint_common_mistakes",
+    "lint",
     "review_branch",
     # M3 generators
     "generate_focus",

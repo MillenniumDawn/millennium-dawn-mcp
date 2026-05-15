@@ -148,14 +148,58 @@ Enumerate available validators with their titles.
 }
 ```
 
-### `lint_common_mistakes(mode?: str, files?: list) -> dict`
+### `lint(mode?, files?, checks?, severity_min?, limit?, counts_only?) -> dict`
 
-Run `tools/linting/check_common_mistakes.py`: threat scale, scope expansion,
-modifier validation. Modes: `staged` (default, fast) or `all`. Pass `files`
-to override mode.
+Run the **full linting suite**. Wraps seven `Millennium-Dawn/tools/linting/`
+scripts behind one tool — the one-stop-shop for "check this code's quality."
 
-Returns `{ok, issues, count, mode, exit_code}` where each issue is
-`{file, line, message, severity: "warning"}`.
+- **`mode="staged"`** (default) or `"all"`. Each underlying check that supports
+  staged mode passes it through; otherwise the dispatcher resolves the file
+  list itself from `git diff --name-only --cached`.
+- **`files=[...]`** — explicit mod-relative paths. Overrides `mode`. Each check
+  filters this list by its own file-pattern (e.g. braces ignores `.yml`).
+- **`checks=[...]`** — subset of:
+  - `common_mistakes` (`check_common_mistakes.py` — threat scale, scope, modifiers)
+  - `braces` (`check_braces.py` — unmatched `{` / `}`)
+  - `basic_style` (`check_basic_style.py` — bracket/paren balance)
+  - `basic_style_2` (`check_basic_style_2.py` — missing spaces around braces)
+  - `coding_standards` (`coding_standards.py` — focus-ID format, news_event format)
+  - `mod_encoding` (`validate_mod_encoding.py` — `.mod` UTF-8 validity)
+  - `loc_encoding` (`validate_localization_encoding.py` — English loc YAML BOM)
+
+  Omit to run all seven.
+- **`severity_min="info"`** — drops issues below `info` / `warning` / `error`.
+- **`limit=500`** — caps the issues array. `truncated` flags overflow.
+- **`counts_only=True`** — omit the issues array; return per-check + overall counts only.
+
+Returns:
+
+```json
+{
+  "ok": true,
+  "mode": "staged",
+  "checks_run": ["common_mistakes", "braces", ...],
+  "counts": { "error": 3, "warning": 12, "info": 0 },
+  "issues_total_after_filter": 15,
+  "truncated": false,
+  "checks": [
+    { "name": "common_mistakes", "ok": true, "total": 0, "exit_code": 0 },
+    { "name": "braces", "ok": true, "total": 3, "exit_code": 1 },
+    ...
+  ],
+  "issues": [
+    { "check": "braces", "file": "...", "line": 42, "col": 1, "message": "...", "severity": "error" },
+    ...
+  ]
+}
+```
+
+Per-check failures are **isolated** — if `tools/linting/check_braces.py` is
+missing or crashes, the corresponding entry in `checks` has `ok: false` and
+an `error` field, but the rest of the run still completes.
+
+**Tip:** start with `lint(counts_only=True)` to see which checks fired, then
+re-call with `checks=["<one>"]` to get the full issue list for just that check.
 
 ### `review_branch(base?: str) -> dict`
 

@@ -43,7 +43,7 @@ from .resources import (
     sprite_resource,
 )
 from .tools.analysis_tools import find_focuses_tool
-from .tools.linting_tools import lint_common_mistakes_tool, review_branch_tool
+from .tools.linting_tools import lint_tool, review_branch_tool
 from .tools.parser_tools import parse_file_tool, parse_string_tool
 from .tools.resolver_tools import (
     resolve_decision_tool,
@@ -227,9 +227,24 @@ def build_server(settings: Settings):
         return validate_list_tool(settings)
 
     @mcp.tool()
-    def lint_common_mistakes(mode: str = "staged", files: Optional[list] = None) -> dict:
-        """Run check_common_mistakes.py: threat scale, scope expansion, modifier validation, etc."""
-        return lint_common_mistakes_tool(settings.mod_root, mode=mode, files=files)
+    def lint(
+        mode: str = "staged",
+        files: Optional[list] = None,
+        checks: Optional[list] = None,
+        severity_min: str = "info",
+        limit: int = 500,
+        counts_only: bool = False,
+    ) -> dict:
+        """Run the full linting suite (braces, style, coding standards, encoding). checks=[...] subsets; severity_min/limit/counts_only narrow output."""
+        return lint_tool(
+            settings.mod_root,
+            mode=mode,
+            files=files,
+            checks=checks,
+            severity_min=severity_min,
+            limit=limit,
+            counts_only=counts_only,
+        )
 
     @mcp.tool()
     def review_branch(base: str = "main") -> dict:

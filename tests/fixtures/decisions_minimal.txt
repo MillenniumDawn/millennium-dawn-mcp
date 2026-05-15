@@ -1,0 +1,20 @@
+TST_category = {
+	icon = generic_decision_category
+	priority = 50
+
+	TST_simple_decision = {
+		allowed = { tag = TST }
+		available = { has_stability > 0.5 }
+		cost = 25
+		complete_effect = {
+			add_political_power = 50
+		}
+	}
+
+	TST_targeted_decision = {
+		state_target = yes
+		target_trigger = { FROM = { is_owned_by = ROOT } }
+		visible = { has_war = yes }
+		cost = 50
+	}
+}

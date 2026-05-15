@@ -1,0 +1,10 @@
+﻿l_english:
+ TST_root: "The Root Focus"
+ TST_root_desc: "A starting focus, with $50$ tokens of political will."
+ TST_branch_a: "Branch A"
+ TST_branch_a_desc: "Stability gains."
+ TST_branch_b: "Branch B"
+ TST_branch_b_desc: "War support gains."
+ TST_with_quote: "He called it \"important\""
+ # this is a comment line and must be ignored
+ TST_versioned:0 "value with legacy version suffix"

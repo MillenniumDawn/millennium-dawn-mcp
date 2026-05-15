@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "md-mcp"
+version = "0.1.0"
+description = "MCP server for Millennium Dawn HOI4 mod development"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "mcp>=1.0",
+    "pyyaml>=6.0",
+    "typing-extensions>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-xdist>=3.0",
+]
+
+[project.scripts]
+md-mcp = "md_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/md_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: requires a real Millennium-Dawn checkout (set MD_MOD_ROOT)",
+    "differential: parser parity tests against the TypeScript implementation",
+]

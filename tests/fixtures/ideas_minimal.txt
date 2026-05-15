@@ -1,0 +1,31 @@
+ideas = {
+	country = {
+		TST_simple_idea = {
+			picture = generic_idea
+			modifier = {
+				stability_factor = 0.05
+			}
+			allowed = { original_tag = TST }
+		}
+
+		TST_another_idea = {
+			picture = generic_idea
+			modifier = {
+				war_support_factor = 0.05
+			}
+		}
+	}
+
+	tank_manufacturer = {
+		designer = yes
+
+		TST_acme_tanks = {
+			allowed = { original_tag = TST }
+			cost = 150
+			picture = company_default
+			research_bonus = {
+				CAT_apc = 0.10
+			}
+		}
+	}
+}

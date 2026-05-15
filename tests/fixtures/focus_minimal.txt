@@ -1,0 +1,63 @@
+focus_tree = {
+	id = test_tree
+	country = {
+		factor = 0
+		modifier = {
+			add = 10
+			tag = TST
+		}
+	}
+
+	focus = {
+		id = TST_root
+		icon = GFX_focus_test
+		x = 0
+		y = 0
+		cost = 10
+		available = {
+			has_idea = TST_starter
+		}
+		completion_reward = {
+			add_political_power = 50
+		}
+	}
+
+	focus = {
+		id = TST_branch_a
+		icon = GFX_focus_test
+		x = -2
+		y = 1
+		cost = 5
+		prerequisite = { focus = TST_root }
+		mutually_exclusive = { focus = TST_branch_b }
+		relative_position_id = TST_root
+		completion_reward = {
+			add_stability = 0.05
+		}
+	}
+
+	focus = {
+		id = TST_branch_b
+		icon = GFX_focus_test
+		x = 2
+		y = 1
+		cost = 5
+		prerequisite = { focus = TST_root }
+		mutually_exclusive = { focus = TST_branch_a }
+		relative_position_id = TST_root
+		completion_reward = {
+			add_war_support = 0.05
+		}
+	}
+}
+
+shared_focus = {
+	id = TST_shared
+	icon = GFX_focus_test
+	x = 0
+	y = 0
+	cost = 1
+	completion_reward = {
+		add_political_power = 1
+	}
+}

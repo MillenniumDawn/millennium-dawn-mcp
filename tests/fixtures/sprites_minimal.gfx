@@ -1,0 +1,16 @@
+spriteTypes = {
+	spriteType = {
+		name = "GFX_test_sprite_one"
+		texturefile = "gfx/test/one.dds"
+	}
+	spriteType = {
+		name = "GFX_test_sprite_two"
+		texturefile = "gfx/test/two.dds"
+		noOfFrames = 4
+	}
+	corneredTileSpriteType = {
+		name = "GFX_test_tile"
+		texturefile = "gfx/test/tile.dds"
+		size = { x = 16 y = 16 }
+	}
+}

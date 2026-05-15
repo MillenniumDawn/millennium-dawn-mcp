@@ -1,0 +1,25 @@
+add_namespace = Testns
+add_namespace = TestnsNews
+
+country_event = {
+	id = Testns.1
+	title = Testns.1.t
+	desc = Testns.1.d
+	picture = GFX_event_test
+	is_triggered_only = yes
+
+	option = {
+		name = Testns.1.a
+		add_political_power = 50
+	}
+}
+
+news_event = {
+	id = TestnsNews.42
+	title = TestnsNews.42.t
+	desc = TestnsNews.42.d
+
+	option = {
+		name = TestnsNews.42.a
+	}
+}

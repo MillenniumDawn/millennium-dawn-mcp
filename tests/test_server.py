@@ -1,0 +1,156 @@
+"""MCP protocol round-trip tests.
+
+Spins up the server with FastMCP's in-process API and exercises every tool +
+resource. Catches serialisation regressions that pure-Python unit tests miss.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+
+import pytest
+
+from md_mcp.config import Settings
+from md_mcp.server import build_server
+
+
+def _settings(mod_root, cache_dir) -> Settings:
+    return Settings(
+        mod_root=mod_root,
+        vanilla_path=None,
+        cache_dir=cache_dir,
+        validator_mode="in_process",
+        default_lang="en",
+    )
+
+
+def _text(result) -> str:
+    """Pull the JSON text out of FastMCP's `call_tool` response."""
+    return result[0].text
+
+
+def _run(coro):
+    return asyncio.get_event_loop().run_until_complete(coro)  # for pytest, no anyio dep
+
+
+@pytest.fixture
+def server(fake_mod_root, cache_dir):
+    return build_server(_settings(fake_mod_root, cache_dir))
+
+
+EXPECTED_TOOLS = {
+    # M1
+    "resolve_focus",
+    "resolve_loc",
+    "parse_file",
+    "parse_string",
+    "find_focuses",
+    # M2 resolvers
+    "resolve_sprite",
+    "resolve_event",
+    "resolve_decision",
+    "resolve_idea",
+    # M2 analysis
+    "find_references",
+    "list_country_content",
+    # M2 validation
+    "validate",
+    "validate_list",
+    "lint_common_mistakes",
+    "review_branch",
+    # M3 generators
+    "generate_focus",
+    "generate_event",
+    "generate_decision",
+    "generate_idea",
+    "generate_gfx_entry",
+    "generate_loc_stub",
+    # M3 analysis
+    "focus_graph",
+    "diff_summary",
+    "check_encoding",
+}
+
+
+def test_list_tools(server):
+    async def go():
+        return await server.list_tools()
+
+    tools = asyncio.new_event_loop().run_until_complete(go())
+    names = {t.name for t in tools}
+    assert names == EXPECTED_TOOLS
+
+
+def test_call_resolve_focus(server):
+    async def go():
+        return await server.call_tool("resolve_focus", {"focus_id": "TST_root"})
+
+    result = asyncio.new_event_loop().run_until_complete(go())
+    payload = json.loads(_text(result))
+    assert payload["ok"] is True
+    assert payload["id"] == "TST_root"
+    assert payload["file"].endswith("test.txt")
+
+
+def test_call_resolve_loc(server):
+    async def go():
+        return await server.call_tool("resolve_loc", {"key": "TST_root"})
+
+    result = asyncio.new_event_loop().run_until_complete(go())
+    payload = json.loads(_text(result))
+    assert payload["ok"] is True
+    assert payload["value"] == "The Root Focus"
+
+
+def test_call_parse_string(server):
+    async def go():
+        return await server.call_tool("parse_string", {"text": "a = 1"})
+
+    result = asyncio.new_event_loop().run_until_complete(go())
+    payload = json.loads(_text(result))
+    assert payload["ok"] is True
+    assert payload["root"]["value"]["children"][0]["name"] == "a"
+
+
+def test_call_parse_string_error(server):
+    async def go():
+        return await server.call_tool("parse_string", {"text": "a = {{{"})
+
+    result = asyncio.new_event_loop().run_until_complete(go())
+    payload = json.loads(_text(result))
+    assert payload["ok"] is False
+    assert "error" in payload
+
+
+def test_call_find_focuses_with_prereq(server):
+    async def go():
+        return await server.call_tool(
+            "find_focuses",
+            {"has_prereq": "TST_root", "limit": 10},
+        )
+
+    result = asyncio.new_event_loop().run_until_complete(go())
+    payload = json.loads(_text(result))
+    assert payload["ok"] is True
+    ids = {m["id"] for m in payload["matches"]}
+    assert ids == {"TST_branch_a", "TST_branch_b"}
+
+
+def test_resource_focus_raw(server):
+    async def go():
+        return await server.read_resource("md://focus/TST_root")
+
+    contents = asyncio.new_event_loop().run_until_complete(go())
+    text = contents[0].content if hasattr(contents[0], "content") else str(contents[0])
+    assert "id = TST_root" in text
+    assert "completion_reward" in text
+
+
+def test_resource_loc_raw(server):
+    async def go():
+        return await server.read_resource("md://loc/TST_root")
+
+    contents = asyncio.new_event_loop().run_until_complete(go())
+    text = contents[0].content if hasattr(contents[0], "content") else str(contents[0])
+    assert text == "The Root Focus"

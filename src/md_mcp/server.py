@@ -228,14 +228,14 @@ def build_server(settings: Settings):
 
     @mcp.tool()
     def lint(
-        mode: str = "staged",
+        mode: str = "changed",
         files: Optional[list] = None,
         checks: Optional[list] = None,
         severity_min: str = "info",
         limit: int = 500,
         counts_only: bool = False,
     ) -> dict:
-        """Run the full linting suite (braces, style, coding standards, encoding). checks=[...] subsets; severity_min/limit/counts_only narrow output."""
+        """Run the full linting suite on changed files (default: staged + unstaged + untracked). mode=changed|staged|all; checks=[...] subsets; severity_min/limit/counts_only narrow output."""
         return lint_tool(
             settings.mod_root,
             mode=mode,

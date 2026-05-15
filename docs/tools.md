@@ -153,9 +153,10 @@ Enumerate available validators with their titles.
 Run the **full linting suite**. Wraps seven `Millennium-Dawn/tools/linting/`
 scripts behind one tool — the one-stop-shop for "check this code's quality."
 
-- **`mode="staged"`** (default) or `"all"`. Each underlying check that supports
-  staged mode passes it through; otherwise the dispatcher resolves the file
-  list itself from `git diff --name-only --cached`.
+- **`mode`** — `"changed"` (default) | `"staged"` | `"all"`.
+  - `"changed"` = staged + unstaged + untracked (everything `git status --porcelain` sees). This is what you want mid-edit before anything is committed.
+  - `"staged"` = only files in the git index — matches pre-commit's view.
+  - `"all"` = brute scan every matching file under the mod root. Slow; use when you want a clean baseline.
 - **`files=[...]`** — explicit mod-relative paths. Overrides `mode`. Each check
   filters this list by its own file-pattern (e.g. braces ignores `.yml`).
 - **`checks=[...]`** — subset of:
@@ -197,6 +198,16 @@ Returns:
 Per-check failures are **isolated** — if `tools/linting/check_braces.py` is
 missing or crashes, the corresponding entry in `checks` has `ok: false` and
 an `error` field, but the rest of the run still completes.
+
+When a check's filtered file list is empty (e.g. `braces` in `mode="changed"`
+with no modified `.txt` files), the dispatcher skips that check entirely and
+reports it with `skipped: "no files in scope"`.
+
+**Special case for `coding_standards`** — the underlying script only accepts
+`--mode {staged,all}`, no per-file invocation. So when `mode="changed"` or
+`files=[...]`, the dispatcher runs the script in `--mode all` and post-filters
+the issues by the relevant file set. This is correct but slower than the
+other checks (the script always scans every file under `common/`).
 
 **Tip:** start with `lint(counts_only=True)` to see which checks fired, then
 re-call with `checks=["<one>"]` to get the full issue list for just that check.

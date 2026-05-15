@@ -9,12 +9,15 @@ issues, and respects the `checks=[...]` / `severity_min=` / `limit=` /
 from __future__ import annotations
 
 import inspect
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from md_mcp.tools.linting_tools import (
     _ALL_CHECKS,
+    _changed_files,
+    _staged_files,
     lint_basic_style_2_tool,
     lint_coding_standards_tool,
     lint_loc_encoding_tool,
@@ -237,11 +240,152 @@ def test_lint_limit_truncates(tmp_path):
 
 
 def test_lint_per_check_failure_isolated(tmp_path):
-    """One missing script doesn't bring down the rest of the run."""
+    """One missing script doesn't bring down the rest of the run.
+
+    `basic_style` always invokes (script-side --mode all auto-discovers).
+    `coding_standards` always invokes. Delete one and confirm the other still
+    completes ok.
+    """
     _seed_all_scripts(tmp_path, {})
-    (tmp_path / "tools" / "linting" / "check_braces.py").unlink()
-    out = lint_tool(tmp_path, checks=["braces", "basic_style"], mode="all")
+    (tmp_path / "tools" / "linting" / "coding_standards.py").unlink()
+    out = lint_tool(tmp_path, checks=["coding_standards", "basic_style"], mode="all")
     assert out["ok"] is True  # overall pass
     by_name = {c["name"]: c for c in out["checks"]}
-    assert by_name["braces"]["ok"] is False
+    assert by_name["coding_standards"]["ok"] is False
     assert by_name["basic_style"]["ok"] is True
+
+
+# ---------------------------------------------------------------------------
+# mode="changed" (the new default): staged + unstaged + untracked
+# ---------------------------------------------------------------------------
+
+
+def _git(repo: Path, *args: str) -> str:
+    out = subprocess.run(
+        ["git", *args],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return out.stdout
+
+
+def _init_repo(repo: Path) -> None:
+    """Init a quiet test repo with a baseline commit so subsequent diffs are meaningful."""
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@example.com")
+    _git(repo, "config", "user.name", "t")
+    _git(repo, "config", "commit.gpgsign", "false")
+    (repo / "baseline.txt").write_text("baseline\n")
+    _git(repo, "add", "baseline.txt")
+    _git(repo, "commit", "-qm", "baseline")
+
+
+def test_changed_files_picks_up_staged_unstaged_and_untracked(tmp_path):
+    _init_repo(tmp_path)
+
+    # Modify the tracked file and stage it.
+    (tmp_path / "baseline.txt").write_text("staged change\n")
+    _git(tmp_path, "add", "baseline.txt")
+
+    # Edit it again — that delta is now unstaged.
+    (tmp_path / "baseline.txt").write_text("staged + unstaged change\n")
+
+    # Add a brand-new untracked file.
+    (tmp_path / "new.txt").write_text("hi\n")
+
+    found = set(_changed_files(tmp_path))
+    assert found == {"baseline.txt", "new.txt"}
+
+
+def test_changed_files_skips_deletions(tmp_path):
+    _init_repo(tmp_path)
+    (tmp_path / "baseline.txt").unlink()
+    assert _changed_files(tmp_path) == []
+
+
+def test_changed_files_handles_renames(tmp_path):
+    _init_repo(tmp_path)
+    _git(tmp_path, "mv", "baseline.txt", "renamed.txt")
+    found = set(_changed_files(tmp_path))
+    assert "renamed.txt" in found
+    assert "baseline.txt" not in found
+
+
+def test_changed_files_non_git_dir_returns_empty(tmp_path):
+    assert _changed_files(tmp_path) == []
+
+
+def test_staged_files_returns_index_only(tmp_path):
+    _init_repo(tmp_path)
+    (tmp_path / "staged.txt").write_text("x\n")
+    _git(tmp_path, "add", "staged.txt")
+    (tmp_path / "unstaged.txt").write_text("y\n")  # untracked, NOT staged
+    assert _staged_files(tmp_path) == ["staged.txt"]
+
+
+def test_lint_default_mode_is_changed(tmp_path):
+    """No `mode` arg → uses `changed`, which surfaces unstaged + untracked."""
+    _init_repo(tmp_path)
+    _seed_all_scripts(
+        tmp_path,
+        {
+            "tools/linting/check_basic_style.py": """import sys
+# Echo each arg back as a parseable issue line so the dispatcher captures it.
+for f in sys.argv[1:]:
+    if f.startswith("--"):
+        continue
+    print(f"ERROR: saw arg at {f} Line number: 1")
+sys.exit(0)
+""",
+        },
+    )
+    # Untracked .txt — should be picked up by `changed`.
+    (tmp_path / "new.txt").write_text("focus = { }\n")
+
+    out = lint_tool(tmp_path, checks=["basic_style"])  # no mode → default
+    assert out["mode"] == "changed"
+    files_in_issues = {i.get("file") for i in out["issues"]}
+    assert "new.txt" in files_in_issues
+
+
+def test_lint_changed_mode_filters_coding_standards_postfilter(tmp_path):
+    """coding_standards has no files= API; the dispatcher post-filters its issues by the changed set."""
+    _init_repo(tmp_path)
+    _seed_all_scripts(
+        tmp_path,
+        {
+            # Always emit two warnings — one for a "changed" file, one for an unrelated file.
+            # The dispatcher should keep only the changed one in mode=changed.
+            "tools/linting/coding_standards.py": """import sys
+print("Validating Coding Standards (Mode: all)")
+print("WARNING: focus format error in mine.txt Line number: 1")
+print("WARNING: focus format error in not-mine.txt Line number: 1")
+sys.exit(0)
+""",
+        },
+    )
+    (tmp_path / "mine.txt").write_text("focus = { }\n")
+
+    out = lint_tool(tmp_path, checks=["coding_standards"])
+    assert out["mode"] == "changed"
+    files_in_issues = {i.get("file") for i in out["issues"]}
+    assert files_in_issues == {"mine.txt"}
+
+
+def test_lint_changed_mode_no_changes_is_clean_run(tmp_path):
+    """When git is clean, all checks no-op (skipped) with overall ok."""
+    _init_repo(tmp_path)
+    _seed_all_scripts(tmp_path, {})
+    out = lint_tool(tmp_path)
+    assert out["ok"] is True
+    assert out["mode"] == "changed"
+    # Every check reported, none with errors.
+    assert out["counts"] == {"error": 0, "warning": 0, "info": 0}
+
+
+def test_lint_invalid_mode_rejected(tmp_path):
+    out = lint_tool(tmp_path, mode="bogus")
+    assert out["ok"] is False
+    assert "Invalid mode" in out["error"]

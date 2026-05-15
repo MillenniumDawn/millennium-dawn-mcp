@@ -526,6 +526,7 @@ def _parse_style_lines(text: str) -> List[dict]:
 # Millennium-Dawn/.pre-commit-config.yaml line ~126).
 _TXT_LINT_EXCLUDES_RE = re.compile(r"(?:^|/)(Changelog\.txt|AUTHORS\.txt|descriptions[^/]*\.txt)$")
 
+_VALID_MODES: tuple[str, ...] = ("changed", "staged", "all")
 
 _ALL_CHECKS: tuple[str, ...] = (
     "common_mistakes",
@@ -541,7 +542,7 @@ _ALL_CHECKS: tuple[str, ...] = (
 def lint_tool(
     mod_root: Path,
     *,
-    mode: str = "staged",
+    mode: str = "changed",
     files: Optional[List[str]] = None,
     checks: Optional[Sequence[str]] = None,
     severity_min: str = "info",
@@ -551,14 +552,24 @@ def lint_tool(
     """Run the linting suite. Aggregates issues from every checker into one response.
 
     Args:
-        mode          — `staged` (default) or `all`. Ignored when `files=` given.
-        files         — explicit mod-relative paths. Each checker selects the
-                        files matching its file pattern.
+        mode          — `changed` (default) | `staged` | `all`.
+                        `changed` = staged + unstaged + untracked (everything `git status` sees).
+                        `staged`  = only files in the git index.
+                        `all`     = brute-scan every matching file under mod_root.
+                        Ignored when `files=` is given.
+        files         — explicit mod-relative paths. Each checker filters by its
+                        own file pattern (e.g. braces ignores `.yml`).
         checks        — subset of `_ALL_CHECKS` to run; omit for all.
         severity_min  — `info` | `warning` | `error`. Drops issues below floor.
         limit         — cap returned issues. `counts_only=True` skips the array.
         counts_only   — return only per-check counts; no `issues` array.
     """
+    if files is None and mode not in _VALID_MODES:
+        return {
+            "ok": False,
+            "error": f"Invalid mode '{mode}'. Use one of: {list(_VALID_MODES)}",
+        }
+
     selected = list(checks) if checks else list(_ALL_CHECKS)
     unknown = [c for c in selected if c not in _ALL_CHECKS]
     if unknown:
@@ -567,31 +578,85 @@ def lint_tool(
             "error": f"Unknown check(s): {unknown}. Valid: {list(_ALL_CHECKS)}",
         }
 
-    txt_files = _select_files(mod_root, mode, files, _is_lintable_txt) if (
-        "braces" in selected
-    ) else []
-    mod_files = _select_files(mod_root, mode, files, lambda p: p.endswith(".mod")) if (
-        "mod_encoding" in selected
-    ) else []
-    loc_files = _select_files(
-        mod_root, mode, files, lambda p: p.startswith("localisation/english/") and p.endswith(".yml")
-    ) if "loc_encoding" in selected else []
+    # Resolve the canonical "files of interest" set.
+    #   relevant=None means "no filter — let each script do its native --mode all"
+    #   relevant=[]   means "user has nothing in scope — every check no-ops"
+    if files is not None:
+        relevant: Optional[List[str]] = list(files)
+    elif mode == "all":
+        relevant = None
+    elif mode == "changed":
+        relevant = _changed_files(mod_root)
+    else:  # staged
+        relevant = _staged_files(mod_root)
+
+    relevant_set: Optional[set] = set(relevant) if relevant is not None else None
+
+    if relevant is not None:
+        txt_files: Optional[List[str]] = [f for f in relevant if _is_lintable_txt(f)]
+        mod_files: Optional[List[str]] = [f for f in relevant if f.endswith(".mod")]
+        loc_files: Optional[List[str]] = [
+            f for f in relevant
+            if f.startswith("localisation/english/") and f.endswith(".yml")
+        ]
+    else:
+        # mode=all: braces still needs a file list (script has no auto-discovery);
+        # mod_encoding + loc_encoding auto-discover when files=None.
+        txt_files = (
+            _select_files(mod_root, "all", None, _is_lintable_txt)
+            if "braces" in selected
+            else None
+        )
+        mod_files = None
+        loc_files = None
+
+    def _skipped() -> dict:
+        return {"ok": True, "total": 0, "issues": [], "exit_code": 0, "skipped": "no files in scope"}
+
+    def _maybe(files_list: Optional[List[str]], runner: Callable[[], dict]) -> dict:
+        if files_list is not None and not files_list:
+            return _skipped()
+        return runner()
+
+    def _run_coding_standards() -> dict:
+        # The script only accepts --mode {staged,all}. When the user wants a
+        # specific subset (mode=changed, mode=staged, or files=), we run
+        # --mode all and post-filter issues by relevant_set. For mode=all,
+        # no filter.
+        if relevant_set is None:
+            return lint_coding_standards_tool(mod_root, mode="all")
+        if mode == "staged" and files is None:
+            # Fast path: the script has a native --mode staged.
+            return lint_coding_standards_tool(mod_root, mode="staged")
+        result = lint_coding_standards_tool(mod_root, mode="all")
+        if not result.get("ok"):
+            return result
+        kept = [i for i in (result.get("issues") or []) if i.get("file") in relevant_set]
+        return {**result, "issues": kept, "total": len(kept)}
 
     runners: Dict[str, Callable[[], dict]] = {
         "common_mistakes": lambda: lint_common_mistakes_tool(
-            mod_root, mode=mode, files=files
+            mod_root,
+            mode="all" if relevant is None else "staged",
+            files=relevant,
         ),
-        "braces": lambda: lint_braces_tool(mod_root, files=txt_files),
+        "braces": lambda: _maybe(txt_files, lambda: lint_braces_tool(mod_root, files=txt_files)),
         "basic_style": lambda: lint_basic_style_tool(
-            mod_root, mode=mode, files=files
+            mod_root,
+            mode="all" if relevant is None else "staged",
+            files=relevant,
         ),
         "basic_style_2": lambda: lint_basic_style_2_tool(
-            mod_root, mode=mode, files=files
+            mod_root,
+            mode="all" if relevant is None else "staged",
+            files=relevant,
         ),
-        "coding_standards": lambda: lint_coding_standards_tool(mod_root, mode=mode),
-        "mod_encoding": lambda: lint_mod_encoding_tool(mod_root, files=mod_files or None),
-        "loc_encoding": lambda: lint_loc_encoding_tool(
-            mod_root, files=loc_files or files
+        "coding_standards": _run_coding_standards,
+        "mod_encoding": lambda: _maybe(
+            mod_files, lambda: lint_mod_encoding_tool(mod_root, files=mod_files)
+        ),
+        "loc_encoding": lambda: _maybe(
+            loc_files, lambda: lint_loc_encoding_tool(mod_root, files=loc_files)
         ),
     }
 
@@ -646,6 +711,67 @@ def _is_lintable_txt(path: str) -> bool:
     return path.endswith(".txt") and not _TXT_LINT_EXCLUDES_RE.search(path)
 
 
+def _staged_files(mod_root: Path) -> List[str]:
+    """Files in the git index (staged for commit)."""
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--name-only", "--cached"],
+            cwd=str(mod_root),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except Exception:
+        return []
+    if proc.returncode != 0:
+        return []
+    return [line for line in proc.stdout.splitlines() if line]
+
+
+def _changed_files(mod_root: Path) -> List[str]:
+    """Every file `git status` reports — staged, unstaged, and untracked.
+
+    Parses `git status --porcelain` (stable machine-readable format).
+    For renames (`R  old -> new`) the **new** path is returned.
+    Deletions are skipped — there's nothing to lint for a removed file.
+    Returns [] when `mod_root` isn't a git repo.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(mod_root),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except Exception:
+        return []
+    if proc.returncode != 0:
+        return []
+
+    files: List[str] = []
+    seen: set = set()
+    for raw in proc.stdout.splitlines():
+        if len(raw) < 4:
+            continue
+        status = raw[:2]
+        path = raw[3:]
+        # Renames: "R  old -> new" — take the destination.
+        if "R" in status and " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        # Skip deletions; nothing to lint.
+        if status.strip() == "D":
+            continue
+        # Strip surrounding quotes that git uses for paths with special chars.
+        path = path.strip().strip('"')
+        if path and path not in seen:
+            seen.add(path)
+            files.append(path)
+    return files
+
+
 def _select_files(
     mod_root: Path,
     mode: str,
@@ -654,26 +780,15 @@ def _select_files(
 ) -> List[str]:
     """Resolve which files a given check should run against.
 
-    Precedence: explicit `files=` → staged-files diff → all matching files
+    Precedence: explicit `files=` → mode-resolved set → all matching files
     under mod_root (slow path, only when `mode=all`).
     """
     if explicit is not None:
         return [f for f in explicit if predicate(f)]
+    if mode == "changed":
+        return [f for f in _changed_files(mod_root) if predicate(f)]
     if mode == "staged":
-        try:
-            proc = subprocess.run(
-                ["git", "diff", "--name-only", "--cached"],
-                cwd=str(mod_root),
-                capture_output=True,
-                text=True,
-                timeout=15,
-                check=False,
-            )
-        except Exception:
-            return []
-        if proc.returncode != 0:
-            return []
-        return [f for f in proc.stdout.splitlines() if predicate(f)]
+        return [f for f in _staged_files(mod_root) if predicate(f)]
     # mode == "all" — brute scan. Capped at 5000 to avoid pathological cases.
     out: List[str] = []
     for p in mod_root.rglob("*"):

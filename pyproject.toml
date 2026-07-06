@@ -19,6 +19,10 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-xdist>=3.0",
+    "ruff==0.8.6",
+    "mypy>=1.14",
+    "types-PyYAML",
+    "pre-commit>=4.0",
 ]
 
 [project.scripts]
@@ -29,7 +33,25 @@ packages = ["src/md_mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--strict-markers"
 markers = [
     "integration: requires a real Millennium-Dawn checkout (set MD_MOD_ROOT)",
-    "differential: parser parity tests against the TypeScript implementation",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "RUF", "SIM", "W"]
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["md_mcp"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src", "tests"]
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true

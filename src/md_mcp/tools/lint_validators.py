@@ -1,0 +1,136 @@
+"""Bridge between the lint dispatcher and the mod validator suite.
+
+Maps changed-file paths to the validators whose domain covers them, runs the
+selected validators through `ValidatorRunner.run()` (the single adapter point
+for the brittle upstream API), and normalises issues into the lint shape.
+
+Validators scan their whole domain regardless of scope; we post-filter issues
+by the relevant-file set and report both on-scope and mod-wide totals so scope
+filtering never silently hides cross-file breakage.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import List, Optional, Sequence, Set, Tuple
+
+from ..validators import SLOW_VALIDATORS, ValidatorRunner
+
+# Path-prefix -> validators whose scan domain covers that directory. A file can
+# match several rows; matches union. Derived from the scan globs in
+# Millennium-Dawn/tools/validation/validate_*.py.
+#
+# Deliberately absent: variables, set_variables, cosmetic_tags (global
+# cross-reference scans, meaningless per-file) and the SLOW_VALIDATORS.
+# All stay reachable by explicit name; the fast globals also run under "*".
+VALIDATOR_AUTO_MAP: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    ("common/national_focus/", ("focus_tree", "scripted_params", "simplifications", "modifiers")),
+    ("events/", ("events", "on_actions", "scripted_params", "simplifications", "scripted_gui")),
+    ("common/on_actions/", ("events", "on_actions", "simplifications")),
+    ("common/decisions/", ("decisions", "scripted_params", "simplifications", "modifiers")),
+    ("common/ideas/", ("ideas", "modifiers")),
+    ("common/characters/", ("ideas", "modifiers")),
+    ("common/country_leader/", ("modifiers",)),
+    ("common/dynamic_modifiers/", ("modifiers",)),
+    ("common/modifier_definitions/", ("modifiers",)),
+    ("common/modifiers/", ("modifiers",)),
+    ("common/opinion_modifiers/", ("modifiers",)),
+    ("common/idea_tags/", ("modifiers",)),
+    ("common/scripted_effects/", ("scripted_params", "simplifications")),
+    ("common/scripted_triggers/", ("simplifications",)),
+    ("common/scripted_guis/", ("scripted_gui", "gfx_references")),
+    ("common/scripted_localisation/", ("scripted_localisation", "gfx_references")),
+    ("common/ai_strategy/", ("ai_roles",)),
+    ("common/ai_equipment/", ("ai_equipment",)),
+    ("common/ai_navy/", ("ai_navy",)),
+    ("common/units/", ("ai_navy", "oob_units")),
+    ("common/intelligence_agency_upgrades/", ("agency_upgrades",)),
+    ("common/factions/", ("factions",)),
+    ("common/defines/", ("defines",)),
+    ("history/units/", ("oob_units",)),
+    ("history/", ("history",)),
+    ("interface/", ("gfx_references", "scripted_gui")),
+)
+
+
+def _validators_for_path(path: str) -> Set[str]:
+    names: Set[str] = set()
+    for prefix, vals in VALIDATOR_AUTO_MAP:
+        if path.startswith(prefix):
+            names.update(vals)
+    if path.startswith("localisation/") and path.endswith(".yml"):
+        names.add("localisation")
+    # style scans every .txt in the script dirs; catch-all so any script edit
+    # gets a style pass.
+    if path.endswith(".txt") and path.startswith(("common/", "events/", "history/")):
+        names.add("style")
+    return names
+
+
+def select_validators(relevant: Optional[List[str]], available: Set[str]) -> List[str]:
+    """Resolve `validators=["auto"]` to concrete names for the given file scope.
+
+    `relevant=None` (mode=all) degrades to every fast validator. An empty
+    relevant list selects nothing — zero runner calls on a clean tree.
+    """
+    if relevant is None:
+        return sorted(available - SLOW_VALIDATORS)
+    wanted: Set[str] = set()
+    for f in relevant:
+        wanted |= _validators_for_path(f)
+    return sorted(wanted & available)
+
+
+def run_validators_for_lint(
+    runner: ValidatorRunner,
+    names: Sequence[str],
+    *,
+    staged_only: bool,
+    relevant_set: Optional[set],
+) -> Tuple[List[dict], List[dict]]:
+    """Run validators and normalise output into the lint dispatcher's shape.
+
+    Returns (check_entries, issues). Check entries are named `validator:<name>`
+    and carry `total` (on-scope) plus `total_mod_wide` when a scope filter is
+    active. Per-validator failures are isolated, same as lint checks.
+    """
+    wanted = {os.path.normpath(f) for f in relevant_set} if relevant_set is not None else None
+
+    check_entries: List[dict] = []
+    issues_out: List[dict] = []
+    for name in names:
+        label = f"validator:{name}"
+        try:
+            result = runner.run(name, staged_only=staged_only)
+        except Exception as e:
+            check_entries.append({"name": label, "ok": False, "error": str(e)})
+            continue
+        if not result.get("ok"):
+            check_entries.append({"name": label, "ok": False, "error": result.get("error")})
+            continue
+
+        raw = result.get("issues", []) or []
+        if wanted is not None:
+            kept = [i for i in raw if os.path.normpath(i.get("file") or "") in wanted]
+        else:
+            kept = raw
+
+        entry = {"name": label, "ok": True, "total": len(kept)}
+        if wanted is not None:
+            entry["total_mod_wide"] = len(raw)
+        check_entries.append(entry)
+
+        for i in kept:
+            norm = {
+                "check": label,
+                "file": i.get("file"),
+                "message": i.get("message"),
+                "severity": i.get("severity", "info"),
+            }
+            if i.get("line"):
+                norm["line"] = i["line"]
+            if i.get("category"):
+                norm["category"] = i["category"]
+            issues_out.append(norm)
+
+    return check_entries, issues_out

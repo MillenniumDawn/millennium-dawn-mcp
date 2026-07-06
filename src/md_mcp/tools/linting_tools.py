@@ -28,6 +28,8 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
 from ..util.response import enforce_budget
+from ..validators import SLOW_VALIDATORS, ValidatorRunner
+from .lint_validators import run_validators_for_lint, select_validators
 
 _LINT_LINE_RE = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):\s*(?P<msg>.+)$")
 
@@ -549,9 +551,11 @@ def lint_tool(
     mode: str = "changed",
     files: Optional[List[str]] = None,
     checks: Optional[Sequence[str]] = None,
+    validators: Optional[Sequence[str]] = None,
     severity_min: str = "info",
     limit: int = 500,
     counts_only: bool = False,
+    validator_runner: Optional[ValidatorRunner] = None,
 ) -> dict:
     """Run the linting suite. Aggregates issues from every checker into one response.
 
@@ -564,9 +568,15 @@ def lint_tool(
         files         — explicit mod-relative paths. Each checker filters by its
                         own file pattern (e.g. braces ignores `.yml`).
         checks        — subset of `_ALL_CHECKS` to run; omit for all.
+        validators    — also run mod validators, merged into the same output.
+                        `["auto"]` selects by the domain of the files in scope,
+                        `["*"]` runs every fast validator, explicit names run
+                        exactly those; sentinels and names union. Slower than
+                        the lint scripts — validators scan their whole domain.
         severity_min  — `info` | `warning` | `error`. Drops issues below floor.
         limit         — cap returned issues. `counts_only=True` skips the array.
         counts_only   — return only per-check counts; no `issues` array.
+        validator_runner — injected shared runner; constructed lazily if omitted.
     """
     if files is None and mode not in _VALID_MODES:
         return {
@@ -595,6 +605,34 @@ def lint_tool(
         relevant = _staged_files(mod_root)
 
     relevant_set: Optional[set] = set(relevant) if relevant is not None else None
+
+    # Expand the validators request up front so bad names fail fast.
+    validator_names: List[str] = []
+    runner: Optional[ValidatorRunner] = None
+    if validators:
+        runner = validator_runner or ValidatorRunner(mod_root)
+        available = {v.name for v in runner.list()}
+        expanded: set = set()
+        has_auto = False
+        for v in validators:
+            if v == "auto":
+                has_auto = True
+            elif v == "*":
+                expanded |= available - SLOW_VALIDATORS
+            else:
+                expanded.add(v)
+        unknown_validators = sorted(expanded - available)
+        if unknown_validators:
+            return {
+                "ok": False,
+                "error": (
+                    f"Unknown validator(s): {unknown_validators}. "
+                    f"Valid: {sorted(available)} plus 'auto' and '*'"
+                ),
+            }
+        if has_auto:
+            expanded |= set(select_validators(relevant, available))
+        validator_names = sorted(expanded)
 
     if relevant is not None:
         txt_files: Optional[List[str]] = [f for f in relevant if _is_lintable_txt(f)]
@@ -630,6 +668,10 @@ def lint_tool(
         # specific subset (mode=changed, mode=staged, or files=), we run
         # --mode all and post-filter issues by relevant_set. For mode=all,
         # no filter.
+        if relevant_set is not None and not any(f.endswith(".txt") for f in relevant_set):
+            # The script only reports on .txt code files; skip the full scan
+            # when nothing in scope could surface.
+            return _skipped()
         if relevant_set is None:
             return lint_coding_standards_tool(mod_root, mode="all")
         if mode == "staged" and files is None:
@@ -693,6 +735,19 @@ def lint_tool(
             all_issues.extend(issues)
         per_check.append(check_summary)
 
+    if validator_names and runner is not None:
+        v_entries, v_issues = run_validators_for_lint(
+            runner,
+            validator_names,
+            staged_only=(mode == "staged" and files is None),
+            relevant_set=relevant_set,
+        )
+        per_check.extend(v_entries)
+        for i in v_issues:
+            sev = i.get("severity", "info")
+            overall[sev] = overall.get(sev, 0) + 1
+        all_issues.extend(v_issues)
+
     floor = _SEVERITY_RANK.get(severity_min, 0)
     filtered = [i for i in all_issues if _SEVERITY_RANK.get(i.get("severity", "info"), 0) >= floor]
     truncated = len(filtered) > limit if limit >= 0 else False
@@ -707,6 +762,8 @@ def lint_tool(
         "truncated": truncated,
         "checks": per_check,
     }
+    if validators:
+        summary["validators_run"] = validator_names
     if not counts_only:
         summary["issues"] = issues_capped
 
@@ -739,13 +796,16 @@ def _changed_files(mod_root: Path) -> List[str]:
     """Every file `git status` reports — staged, unstaged, and untracked.
 
     Parses `git status --porcelain` (stable machine-readable format).
+    `--untracked-files=all` lists files inside untracked directories
+    individually; without it git collapses them to `?? dir/` and the files
+    never reach the per-check filters.
     For renames (`R  old -> new`) the **new** path is returned.
     Deletions are skipped — there's nothing to lint for a removed file.
     Returns [] when `mod_root` isn't a git repo.
     """
     try:
         proc = subprocess.run(
-            ["git", "status", "--porcelain"],
+            ["git", "status", "--porcelain", "--untracked-files=all"],
             cwd=str(mod_root),
             capture_output=True,
             text=True,

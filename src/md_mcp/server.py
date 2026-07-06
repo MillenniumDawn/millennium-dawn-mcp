@@ -231,19 +231,22 @@ def build_server(settings: Settings):
         mode: str = "changed",
         files: Optional[list] = None,
         checks: Optional[list] = None,
+        validators: Optional[list] = None,
         severity_min: str = "info",
         limit: int = 500,
         counts_only: bool = False,
     ) -> dict:
-        """Run the full linting suite on changed files (default: staged + unstaged + untracked). mode=changed|staged|all; checks=[...] subsets; severity_min/limit/counts_only narrow output."""
+        """Run the full linting suite on changed files (default: staged + unstaged + untracked). mode=changed|staged|all; checks=[...] subsets; validators=['auto'|'*'|names] also runs domain-matched mod validators on the same file scope (slower); severity_min/limit/counts_only narrow output."""
         return lint_tool(
             settings.mod_root,
             mode=mode,
             files=files,
             checks=checks,
+            validators=validators,
             severity_min=severity_min,
             limit=limit,
             counts_only=counts_only,
+            validator_runner=validator_runner,
         )
 
     @mcp.tool()

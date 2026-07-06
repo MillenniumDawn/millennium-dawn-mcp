@@ -387,3 +387,28 @@ def test_lint_invalid_mode_rejected(tmp_path):
     out = lint_tool(tmp_path, mode="bogus")
     assert out["ok"] is False
     assert "Invalid mode" in out["error"]
+
+
+def test_lint_changed_skips_coding_standards_without_txt(tmp_path):
+    """No .txt in scope -> coding_standards never runs its full-common scan."""
+    _init_repo(tmp_path)
+    _seed_all_scripts(
+        tmp_path,
+        {
+            # Emits a warning for a file that IS in the changed set, so the
+            # post-filter alone would keep it; only the .txt guard drops it.
+            "tools/linting/coding_standards.py": """import sys
+print("Validating Coding Standards (Mode: all)")
+print("WARNING: bad in localisation/english/x_l_english.yml Line number: 1")
+sys.exit(0)
+""",
+        },
+    )
+    loc = tmp_path / "localisation" / "english" / "x_l_english.yml"
+    loc.parent.mkdir(parents=True)
+    loc.write_text('l_english:\n x:0 "y"\n')
+
+    out = lint_tool(tmp_path, files=["localisation/english/x_l_english.yml"])
+    cs = next(c for c in out["checks"] if c["name"] == "coding_standards")
+    assert cs["total"] == 0
+    assert not [i for i in out["issues"] if i.get("check") == "coding_standards"]

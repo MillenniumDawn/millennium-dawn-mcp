@@ -10,7 +10,7 @@ from typing import List, Optional
 
 from ..config import Settings
 from ..util.response import enforce_budget
-from ..validators import ValidatorRunner, available_validators
+from ..validators import SLOW_VALIDATORS, ValidatorRunner, available_validators
 
 _SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2}
 
@@ -77,8 +77,7 @@ def validate_tool(
 
     # Run-all path: skip the slow opt-in validators by default.
     infos = available_validators(settings.mod_root)
-    slow = {"unused_scripted", "unused_textures"}
-    targets = [v for v in infos if v.name not in slow]
+    targets = [v for v in infos if v.name not in SLOW_VALIDATORS]
 
     aggregated: List[dict] = []
     per_validator: List[dict] = []
@@ -108,7 +107,7 @@ def validate_tool(
 
     summary: dict = {
         "ok": True,
-        "skipped_slow": sorted(slow),
+        "skipped_slow": sorted(SLOW_VALIDATORS),
         "validators": per_validator,
         "counts": overall,
         "issues_total_after_filter": total,

@@ -12,7 +12,7 @@ diffs stay visible to the user.
 - Wraps the validators in `Millennium-Dawn/tools/validation/` (auto-discovered,
   26 at last count).
 - Ports the paradox parser from `MD-VSCode-Utility-Tool/src/hoiformat/`.
-- 24 tools and 6 `md://` resources.
+- 26 tools and 6 `md://` resources.
 
 For agents working on the server itself: see [`CLAUDE.md`](./CLAUDE.md).
 
@@ -135,7 +135,7 @@ hand for setup / cache priming.
 
 ## Tool & resource catalogue
 
-24 tools, 6 resources. Full reference in [`docs/tools.md`](./docs/tools.md).
+26 tools, 6 resources. Full reference in [`docs/tools.md`](./docs/tools.md).
 
 ### Resolvers — "where is X defined?"
 
@@ -156,8 +156,10 @@ validators), `review_branch`, `check_encoding`.
 ### Analysis
 
 `find_focuses`, `find_references` (paginated; `files_only` mode collapses to
-a unique file list), `focus_graph` (tiered `summary`/`ids`/`full`),
-`diff_summary` (kind-filterable, `with_ids` opt-out for speed).
+a unique file list), `focus_graph` (tiered `summary`/`ids`/`full`/`paths`),
+`check_refs` (scoped dangling-reference audit), `focus_layout` (grid
+collisions and relative-position chains), `diff_summary` (kind-filterable,
+`with_ids` opt-out for speed).
 
 ### Generators
 

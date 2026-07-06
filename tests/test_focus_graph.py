@@ -102,3 +102,76 @@ def test_focus_graph_finds_roots(fake_mod_root, cache_dir):
     g = focus_graph("TST", fake_mod_root, fi)
     assert "TST_root" in g["roots"]
     assert "TST_shared" in g["roots"]
+
+
+def test_focus_graph_paths_tier(fake_mod_root, cache_dir):
+    """detail='paths' returns chain, day estimate, and found=False for unknowns."""
+    fi = FocusIndex(fake_mod_root, cache_dir)
+    g = focus_graph(
+        "TST", fake_mod_root, fi, detail="paths", focus_ids=["TST_branch_a", "TST_nope"]
+    )
+    assert g["ok"]
+    a = next(p for p in g["paths"] if p["focus"] == "TST_branch_a")
+    assert a["found"] is True
+    assert a["estimated_focus_count"] == 2
+    assert a["estimated_days"] == 105.0  # (10 + 5) * 7
+    assert a["chain"] == ["TST_root", "TST_branch_a"]
+    missing = next(p for p in g["paths"] if p["focus"] == "TST_nope")
+    assert missing["found"] is False
+
+
+def test_focus_graph_paths_requires_focus_ids(fake_mod_root, cache_dir):
+    fi = FocusIndex(fake_mod_root, cache_dir)
+    g = focus_graph("TST", fake_mod_root, fi, detail="paths")
+    assert g["ok"] is False
+    assert "focus_ids" in g["error"]
+
+
+def test_focus_graph_paths_or_group_and_ai_will_do(fake_mod_root, cache_dir):
+    """OR prerequisite groups pick the cheapest member; missing cost defaults to 10."""
+    body = """focus_tree = {
+    id = paths_tree
+    focus = {
+        id = TST_p_root
+        x = 0
+        y = 0
+        cost = 2
+        ai_will_do = { base = 1 modifier = { factor = 0 } }
+    }
+    focus = {
+        id = TST_p_cheap
+        x = 0
+        y = 1
+        cost = 1
+        prerequisite = { focus = TST_p_root }
+    }
+    focus = {
+        id = TST_p_pricey
+        x = 2
+        y = 1
+        cost = 8
+        prerequisite = { focus = TST_p_root }
+    }
+    focus = {
+        id = TST_leaf
+        x = 0
+        y = 2
+        prerequisite = { focus = TST_p_cheap focus = TST_p_pricey }
+        prerequisite = { focus = TST_p_root }
+    }
+}
+"""
+    f = fake_mod_root / "common" / "national_focus" / "TST_paths.txt"
+    f.write_text(body, encoding="utf-8")
+    fi = FocusIndex(fake_mod_root, cache_dir)
+    g = focus_graph("TST", fake_mod_root, fi, detail="paths", focus_ids=["TST_leaf"])
+    p = g["paths"][0]
+    assert p["found"] is True
+    assert p["chain"] == ["TST_p_root", "TST_p_cheap", "TST_leaf"]
+    assert p["estimated_days"] == 91.0  # (2 + 1 + 10) * 7
+    assert p["cost_defaulted_count"] == 1
+
+    root_entry = focus_graph("TST", fake_mod_root, fi, detail="paths", focus_ids=["TST_p_root"])[
+        "paths"
+    ][0]
+    assert root_entry["ai_will_do"] == {"base": 1, "modifiers": 1}

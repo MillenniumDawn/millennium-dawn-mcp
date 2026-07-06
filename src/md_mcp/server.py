@@ -15,7 +15,9 @@ from typing import Optional
 from .analysis.diff_summary import diff_summary
 from .analysis.encoding import check_encoding
 from .analysis.focus_graph import focus_graph
+from .analysis.focus_layout import focus_layout
 from .analysis.manifest import list_country_content
+from .analysis.ref_audit import check_refs
 from .analysis.refs import find_references
 from .config import Settings, load
 from .generators import (
@@ -442,7 +444,7 @@ def build_server(settings: Settings):
         include_edges: bool = True,
         include_nodes: bool = True,
     ) -> dict:
-        """Prereq/mutex DAG for a tag's focuses. detail=summary|ids|full; pass focus_ids=[...] to pin a subset. Default returns counts/roots/cycles/dangling only."""
+        """Prereq/mutex DAG for a tag's focuses. detail=summary|ids|full|paths; paths (with focus_ids=[...]) adds prereq chains with estimated days + ai_will_do. Default returns counts/roots/cycles/dangling only."""
         return focus_graph(
             tag,
             settings.mod_root,
@@ -454,6 +456,52 @@ def build_server(settings: Settings):
             edge_limit=edge_limit,
             include_edges=include_edges,
             include_nodes=include_nodes,
+        )
+
+    @mcp.tool(name="check_refs")
+    def _check_refs(
+        tag: Optional[str] = None,
+        files: Optional[list] = None,
+        kinds: Optional[list] = None,
+        limit: int = 200,
+        offset: int = 0,
+        counts_only: bool = False,
+    ) -> dict:
+        """Audit cross-references in a tag's focus files (or explicit files=): focus/event/idea/sprite/loc/decision ids resolved against the indexes; returns deduped unresolved refs with file:line sites. kinds=[...] subsets."""
+        return check_refs(
+            settings.mod_root,
+            focus_index=focus_index,
+            event_index=event_index,
+            idea_index=idea_index,
+            gfx_index=gfx_index,
+            loc_index=loc_index,
+            decision_index=decision_index,
+            tag=tag,
+            files=files,
+            kinds=kinds,
+            vanilla_path=settings.vanilla_path,
+            lang=settings.default_lang,
+            limit=limit,
+            offset=offset,
+            counts_only=counts_only,
+        )
+
+    @mcp.tool(name="focus_layout")
+    def _focus_layout(
+        tag: Optional[str] = None,
+        file: Optional[str] = None,
+        include_positions: bool = False,
+        limit: int = 300,
+    ) -> dict:
+        """Focus tree geometry for a tag or file: resolves relative_position_id chains to absolute x/y; reports collisions, broken chains, bounding box. include_positions=True adds per-focus coordinates."""
+        return focus_layout(
+            settings.mod_root,
+            focus_index,
+            tag=tag,
+            file=file,
+            vanilla_path=settings.vanilla_path,
+            include_positions=include_positions,
+            limit=limit,
         )
 
     @mcp.tool(name="diff_summary")

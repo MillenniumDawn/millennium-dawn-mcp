@@ -68,6 +68,8 @@ EXPECTED_TOOLS = {
     "generate_loc_stub",
     # M3 analysis
     "focus_graph",
+    "check_refs",
+    "focus_layout",
     "diff_summary",
     "check_encoding",
 }

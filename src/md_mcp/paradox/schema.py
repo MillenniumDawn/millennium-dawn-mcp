@@ -208,7 +208,24 @@ def _focus_record(node: Node, kind: str, line_ends: List[int] | None) -> dict | 
         "prerequisites": prereqs,
         "mutually_exclusive": mutex,
         "relative_position_id": _scalar(node.get("relative_position_id")),
+        "ai_will_do": _ai_will_do_summary(node),
     }
+
+
+def _ai_will_do_summary(node: Node) -> dict | None:
+    """Compact `ai_will_do` projection: base/factor scalars + modifier count."""
+    awd = node.get("ai_will_do")
+    if awd is None:
+        return None
+    out: dict = {"modifiers": 0}
+    for c in awd.children():
+        if c.name in ("base", "factor"):
+            v = _scalar(c)
+            if v is not None:
+                out[c.name] = v
+        elif c.name == "modifier":
+            out["modifiers"] += 1
+    return out
 
 
 def _get_id(node: Node) -> str | None:

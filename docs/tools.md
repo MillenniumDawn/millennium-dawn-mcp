@@ -1,6 +1,6 @@
 # Tool & Resource Reference
 
-24 tools and 6 resources, grouped by purpose. Output shapes show the
+26 tools and 6 resources, grouped by purpose. Output shapes show the
 **default** behaviour — most tools have detail-tier or `limit` knobs.
 
 All tools return either `{"ok": True, ...}` or `{"ok": False, "error": "..."}`.
@@ -292,17 +292,65 @@ before bailing. `scan_truncated=True` means the response is incomplete; raise
 
 ### `focus_graph(tag, detail?, focus_ids?, node_limit?, edge_limit?, include_nodes?, include_edges?) -> dict`
 
-Prereq/mutex DAG for a tag's focuses, with **three detail tiers**:
+Prereq/mutex DAG for a tag's focuses, with **four detail tiers**:
 
 - **`detail="summary"`** (default) — `{node_count, edge_count, roots, cycles,
   dangling_prereqs, sample_node_ids}`. ~1 KB even for ISR (667 focuses).
 - **`detail="ids"`** — adds `nodes: [{id, line, kind, file}]` and `edges: [{from, to, kind}]`.
   ~70 KB for ISR.
-- **`detail="full"`** — full per-node metadata (x, y, cost, icon, prereqs, mutex).
-  Always combine with `focus_ids=[...]` or `node_limit` for big tags.
+- **`detail="full"`** — full per-node metadata (x, y, cost, icon, prereqs, mutex,
+  ai_will_do). Always combine with `focus_ids=[...]` or `node_limit` for big tags.
+- **`detail="paths"`** (requires `focus_ids=[...]`) — per focus: the cheapest
+  completion set through its prerequisite closure, `estimated_days` (7 days per
+  cost point, focus rush, cheapest member per OR group, shared prereqs counted
+  once, missing cost counted as 10), the `chain` in completion order, and the
+  focus's `ai_will_do` summary. Answers "how long until the AI/player can have
+  X" and "will the AI ever pick this branch".
 
 `cycles` and `dangling_prereqs` are always computed (they're small and
 load-bearing for review).
+
+### `check_refs(tag?, files?, kinds?, limit?, offset?, counts_only?) -> dict`
+
+Scoped cross-reference audit: parses the files in scope, extracts every
+outbound reference the indexes can resolve, reports the dangling ones with
+file:line sites. The "audit this file and tell me what's broken" query —
+validators can't be scoped to a file, and `resolve_*` is one id per call.
+
+- **Scope** — `files=[...]` (mod-relative, any script type) or `tag=` (the
+  tag's prefix-matched focus files).
+- **`kinds=[...]`** — subset of `focus` (prereqs, mutex, relative_position_id,
+  has_completed_focus, complete_national_focus), `event` (country_event /
+  news_event), `idea` (add_ideas / remove_ideas and friends), `sprite`
+  (icon / picture, tries `GFX_<name>` too; `.dds`/`.tga` file paths are
+  skipped), `loc` (`<focus_id>` + `<focus_id>_desc` for every focus defined in
+  scope, plus custom_effect_tooltip), `decision`.
+- Unresolved refs are deduped by (kind, id) with `count` and up to 3 `sites`
+  (`{file, line, via, referrer}`).
+- `not_checked` lists what no index covers yet (country flags, variables,
+  scripted effects); `vanilla_indexed: false` warns that vanilla-defined ids
+  will show as unresolved when `HOI4_PATH` isn't configured.
+
+Returns `{ok, scope, files_scanned, kinds_checked, not_checked,
+vanilla_indexed, counts: {kind: {checked, unresolved}}, total_unresolved,
+returned, truncated, unresolved: [...]}`.
+
+### `focus_layout(tag?, file?, include_positions?, limit?) -> dict`
+
+Focus tree geometry. Resolves every focus to absolute grid coordinates by
+walking `relative_position_id` chains, then reports what only shows up in-game
+otherwise:
+
+- **`collisions`** — two+ focuses at the same resolved cell.
+- **`chain_errors`** — `missing_relative` (target doesn't exist),
+  `cyclic_relative`, `missing_xy`.
+- **`bounding_box`** — the tree's extent.
+- **`include_positions=True`** — per-focus `{id, x, y, relative_to}` (capped by
+  `limit`), for picking a free slot near a branch.
+
+Scope by `tag=` (prefix-matched focuses; relative refs to out-of-scope focuses
+still resolve) or `file=` (every focus in the file). Dynamic `offset = {...}`
+blocks are ignored.
 
 ### `diff_summary(base?, kinds?, with_ids?, limit?) -> dict`
 

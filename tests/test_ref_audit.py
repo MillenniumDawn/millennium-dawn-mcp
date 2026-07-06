@@ -193,6 +193,47 @@ def test_vanilla_flag_surfaced(audit_mod):
     assert "scripted_effects" in out["not_checked"]
 
 
+def test_scope_file_resolved_from_vanilla(fake_mod_root, cache_dir, tmp_path):
+    """A scope path that lives only in vanilla must still be audited, not skipped as 'not found'."""
+    vanilla = tmp_path / "vanilla"
+    vf = vanilla / "common" / "national_focus" / "vanilla_only.txt"
+    vf.parent.mkdir(parents=True)
+    vf.write_text(
+        """focus_tree = {
+    focus = {
+        id = TST_vanilla_focus
+        x = 0
+        y = 0
+        completion_reward = { country_event = VanillaGone.1 }
+    }
+}
+""",
+        encoding="utf-8",
+    )
+    out = check_refs(
+        fake_mod_root,
+        files=["common/national_focus/vanilla_only.txt"],
+        kinds=["event"],
+        vanilla_path=vanilla,
+        **_indexes(fake_mod_root, cache_dir),
+    )
+    assert out["ok"] is True
+    assert "parse_errors" not in out  # found in vanilla, so parsed rather than skipped
+    assert ("event", "VanillaGone.1") in {(e["kind"], e["ref"]) for e in out["unresolved"]}
+
+
+def test_scope_file_not_found_anywhere(fake_mod_root, cache_dir):
+    """A path in neither mod nor vanilla is still reported as not found."""
+    out = check_refs(
+        fake_mod_root,
+        files=["common/national_focus/does_not_exist.txt"],
+        **_indexes(fake_mod_root, cache_dir),
+    )
+    assert out["parse_errors"] == [
+        {"file": "common/national_focus/does_not_exist.txt", "error": "not found"}
+    ]
+
+
 def test_texture_paths_not_sprite_refs(fake_mod_root, cache_dir):
     """picture = foo.dds inside leader-creation effects is a file path, not a sprite id."""
     body = """focus_tree = {

@@ -115,8 +115,8 @@ def check_refs(
     focus_defs: List[dict] = []  # focus ids defined in scope, for loc coverage
 
     for relpath in scope_files:
-        abs_path = mod_root / relpath
-        if not abs_path.exists():
+        abs_path = _resolve_path(relpath, mod_root, vanilla_path)
+        if abs_path is None:
             parse_errors.append({"file": relpath, "error": "not found"})
             continue
         try:
@@ -359,3 +359,15 @@ def _line_starts(text: str) -> List[int]:
         if c == "\n":
             starts.append(i + 1)
     return starts
+
+
+def _resolve_path(relpath: str, mod_root: Path, vanilla_path: Optional[Path]) -> Optional[Path]:
+    """Locate a scope file, falling back to vanilla for files the mod doesn't override."""
+    p = mod_root / relpath
+    if p.exists():
+        return p
+    if vanilla_path is not None:
+        p = vanilla_path / relpath
+        if p.exists():
+            return p
+    return None

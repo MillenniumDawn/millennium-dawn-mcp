@@ -61,8 +61,9 @@ src/md_mcp/
     └── pathing.py       mod_root / vanilla discovery
 ```
 
-Tests live in `tests/`. Integration tests (gated on `MD_MOD_ROOT`) live in
-`tests/integration/`.
+Tests live in `tests/`. Integration tests are marker-gated
+(`@pytest.mark.integration`, skipped unless `MD_MOD_ROOT` points at a real
+checkout); there is no separate `tests/integration/` directory.
 
 ---
 
@@ -198,7 +199,7 @@ Run the full unit suite:
 pytest -q
 ```
 
-92 tests, ~0.5 s. No mod checkout needed.
+Sub-second, no mod checkout needed.
 
 Run the integration suite (requires a real `Millennium-Dawn/` checkout):
 
@@ -206,10 +207,11 @@ Run the integration suite (requires a real `Millennium-Dawn/` checkout):
 MD_MOD_ROOT=/path/to/Millennium-Dawn pytest -m integration
 ```
 
-Run parser parity tests against the TypeScript implementation (optional):
+Lint and type-check before committing (pre-commit runs ruff automatically;
+mypy is CI-only):
 
 ```bash
-pytest -m differential
+ruff check . && ruff format --check . && mypy
 ```
 
 Before claiming an optimisation works, **also probe the live MCP protocol**
@@ -240,8 +242,9 @@ file > computed default.
 Standard project conventions: meaningful imperative subject, no
 `Co-Authored-By` lines (per the workspace `CLAUDE.md`), no `--no-verify`.
 
-Pre-commit isn't wired here yet; the only check is `pytest` and a manual
-`pip install -e .` to make sure the entry point still resolves.
+Pre-commit is wired (`pre-commit install` after cloning): hygiene hooks plus
+`ruff check --fix` and `ruff format`. Mypy runs in CI (`.github/workflows/ci.yml`),
+not in the hook. Run `pytest -q` yourself; it isn't a hook either.
 
 ---
 
@@ -250,8 +253,9 @@ Pre-commit isn't wired here yet; the only check is `pytest` and a manual
 1. **First** — read [`docs/architecture.md`](./docs/architecture.md). Most
    confusion comes from not knowing the parser → index → tool layering.
 2. The parser is a **direct port** of `hoiparser.ts`. When the AST disagrees
-   with vanilla content, run `pytest -m differential` to confirm against the
-   TS implementation before changing the port.
+   with vanilla content, read the TS source
+   (`MD-VSCode-Utility-Tool/src/hoiformat/hoiparser.ts`) and confirm the
+   behaviour there before changing the Python side.
 3. The index cache is **stat-based**, not content-based. If an index seems
    stale, blow away `<mod_root>/.md-mcp-cache/v1/` and rerun
    `md-mcp build-index`.

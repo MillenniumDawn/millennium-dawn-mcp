@@ -140,15 +140,12 @@ token byte offsets directly (the `resources.py` pattern).
 
 ## Differential testing
 
-`tests/test_parser.py` includes an opt-in marker:
-
-```bash
-pytest -m differential
-```
-
-This globs random `.txt` files from the configured mod, runs the TS parser
-via `bun run` against them, and asserts the two ASTs match. Any mismatch is
-a port bug. Runs only when `MD_MOD_ROOT` is set; skipped otherwise.
+There is no automated parity suite against the TS parser (a `differential`
+marker was advertised for a while but never had tests behind it). When the
+Python AST looks wrong, read the TS source
+(`MD-VSCode-Utility-Tool/src/hoiformat/hoiparser.ts`) and confirm the
+behaviour there before changing the port. A revival recipe for a real
+harness is sketched in [`docs/development.md`](./development.md).
 
 ## Common pitfalls
 

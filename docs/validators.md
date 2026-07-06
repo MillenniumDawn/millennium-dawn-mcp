@@ -1,7 +1,8 @@
 # Validators
 
-How the server runs Millennium Dawn's 18 Python validators in-process and
-turns their output into structured JSON for the agent.
+How the server runs Millennium Dawn's Python validators in-process
+(auto-discovered, 26 at last count) and turns their output into structured
+JSON for the agent.
 
 ## What gets wrapped
 
@@ -37,7 +38,7 @@ issues come back to the agent.
 That would kill the server. The wrapper catches `SystemExit` and logs it as
 info, then returns the issues collected up to that point.
 
-**Memory**: 18 validators all hold their own caches. Running all serially
+**Memory**: the validators all hold their own caches. Running all serially
 peaks around 500 MB on the real mod. The wrapper doesn't pool instances —
 each call constructs fresh — so memory drops back after each call.
 
@@ -83,7 +84,9 @@ Mitigations:
    patch can set `MD_MCP_VALIDATOR_MODE=subprocess` (the validator scripts
    have a stable CLI: `--mod-path`, `--staged`, `--json`).
 3. **CI nightly check** runs the wrapper against `Millennium-Dawn` `main` and
-   opens an issue on breakage. (Not yet wired — TODO.)
+   opens an issue on breakage. Wired: `.github/workflows/nightly.yml` runs
+   `pytest -m integration` against a fresh sparse clone and files an issue
+   labelled `nightly-failure`.
 
 When you encounter a breakage:
 - First check whether `BaseValidator._issues` or `Issue.to_dict()` signatures
@@ -139,13 +142,23 @@ feedback on what you just touched.
 the wrapper runs the full validator and filters the resulting issue list by
 file. Slower than `staged_only` for big trees.
 
-## `lint_common_mistakes` and `review_branch`
+## Running validators through `lint`
+
+`lint(validators=["auto"])` runs domain-matched validators on the same
+changed-file scope as the lint scripts and merges the issues into one
+response (check names `validator:<name>`, with both on-scope and mod-wide
+totals). See the lint section of [`docs/tools.md`](./tools.md). The bridge
+consumes `ValidatorRunner.run()` output only — the coupling caveat above
+still has a single adapter point.
+
+## `lint` and `review_branch`
 
 Two scripts in `Millennium-Dawn/tools/` aren't validator-shaped:
 
 - `tools/linting/check_common_mistakes.py` produces text-line output
-  (`file:line: message`). The MCP tool parses this with a regex and returns
-  structured issues (with severity hardcoded to `warning`).
+  (`file:line: message`). The `lint` tool parses this with a regex and returns
+  structured issues (with severity hardcoded to `warning`), alongside the
+  other `tools/linting/` scripts it dispatches.
 - `tools/analysis/review_branch.py` produces a freeform human-readable
   report. The MCP tool returns the raw text as `report`; the agent extracts
   what it needs.

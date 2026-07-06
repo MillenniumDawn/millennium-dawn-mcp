@@ -6,36 +6,30 @@ expect new tools to follow.
 ## Setup
 
 ```bash
-cd /Users/matthewscott/Programming/MD/millennium-dawn-mcp
+cd /path/to/millennium-dawn-mcp
 python -m venv .venv && source .venv/bin/activate
 pip install -e '.[dev]'
+pre-commit install
 ```
 
 `pip install -e .` exposes the `md-mcp` console script and lets you edit
-`src/md_mcp/` without reinstalling. The `[dev]` extras pull `pytest` and
-`pytest-xdist`.
-
-For validator-related work you'll also want the mod's tooling deps:
-
-```bash
-pip install -r ../Millennium-Dawn/tools/requirements.txt
-```
+`src/md_mcp/` without reinstalling. The `[dev]` extras pull `pytest`,
+`pytest-xdist`, `ruff`, `mypy`, and `pre-commit`. The wrapped validators are
+stdlib-only; no extra deps needed for validator work.
 
 ## Running tests
 
 ```bash
-pytest -q                            # unit suite, ~92 tests, no checkout needed
+pytest -q                            # unit suite, sub-second, no checkout needed
 pytest -q -n auto                    # parallelised
 pytest -m integration                # requires MD_MOD_ROOT (real mod)
-pytest -m differential               # parser parity vs TS implementation
 pytest tests/test_focus_graph.py -v  # focused
 ```
 
-Markers are defined in [`pyproject.toml`](../pyproject.toml):
+Markers are defined in [`pyproject.toml`](../pyproject.toml)
+(`--strict-markers` is on, so typos fail loudly):
 
 - `integration` — needs `MD_MOD_ROOT` set; will `pytest.skip` otherwise.
-- `differential` — parser parity check that shells out to `bun run` against
-  the TS implementation.
 
 Conftest provides two fixtures:
 
@@ -110,15 +104,25 @@ Then register in `server.py` with `@mcp.resource("md://kind/{target}")`.
 
 ## Linting / formatting
 
-No automated formatter is enforced yet. Conventions:
+ruff and mypy are enforced. Pre-commit runs ruff on every commit; CI runs
+all three:
 
-- 4-space indent.
-- Line length ~100 chars.
+```bash
+ruff check .            # lint (B, E, F, I, RUF, SIM, W)
+ruff format .           # formatter, line length 100
+mypy                    # type-check src/ + tests/
+```
+
+The ruff version is pinned in `pyproject.toml` dev extras and mirrored in
+`.pre-commit-config.yaml`; bump both together (`pre-commit autoupdate`).
+Conventions the tools don't cover:
+
 - Type hints required on public function signatures.
 - `from __future__ import annotations` at the top of every module.
-- Imports sorted: stdlib, third-party, first-party (`from ..something`).
 - Docstrings on every public function — at minimum one line explaining the
   contract.
+- `src/md_mcp/server.py` is exempt from line-length checks: tool docstrings
+  are the exact MCP descriptions sent to agents, so they stay one-line.
 
 ## Performance budgets
 
@@ -159,15 +163,29 @@ asyncio.run(main())
 Use this before claiming a budget optimisation is correct — unit fixtures
 are smaller than real data.
 
-## CI (TODO)
+## CI
 
-Not yet wired. Targets when we do:
+Two workflows under `.github/workflows/`:
 
-- **Unit suite** on every PR (`pytest -q -n auto`).
-- **Differential parser** on every PR if `bun` is available.
-- **Integration** nightly against `Millennium-Dawn` `main` checkout; open an
-  issue on failure (catches API drift in the validator coupling).
-- **Performance smoke** on every PR (`pytest tests/test_perf.py`).
+- **`ci.yml`** (every PR + push to main): ruff check, ruff format check, and
+  mypy on 3.12; `pytest -q -n auto` on a 3.10/3.14 matrix. The unit-scoped
+  perf assertions in `tests/test_perf.py` run as part of the plain suite.
+- **`nightly.yml`** (cron + manual dispatch): sparse-clones Millennium-Dawn
+  main (~380 MB instead of the 8 GB full tree) and runs
+  `pytest -m integration` against it. This is the validator-coupling drift
+  check from [`docs/validators.md`](./validators.md). On failure it opens or
+  updates a GitHub issue labelled `nightly-failure`.
+
+### Future work: differential parser suite
+
+A parity harness against the TS parser was advertised for a while but never
+existed; the marker has been removed. If reviving it: the TS repo has no CLI,
+but `parseHoi4File` is importable from the compiled
+`out/src/hoiformat/hoiparser` (see `MD-VSCode-Utility-Tool/scripts/findallvals.js`
+for the pattern). The shape would be a node/bun shim dumping canonical JSON,
+an `MD_TS_PARSER_ROOT` env var pointing at the sibling checkout, and a
+normaliser for the intentional port divergences (`Node.children` is a method,
+`Token.start` is a byte offset).
 
 ## Releasing
 

@@ -148,10 +148,11 @@ Enumerate available validators with their titles.
 }
 ```
 
-### `lint(mode?, files?, checks?, severity_min?, limit?, counts_only?) -> dict`
+### `lint(mode?, files?, checks?, validators?, severity_min?, limit?, counts_only?) -> dict`
 
 Run the **full linting suite**. Wraps seven `Millennium-Dawn/tools/linting/`
 scripts behind one tool — the one-stop-shop for "check this code's quality."
+Opt in with `validators=` to fold mod validators into the same call.
 
 - **`mode`** — `"changed"` (default) | `"staged"` | `"all"`.
   - `"changed"` = staged + unstaged + untracked (everything `git status --porcelain` sees). This is what you want mid-edit before anything is committed.
@@ -169,6 +170,23 @@ scripts behind one tool — the one-stop-shop for "check this code's quality."
   - `loc_encoding` (`validate_localization_encoding.py` — English loc YAML BOM)
 
   Omit to run all seven.
+- **`validators=[...]`** — also run mod validators (`tools/validation/`) and
+  merge their issues into the same response. Off by default because validators
+  scan their whole domain (seconds, not milliseconds).
+  - `["auto"]` — select validators by the domain of the files in scope, e.g.
+    a change under `common/national_focus/` runs `focus_tree`,
+    `scripted_params`, `simplifications`, `modifiers`, and `style`; a change
+    under `events/` runs `events`, `on_actions`, and friends; loc `.yml`
+    changes run `localisation`. Global cross-reference validators
+    (`variables`, `set_variables`, `cosmetic_tags`) and the slow two
+    (`unused_scripted`, `unused_textures`) are never auto-selected.
+  - `["*"]` — every fast validator (same exclusions as `validate`'s run-all).
+  - Explicit names run exactly those; sentinels and names union.
+
+  Validator issues are post-filtered to the file scope; each
+  `validator:<name>` entry in `checks` reports both the on-scope `total` and
+  `total_mod_wide`, so a nonzero mod-wide count is visible even when your
+  files are clean.
 - **`severity_min="info"`** — drops issues below `info` / `warning` / `error`.
 - **`limit=500`** — caps the issues array. `truncated` flags overflow.
 - **`counts_only=True`** — omit the issues array; return per-check + overall counts only.
@@ -180,20 +198,27 @@ Returns:
   "ok": true,
   "mode": "staged",
   "checks_run": ["common_mistakes", "braces", ...],
+  "validators_run": ["focus_tree", "modifiers"],
   "counts": { "error": 3, "warning": 12, "info": 0 },
   "issues_total_after_filter": 15,
   "truncated": false,
   "checks": [
     { "name": "common_mistakes", "ok": true, "total": 0, "exit_code": 0 },
     { "name": "braces", "ok": true, "total": 3, "exit_code": 1 },
+    { "name": "validator:focus_tree", "ok": true, "total": 2, "total_mod_wide": 37 },
     ...
   ],
   "issues": [
     { "check": "braces", "file": "...", "line": 42, "col": 1, "message": "...", "severity": "error" },
+    { "check": "validator:focus_tree", "file": "...", "line": 7, "message": "...",
+      "severity": "warning", "category": "missing-can-staff-guard" },
     ...
   ]
 }
 ```
+
+`validators_run` only appears when `validators=` was requested. With
+`["auto"]` and a clean tree it's `[]` and no validator runs.
 
 Per-check failures are **isolated** — if `tools/linting/check_braces.py` is
 missing or crashes, the corresponding entry in `checks` has `ok: false` and
@@ -207,7 +232,9 @@ reports it with `skipped: "no files in scope"`.
 `--mode {staged,all}`, no per-file invocation. So when `mode="changed"` or
 `files=[...]`, the dispatcher runs the script in `--mode all` and post-filters
 the issues by the relevant file set. This is correct but slower than the
-other checks (the script always scans every file under `common/`).
+other checks (the script always scans every file under `common/`). When the
+scope contains no `.txt` files at all, the scan is skipped entirely — the
+script only reports on `.txt` code files.
 
 **Tip:** start with `lint(counts_only=True)` to see which checks fired, then
 re-call with `checks=["<one>"]` to get the full issue list for just that check.

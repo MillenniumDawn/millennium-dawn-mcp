@@ -9,7 +9,8 @@ The server is **read-only**: generators return paradox-script fragments as
 strings, and the agent writes them into place via its own Edit/Write tools so
 diffs stay visible to the user.
 
-- Wraps the 18 validators in `Millennium-Dawn/tools/validation/`.
+- Wraps the validators in `Millennium-Dawn/tools/validation/` (auto-discovered,
+  26 at last count).
 - Ports the paradox parser from `MD-VSCode-Utility-Tool/src/hoiformat/`.
 - 24 tools and 6 `md://` resources.
 
@@ -24,11 +25,12 @@ cd /path/to/millennium-dawn-mcp
 pip install -e .
 ```
 
-Requires Python 3.10+. The wrapped validators bring their own deps from
-`Millennium-Dawn/tools/requirements.txt`; you'll want those installed too:
+Requires Python 3.10+. The wrapped validators are stdlib-only; no extra deps
+needed. For working on the server itself, install the dev extras instead:
 
 ```bash
-pip install -r /path/to/Millennium-Dawn/tools/requirements.txt
+pip install -e '.[dev]'
+pre-commit install
 ```
 
 Verify the install:
@@ -147,8 +149,9 @@ hand for setup / cache priming.
 
 ### Validation
 
-`validate` (one validator or all), `validate_list`, `lint_common_mistakes`,
-`review_branch`, `check_encoding`.
+`validate` (one validator or all), `validate_list`, `lint` (the whole linting
+suite on changed files; `validators=["auto"]` folds in domain-matched
+validators), `review_branch`, `check_encoding`.
 
 ### Analysis
 
@@ -188,9 +191,14 @@ Quick rule for callers:
 ## Testing
 
 ```bash
-pytest -q                       # 92 unit tests, ~0.5 s, no checkout needed
+pytest -q                       # unit suite, sub-second, no checkout needed
 MD_MOD_ROOT=... pytest -m integration   # real-mod integration suite
-pytest -m differential          # Python parser vs TS parser parity
+```
+
+Lint and type-check the server code:
+
+```bash
+ruff check . && ruff format --check . && mypy
 ```
 
 ---

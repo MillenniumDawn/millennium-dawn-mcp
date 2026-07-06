@@ -723,6 +723,8 @@ def lint_tool(
             "total": result.get("total", 0),
             "exit_code": result.get("exit_code"),
         }
+        if result.get("skipped"):
+            check_summary["skipped"] = result["skipped"]
         if not result.get("ok"):
             check_summary["error"] = result.get("error")
         else:

@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import bisect
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Set
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
 from ..indexes import (
     DecisionIndex,
@@ -41,6 +41,7 @@ from ..indexes import (
 from ..paradox import parse_string
 from ..paradox.nodes import Node, SymbolNode
 from ..util.encoding import read_text
+from ..util.pathing import resolve_scope_file
 from ..util.response import enforce_budget
 
 _ALL_KINDS: tuple = ("focus", "event", "idea", "sprite", "loc", "decision")
@@ -96,15 +97,7 @@ def check_refs(
         scope_files = list(files)
     else:
         assert tag is not None
-        focus_index.ensure_fresh()
-        prefix = tag.upper() + "_"
-        scope_files = sorted(
-            {
-                rec["file"]
-                for fid in focus_index.list_keys()
-                if fid.upper().startswith(prefix) and (rec := focus_index.resolve(fid)) is not None
-            }
-        )
+        scope_files = focus_index.files_for_tag(tag)
 
     files_truncated = len(scope_files) > _MAX_FILES
     scope_files = scope_files[:_MAX_FILES]
@@ -115,7 +108,7 @@ def check_refs(
     focus_defs: List[dict] = []  # focus ids defined in scope, for loc coverage
 
     for relpath in scope_files:
-        abs_path = _resolve_path(relpath, mod_root, vanilla_path)
+        abs_path = resolve_scope_file(relpath, mod_root, vanilla_path)
         if abs_path is None:
             parse_errors.append({"file": relpath, "error": "not found"})
             continue
@@ -151,19 +144,16 @@ def check_refs(
         "loc": lambda r: loc_index.resolve(r, lang) is not None,
         "decision": lambda r: decision_index.resolve(r) is not None,
     }
+    index_by_kind: Dict[str, Any] = {
+        "focus": focus_index,
+        "event": event_index,
+        "idea": idea_index,
+        "sprite": gfx_index,
+        "loc": loc_index,
+        "decision": decision_index,
+    }
     for k in selected_set:
-        if k == "loc":
-            loc_index.ensure_fresh()
-        elif k == "focus":
-            focus_index.ensure_fresh()
-        elif k == "event":
-            event_index.ensure_fresh()
-        elif k == "idea":
-            idea_index.ensure_fresh()
-        elif k == "sprite":
-            gfx_index.ensure_fresh()
-        elif k == "decision":
-            decision_index.ensure_fresh()
+        index_by_kind[k].ensure_fresh()
 
     checked: Dict[str, Set[str]] = {k: set() for k in selected}
     unresolved_by_key: Dict[tuple, dict] = {}
@@ -359,15 +349,3 @@ def _line_starts(text: str) -> List[int]:
         if c == "\n":
             starts.append(i + 1)
     return starts
-
-
-def _resolve_path(relpath: str, mod_root: Path, vanilla_path: Optional[Path]) -> Optional[Path]:
-    """Locate a scope file, falling back to vanilla for files the mod doesn't override."""
-    p = mod_root / relpath
-    if p.exists():
-        return p
-    if vanilla_path is not None:
-        p = vanilla_path / relpath
-        if p.exists():
-            return p
-    return None

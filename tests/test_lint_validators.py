@@ -156,6 +156,42 @@ def test_run_validators_scopes_and_reports_mod_wide():
     assert issues[0]["category"] == "CAT"
 
 
+def test_run_validators_surfaces_fileless_issues_as_unscoped():
+    # Validators like `events`/`decisions` leave `file` empty (filename is in the
+    # message). A scope filter must not silently drop them.
+    runner = FakeRunner(
+        results={
+            "events": {
+                "ok": True,
+                "issues": [
+                    _issue("", message="ALG.2001 - Algeria.txt"),
+                    _issue("", message="BRA.1 - Brazil.txt"),
+                ],
+            }
+        }
+    )
+    entries, issues = run_validators_for_lint(
+        runner,
+        ["events"],
+        staged_only=False,
+        relevant_set={"events/Algeria.txt"},
+    )
+    assert entries == [
+        {"name": "validator:events", "ok": True, "total": 0, "total_mod_wide": 2, "unscoped": 2}
+    ]
+    assert len(issues) == 2
+    assert all(i["scope"] == "unscoped" for i in issues)
+
+
+def test_run_validators_fileless_not_marked_without_scope():
+    runner = FakeRunner(results={"events": {"ok": True, "issues": [_issue("", message="x")]}})
+    entries, issues = run_validators_for_lint(
+        runner, ["events"], staged_only=False, relevant_set=None
+    )
+    assert "unscoped" not in entries[0]
+    assert "scope" not in issues[0]
+
+
 def test_run_validators_omits_falsy_line():
     runner = FakeRunner(results={"history": {"ok": True, "issues": [_issue("history/a.txt")]}})
     _, issues = run_validators_for_lint(runner, ["history"], staged_only=False, relevant_set=None)

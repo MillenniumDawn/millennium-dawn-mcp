@@ -57,6 +57,18 @@ def _looks_like_mod_root(p: Path) -> bool:
     return p.is_dir() and (p / "descriptor.mod").exists() and (p / "tools" / "validation").is_dir()
 
 
+def resolve_scope_file(relpath: str, mod_root: Path, vanilla_path: Path | None) -> Path | None:
+    """Locate a scope file, falling back to vanilla for files the mod doesn't override."""
+    p = mod_root / relpath
+    if p.exists():
+        return p
+    if vanilla_path is not None:
+        p = vanilla_path / relpath
+        if p.exists():
+            return p
+    return None
+
+
 def find_vanilla_path(mod_root: Path) -> Path | None:
     """Auto-detect a sibling `Hearts of Iron IV/` directory. Returns None if absent.
 

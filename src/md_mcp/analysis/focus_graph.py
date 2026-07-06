@@ -38,6 +38,7 @@ from ..indexes import FocusIndex
 from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records
 from ..util.encoding import read_text
+from ..util.pathing import resolve_scope_file
 from ..util.response import enforce_budget
 
 _VALID_DETAIL = ("summary", "ids", "full", "paths")
@@ -70,13 +71,7 @@ def focus_graph(
     prefix = tag_upper + "_"
     wanted_ids = {f.upper() for f in focus_ids} if focus_ids else None
 
-    candidate_files = sorted(
-        {
-            rec["file"]
-            for fid in focus_index.list_keys()
-            if fid.upper().startswith(prefix) and (rec := focus_index.resolve(fid)) is not None
-        }
-    )
+    candidate_files = focus_index.files_for_tag(tag)
 
     # Always parse fully internally — we need the prereq/mutex links for the
     # graph algorithms regardless of which detail tier the caller asked for.
@@ -84,7 +79,7 @@ def focus_graph(
     by_id: Dict[str, dict] = {}
 
     for relpath in candidate_files:
-        abs_path = _resolve(relpath, mod_root, vanilla_path)
+        abs_path = resolve_scope_file(relpath, mod_root, vanilla_path)
         if abs_path is None:
             continue
         try:
@@ -96,20 +91,7 @@ def focus_graph(
         for rec in extract_focus_records(root, source=text):
             if not rec["id"].upper().startswith(prefix):
                 continue
-            entry = {
-                "id": rec["id"],
-                "file": relpath,
-                "line": rec["line"],
-                "kind": rec["kind"],
-                "x": rec["x"],
-                "y": rec["y"],
-                "cost": rec["cost"],
-                "icon": rec["icon"],
-                "prerequisites": rec["prerequisites"],
-                "mutually_exclusive": rec["mutually_exclusive"],
-                "relative_position_id": rec["relative_position_id"],
-                "ai_will_do": rec["ai_will_do"],
-            }
+            entry = {**rec, "file": relpath}
             full_nodes.append(entry)
             by_id[rec["id"]] = entry
 
@@ -157,7 +139,8 @@ def focus_graph(
     if detail == "paths":
         if not focus_ids:
             return {"ok": False, "error": "detail='paths' requires focus_ids=[...]"}
-        result["paths"] = [_path_entry(req, by_id) for req in focus_ids]
+        cycle_ids = {fid for cyc in cycles for fid in cyc}
+        result["paths"] = [_path_entry(req, by_id, cycle_ids) for req in focus_ids]
         result["note"] = (
             "estimated_days = 7 days per cost point, uninterrupted focus rush, "
             "cheapest member per OR prerequisite group, shared prereqs counted once. "
@@ -199,7 +182,18 @@ def focus_graph(
     return enforce_budget(result, heavy_keys=("nodes", "edges", "cycles"))
 
 
-def _path_entry(requested: str, by_id: Dict[str, dict]) -> dict:
+def _default_cost(c) -> bool:
+    """True if `c` can't be read as a cost and falls back to _DEFAULT_FOCUS_COST."""
+    if c is None:
+        return True
+    try:
+        float(c)
+    except (TypeError, ValueError):
+        return True
+    return False
+
+
+def _path_entry(requested: str, by_id: Dict[str, dict], cycle_ids: set) -> dict:
     """Resolve one focus's cheapest completion set and timing estimate."""
     ci = {fid.upper(): fid for fid in by_id}
     real = ci.get(requested.upper())
@@ -260,7 +254,7 @@ def _path_entry(requested: str, by_id: Dict[str, dict]) -> dict:
 
     chain = sorted(chosen, key=lambda f: (depth_of(f, frozenset()), f))
 
-    defaulted = sum(1 for f in chosen if by_id[f].get("cost") is None)
+    defaulted = sum(1 for f in chosen if _default_cost(by_id[f].get("cost")))
     entry: dict = {
         "focus": real,
         "found": True,
@@ -270,6 +264,10 @@ def _path_entry(requested: str, by_id: Dict[str, dict]) -> dict:
         "chain_truncated": len(chain) > 100,
         "ai_will_do": by_id[real].get("ai_will_do"),
     }
+    if chosen & cycle_ids:
+        # The greedy cheapest-set solve is only correct on a DAG; a prereq cycle in
+        # the closure can truncate it. Flag rather than trust the numbers.
+        entry["estimate_unreliable"] = "prerequisite cycle in closure; see top-level cycles"
     if dangling:
         entry["dangling_prereqs"] = sorted(dangling)
     if defaulted:
@@ -300,14 +298,3 @@ def _find_cycles(graph: Dict[str, List[str]]) -> List[List[str]]:
         if color[n] == 0:
             dfs(n)
     return cycles
-
-
-def _resolve(relpath: str, mod_root: Path, vanilla_path: Optional[Path]) -> Optional[Path]:
-    p = mod_root / relpath
-    if p.exists():
-        return p
-    if vanilla_path is not None:
-        p = vanilla_path / relpath
-        if p.exists():
-            return p
-    return None

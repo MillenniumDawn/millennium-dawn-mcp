@@ -175,3 +175,26 @@ def test_focus_graph_paths_or_group_and_ai_will_do(fake_mod_root, cache_dir):
         "paths"
     ][0]
     assert root_entry["ai_will_do"] == {"base": 1, "modifiers": 1}
+
+
+def test_focus_graph_paths_flags_cycle_unreliable(fake_mod_root, cache_dir):
+    """The greedy solve is only sound on a DAG; a prereq cycle in the closure is flagged."""
+    body = """focus_tree = {
+    id = cyc_tree
+    focus = { id = TST_c_x  x = 0 y = 0 cost = 1 prerequisite = { focus = TST_c_y } }
+    focus = { id = TST_c_y  x = 1 y = 0 cost = 1 prerequisite = { focus = TST_c_x } }
+    focus = { id = TST_c_target x = 0 y = 1 cost = 1 prerequisite = { focus = TST_c_x } }
+    focus = { id = TST_c_clean  x = 2 y = 0 cost = 1 }
+}
+"""
+    f = fake_mod_root / "common" / "national_focus" / "TST_cyc.txt"
+    f.write_text(body, encoding="utf-8")
+    fi = FocusIndex(fake_mod_root, cache_dir)
+    g = focus_graph(
+        "TST", fake_mod_root, fi, detail="paths", focus_ids=["TST_c_target", "TST_c_clean"]
+    )
+    assert g["cycles"]  # the x<->y cycle is detected
+    target = next(p for p in g["paths"] if p["focus"] == "TST_c_target")
+    clean = next(p for p in g["paths"] if p["focus"] == "TST_c_clean")
+    assert "estimate_unreliable" in target
+    assert "estimate_unreliable" not in clean

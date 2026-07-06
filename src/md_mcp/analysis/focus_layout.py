@@ -22,6 +22,7 @@ from ..indexes import FocusIndex
 from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records
 from ..util.encoding import read_text
+from ..util.pathing import resolve_scope_file
 from ..util.response import enforce_budget
 
 
@@ -53,15 +54,8 @@ def focus_layout(
         assert tag is not None
         if focus_index is None:
             return {"ok": False, "error": "tag= scope requires the focus index."}
-        focus_index.ensure_fresh()
         prefix = tag.upper() + "_"
-        candidate_files = sorted(
-            {
-                rec["file"]
-                for fid in focus_index.list_keys()
-                if fid.upper().startswith(prefix) and (rec := focus_index.resolve(fid)) is not None
-            }
-        )
+        candidate_files = focus_index.files_for_tag(tag)
         scope_desc = {"tag": tag.upper()}
 
     # Parse every candidate file fully. `all_records` is the resolution set
@@ -71,7 +65,7 @@ def focus_layout(
     scope_ids: List[str] = []
     parse_errors: List[dict] = []
     for relpath in candidate_files:
-        abs_path = _resolve_path(relpath, mod_root, vanilla_path)
+        abs_path = resolve_scope_file(relpath, mod_root, vanilla_path)
         if abs_path is None:
             parse_errors.append({"file": relpath, "error": "not found"})
             continue
@@ -177,14 +171,3 @@ def _as_int(v) -> Optional[int]:
         return int(float(v))
     except (TypeError, ValueError):
         return None
-
-
-def _resolve_path(relpath: str, mod_root: Path, vanilla_path: Optional[Path]) -> Optional[Path]:
-    p = mod_root / relpath
-    if p.exists():
-        return p
-    if vanilla_path is not None:
-        p = vanilla_path / relpath
-        if p.exists():
-            return p
-    return None

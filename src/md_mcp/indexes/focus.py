@@ -106,6 +106,14 @@ class FocusIndex:
     # Backwards-compatible alias for callers that pre-date the M2 harmonisation.
     list_ids = list_keys
 
+    def files_for_tag(self, tag: str) -> List[str]:
+        """Sorted set of files defining a focus whose id starts with `<TAG>_`."""
+        self.ensure_fresh()
+        prefix = tag.upper() + "_"
+        return sorted(
+            {r["file"] for fid, r in self._by_id.items() if fid.upper().startswith(prefix)}
+        )
+
     def records_for_file(self, relative_path: str) -> List[dict]:
         self.ensure_fresh()
         return self._by_file.get(relative_path, [])

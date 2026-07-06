@@ -6,7 +6,9 @@ for the brittle upstream API), and normalises issues into the lint shape.
 
 Validators scan their whole domain regardless of scope; we post-filter issues
 by the relevant-file set and report both on-scope and mod-wide totals so scope
-filtering never silently hides cross-file breakage.
+filtering never silently hides cross-file breakage. Issues a validator emits
+without a `file` field (some carry the filename only in the message) can't be
+scope-matched, so they're surfaced as `unscoped` rather than dropped.
 """
 
 from __future__ import annotations
@@ -91,8 +93,9 @@ def run_validators_for_lint(
     """Run validators and normalise output into the lint dispatcher's shape.
 
     Returns (check_entries, issues). Check entries are named `validator:<name>`
-    and carry `total` (on-scope) plus `total_mod_wide` when a scope filter is
-    active. Per-validator failures are isolated, same as lint checks.
+    and carry `total` (on-scope) plus `total_mod_wide` and, when present,
+    `unscoped` (fileless issues that couldn't be scope-matched) when a scope
+    filter is active. Per-validator failures are isolated, same as lint checks.
     """
     wanted = {os.path.normpath(f) for f in relevant_set} if relevant_set is not None else None
 
@@ -111,13 +114,24 @@ def run_validators_for_lint(
 
         raw = result.get("issues", []) or []
         if wanted is not None:
-            kept = [i for i in raw if os.path.normpath(i.get("file") or "") in wanted]
+            on_scope, unscoped = [], []
+            for i in raw:
+                f = (i.get("file") or "").strip()
+                if not f:
+                    # No file field to match on — some validators put the filename
+                    # only in the message. Can't scope it, so surface rather than drop.
+                    unscoped.append(i)
+                elif os.path.normpath(f) in wanted:
+                    on_scope.append(i)
+            kept = on_scope + unscoped
         else:
-            kept = raw
+            on_scope, unscoped, kept = raw, [], raw
 
-        entry = {"name": label, "ok": True, "total": len(kept)}
+        entry = {"name": label, "ok": True, "total": len(on_scope)}
         if wanted is not None:
             entry["total_mod_wide"] = len(raw)
+            if unscoped:
+                entry["unscoped"] = len(unscoped)
         check_entries.append(entry)
 
         for i in kept:
@@ -127,6 +141,8 @@ def run_validators_for_lint(
                 "message": i.get("message"),
                 "severity": i.get("severity", "info"),
             }
+            if wanted is not None and not (i.get("file") or "").strip():
+                norm["scope"] = "unscoped"
             if i.get("line"):
                 norm["line"] = i["line"]
             if i.get("category"):

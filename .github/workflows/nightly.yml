@@ -1,0 +1,52 @@
+name: Nightly integration
+
+# Runs the integration suite against Millennium-Dawn main. This is the
+# validator-coupling drift check from docs/validators.md: the in-process
+# wrapper reads private validator internals, so an upstream refactor shows
+# up here first, as a filed issue instead of a broken agent session.
+
+on:
+  schedule:
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e '.[dev]'
+      - name: Sparse-clone Millennium-Dawn main
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/MillenniumDawn/Millennium-Dawn.git "$RUNNER_TEMP/Millennium-Dawn"
+          git -C "$RUNNER_TEMP/Millennium-Dawn" sparse-checkout set \
+            common events interface localisation history tools
+      - name: Integration suite
+        run: MD_MOD_ROOT="$RUNNER_TEMP/Millennium-Dawn" pytest -q -m integration
+      - name: Open or update failure issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create nightly-failure --color B60205 --force || true
+          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --label nightly-failure --state open \
+            --json number --jq '.[0].number')
+          body="Nightly integration vs Millennium-Dawn main failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "Nightly integration vs Millennium-Dawn main failed" \
+              --label nightly-failure --body "$body"
+          fi

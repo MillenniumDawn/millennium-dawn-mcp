@@ -41,7 +41,7 @@ def test_cold_build_under_budget(real_mod_root, tmp_path):
     cache = tmp_path / ".md-mcp-cache"
     timings: dict[str, float] = {}
 
-    indexes = [
+    indexes: list[tuple[str, type]] = [
         ("Focus", FocusIndex),
         ("Loc", LocalisationIndex),
         ("Event", EventIndex),

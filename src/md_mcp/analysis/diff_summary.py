@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..paradox import parse_string
 from ..paradox.schema import (
@@ -53,7 +53,7 @@ def diff_summary(
         kind = _classify(path)
         if kinds_set is not None and kind not in kinds_set:
             continue
-        record = {"path": path, "status": status, "kind": kind}
+        record: Dict[str, Any] = {"path": path, "status": status, "kind": kind}
 
         if with_ids and kind in ("focus", "event", "decision", "idea") and status != "D":
             try:

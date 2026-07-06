@@ -8,7 +8,7 @@ which anchors at `pos` and returns None if the pattern doesn't match there.
 from __future__ import annotations
 
 import re
-from typing import List, Optional
+from typing import List, NoReturn, Optional
 
 from .nodes import Token
 
@@ -97,7 +97,7 @@ class Tokenizer:
         self._pending = None
         return token
 
-    def _raise(self, message: str, prev: bool = False):
+    def _raise(self, message: str, prev: bool = False) -> NoReturn:
         pos = self._prev_pos if prev else self._pos
         line_idx = next((i for i, end in enumerate(self._line_ends) if end > pos), -1)
         if line_idx == -1:

@@ -24,7 +24,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 
 @dataclass
@@ -358,11 +358,12 @@ def _default_workers() -> int:
     return max(2, min(8, n - 1))
 
 
-def _parser_dispatch(args: Tuple[Callable, str, str]) -> "Optional[List[dict]]":
+def _parser_dispatch(args: Tuple[Callable, str, str]) -> Any:
     """Top-level helper so the process pool can pickle the call site.
 
     `args` is `(parser_fn, abs_path, relpath)`. We can't pass a bound method through
     ProcessPoolExecutor (it pickles by name and bound methods can capture state).
+    Return type follows the dispatched parser fn (list-of-records or single dict).
     """
     fn, abs_path, relpath = args
     if not abs_path:

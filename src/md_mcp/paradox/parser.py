@@ -124,7 +124,9 @@ def _parse_node(tokens: Tokenizer) -> Node:
     )
 
 
-def _parse_node_value(tokens: Tokenizer) -> Tuple[object, Token, Token]:
+def _parse_node_value(
+    tokens: Tokenizer,
+) -> Tuple[str | int | float | SymbolNode | List | None, Token, Token]:
     next_token = tokens.next()
     t = next_token.type
     if t == "string":

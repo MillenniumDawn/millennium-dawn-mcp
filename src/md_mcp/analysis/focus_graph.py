@@ -62,9 +62,9 @@ def focus_graph(
 
     candidate_files = sorted(
         {
-            focus_index.resolve(fid)["file"]
+            rec["file"]
             for fid in focus_index.list_keys()
-            if fid.upper().startswith(prefix)
+            if fid.upper().startswith(prefix) and (rec := focus_index.resolve(fid)) is not None
         }
     )
 

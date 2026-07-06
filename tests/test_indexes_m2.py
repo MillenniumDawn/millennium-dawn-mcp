@@ -27,6 +27,7 @@ def test_event_index_builds(fake_mod_root, cache_dir):
     assert "TestnsNews.42" in ev.list_keys()
 
     rec = ev.resolve("Testns.1")
+    assert rec is not None
     assert rec["kind"] == "country_event"
     assert rec["namespace"] == "Testns"
     assert "Testns" in rec["file_namespaces"]
@@ -40,6 +41,7 @@ def test_decision_index_builds(fake_mod_root, cache_dir):
     assert "TST_targeted_decision" in d.list_keys()
 
     rec = d.resolve("TST_simple_decision")
+    assert rec is not None
     assert rec["category"] == "TST_category"
     assert rec["file"].endswith("test_decisions.txt")
 
@@ -63,7 +65,9 @@ def test_idea_index_builds(fake_mod_root, cache_dir):
 
 def test_idea_index_categories(fake_mod_root, cache_dir):
     i = IdeaIndex(fake_mod_root, cache_dir, include_vanilla=False)
-    assert i.resolve("TST_simple_idea")["category"] == "country"
-    assert i.resolve("TST_acme_tanks")["category"] == "tank_manufacturer"
+    simple = i.resolve("TST_simple_idea")
+    acme = i.resolve("TST_acme_tanks")
+    assert simple is not None and simple["category"] == "country"
+    assert acme is not None and acme["category"] == "tank_manufacturer"
     # The slot wrapper itself (designer / law) must NOT be indexed as an idea.
     assert "designer" not in i.list_keys()

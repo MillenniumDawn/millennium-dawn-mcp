@@ -12,7 +12,7 @@ Additional extractors (events, decisions, ideas, sprites) land in Milestone 2.
 
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any, List, Optional
 
 from .nodes import Node, SymbolNode
 
@@ -58,7 +58,7 @@ def _value_to_json(value: Any) -> Any:
 
 # Line numbers are computed on demand in to_json; we don't have the source text here,
 # so callers wanting accurate lines must supply them externally. Default to None.
-def _token_line(_start: int) -> None:
+def _token_line(_start: int) -> Optional[int]:
     return None
 
 

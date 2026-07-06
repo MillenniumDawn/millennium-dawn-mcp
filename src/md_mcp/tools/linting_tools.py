@@ -647,7 +647,9 @@ def lint_tool(
             mode="all" if relevant is None else "staged",
             files=relevant,
         ),
-        "braces": lambda: _maybe(txt_files, lambda: lint_braces_tool(mod_root, files=txt_files)),
+        "braces": lambda: _maybe(
+            txt_files, lambda: lint_braces_tool(mod_root, files=txt_files or [])
+        ),
         "basic_style": lambda: lint_basic_style_tool(
             mod_root,
             mode="all" if relevant is None else "staged",

@@ -11,6 +11,7 @@ from __future__ import annotations
 import inspect
 import subprocess
 from pathlib import Path
+from typing import Callable
 
 from md_mcp.tools.linting_tools import (
     _ALL_CHECKS,
@@ -53,11 +54,12 @@ def _seed_all_scripts(root: Path, body_map: dict[str, str]) -> None:
 
 
 def test_secondary_wrapper_signatures():
-    for fn, required in [
+    cases: list[tuple[Callable, tuple[str, ...]]] = [
         (lint_basic_style_2_tool, ("mod_root", "mode", "files", "limit")),
         (lint_coding_standards_tool, ("mod_root", "mode", "limit")),
         (lint_loc_encoding_tool, ("mod_root", "files", "limit")),
-    ]:
+    ]
+    for fn, required in cases:
         params = inspect.signature(fn).parameters
         for p in required:
             assert p in params, f"{fn.__name__} missing param: {p}"

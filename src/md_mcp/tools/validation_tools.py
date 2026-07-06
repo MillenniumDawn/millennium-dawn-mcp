@@ -1,17 +1,16 @@
 """Validation MCP tools.
 
-  * `validate(validator?, staged_only?, files?, severity_min?, limit?)` — run one or all validators
-  * `validate_list()` — enumerate available validators
+* `validate(validator?, staged_only?, files?, severity_min?, limit?)` — run one or all validators
+* `validate_list()` — enumerate available validators
 """
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from typing import List, Optional
 
 from ..config import Settings
 from ..util.response import enforce_budget
 from ..validators import ValidatorRunner, available_validators
-
 
 _SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2}
 
@@ -21,10 +20,7 @@ def validate_list_tool(settings: Settings) -> dict:
     infos = available_validators(settings.mod_root)
     return {
         "ok": True,
-        "validators": [
-            {"name": v.name, "title": v.title, "module": v.module_name}
-            for v in infos
-        ],
+        "validators": [{"name": v.name, "title": v.title, "module": v.module_name} for v in infos],
     }
 
 
@@ -36,10 +32,7 @@ def _filter_and_cap(
 ) -> tuple[List[dict], bool, int]:
     """Apply severity floor + cap. Returns (kept, truncated, total_after_filter)."""
     floor = _SEVERITY_RANK.get(severity_min, 0)
-    filtered = [
-        i for i in issues
-        if _SEVERITY_RANK.get(i.get("severity", "info"), 0) >= floor
-    ]
+    filtered = [i for i in issues if _SEVERITY_RANK.get(i.get("severity", "info"), 0) >= floor]
     total = len(filtered)
     if limit >= 0 and total > limit:
         return filtered[:limit], True, total
@@ -74,9 +67,7 @@ def validate_tool(
         if not result.get("ok"):
             return result
         issues = result.get("issues", [])
-        kept, truncated, total = _filter_and_cap(
-            issues, severity_min=severity_min, limit=limit
-        )
+        kept, truncated, total = _filter_and_cap(issues, severity_min=severity_min, limit=limit)
         result["issues"] = [] if counts_only else kept
         result["issues_total_after_filter"] = total
         result["truncated"] = truncated
@@ -113,9 +104,7 @@ def validate_tool(
         overall["error"] = overall.get("error", 0) + overall.get("warning", 0)
         overall["warning"] = 0
 
-    kept, truncated, total = _filter_and_cap(
-        aggregated, severity_min=severity_min, limit=limit
-    )
+    kept, truncated, total = _filter_and_cap(aggregated, severity_min=severity_min, limit=limit)
 
     summary: dict = {
         "ok": True,

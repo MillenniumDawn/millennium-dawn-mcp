@@ -12,8 +12,6 @@ import inspect
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from md_mcp.tools.linting_tools import (
     _ALL_CHECKS,
     _changed_files,
@@ -89,7 +87,7 @@ def test_coding_standards_parses_warning_in_file(tmp_path):
         "tools/linting/coding_standards.py",
         """import sys
 print("Validating Coding Standards (Mode: all)")
-print("WARNING: BadID is formatted incorrectly, must be TAG_focus_name in /tmp/x.txt Line number: 5")
+print("WARNING: BadID must be TAG_focus_name in /tmp/x.txt Line number: 5")
 sys.exit(0)
 """,
     )
@@ -219,9 +217,7 @@ sys.exit(1)
 
 
 def test_lint_limit_truncates(tmp_path):
-    body = "\n".join(
-        f'print("WARNING: msg{i} at a.txt Line number: {i}")' for i in range(1, 21)
-    )
+    body = "\n".join(f'print("WARNING: msg{i} at a.txt Line number: {i}")' for i in range(1, 21))
     _seed_all_scripts(
         tmp_path,
         {
@@ -351,7 +347,7 @@ sys.exit(0)
 
 
 def test_lint_changed_mode_filters_coding_standards_postfilter(tmp_path):
-    """coding_standards has no files= API; the dispatcher post-filters its issues by the changed set."""
+    """coding_standards has no files= API; issues are post-filtered by the changed set."""
     _init_repo(tmp_path)
     _seed_all_scripts(
         tmp_path,

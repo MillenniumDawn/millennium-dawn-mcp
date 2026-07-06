@@ -33,9 +33,7 @@ _LINT_LINE_RE = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):\s*(?P<msg>.+)$")
 
 # `<file>:` header line followed by indented `Line N, Column N: msg` lines.
 _BRACE_HEADER_RE = re.compile(r"^(?P<file>[^\s].+):$")
-_BRACE_ISSUE_RE = re.compile(
-    r"^\s*Line\s+(?P<line>\d+),\s+Column\s+(?P<col>\d+):\s*(?P<msg>.+)$"
-)
+_BRACE_ISSUE_RE = re.compile(r"^\s*Line\s+(?P<line>\d+),\s+Column\s+(?P<col>\d+):\s*(?P<msg>.+)$")
 
 # Unified style/standards format: ERROR|WARNING + at|in + file + Line number: N.
 # Covers check_basic_style.py, check_basic_style_2.py, coding_standards.py.
@@ -213,7 +211,13 @@ def lint_braces_tool(
         if not line.strip():
             continue
         if line.startswith("Error: File not found"):
-            issues.append({"file": line.split(":", 2)[-1].strip(), "message": "File not found", "severity": "error"})
+            issues.append(
+                {
+                    "file": line.split(":", 2)[-1].strip(),
+                    "message": "File not found",
+                    "severity": "error",
+                }
+            )
             continue
         if line.startswith("❌") or line.startswith("Usage:"):
             continue
@@ -376,7 +380,7 @@ def lint_basic_style_2_tool(
     files: Optional[List[str]] = None,
     limit: int = 200,
 ) -> dict:
-    """Run `tools/linting/check_basic_style_2.py` (secondary style: missing spaces around braces, etc.).
+    """Run `tools/linting/check_basic_style_2.py` (secondary style: brace spacing etc.).
 
     Emits `WARNING:` lines with the same `at <file> Line number: N` shape as
     `check_basic_style.py`. Manual-stage in pre-commit but cheap enough to
@@ -596,22 +600,25 @@ def lint_tool(
         txt_files: Optional[List[str]] = [f for f in relevant if _is_lintable_txt(f)]
         mod_files: Optional[List[str]] = [f for f in relevant if f.endswith(".mod")]
         loc_files: Optional[List[str]] = [
-            f for f in relevant
-            if f.startswith("localisation/english/") and f.endswith(".yml")
+            f for f in relevant if f.startswith("localisation/english/") and f.endswith(".yml")
         ]
     else:
         # mode=all: braces still needs a file list (script has no auto-discovery);
         # mod_encoding + loc_encoding auto-discover when files=None.
         txt_files = (
-            _select_files(mod_root, "all", None, _is_lintable_txt)
-            if "braces" in selected
-            else None
+            _select_files(mod_root, "all", None, _is_lintable_txt) if "braces" in selected else None
         )
         mod_files = None
         loc_files = None
 
     def _skipped() -> dict:
-        return {"ok": True, "total": 0, "issues": [], "exit_code": 0, "skipped": "no files in scope"}
+        return {
+            "ok": True,
+            "total": 0,
+            "issues": [],
+            "exit_code": 0,
+            "skipped": "no files in scope",
+        }
 
     def _maybe(files_list: Optional[List[str]], runner: Callable[[], dict]) -> dict:
         if files_list is not None and not files_list:
@@ -685,10 +692,7 @@ def lint_tool(
         per_check.append(check_summary)
 
     floor = _SEVERITY_RANK.get(severity_min, 0)
-    filtered = [
-        i for i in all_issues
-        if _SEVERITY_RANK.get(i.get("severity", "info"), 0) >= floor
-    ]
+    filtered = [i for i in all_issues if _SEVERITY_RANK.get(i.get("severity", "info"), 0) >= floor]
     truncated = len(filtered) > limit if limit >= 0 else False
     issues_capped = filtered[:limit] if limit >= 0 else filtered
 

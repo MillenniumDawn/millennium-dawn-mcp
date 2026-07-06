@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import os
 import shutil
-import tempfile
 from pathlib import Path
-from typing import Iterator
 
 import pytest
-
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -28,7 +25,9 @@ def fake_mod_root(tmp_path: Path) -> Path:
     )
 
     shutil.copy(FIXTURES / "focus_minimal.txt", root / "common" / "national_focus" / "test.txt")
-    shutil.copy(FIXTURES / "test_l_english.yml", root / "localisation" / "english" / "test_l_english.yml")
+    shutil.copy(
+        FIXTURES / "test_l_english.yml", root / "localisation" / "english" / "test_l_english.yml"
+    )
 
     # M2 additions
     (root / "events").mkdir()
@@ -36,7 +35,9 @@ def fake_mod_root(tmp_path: Path) -> Path:
     (root / "common" / "ideas").mkdir()
     (root / "interface").mkdir()
     shutil.copy(FIXTURES / "events_minimal.txt", root / "events" / "test_events.txt")
-    shutil.copy(FIXTURES / "decisions_minimal.txt", root / "common" / "decisions" / "test_decisions.txt")
+    shutil.copy(
+        FIXTURES / "decisions_minimal.txt", root / "common" / "decisions" / "test_decisions.txt"
+    )
     shutil.copy(FIXTURES / "ideas_minimal.txt", root / "common" / "ideas" / "test_ideas.txt")
     shutil.copy(FIXTURES / "sprites_minimal.gfx", root / "interface" / "test_sprites.gfx")
 

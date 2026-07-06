@@ -21,17 +21,16 @@ from md_mcp.indexes import (
     LocalisationIndex,
 )
 
-
 # Per-index ceilings, in seconds. Generous enough to absorb CI variance but
 # tight enough to flag obvious regressions (e.g. removing the GFX fast scanner
 # would push that bucket past 15s).
 _BUDGETS = {
-    "Focus":    10.0,
-    "Loc":      10.0,
-    "Event":     5.0,
-    "Decision":  3.0,
-    "Idea":      3.0,
-    "Gfx":       5.0,
+    "Focus": 10.0,
+    "Loc": 10.0,
+    "Event": 5.0,
+    "Decision": 3.0,
+    "Idea": 3.0,
+    "Gfx": 5.0,
 }
 _TOTAL_BUDGET = 30.0  # the plan's stated target
 
@@ -43,12 +42,12 @@ def test_cold_build_under_budget(real_mod_root, tmp_path):
     timings: dict[str, float] = {}
 
     indexes = [
-        ("Focus",    FocusIndex),
-        ("Loc",      LocalisationIndex),
-        ("Event",    EventIndex),
+        ("Focus", FocusIndex),
+        ("Loc", LocalisationIndex),
+        ("Event", EventIndex),
         ("Decision", DecisionIndex),
-        ("Idea",     IdeaIndex),
-        ("Gfx",      GfxIndex),
+        ("Idea", IdeaIndex),
+        ("Gfx", GfxIndex),
     ]
     for name, cls in indexes:
         idx = cls(real_mod_root, cache, None)
@@ -68,6 +67,5 @@ def test_cold_build_under_budget(real_mod_root, tmp_path):
         )
 
     assert total < _TOTAL_BUDGET, (
-        f"Total cold build {total:.2f}s exceeds {_TOTAL_BUDGET}s budget. "
-        f"Breakdown: {breakdown}"
+        f"Total cold build {total:.2f}s exceeds {_TOTAL_BUDGET}s budget. " f"Breakdown: {breakdown}"
     )

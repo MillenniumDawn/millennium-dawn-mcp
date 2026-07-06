@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 import pytest
 
 from md_mcp.util.pathing import ModRootNotFound, find_mod_root, find_vanilla_path

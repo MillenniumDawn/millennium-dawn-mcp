@@ -45,7 +45,17 @@ def test_focus_graph_full_tier(fake_mod_root, cache_dir):
     fi = FocusIndex(fake_mod_root, cache_dir)
     g = focus_graph("TST", fake_mod_root, fi, detail="full")
     sample = g["nodes"][0]
-    for k in ("id", "file", "line", "kind", "x", "y", "cost", "prerequisites", "mutually_exclusive"):
+    for k in (
+        "id",
+        "file",
+        "line",
+        "kind",
+        "x",
+        "y",
+        "cost",
+        "prerequisites",
+        "mutually_exclusive",
+    ):
         assert k in sample, f"missing {k} in full-tier node"
     edges = {(e["from"], e["to"], e["kind"]) for e in g["edges"]}
     assert ("TST_root", "TST_branch_a", "prereq") in edges

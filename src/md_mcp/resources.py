@@ -36,7 +36,9 @@ def focus_resource(focus_id: str, settings: Settings, focus_index: FocusIndex) -
     return _extract_focus_block(text, focus_id)
 
 
-def loc_resource(key: str, settings: Settings, loc_index: LocalisationIndex, lang: Optional[str] = None) -> str:
+def loc_resource(
+    key: str, settings: Settings, loc_index: LocalisationIndex, lang: Optional[str] = None
+) -> str:
     """Return the value of a single loc key, falling back to English."""
     rec = loc_index.resolve(key, lang or settings.default_lang)
     if rec is None:
@@ -53,7 +55,12 @@ def sprite_resource(name: str, settings: Settings, gfx_index: GfxIndex) -> str:
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
     text = read_text(abs_path)
-    return _extract_block_by_key(text, key="name", value=name, container_kinds={"spriteType", "corneredTileSpriteType", "frameAnimatedSpriteType"})
+    return _extract_block_by_key(
+        text,
+        key="name",
+        value=name,
+        container_kinds={"spriteType", "corneredTileSpriteType", "frameAnimatedSpriteType"},
+    )
 
 
 def event_resource(event_id: str, settings: Settings, event_index: EventIndex) -> str:
@@ -69,7 +76,13 @@ def event_resource(event_id: str, settings: Settings, event_index: EventIndex) -
         text,
         key="id",
         value=event_id,
-        container_kinds={"country_event", "news_event", "state_event", "unit_leader_event", "operative_leader_event"},
+        container_kinds={
+            "country_event",
+            "news_event",
+            "state_event",
+            "unit_leader_event",
+            "operative_leader_event",
+        },
     )
 
 
@@ -133,10 +146,14 @@ def _extract_named_block(text: str, name: str) -> str:
 
     def walk(nodes):
         for node in nodes:
-            if node.name == name and isinstance(node.value, list):
-                if node.name_token and node.value_end_token:
-                    start = _line_start(text, node.name_token.start)
-                    return text[start : node.value_end_token.end]
+            if (
+                node.name == name
+                and isinstance(node.value, list)
+                and node.name_token
+                and node.value_end_token
+            ):
+                start = _line_start(text, node.name_token.start)
+                return text[start : node.value_end_token.end]
             if isinstance(node.value, list):
                 found = walk(node.value)
                 if found is not None:
@@ -185,9 +202,9 @@ def _extract_focus_block(text: str, focus_id: str) -> str:
         from .paradox.nodes import SymbolNode
 
         v = id_node.value
-        if isinstance(v, SymbolNode) and v.name == focus_id:
-            pass
-        elif isinstance(v, str) and v == focus_id:
+        if (isinstance(v, SymbolNode) and v.name == focus_id) or (
+            isinstance(v, str) and v == focus_id
+        ):
             pass
         else:
             continue

@@ -29,10 +29,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ValidatorInfo:
-    name: str           # short name, e.g. "localisation"
-    module_name: str    # `validate_localisation`
-    title: str          # display title from the validator class
-    path: Path          # absolute path to the validator script
+    name: str  # short name, e.g. "localisation"
+    module_name: str  # `validate_localisation`
+    title: str  # display title from the validator class
+    path: Path  # absolute path to the validator script
 
 
 def available_validators(mod_root: Path) -> List[ValidatorInfo]:

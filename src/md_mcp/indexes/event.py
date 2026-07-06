@@ -13,7 +13,13 @@ from .base import GenericTxtIndex
 logger = logging.getLogger(__name__)
 
 
-_EVENT_TOKENS = ("country_event", "news_event", "state_event", "unit_leader_event", "operative_leader_event")
+_EVENT_TOKENS = (
+    "country_event",
+    "news_event",
+    "state_event",
+    "unit_leader_event",
+    "operative_leader_event",
+)
 
 
 def _parse_event_file(abs_path: str, relpath: str) -> Optional[List[dict]]:

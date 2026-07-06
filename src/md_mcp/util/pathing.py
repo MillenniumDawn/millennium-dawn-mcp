@@ -38,7 +38,9 @@ def find_mod_root(explicit: str | Path | None = None, start: Path | None = None)
     for parent in [cwd, *cwd.parents]:
         if _looks_like_mod_root(parent):
             return parent
-    attempts.append(f"walk-up from cwd ({cwd}): no parent had both descriptor.mod and tools/validation/")
+    attempts.append(
+        f"walk-up from cwd ({cwd}): no parent had both descriptor.mod and tools/validation/"
+    )
 
     for base in (cwd, cwd.parent):
         candidate = base / "Millennium-Dawn"
@@ -52,11 +54,7 @@ def find_mod_root(explicit: str | Path | None = None, start: Path | None = None)
 
 
 def _looks_like_mod_root(p: Path) -> bool:
-    return (
-        p.is_dir()
-        and (p / "descriptor.mod").exists()
-        and (p / "tools" / "validation").is_dir()
-    )
+    return p.is_dir() and (p / "descriptor.mod").exists() and (p / "tools" / "validation").is_dir()
 
 
 def find_vanilla_path(mod_root: Path) -> Path | None:

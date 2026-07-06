@@ -72,13 +72,9 @@ def check_encoding(
             rel = str(path)
 
         if path.suffix.lower() == ".txt" and has_bom:
-            violations.append(
-                {"file": rel, "expected": "no-bom", "actual": "bom"}
-            )
+            violations.append({"file": rel, "expected": "no-bom", "actual": "bom"})
         elif path.suffix.lower() == ".yml" and rel.startswith("localisation/") and not has_bom:
-            violations.append(
-                {"file": rel, "expected": "bom", "actual": "no-bom"}
-            )
+            violations.append({"file": rel, "expected": "bom", "actual": "no-bom"})
 
     return {
         "ok": True,

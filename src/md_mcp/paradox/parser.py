@@ -87,7 +87,9 @@ def _parse_node(tokens: Tokenizer) -> Node:
     # operator phase
     if next_token.value == "{":
         # Implicit `= { ... }` — TS code synthesises an `=` token here.
-        operator_token = Token(value="=", start=next_token.start, end=next_token.end, type="operator")
+        operator_token = Token(
+            value="=", start=next_token.start, end=next_token.end, type="operator"
+        )
     else:
         operator_token = tokens.next()
 

@@ -12,7 +12,6 @@ from typing import List, Optional
 
 from .nodes import Token
 
-
 # Order matches the priority sort in `hoiparser.ts`: lower priority value first.
 #   comment(0) < operator(10), string(10) < symbol(40) < unitnumber(49) < number(50) < eof(1000)
 #
@@ -50,7 +49,7 @@ class Tokenizer:
     Comments are silently consumed.
     """
 
-    __slots__ = ("_input", "_pos", "_prev_pos", "_pending", "_line_ends", "_error_prefix")
+    __slots__ = ("_error_prefix", "_input", "_line_ends", "_pending", "_pos", "_prev_pos")
 
     def __init__(self, input_text: str, error_prefix: str = ""):
         self._input = input_text
@@ -78,7 +77,9 @@ class Tokenizer:
             for name in _TOKEN_NAMES:
                 value = match.group(name)
                 if value is not None:
-                    token = Token(value=value, start=self._pos - len(value), end=self._pos, type=name)
+                    token = Token(
+                        value=value, start=self._pos - len(value), end=self._pos, type=name
+                    )
                     break
             else:  # pragma: no cover — regex guarantees one group matches
                 self._raise("Invalid token")

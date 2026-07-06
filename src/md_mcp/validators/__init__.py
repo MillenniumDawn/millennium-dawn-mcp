@@ -1,3 +1,3 @@
-from .runner import ValidatorRunner, ValidatorInfo, available_validators
+from .runner import ValidatorInfo, ValidatorRunner, available_validators
 
-__all__ = ["ValidatorRunner", "ValidatorInfo", "available_validators"]
+__all__ = ["ValidatorInfo", "ValidatorRunner", "available_validators"]

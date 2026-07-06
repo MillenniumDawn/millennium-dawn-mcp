@@ -33,7 +33,6 @@ from ..paradox.schema import extract_focus_records
 from ..util.encoding import read_text
 from ..util.response import enforce_budget
 
-
 _VALID_DETAIL = ("summary", "ids", "full")
 
 

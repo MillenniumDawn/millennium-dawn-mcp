@@ -22,7 +22,9 @@ from typing import Any, Iterable, List, Sequence, Tuple
 BUDGET_BYTES = 100_000
 
 
-def paginate(items: Sequence[Any], offset: int = 0, limit: int = 200) -> Tuple[List[Any], bool, int]:
+def paginate(
+    items: Sequence[Any], offset: int = 0, limit: int = 200
+) -> Tuple[List[Any], bool, int]:
     """Slice `items[offset : offset+limit]`. Returns (slice, truncated, total)."""
     total = len(items)
     if offset < 0:

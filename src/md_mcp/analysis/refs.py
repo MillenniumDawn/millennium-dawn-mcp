@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Iterable, List, Literal, Optional
+from typing import List, Literal, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -99,9 +99,7 @@ def _variable_pattern(target: str) -> re.Pattern:
 
 def _loc_pattern(target: str) -> re.Pattern:
     # Both `KEY:` definitions and `[KEY]` / `$KEY$` references.
-    return re.compile(
-        r"(?<![\w])" + re.escape(target) + r"(?![\w])"
-    )
+    return re.compile(r"(?<![\w])" + re.escape(target) + r"(?![\w])")
 
 
 def _sprite_pattern(target: str) -> re.Pattern:

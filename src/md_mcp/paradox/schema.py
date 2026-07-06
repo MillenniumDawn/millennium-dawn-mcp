@@ -115,9 +115,7 @@ def _pos_to_line(pos: int, line_ends: List[int]) -> int:
 
 def is_focus_file_content(text: str) -> bool:
     """Cheap pre-filter mirroring sharedFocusIndex.ts behaviour."""
-    return (
-        "focus_tree" in text or "shared_focus" in text or "joint_focus" in text
-    )
+    return "focus_tree" in text or "shared_focus" in text or "joint_focus" in text
 
 
 def extract_focus_ids(root: Node) -> List[str]:
@@ -231,7 +229,9 @@ def _get_id(node: Node) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-_EVENT_KINDS = frozenset({"country_event", "news_event", "state_event", "unit_leader_event", "operative_leader_event"})
+_EVENT_KINDS = frozenset(
+    {"country_event", "news_event", "state_event", "unit_leader_event", "operative_leader_event"}
+)
 
 
 def extract_event_records(root: Node, source: str | None = None) -> List[dict]:
@@ -447,10 +447,7 @@ _IDEA_PROPERTIES = frozenset(
 
 def _looks_like_slot_wrapper(node: Node) -> bool:
     """True if `node` is a slot containing more idea blocks, not an idea itself."""
-    for c in node.children():
-        if c.name in _IDEA_PROPERTIES:
-            return False
-    return True
+    return all(c.name not in _IDEA_PROPERTIES for c in node.children())
 
 
 # ---------------------------------------------------------------------------

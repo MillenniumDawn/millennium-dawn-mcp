@@ -11,8 +11,6 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
-import pytest
-
 from md_mcp.tools.linting_tools import (
     lint_basic_style_tool,
     lint_braces_tool,
@@ -125,7 +123,9 @@ sys.exit(1)
     assert out["ok"] is True
     assert out["total"] == 2
     assert out["mode"] == "all"
-    assert any("Line number" not in i.get("message", "") and i.get("line") == 4 for i in out["issues"])
+    assert any(
+        "Line number" not in i.get("message", "") and i.get("line") == 4 for i in out["issues"]
+    )
     assert any("(" in i["message"] for i in out["issues"])
 
 

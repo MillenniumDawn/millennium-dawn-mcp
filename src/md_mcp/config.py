@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from .util.pathing import find_mod_root, find_vanilla_path
+from .util.pathing import find_mod_root
 
 CONFIG_PATH = Path.home() / ".config" / "md-mcp" / "config.toml"
 DEFAULT_CACHE_DIRNAME = ".md-mcp-cache"
@@ -22,7 +22,7 @@ class Settings:
     mod_root: Path
     vanilla_path: Optional[Path]
     cache_dir: Path
-    validator_mode: str = "in_process"   # or "subprocess"
+    validator_mode: str = "in_process"  # or "subprocess"
     default_lang: str = "en"
 
 
@@ -57,8 +57,7 @@ def load(mod_root: Optional[str] = None) -> Settings:
         cache_dir=cache_dir,
         validator_mode=os.environ.get("MD_MCP_VALIDATOR_MODE")
         or file_cfg.get("validator_mode", "in_process"),
-        default_lang=os.environ.get("MD_MCP_DEFAULT_LANG")
-        or file_cfg.get("default_lang", "en"),
+        default_lang=os.environ.get("MD_MCP_DEFAULT_LANG") or file_cfg.get("default_lang", "en"),
     )
 
 

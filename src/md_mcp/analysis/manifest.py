@@ -21,6 +21,7 @@ default exceeds MCP output caps.
 
 from __future__ import annotations
 
+import contextlib
 import re
 from pathlib import Path
 from typing import List, Optional, Sequence
@@ -33,7 +34,6 @@ from ..indexes import (
     LocalisationIndex,
 )
 from ..util.response import enforce_budget
-
 
 _ALL_CATEGORIES = (
     "focuses",
@@ -78,7 +78,12 @@ def list_country_content(
     ideas: List[str] = _ids_with_prefix(idea_index, prefix)
     events, event_files = _events(event_index, tag_upper, prefix)
     loc_files: List[str] = _loc_files(loc_index, tag_upper)
-    mio_files = _scan_files(mod_root, "common/military_industrial_organization/organizations", ("*.txt",), prefix=tag_upper)
+    mio_files = _scan_files(
+        mod_root,
+        "common/military_industrial_organization/organizations",
+        ("*.txt",),
+        prefix=tag_upper,
+    )
     history_files = _scan_files(mod_root, "history/countries", ("*.txt",), prefix=tag_upper)
     oob_files = _scan_files(mod_root, "history/units", ("*.txt",), prefix=tag_upper)
     namelist_files = _scan_files(mod_root, "common/names", ("*.txt",), prefix=tag_upper)
@@ -142,7 +147,9 @@ def _ids_with_prefix(index, prefix: str) -> List[str]:
     return [k for k in index.list_keys() if k.upper().startswith(prefix)]
 
 
-def _events(event_index: Optional[EventIndex], tag_upper: str, prefix: str) -> tuple[List[str], List[str]]:
+def _events(
+    event_index: Optional[EventIndex], tag_upper: str, prefix: str
+) -> tuple[List[str], List[str]]:
     if event_index is None:
         return [], []
     event_index.ensure_fresh()
@@ -168,7 +175,7 @@ def _loc_files(loc_index: Optional[LocalisationIndex], tag_upper: str) -> List[s
         return []
     loc_index.ensure_fresh()
     pattern = re.compile(rf"(^|[/_]){re.escape(tag_upper)}(_|/|$)")
-    return [f for f in loc_index._by_file.keys() if pattern.search(f)]
+    return [f for f in loc_index._by_file if pattern.search(f)]
 
 
 def _scan_files(mod_root: Path, subdir: str, patterns: tuple, *, prefix: str) -> List[str]:
@@ -182,15 +189,11 @@ def _scan_files(mod_root: Path, subdir: str, patterns: tuple, *, prefix: str) ->
                 continue
             stem = p.stem.upper()
             if stem.startswith(prefix + "_") or stem == prefix:
-                try:
+                with contextlib.suppress(ValueError):
                     out.append(str(p.relative_to(mod_root)))
-                except ValueError:
-                    pass
             elif "_" in stem:
                 parts = stem.split("_")
                 if len(parts) >= 2 and parts[1] == prefix:
-                    try:
+                    with contextlib.suppress(ValueError):
                         out.append(str(p.relative_to(mod_root)))
-                    except ValueError:
-                        pass
     return sorted(out)

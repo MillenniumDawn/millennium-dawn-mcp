@@ -183,10 +183,14 @@ Opt in with `validators=` to fold mod validators into the same call.
   - `["*"]` — every fast validator (same exclusions as `validate`'s run-all).
   - Explicit names run exactly those; sentinels and names union.
 
-  Validator issues are post-filtered to the file scope; each
-  `validator:<name>` entry in `checks` reports both the on-scope `total` and
-  `total_mod_wide`, so a nonzero mod-wide count is visible even when your
-  files are clean.
+  Validator issues are attributed back to real mod paths, then post-filtered to
+  the file scope. Each `validator:<name>` entry reports the on-scope `total`
+  (equal to the issues it contributes to `issues`) and `total_mod_wide`, so a
+  nonzero mod-wide count is visible even when your files are clean. Issues that
+  can't be attributed to any file — some validators bury the filename in the
+  message, some drop it — report as an `unattributed` count on the entry, with
+  the first few carried into `issues` as a sample (`scope: "unattributed"`)
+  rather than flooding the response.
 - **`severity_min="info"`** — drops issues below `info` / `warning` / `error`.
 - **`limit=500`** — caps the issues array. `truncated` flags overflow.
 - **`counts_only=True`** — omit the issues array; return per-check + overall counts only.

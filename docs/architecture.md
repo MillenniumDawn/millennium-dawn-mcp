@@ -79,7 +79,7 @@ class Settings:
     mod_root: Path
     vanilla_path: Optional[Path]
     cache_dir: Path
-    validator_mode: str = "in_process"
+    validator_mode: str = "isolated"
     default_lang: str = "en"
 ```
 

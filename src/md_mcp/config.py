@@ -22,7 +22,7 @@ class Settings:
     mod_root: Path
     vanilla_path: Optional[Path]
     cache_dir: Path
-    validator_mode: str = "in_process"  # or "subprocess"
+    validator_mode: str = "isolated"  # or "in_process"
     default_lang: str = "en"
 
 
@@ -55,7 +55,7 @@ def load(mod_root: Optional[str] = None) -> Settings:
         vanilla_path=v,
         cache_dir=cache_dir,
         validator_mode=os.environ.get("MD_MCP_VALIDATOR_MODE")
-        or file_cfg.get("validator_mode", "in_process"),
+        or file_cfg.get("validator_mode", "isolated"),
         default_lang=os.environ.get("MD_MCP_DEFAULT_LANG") or file_cfg.get("default_lang", "en"),
     )
 

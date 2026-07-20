@@ -24,6 +24,7 @@ has three detail tiers:
       cheapest completion set, its estimated days (7 days per cost point,
       focus-rush, cheapest member per OR group, shared prereqs counted once),
       the chain in completion order, and the focus's `ai_will_do` summary.
+      Entries are capped by `node_limit`.
 
 Cycles and dangling prereqs are always computed and returned because they're
 small and load-bearing for review.
@@ -39,7 +40,7 @@ from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records
 from ..util.encoding import read_text
 from ..util.pathing import resolve_scope_file
-from ..util.response import enforce_budget
+from ..util.response import enforce_budget, paginate
 
 _VALID_DETAIL = ("summary", "ids", "full", "paths")
 
@@ -140,7 +141,11 @@ def focus_graph(
         if not focus_ids:
             return {"ok": False, "error": "detail='paths' requires focus_ids=[...]"}
         cycle_ids = {fid for cyc in cycles for fid in cyc}
-        result["paths"] = [_path_entry(req, by_id, cycle_ids) for req in focus_ids]
+        requested, paths_truncated, paths_total = paginate(focus_ids, 0, node_limit)
+        result["paths"] = [_path_entry(req, by_id, cycle_ids) for req in requested]
+        result["paths_total"] = paths_total
+        result["paths_returned"] = len(requested)
+        result["paths_truncated"] = paths_truncated
         result["note"] = (
             "estimated_days = 7 days per cost point, uninterrupted focus rush, "
             "cheapest member per OR prerequisite group, shared prereqs counted once. "

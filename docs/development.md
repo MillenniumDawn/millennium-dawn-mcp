@@ -229,7 +229,7 @@ framing layer.
 
 If `validate` starts failing after an upstream change:
 
-1. Try `MD_MCP_VALIDATOR_MODE=subprocess` — does it work?
+1. Try `MD_MCP_VALIDATOR_MODE=in_process` outside the server for the raw traceback.
 2. If yes: `Issue.to_dict()` or `_issues` semantics changed. Patch
    `_run_inprocess` in `runner.py`.
 3. If no: the validator script itself is broken. File against

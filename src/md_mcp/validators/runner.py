@@ -1,13 +1,19 @@
-"""Wrap the Millennium-Dawn validator suite as callable in-process tools.
+"""Wrap the Millennium-Dawn validator suite as callable tools.
 
-Imports the validator modules from `<mod_root>/tools/validation/` at runtime, looks
-for the `Validator` class in each, instantiates it with the mod path, and harvests
+Loads the validator modules from `<mod_root>/tools/validation/`, looks for the
+`Validator` class in each, instantiates it with the mod path, and harvests
 `self._issues` after `run_all_validations()`.
 
-Subprocess fallback is available via `MD_MCP_VALIDATOR_MODE=subprocess`. It shells out
-to `python3 tools/run.py <validator_name>` and parses the JSON sidecar instead. Slower
-(per-call import startup), but isolates the validator from server crashes — useful
-if a validator's internals are mid-refactor on `main`.
+Default mode is `isolated`: that sequence runs in a child process via
+`_shim.py`. Most of the suite forks a `multiprocessing.Pool` from
+`validator_common.py`, and forking from inside the server's stdio event loop
+hangs the server (see CLAUDE.md rule 6). Isolation costs one interpreter start
+per call, which is noise next to a multi-second validator.
+
+`MD_MCP_VALIDATOR_MODE=in_process` skips the child and imports the validator
+directly. Faster and easier to debug, but only safe outside `mcp.run()` — a
+forking validator will deadlock the server. `subprocess` is a back-compat alias
+for `isolated`.
 """
 
 from __future__ import annotations
@@ -16,10 +22,12 @@ import contextlib
 import importlib
 import importlib.util
 import io
+import json
 import logging
 import os
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -76,9 +84,9 @@ class ValidatorRunner:
     the validator *instances* (their internal state is per-run).
     """
 
-    def __init__(self, mod_root: Path, mode: str = "in_process"):
+    def __init__(self, mod_root: Path, mode: str = "isolated"):
         self.mod_root = mod_root
-        self.mode = mode
+        self.mode = "isolated" if mode == "subprocess" else mode
         self._infos: Optional[Dict[str, ValidatorInfo]] = None
         self._modules: Dict[str, object] = {}
         self._sys_path_inserted = False
@@ -112,9 +120,9 @@ class ValidatorRunner:
                 "error": f"Unknown validator '{name}'. Use validate_list to see options.",
             }
 
-        if self.mode == "subprocess":
-            return self._run_subprocess(info, staged_only=staged_only, files=files)
-        return self._run_inprocess(info, staged_only=staged_only, files=files)
+        if self.mode == "in_process":
+            return self._run_inprocess(info, staged_only=staged_only, files=files)
+        return self._run_isolated(info, staged_only=staged_only, files=files)
 
     # ------------------------------------------------------------------
     # in-process mode
@@ -197,59 +205,75 @@ class ValidatorRunner:
             }
 
         issues = [i.to_dict() for i in getattr(inst, "_issues", [])]
-
-        if files:
-            wanted = {os.path.normpath(f) for f in files}
-            issues = [i for i in issues if os.path.normpath(i.get("file", "")) in wanted]
-
-        return _summarise(info, issues)
+        return _summarise(info, _filter_by_files(issues, files))
 
     # ------------------------------------------------------------------
-    # subprocess mode
+    # isolated mode (default)
     # ------------------------------------------------------------------
 
-    def _run_subprocess(
+    def _run_isolated(
         self,
         info: ValidatorInfo,
         *,
         staged_only: bool,
         files: Optional[List[str]],
     ) -> dict:
-        cmd = [sys.executable, str(info.path), "--mod-path", str(self.mod_root)]
+        cmd = [
+            sys.executable,
+            "-m",
+            "md_mcp.validators._shim",
+            "--mod-root",
+            str(self.mod_root),
+            "--module",
+            info.module_name,
+        ]
         if staged_only:
-            cmd.append("--staged")
-        # Use --json so the validator writes its structured output to a sidecar.
-        sidecar = self.mod_root / ".md-mcp-cache" / f"{info.name}.issues.json"
-        sidecar.parent.mkdir(parents=True, exist_ok=True)
-        cmd.extend(["--json", str(sidecar)])
+            cmd.append("--staged-only")
 
-        try:
-            subprocess.run(cmd, check=False, capture_output=True, timeout=300)
-        except subprocess.TimeoutExpired:
-            return {
-                "ok": False,
-                "validator": info.name,
-                "error": "Validator timed out after 300s",
-            }
-        except Exception as e:
-            return {"ok": False, "validator": info.name, "error": str(e)}
+        with tempfile.TemporaryDirectory(prefix="md-mcp-validator-") as td:
+            out = Path(td) / "issues.json"
+            try:
+                proc = subprocess.run(
+                    [*cmd, "--out", str(out)],
+                    check=False,
+                    capture_output=True,
+                    stdin=subprocess.DEVNULL,
+                    timeout=600,
+                )
+            except subprocess.TimeoutExpired:
+                return {
+                    "ok": False,
+                    "validator": info.name,
+                    "error": "Validator timed out after 600s",
+                }
+            except Exception as e:
+                return {"ok": False, "validator": info.name, "error": str(e)}
 
-        try:
-            import json as _json
+            # A validator that dies before writing the payload must surface as a
+            # failure. Reporting it as zero issues reads as a clean run.
+            try:
+                payload = json.loads(out.read_text("utf-8"))
+            except (OSError, ValueError) as e:
+                return {
+                    "ok": False,
+                    "validator": info.name,
+                    "error": (
+                        f"Validator subprocess produced no result (exit {proc.returncode}): {e}"
+                    ),
+                    "stderr": proc.stderr.decode("utf-8", "replace")[-2000:],
+                }
 
-            issues = _json.loads(sidecar.read_text("utf-8")) if sidecar.exists() else []
-        except (OSError, ValueError) as e:
-            return {
-                "ok": False,
-                "validator": info.name,
-                "error": f"Could not read validator sidecar: {e}",
-            }
+        if not payload.get("ok"):
+            return {"ok": False, "validator": info.name, "error": payload.get("error")}
 
-        if files:
-            wanted = {os.path.normpath(f) for f in files}
-            issues = [i for i in issues if os.path.normpath(i.get("file", "")) in wanted]
+        return _summarise(info, _filter_by_files(payload.get("issues", []), files))
 
-        return _summarise(info, issues)
+
+def _filter_by_files(issues: List[dict], files: Optional[List[str]]) -> List[dict]:
+    if not files:
+        return issues
+    wanted = {os.path.normpath(f) for f in files}
+    return [i for i in issues if os.path.normpath(i.get("file") or "") in wanted]
 
 
 def _summarise(info: ValidatorInfo, issues: List[dict]) -> dict:

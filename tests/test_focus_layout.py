@@ -115,6 +115,47 @@ def test_positions_truncation(tmp_path):
     assert out["positions_truncated"] is True
 
 
+def test_collisions_and_chain_errors_report_totals_when_untruncated(tmp_path):
+    rel = _write_tree(tmp_path)
+    out = focus_layout(tmp_path, None, file=rel)
+    assert out["collisions_total"] == 1
+    assert len(out["collisions"]) == 1
+    assert out["collisions_truncated"] is False
+    assert out["chain_errors_total"] == 2
+    assert len(out["chain_errors"]) == 2
+    assert out["chain_errors_truncated"] is False
+
+
+def test_collisions_truncation(tmp_path):
+    pairs = "\n".join(
+        f"    focus = {{ id = TST_c{i}{s} x = {i} y = 0 }}" for i in range(3) for s in ("a", "b")
+    )
+    body = f"focus_tree = {{\n{pairs}\n}}\n"
+    rel = _write_tree(tmp_path, body, name="TST_stacked.txt")
+
+    out = focus_layout(tmp_path, None, file=rel, limit=2)
+
+    assert out["collisions_total"] == 3
+    assert out["collision_count"] == 3
+    assert len(out["collisions"]) == 2
+    assert out["collisions_truncated"] is True
+
+
+def test_chain_errors_truncation(tmp_path):
+    kids = "\n".join(
+        f"    focus = {{ id = TST_k{i} x = 1 y = {i} relative_position_id = TST_ghost }}"
+        for i in range(1, 5)
+    )
+    body = f"focus_tree = {{\n{kids}\n}}\n"
+    rel = _write_tree(tmp_path, body, name="TST_ghosts.txt")
+
+    out = focus_layout(tmp_path, None, file=rel, limit=2)
+
+    assert out["chain_errors_total"] == 4
+    assert len(out["chain_errors"]) == 2
+    assert out["chain_errors_truncated"] is True
+
+
 def test_missing_file_reported(tmp_path):
     out = focus_layout(tmp_path, None, file="common/national_focus/nope.txt")
     assert out["ok"] is True

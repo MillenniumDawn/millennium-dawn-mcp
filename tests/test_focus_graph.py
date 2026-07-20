@@ -120,6 +120,31 @@ def test_focus_graph_paths_tier(fake_mod_root, cache_dir):
     assert missing["found"] is False
 
 
+def test_focus_graph_paths_node_limit(fake_mod_root, cache_dir):
+    """`node_limit` caps the paths list; totals and the truncated flag stay accurate."""
+    fi = FocusIndex(fake_mod_root, cache_dir)
+    ids = ["TST_root", "TST_branch_a", "TST_branch_b"]
+
+    g = focus_graph("TST", fake_mod_root, fi, detail="paths", focus_ids=ids, node_limit=2)
+    assert g["paths_total"] == 3
+    assert g["paths_returned"] == 2
+    assert len(g["paths"]) == 2
+    assert g["paths_truncated"] is True
+    assert [p["focus"] for p in g["paths"]] == ["TST_root", "TST_branch_a"]
+
+
+def test_focus_graph_paths_untruncated(fake_mod_root, cache_dir):
+    """Under the cap, paths reports the full set with truncated=False."""
+    fi = FocusIndex(fake_mod_root, cache_dir)
+    ids = ["TST_root", "TST_branch_a", "TST_branch_b"]
+
+    g = focus_graph("TST", fake_mod_root, fi, detail="paths", focus_ids=ids)
+    assert g["paths_total"] == 3
+    assert g["paths_returned"] == 3
+    assert len(g["paths"]) == 3
+    assert g["paths_truncated"] is False
+
+
 def test_focus_graph_paths_requires_focus_ids(fake_mod_root, cache_dir):
     fi = FocusIndex(fake_mod_root, cache_dir)
     g = focus_graph("TST", fake_mod_root, fi, detail="paths")

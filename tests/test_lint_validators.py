@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from md_mcp.tools.lint_validators import (
+    UNATTRIBUTED_SAMPLE,
     VALIDATOR_AUTO_MAP,
     run_validators_for_lint,
     select_validators,
@@ -44,6 +45,20 @@ class FakeRunner(ValidatorRunner):
         if name in self.results:
             return self.results[name]
         return {"ok": True, "validator": name, "counts": {}, "issues": []}
+
+
+@pytest.fixture
+def mod_with_files(tmp_path):
+    """Mod tree the attributor can resolve partial paths and message tokens against."""
+    for rel in (
+        "events/Algeria.txt",
+        "events/Brazil.txt",
+        "localisation/english/MD_focus_AST_l_english.yml",
+    ):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x\n", encoding="utf-8")
+    return tmp_path
 
 
 def _issue(file, message="bad", severity="warning", line=0, category="CAT"):
@@ -156,9 +171,10 @@ def test_run_validators_scopes_and_reports_mod_wide():
     assert issues[0]["category"] == "CAT"
 
 
-def test_run_validators_surfaces_fileless_issues_as_unscoped():
-    # Validators like `events`/`decisions` leave `file` empty (filename is in the
-    # message). A scope filter must not silently drop them.
+def test_run_validators_attributes_fileless_issues_from_the_message(mod_with_files):
+    # `validate_events` emits `f"{eid} - {filename}"`, which upstream's location
+    # regexes don't match, so `file` lands empty. The filename is still in the
+    # message: recover it, then scope on the real path.
     runner = FakeRunner(
         results={
             "events": {
@@ -175,20 +191,98 @@ def test_run_validators_surfaces_fileless_issues_as_unscoped():
         ["events"],
         staged_only=False,
         relevant_set={"events/Algeria.txt"},
+        mod_root=mod_with_files,
     )
-    assert entries == [
-        {"name": "validator:events", "ok": True, "total": 0, "total_mod_wide": 2, "unscoped": 2}
-    ]
-    assert len(issues) == 2
-    assert all(i["scope"] == "unscoped" for i in issues)
+    assert entries == [{"name": "validator:events", "ok": True, "total": 1, "total_mod_wide": 2}]
+    assert [i["file"] for i in issues] == ["events/Algeria.txt"]
 
 
-def test_run_validators_fileless_not_marked_without_scope():
+def test_run_validators_resolves_basename_only_issues(mod_with_files):
+    # validate_localisation.py:92,102 emits os.path.basename(filename). Exact
+    # matching dropped these outright: the drop half of the scoping bug.
+    runner = FakeRunner(
+        results={
+            "localisation": {
+                "ok": True,
+                "issues": [_issue("MD_focus_AST_l_english.yml", line=2, category="mangled")],
+            }
+        }
+    )
+    entries, issues = run_validators_for_lint(
+        runner,
+        ["localisation"],
+        staged_only=False,
+        relevant_set={"localisation/english/MD_focus_AST_l_english.yml"},
+        mod_root=mod_with_files,
+    )
+    assert entries[0]["total"] == 1
+    assert issues[0]["file"] == "localisation/english/MD_focus_AST_l_english.yml"
+    assert issues[0]["line"] == 2
+
+
+def test_run_validators_caps_unattributable_issues(mod_with_files):
+    # The flood half: 762 fileless `events` issues used to merge wholesale at
+    # 137 KB regardless of scope. Report the count, sample the detail.
+    many = [_issue("", message=f"{n} orphaned keys") for n in range(50)]
+    runner = FakeRunner(results={"events": {"ok": True, "issues": many}})
+    entries, issues = run_validators_for_lint(
+        runner,
+        ["events"],
+        staged_only=False,
+        relevant_set={"events/Algeria.txt"},
+        mod_root=mod_with_files,
+    )
+    assert entries[0]["total"] == 0
+    assert entries[0]["unattributed"] == 50
+    assert len(issues) == UNATTRIBUTED_SAMPLE
+    assert all(i["scope"] == "unattributed" for i in issues)
+
+
+def test_run_validators_drops_off_scope_issues_resolved_from_message(mod_with_files):
+    runner = FakeRunner(
+        results={"events": {"ok": True, "issues": [_issue("", message="BRA.1 - Brazil.txt")]}}
+    )
+    entries, issues = run_validators_for_lint(
+        runner,
+        ["events"],
+        staged_only=False,
+        relevant_set={"events/Algeria.txt"},
+        mod_root=mod_with_files,
+    )
+    assert entries[0]["total"] == 0
+    assert "unattributed" not in entries[0]
+    assert issues == []
+
+
+def test_run_validators_total_matches_issues_returned(mod_with_files):
+    runner = FakeRunner(
+        results={
+            "events": {
+                "ok": True,
+                "issues": [
+                    _issue("", message="ALG.1 - Algeria.txt"),
+                    _issue("", message="ALG.2 - Algeria.txt"),
+                    _issue("", message="BRA.1 - Brazil.txt"),
+                ],
+            }
+        }
+    )
+    entries, issues = run_validators_for_lint(
+        runner,
+        ["events"],
+        staged_only=False,
+        relevant_set={"events/Algeria.txt"},
+        mod_root=mod_with_files,
+    )
+    assert entries[0]["total"] == len(issues) == 2
+
+
+def test_run_validators_fileless_not_marked_without_scope(mod_with_files):
     runner = FakeRunner(results={"events": {"ok": True, "issues": [_issue("", message="x")]}})
     entries, issues = run_validators_for_lint(
-        runner, ["events"], staged_only=False, relevant_set=None
+        runner, ["events"], staged_only=False, relevant_set=None, mod_root=mod_with_files
     )
-    assert "unscoped" not in entries[0]
+    assert "unattributed" not in entries[0]
     assert "scope" not in issues[0]
 
 

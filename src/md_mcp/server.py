@@ -10,6 +10,7 @@ import argparse
 import logging
 import os
 import sys
+from dataclasses import replace
 from typing import Optional
 
 from .analysis.diff_summary import diff_summary
@@ -444,7 +445,7 @@ def build_server(settings: Settings):
         include_edges: bool = True,
         include_nodes: bool = True,
     ) -> dict:
-        """Prereq/mutex DAG for a tag's focuses. detail=summary|ids|full|paths; paths (with focus_ids=[...]) adds prereq chains with estimated days + ai_will_do. Default returns counts/roots/cycles/dangling only."""
+        """Prereq/mutex DAG for a tag's focuses. detail=summary|ids|full|paths; paths (with focus_ids=[...], capped by node_limit) adds prereq chains with estimated days + ai_will_do. Default returns counts/roots/cycles/dangling only."""
         return focus_graph(
             tag,
             settings.mod_root,
@@ -493,7 +494,7 @@ def build_server(settings: Settings):
         include_positions: bool = False,
         limit: int = 300,
     ) -> dict:
-        """Focus tree geometry for a tag or file: resolves relative_position_id chains to absolute x/y; reports collisions, broken chains, bounding box. include_positions=True adds per-focus coordinates."""
+        """Focus tree geometry for a tag or file: resolves relative_position_id chains to absolute x/y; reports collisions, broken chains, bounding box. include_positions=True adds per-focus coordinates. limit caps each list."""
         return focus_layout(
             settings.mod_root,
             focus_index,
@@ -605,5 +606,15 @@ def main() -> None:  # pragma: no cover — entry point
         # the cache up-front via `md-mcp build-index`; the server is meant for the
         # warm path (cache hit, ≈10 ms) and never needs the process pool.
         os.environ.setdefault("MD_MCP_SERIAL_PARSE", "1")
+        # Same reason, one layer out: most mod validators fork a Pool of their
+        # own, so in-process validation hangs the server outright. It stays
+        # available to the CLI and to library callers, just not under mcp.run().
+        if settings.validator_mode != "isolated":
+            logging.warning(
+                "validator_mode=%s is unsafe under the stdio server (forking "
+                "validators deadlock it); using isolated for this run",
+                settings.validator_mode,
+            )
+            settings = replace(settings, validator_mode="isolated")
         mcp = build_server(settings)
         mcp.run()

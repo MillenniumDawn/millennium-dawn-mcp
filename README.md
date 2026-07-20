@@ -40,7 +40,7 @@ md-mcp doctor --mod-root /path/to/Millennium-Dawn
 # mod_root:       /Users/.../Millennium-Dawn
 # vanilla_path:   /Users/.../Hearts of Iron IV
 # cache_dir:      /Users/.../Millennium-Dawn/.md-mcp-cache
-# validator_mode: in_process
+# validator_mode: isolated
 # default_lang:   en
 ```
 
@@ -106,7 +106,7 @@ Full env-var reference:
 | `MD_MOD_ROOT` | Path to the `Millennium-Dawn/` checkout. |
 | `HOI4_PATH` | Path to the vanilla `Hearts of Iron IV/` install (optional). |
 | `MD_MCP_CACHE_DIR` | Override the cache location (use this for read-only checkouts). |
-| `MD_MCP_VALIDATOR_MODE` | `in_process` (default, fast) or `subprocess` (isolated). |
+| `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process` (faster, but deadlocks the server). |
 | `MD_MCP_DEFAULT_LANG` | Default loc language for `resolve_loc` (defaults to `en`). |
 
 Example `~/.config/md-mcp/config.toml`:
@@ -114,7 +114,7 @@ Example `~/.config/md-mcp/config.toml`:
 ```toml
 mod_root      = "/Users/me/Programming/MD/Millennium-Dawn"
 hoi4_path     = "/Users/me/Programming/MD/Hearts of Iron IV"
-validator_mode = "in_process"
+validator_mode = "isolated"
 default_lang   = "en"
 ```
 

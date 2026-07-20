@@ -113,8 +113,8 @@ def run_validators_for_lint(
             continue
 
         raw = result.get("issues", []) or []
+        on_scope, unscoped = [], []
         if wanted is not None:
-            on_scope, unscoped = [], []
             for i in raw:
                 f = (i.get("file") or "").strip()
                 if not f:
@@ -123,9 +123,9 @@ def run_validators_for_lint(
                     unscoped.append(i)
                 elif os.path.normpath(f) in wanted:
                     on_scope.append(i)
-            kept = on_scope + unscoped
         else:
-            on_scope, unscoped, kept = raw, [], raw
+            on_scope = raw
+        kept = on_scope + unscoped
 
         entry = {"name": label, "ok": True, "total": len(on_scope)}
         if wanted is not None:

@@ -76,9 +76,9 @@ def lint_common_mistakes_tool(
             text=True,
             timeout=300,
         )
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "check_common_mistakes.py timed out after 300s"}
-    except Exception as e:
+    except (subprocess.TimeoutExpired, OSError, ValueError) as e:
+        if isinstance(e, subprocess.TimeoutExpired):
+            return {"ok": False, "error": "check_common_mistakes.py timed out after 300s"}
         return {"ok": False, "error": f"Subprocess failed: {e}"}
 
     issues: List[dict] = []
@@ -91,10 +91,14 @@ def lint_common_mistakes_tool(
         file_path = m.group("file")
         if "/" not in file_path and "\\" not in file_path:
             continue
+        try:
+            line_no = int(m.group("line"))
+        except ValueError:
+            continue
         issues.append(
             {
                 "file": file_path,
-                "line": int(m.group("line")),
+                "line": line_no,
                 "message": m.group("msg"),
                 "severity": "warning",
             }
@@ -130,9 +134,9 @@ def review_branch_tool(mod_root: Path, base: str = "main") -> dict:
             text=True,
             timeout=120,
         )
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "review_branch.py timed out after 120s"}
-    except Exception as e:
+    except (subprocess.TimeoutExpired, OSError, ValueError) as e:
+        if isinstance(e, subprocess.TimeoutExpired):
+            return {"ok": False, "error": "review_branch.py timed out after 120s"}
         return {"ok": False, "error": f"Subprocess failed: {e}"}
 
     return {
@@ -162,9 +166,9 @@ def _run_script(
             text=True,
             timeout=timeout,
         )
-    except subprocess.TimeoutExpired:
-        return None, f"{script.name} timed out after {timeout}s"
-    except Exception as e:
+    except (subprocess.TimeoutExpired, OSError, ValueError) as e:
+        if isinstance(e, subprocess.TimeoutExpired):
+            return None, f"{script.name} timed out after {timeout}s"
         return None, f"Subprocess failed: {e}"
     return proc, None
 
@@ -358,13 +362,10 @@ def lint_tool(
         runner = validator_runner or ValidatorRunner(mod_root)
         available = {v.name for v in runner.list()}
         expanded: set = set()
-        has_auto = False
         for v in validators:
-            if v == "auto":
-                has_auto = True
-            elif v == "*":
+            if v == "*":
                 expanded |= available - SLOW_VALIDATORS
-            else:
+            elif v != "auto":
                 expanded.add(v)
         unknown_validators = sorted(expanded - available)
         if unknown_validators:
@@ -375,7 +376,7 @@ def lint_tool(
                     f"Valid: {sorted(available)} plus 'auto' and '*'"
                 ),
             }
-        if has_auto:
+        if "auto" in validators:
             expanded |= set(select_validators(relevant, available))
         validator_names = sorted(expanded)
 

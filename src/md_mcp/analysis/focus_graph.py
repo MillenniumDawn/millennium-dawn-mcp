@@ -182,15 +182,12 @@ def focus_graph(
     return enforce_budget(result, heavy_keys=("nodes", "edges", "cycles"))
 
 
-def _default_cost(c) -> bool:
-    """True if `c` can't be read as a cost and falls back to _DEFAULT_FOCUS_COST."""
-    if c is None:
-        return True
+def _read_cost(c) -> "tuple[float, bool]":
+    """Return (numeric cost, defaulted). defaulted is True when c is missing or not numeric."""
     try:
-        float(c)
+        return float(c), False
     except (TypeError, ValueError):
-        return True
-    return False
+        return _DEFAULT_FOCUS_COST, True
 
 
 def _path_entry(requested: str, by_id: Dict[str, dict], cycle_ids: set) -> dict:
@@ -204,11 +201,7 @@ def _path_entry(requested: str, by_id: Dict[str, dict], cycle_ids: set) -> dict:
     dangling: set = set()
 
     def cost_of(fid: str) -> float:
-        c = by_id[fid].get("cost")
-        try:
-            return float(c) if c is not None else _DEFAULT_FOCUS_COST
-        except (TypeError, ValueError):
-            return _DEFAULT_FOCUS_COST
+        return _read_cost(by_id[fid].get("cost"))[0]
 
     def solve(fid: str, visiting: frozenset) -> Optional[tuple]:
         """Returns (chosen frozenset incl fid, total cost) or None if fid unknown."""
@@ -254,7 +247,7 @@ def _path_entry(requested: str, by_id: Dict[str, dict], cycle_ids: set) -> dict:
 
     chain = sorted(chosen, key=lambda f: (depth_of(f, frozenset()), f))
 
-    defaulted = sum(1 for f in chosen if _default_cost(by_id[f].get("cost")))
+    defaulted = sum(1 for f in chosen if _read_cost(by_id[f].get("cost"))[1])
     entry: dict = {
         "focus": real,
         "found": True,

@@ -38,9 +38,8 @@ def load(mod_root: Optional[str] = None) -> Settings:
     # `hoi4_path` in the config file explicitly.
     vanilla_setting = os.environ.get("HOI4_PATH") or file_cfg.get("hoi4_path")
     if vanilla_setting:
-        v: Optional[Path] = Path(vanilla_setting).expanduser().resolve()
-        if v and not v.is_dir():
-            v = None
+        candidate = Path(vanilla_setting).expanduser().resolve()
+        v: Optional[Path] = candidate if candidate.is_dir() else None
     else:
         v = None
 
@@ -64,7 +63,8 @@ def load(mod_root: Optional[str] = None) -> Settings:
 def _load_file_config() -> dict:
     """Best-effort load of ~/.config/md-mcp/config.toml.
 
-    Uses stdlib tomllib (Python 3.11+); silently falls back to {} on older runtimes.
+    Uses stdlib tomllib (Python 3.11+); silently falls back to {} on older
+    runtimes or any read/parse failure.
     """
     if not CONFIG_PATH.exists():
         return {}
@@ -72,5 +72,8 @@ def _load_file_config() -> dict:
         import tomllib  # type: ignore[import-not-found]
     except ModuleNotFoundError:
         return {}
-    with open(CONFIG_PATH, "rb") as f:
-        return tomllib.load(f)
+    try:
+        with open(CONFIG_PATH, "rb") as f:
+            return tomllib.load(f)
+    except OSError:
+        return {}

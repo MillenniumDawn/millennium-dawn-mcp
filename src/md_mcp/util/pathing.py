@@ -10,7 +10,7 @@ Resolution order (matches plan):
 from __future__ import annotations
 
 import os
-from pathlib import Path
+from pathlib import Path, PurePath
 
 
 class ModRootNotFound(RuntimeError):
@@ -58,15 +58,31 @@ def _looks_like_mod_root(p: Path) -> bool:
 
 
 def resolve_scope_file(relpath: str, mod_root: Path, vanilla_path: Path | None) -> Path | None:
-    """Locate a scope file, falling back to vanilla for files the mod doesn't override."""
-    p = mod_root / relpath
-    if p.exists():
-        return p
-    if vanilla_path is not None:
-        p = vanilla_path / relpath
-        if p.exists():
+    """Locate a scope file, falling back to vanilla for files the mod doesn't override.
+
+    `relpath` is caller-supplied (a tool argument), so it must stay inside the
+    root it resolves against: absolute paths and `..` traversal are rejected
+    rather than read.
+    """
+    for root in (mod_root, vanilla_path):
+        if root is None:
+            continue
+        p = _contained(root, relpath)
+        if p is not None and p.exists():
             return p
     return None
+
+
+def _contained(root: Path, relpath: str) -> Path | None:
+    """`root / relpath`, or None if it escapes `root`."""
+    if PurePath(relpath).is_absolute():
+        return None
+    candidate = (root / relpath).resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError:
+        return None
+    return candidate
 
 
 def find_vanilla_path(mod_root: Path) -> Path | None:

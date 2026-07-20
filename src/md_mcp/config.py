@@ -75,5 +75,7 @@ def _load_file_config() -> dict:
     try:
         with open(CONFIG_PATH, "rb") as f:
             return tomllib.load(f)
-    except OSError:
+    except (OSError, ValueError):
+        # TOMLDecodeError subclasses ValueError, so a malformed config file
+        # degrades to defaults instead of taking the server down at startup.
         return {}

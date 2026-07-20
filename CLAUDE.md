@@ -111,17 +111,26 @@ it for edits, copies, or commits.
 
 `ValidatorRunner` imports `Millennium-Dawn/tools/validation/validate_*.py` and
 reads `validator._issues` — that underscore means it's not a public API. A
-refactor in `Millennium-Dawn/tools` can break us. When the validator runner
-breaks, **fix it in `runner.py` only** (single adapter point) and consider
-whether the change should also tolerate older `Millennium-Dawn` checkouts.
+refactor in `Millennium-Dawn/tools` can break us. The import/read sequence
+lives in two mirrored places: `_shim.py` (`_collect`, the default isolated
+path) and `_run_inprocess` in `runner.py`. **Patch both** and consider whether
+the change should also tolerate older `Millennium-Dawn` checkouts.
 
-If you need to hand the user a workaround, the env-var fallback is:
+`Issue.file` is not uniform: mod-relative path, bare basename, `""`, or the
+literal `"unknown"`, sometimes several within one validator. Anything keying on
+it must go through `IssueAttributor`
+([`validators/attribution.py`](./src/md_mcp/validators/attribution.py)), which
+resolves by shape against the real file list — never compare `issue["file"]` to
+a scope set directly.
+
+To debug a validator failure with a real traceback, run it outside the server:
 
 ```bash
-MD_MCP_VALIDATOR_MODE=subprocess md-mcp serve --mod-root ...
+MD_MCP_VALIDATOR_MODE=in_process md-mcp doctor --mod-root ...
 ```
 
-See [`docs/validators.md`](./docs/validators.md).
+(`in_process` deadlocks under `serve` — see rule 6 — so `serve` overrides it
+back to isolated.) See [`docs/validators.md`](./docs/validators.md).
 
 ### 5. BOM rules on emitted files
 
@@ -141,6 +150,12 @@ sub-command that primes caches before the server starts).
 **If you add work that uses `concurrent.futures` or `multiprocessing`**, make
 sure it's gated on `MD_MCP_SERIAL_PARSE` and never reaches a fork inside
 `mcp.run()`.
+
+The mod validators are the other fork source: 19 of 26 fork a `Pool` from
+`validator_common.py`, which we don't control. That's why `ValidatorRunner`
+defaults to `isolated` mode (runs each validator in a child via `_shim.py`) and
+`serve` forces it — in-process validation hangs the server the same way. Don't
+route validators through the in-process path from inside `mcp.run()`.
 
 ### 7. `Node.children()` is a method, not an attribute
 
@@ -228,7 +243,7 @@ The ISR focus_graph probe in the git history is a useful template.
 | `MD_MOD_ROOT` | Path to the `Millennium-Dawn/` checkout. Required when not auto-discovered. |
 | `HOI4_PATH` | Path to vanilla `Hearts of Iron IV/`. Optional; doubles cold-build time. |
 | `MD_MCP_CACHE_DIR` | Override `.md-mcp-cache/` location (use for read-only checkouts). |
-| `MD_MCP_VALIDATOR_MODE` | `in_process` (default) or `subprocess`. |
+| `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process`. `in_process` is unsafe under `serve`; see rule 6. |
 | `MD_MCP_DEFAULT_LANG` | Default loc language for `resolve_loc` (default `en`). |
 | `MD_MCP_SERIAL_PARSE` | `1` forces serial parsing — auto-set by `md-mcp serve`. |
 

@@ -450,6 +450,7 @@ def lint_tool(
             validator_names,
             staged_only=(mode == "staged" and files is None),
             relevant_set=relevant_set,
+            mod_root=mod_root,
         )
         per_check.extend(v_entries)
         for i in v_issues:

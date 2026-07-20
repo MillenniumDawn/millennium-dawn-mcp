@@ -6,17 +6,29 @@ for the brittle upstream API), and normalises issues into the lint shape.
 
 Validators scan their whole domain regardless of scope; we post-filter issues
 by the relevant-file set and report both on-scope and mod-wide totals so scope
-filtering never silently hides cross-file breakage. Issues a validator emits
-without a `file` field (some carry the filename only in the message) can't be
-scope-matched, so they're surfaced as `unscoped` rather than dropped.
+filtering never silently hides cross-file breakage.
+
+`Issue.file` can't be compared to the scope set directly — it arrives as a
+mod-relative path, a bare basename, `""`, or `"unknown"` depending on which
+upstream check fired. `IssueAttributor` resolves each one to a real path first,
+using the scan directories below to bound the search. What still won't resolve
+is reported as an `unattributed` count plus a small sample, not merged whole: a
+single fileless validator otherwise floods the response with issues that have
+nothing to do with the edit.
 """
 
 from __future__ import annotations
 
 import os
-from typing import List, Optional, Sequence, Set, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from ..validators import SLOW_VALIDATORS, ValidatorRunner
+from ..validators.attribution import IssueAttributor
+
+# How many unattributable issues carry their detail into the response. The rest
+# survive as a count on the check entry.
+UNATTRIBUTED_SAMPLE = 5
 
 # Path-prefix -> validators whose scan domain covers that directory. A file can
 # match several rows; matches union. Derived from the scan globs in
@@ -55,6 +67,20 @@ VALIDATOR_AUTO_MAP: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
 )
 
 
+def _scan_prefixes() -> Dict[str, Tuple[str, ...]]:
+    """Invert VALIDATOR_AUTO_MAP: validator -> the directories it scans."""
+    out: Dict[str, Set[str]] = {}
+    for prefix, vals in VALIDATOR_AUTO_MAP:
+        for v in vals:
+            out.setdefault(v, set()).add(prefix)
+    out.setdefault("localisation", set()).add("localisation/")
+    out.setdefault("style", set()).update({"common/", "events/", "history/"})
+    return {k: tuple(sorted(v)) for k, v in out.items()}
+
+
+SCAN_PREFIXES: Dict[str, Tuple[str, ...]] = _scan_prefixes()
+
+
 def _validators_for_path(path: str) -> Set[str]:
     names: Set[str] = set()
     for prefix, vals in VALIDATOR_AUTO_MAP:
@@ -89,15 +115,20 @@ def run_validators_for_lint(
     *,
     staged_only: bool,
     relevant_set: Optional[set],
+    mod_root: Optional[Path] = None,
 ) -> Tuple[List[dict], List[dict]]:
     """Run validators and normalise output into the lint dispatcher's shape.
 
     Returns (check_entries, issues). Check entries are named `validator:<name>`
-    and carry `total` (on-scope) plus `total_mod_wide` and, when present,
-    `unscoped` (fileless issues that couldn't be scope-matched) when a scope
-    filter is active. Per-validator failures are isolated, same as lint checks.
+    and carry `total` (on-scope, and equal to the issues actually returned for
+    that validator) plus `total_mod_wide` and, when any survive, `unattributed`.
+    Per-validator failures are isolated, same as lint checks.
+
+    Without `mod_root` there's nothing to resolve partial paths against, so
+    matching degrades to exact comparison.
     """
     wanted = {os.path.normpath(f) for f in relevant_set} if relevant_set is not None else None
+    attributor = IssueAttributor(mod_root) if mod_root is not None else None
 
     check_entries: List[dict] = []
     issues_out: List[dict] = []
@@ -113,40 +144,52 @@ def run_validators_for_lint(
             continue
 
         raw = result.get("issues", []) or []
-        on_scope, unscoped = [], []
+        prefixes = SCAN_PREFIXES.get(name, ())
+        on_scope: List[dict] = []
+        unattributed: List[dict] = []
         if wanted is not None:
             for i in raw:
-                f = (i.get("file") or "").strip()
-                if not f:
-                    # No file field to match on — some validators put the filename
-                    # only in the message. Can't scope it, so surface rather than drop.
-                    unscoped.append(i)
-                elif os.path.normpath(f) in wanted:
-                    on_scope.append(i)
+                resolved = _resolve(i, attributor, prefixes)
+                if resolved is None:
+                    unattributed.append(i)
+                elif os.path.normpath(resolved) in wanted:
+                    on_scope.append(dict(i, file=resolved))
         else:
             on_scope = raw
-        kept = on_scope + unscoped
 
         entry = {"name": label, "ok": True, "total": len(on_scope)}
         if wanted is not None:
             entry["total_mod_wide"] = len(raw)
-            if unscoped:
-                entry["unscoped"] = len(unscoped)
+            if unattributed:
+                entry["unattributed"] = len(unattributed)
         check_entries.append(entry)
 
-        for i in kept:
-            norm = {
-                "check": label,
-                "file": i.get("file"),
-                "message": i.get("message"),
-                "severity": i.get("severity", "info"),
-            }
-            if wanted is not None and not (i.get("file") or "").strip():
-                norm["scope"] = "unscoped"
-            if i.get("line"):
-                norm["line"] = i["line"]
-            if i.get("category"):
-                norm["category"] = i["category"]
-            issues_out.append(norm)
+        for i in on_scope:
+            issues_out.append(_normalise(i, label))
+        for i in unattributed[:UNATTRIBUTED_SAMPLE]:
+            issues_out.append({**_normalise(i, label), "scope": "unattributed"})
 
     return check_entries, issues_out
+
+
+def _resolve(
+    issue: dict, attributor: Optional[IssueAttributor], prefixes: Sequence[str]
+) -> Optional[str]:
+    if attributor is not None:
+        return attributor.resolve(issue, scan_prefixes=prefixes)
+    f = (issue.get("file") or "").strip()
+    return f or None
+
+
+def _normalise(issue: dict, label: str) -> dict:
+    norm = {
+        "check": label,
+        "file": issue.get("file"),
+        "message": issue.get("message"),
+        "severity": issue.get("severity", "info"),
+    }
+    if issue.get("line"):
+        norm["line"] = issue["line"]
+    if issue.get("category"):
+        norm["category"] = issue["category"]
+    return norm

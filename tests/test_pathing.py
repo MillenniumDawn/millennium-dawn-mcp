@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
-from md_mcp.util.pathing import ModRootNotFound, find_mod_root, find_vanilla_path
+from md_mcp import config
+from md_mcp.util.pathing import (
+    ModRootNotFound,
+    find_mod_root,
+    find_vanilla_path,
+    resolve_scope_file,
+)
 
 
 def test_explicit_mod_root_wins(fake_mod_root):
@@ -48,3 +56,62 @@ def test_vanilla_path_sibling_auto_detect(tmp_path):
 
 def test_vanilla_path_absent(tmp_path):
     assert find_vanilla_path(tmp_path) is None
+
+
+def test_resolve_scope_file_finds_mod_file(tmp_path):
+    target = tmp_path / "common" / "national_focus" / "a.txt"
+    target.parent.mkdir(parents=True)
+    target.write_text("x", encoding="utf-8")
+    got = resolve_scope_file("common/national_focus/a.txt", tmp_path, None)
+    assert got is not None
+    assert got.read_text(encoding="utf-8") == "x"
+
+
+def test_resolve_scope_file_falls_back_to_vanilla(tmp_path):
+    mod = tmp_path / "mod"
+    vanilla = tmp_path / "vanilla"
+    target = vanilla / "common" / "national_focus" / "v.txt"
+    target.parent.mkdir(parents=True)
+    target.write_text("v", encoding="utf-8")
+    mod.mkdir()
+    got = resolve_scope_file("common/national_focus/v.txt", mod, vanilla)
+    assert got is not None
+    assert got.read_text(encoding="utf-8") == "v"
+
+
+def test_resolve_scope_file_rejects_absolute_path(tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+    mod = tmp_path / "mod"
+    mod.mkdir()
+    assert resolve_scope_file(str(outside), mod, None) is None
+
+
+def test_resolve_scope_file_rejects_parent_traversal(tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+    mod = tmp_path / "mod"
+    mod.mkdir()
+    assert resolve_scope_file("../outside.txt", mod, None) is None
+    assert resolve_scope_file("sub/../../outside.txt", mod, None) is None
+
+
+def test_resolve_scope_file_traversal_not_reachable_via_vanilla(tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+    mod = tmp_path / "mod"
+    vanilla = tmp_path / "vanilla"
+    mod.mkdir()
+    vanilla.mkdir()
+    assert resolve_scope_file("../outside.txt", mod, vanilla) is None
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="tomllib is stdlib from 3.11; older runtimes return {} early"
+)
+def test_malformed_config_file_degrades_to_defaults(tmp_path, monkeypatch):
+    """A broken config.toml must not take the server down at startup."""
+    bad = tmp_path / "config.toml"
+    bad.write_text("this is not = valid = toml", encoding="utf-8")
+    monkeypatch.setattr(config, "CONFIG_PATH", bad)
+    assert config._load_file_config() == {}

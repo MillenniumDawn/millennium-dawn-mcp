@@ -5,13 +5,13 @@ suite. The functions in this module are the per-check wrappers around scripts
 in `Millennium-Dawn/tools/`:
 
   * `tools/linting/check_common_mistakes.py`        — `file:line: message`
-  * `tools/linting/check_braces.py`                 — `<file>:` header + indented issues
-  * `tools/linting/check_basic_style.py`            — `ERROR: ... at <file> Line number: N`
-  * `tools/linting/check_basic_style_2.py`          — `WARNING: ... at <file> Line number: N`
-  * `tools/linting/coding_standards.py`             — `WARNING: ... in <file> Line number: N`
   * `tools/linting/validate_mod_encoding.py`        — per-file `Valid` / `Invalid UTF-8 encoding`
   * `tools/linting/validate_localization_encoding.py` — per-file `Missing UTF-8 BOM`
   * `tools/analysis/review_branch.py`               — freeform diff summary
+
+Brace, style, and coding-standards checks were absorbed into
+`tools/validation/validate_style.py` on the mod side; reach them through the
+`validators=` path (`style`) rather than a per-check wrapper here.
 
 Pattern: subprocess the script, regex-parse its line output, emit structured
 issues. Each wrapper returns `{name, ok, issues, exit_code, stderr_tail, counts}`.
@@ -32,20 +32,6 @@ from ..validators import SLOW_VALIDATORS, ValidatorRunner
 from .lint_validators import run_validators_for_lint, select_validators
 
 _LINT_LINE_RE = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):\s*(?P<msg>.+)$")
-
-# `<file>:` header line followed by indented `Line N, Column N: msg` lines.
-_BRACE_HEADER_RE = re.compile(r"^(?P<file>[^\s].+):$")
-_BRACE_ISSUE_RE = re.compile(r"^\s*Line\s+(?P<line>\d+),\s+Column\s+(?P<col>\d+):\s*(?P<msg>.+)$")
-
-# Unified style/standards format: ERROR|WARNING + at|in + file + Line number: N.
-# Covers check_basic_style.py, check_basic_style_2.py, coding_standards.py.
-_STYLE_LINE_RE = re.compile(
-    r"^(?P<sev>ERROR|WARNING):\s+(?P<msg>.+?)\s+(?:at|in)\s+(?P<file>.+?)"
-    r"\s+Line number:\s+(?P<line>\d+)\s*$"
-)
-_STYLE_BARE_FILE_RE = re.compile(
-    r"^(?P<sev>ERROR|WARNING):\s+(?P<msg>.+?)\s+in file\s+(?P<file>.+?)\s+(?P<detail>\(\s*=.*)$"
-)
 
 # validate_mod_encoding emits one line per file on stdout/stderr.
 _MOD_ENC_OK_RE = re.compile(r"^(?P<file>.+?):\s+Valid UTF-8 encoding\s*$")
@@ -183,139 +169,6 @@ def _run_script(
     return proc, None
 
 
-def lint_braces_tool(
-    mod_root: Path,
-    *,
-    files: List[str],
-    limit: int = 200,
-) -> dict:
-    """Run `tools/linting/check_braces.py` against an explicit file list.
-
-    The script requires file arguments — there's no auto-discovery mode. The
-    output groups issues under `<file>:` headers with indented
-    `Line N, Column N: msg` entries; we re-attach the header file to each issue.
-    """
-    if not files:
-        return {
-            "ok": False,
-            "error": "lint_braces requires files=[...]. The script has no auto-discovery mode.",
-        }
-    script = mod_root / "tools" / "linting" / "check_braces.py"
-    proc, err = _run_script(script, mod_root, files)
-    if proc is None:
-        return {"ok": False, "error": err}
-
-    issues: List[dict] = []
-    current_file: Optional[str] = None
-    combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    for raw in combined.splitlines():
-        line = _ANSI_RE.sub("", raw).rstrip()
-        if not line.strip():
-            continue
-        if line.startswith("Error: File not found"):
-            issues.append(
-                {
-                    "file": line.split(":", 2)[-1].strip(),
-                    "message": "File not found",
-                    "severity": "error",
-                }
-            )
-            continue
-        if line.startswith("❌") or line.startswith("Usage:"):
-            continue
-        m = _BRACE_HEADER_RE.match(line)
-        if m and not line.startswith("  "):
-            current_file = m.group("file").strip()
-            continue
-        m = _BRACE_ISSUE_RE.match(line)
-        if m:
-            issues.append(
-                {
-                    "file": current_file or "<unknown>",
-                    "line": int(m.group("line")),
-                    "col": int(m.group("col")),
-                    "message": m.group("msg").strip(),
-                    "severity": "error",
-                }
-            )
-
-    truncated = len(issues) > limit
-    return enforce_budget(
-        {
-            "ok": True,
-            "total": len(issues),
-            "returned": min(limit, len(issues)),
-            "truncated": truncated,
-            "exit_code": proc.returncode,
-            "stderr_tail": (proc.stderr or "")[-1000:],
-            "issues": issues[:limit],
-        },
-        heavy_keys=("issues",),
-    )
-
-
-def lint_basic_style_tool(
-    mod_root: Path,
-    *,
-    mode: str = "staged",
-    files: Optional[List[str]] = None,
-    limit: int = 200,
-) -> dict:
-    """Run `tools/linting/check_basic_style.py` (bracket / paren balance).
-
-    Args:
-        mode  — `staged` (only git-staged files; fast) or `all` (full scan)
-        files — explicit file list; takes precedence over `mode`
-    """
-    script = mod_root / "tools" / "linting" / "check_basic_style.py"
-    args: List[str] = list(files) if files else ["--mode", mode]
-    proc, err = _run_script(script, mod_root, args)
-    if proc is None:
-        return {"ok": False, "error": err}
-
-    issues: List[dict] = []
-    combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    for raw in combined.splitlines():
-        line = _ANSI_RE.sub("", raw).rstrip()
-        if not line.strip() or "[timer]" in line:
-            continue
-        m = _STYLE_LINE_RE.match(line)
-        if m:
-            issues.append(
-                {
-                    "file": m.group("file").strip(),
-                    "line": int(m.group("line")),
-                    "message": m.group("msg").strip(),
-                    "severity": "error" if m.group("sev") == "ERROR" else "warning",
-                }
-            )
-            continue
-        m = _STYLE_BARE_FILE_RE.match(line)
-        if m:
-            issues.append(
-                {
-                    "file": m.group("file").strip(),
-                    "message": f"{m.group('msg').strip()} {m.group('detail').strip()}",
-                    "severity": "error" if m.group("sev") == "ERROR" else "warning",
-                }
-            )
-
-    truncated = len(issues) > limit
-    return enforce_budget(
-        {
-            "ok": True,
-            "mode": "files" if files else mode,
-            "total": len(issues),
-            "returned": min(limit, len(issues)),
-            "truncated": truncated,
-            "exit_code": proc.returncode,
-            "stderr_tail": (proc.stderr or "")[-1000:],
-            "issues": issues[:limit],
-        },
-        heavy_keys=("issues",),
-    )
-
-
 def lint_mod_encoding_tool(
     mod_root: Path,
     *,
@@ -364,76 +217,6 @@ def lint_mod_encoding_tool(
         {
             "ok": True,
             "checked": len(checked) + len(issues),
-            "total": len(issues),
-            "returned": min(limit, len(issues)),
-            "truncated": truncated,
-            "exit_code": proc.returncode,
-            "stderr_tail": (proc.stderr or "")[-1000:],
-            "issues": issues[:limit],
-        },
-        heavy_keys=("issues",),
-    )
-
-
-def lint_basic_style_2_tool(
-    mod_root: Path,
-    *,
-    mode: str = "staged",
-    files: Optional[List[str]] = None,
-    limit: int = 200,
-) -> dict:
-    """Run `tools/linting/check_basic_style_2.py` (secondary style: brace spacing etc.).
-
-    Emits `WARNING:` lines with the same `at <file> Line number: N` shape as
-    `check_basic_style.py`. Manual-stage in pre-commit but cheap enough to
-    include in the unified lint pass.
-    """
-    script = mod_root / "tools" / "linting" / "check_basic_style_2.py"
-    args: List[str] = list(files) if files else ["--mode", mode]
-    proc, err = _run_script(script, mod_root, args)
-    if proc is None:
-        return {"ok": False, "error": err}
-
-    issues = _parse_style_lines((proc.stdout or "") + "\n" + (proc.stderr or ""))
-    truncated = len(issues) > limit
-    return enforce_budget(
-        {
-            "ok": True,
-            "mode": "files" if files else mode,
-            "total": len(issues),
-            "returned": min(limit, len(issues)),
-            "truncated": truncated,
-            "exit_code": proc.returncode,
-            "stderr_tail": (proc.stderr or "")[-1000:],
-            "issues": issues[:limit],
-        },
-        heavy_keys=("issues",),
-    )
-
-
-def lint_coding_standards_tool(
-    mod_root: Path,
-    *,
-    mode: str = "staged",
-    limit: int = 200,
-) -> dict:
-    """Run `tools/linting/coding_standards.py` (focus-ID format, news_event format, etc.).
-
-    The script only accepts `--mode {staged,all}` — no per-file invocation,
-    so `files=` isn't supported here. Emits `WARNING: ... in <file> Line
-    number: N`.
-    """
-    script = mod_root / "tools" / "linting" / "coding_standards.py"
-    proc, err = _run_script(script, mod_root, ["--mode", mode])
-    if proc is None:
-        return {"ok": False, "error": err}
-
-    issues = _parse_style_lines((proc.stdout or "") + "\n" + (proc.stderr or ""))
-    truncated = len(issues) > limit
-    return enforce_budget(
-        {
-            "ok": True,
-            "mode": mode,
             "total": len(issues),
             "returned": min(limit, len(issues)),
             "truncated": truncated,
@@ -494,52 +277,14 @@ def lint_loc_encoding_tool(
     )
 
 
-def _parse_style_lines(text: str) -> List[dict]:
-    """Shared parser for the ERROR|WARNING + at|in style format."""
-    issues: List[dict] = []
-    for raw in text.splitlines():
-        line = _ANSI_RE.sub("", raw).rstrip()
-        if not line.strip() or "[timer]" in line:
-            continue
-        m = _STYLE_LINE_RE.match(line)
-        if m:
-            issues.append(
-                {
-                    "file": m.group("file").strip(),
-                    "line": int(m.group("line")),
-                    "message": m.group("msg").strip(),
-                    "severity": "error" if m.group("sev") == "ERROR" else "warning",
-                }
-            )
-            continue
-        m = _STYLE_BARE_FILE_RE.match(line)
-        if m:
-            issues.append(
-                {
-                    "file": m.group("file").strip(),
-                    "message": f"{m.group('msg').strip()} {m.group('detail').strip()}",
-                    "severity": "error" if m.group("sev") == "ERROR" else "warning",
-                }
-            )
-    return issues
-
-
 # ---------------------------------------------------------------------------
 # Unified lint dispatcher
 # ---------------------------------------------------------------------------
-
-# Pre-commit excludes these from .txt-pattern hooks (matches the patterns in
-# Millennium-Dawn/.pre-commit-config.yaml line ~126).
-_TXT_LINT_EXCLUDES_RE = re.compile(r"(?:^|/)(Changelog\.txt|AUTHORS\.txt|descriptions[^/]*\.txt)$")
 
 _VALID_MODES: tuple[str, ...] = ("changed", "staged", "all")
 
 _ALL_CHECKS: tuple[str, ...] = (
     "common_mistakes",
-    "braces",
-    "basic_style",
-    "basic_style_2",
-    "coding_standards",
     "mod_encoding",
     "loc_encoding",
 )
@@ -635,17 +380,12 @@ def lint_tool(
         validator_names = sorted(expanded)
 
     if relevant is not None:
-        txt_files: Optional[List[str]] = [f for f in relevant if _is_lintable_txt(f)]
         mod_files: Optional[List[str]] = [f for f in relevant if f.endswith(".mod")]
         loc_files: Optional[List[str]] = [
             f for f in relevant if f.startswith("localisation/english/") and f.endswith(".yml")
         ]
     else:
-        # mode=all: braces still needs a file list (script has no auto-discovery);
-        # mod_encoding + loc_encoding auto-discover when files=None.
-        txt_files = (
-            _select_files(mod_root, "all", None, _is_lintable_txt) if "braces" in selected else None
-        )
+        # mode=all: mod_encoding + loc_encoding auto-discover when files=None.
         mod_files = None
         loc_files = None
 
@@ -663,46 +403,12 @@ def lint_tool(
             return _skipped()
         return runner()
 
-    def _run_coding_standards() -> dict:
-        # The script only accepts --mode {staged,all}. When the user wants a
-        # specific subset (mode=changed, mode=staged, or files=), we run
-        # --mode all and post-filter issues by relevant_set. For mode=all,
-        # no filter.
-        if relevant_set is not None and not any(f.endswith(".txt") for f in relevant_set):
-            # The script only reports on .txt code files; skip the full scan
-            # when nothing in scope could surface.
-            return _skipped()
-        if relevant_set is None:
-            return lint_coding_standards_tool(mod_root, mode="all")
-        if mode == "staged" and files is None:
-            # Fast path: the script has a native --mode staged.
-            return lint_coding_standards_tool(mod_root, mode="staged")
-        result = lint_coding_standards_tool(mod_root, mode="all")
-        if not result.get("ok"):
-            return result
-        kept = [i for i in (result.get("issues") or []) if i.get("file") in relevant_set]
-        return {**result, "issues": kept, "total": len(kept)}
-
     runners: Dict[str, Callable[[], dict]] = {
         "common_mistakes": lambda: lint_common_mistakes_tool(
             mod_root,
             mode="all" if relevant is None else "staged",
             files=relevant,
         ),
-        "braces": lambda: _maybe(
-            txt_files, lambda: lint_braces_tool(mod_root, files=txt_files or [])
-        ),
-        "basic_style": lambda: lint_basic_style_tool(
-            mod_root,
-            mode="all" if relevant is None else "staged",
-            files=relevant,
-        ),
-        "basic_style_2": lambda: lint_basic_style_2_tool(
-            mod_root,
-            mode="all" if relevant is None else "staged",
-            files=relevant,
-        ),
-        "coding_standards": _run_coding_standards,
         "mod_encoding": lambda: _maybe(
             mod_files, lambda: lint_mod_encoding_tool(mod_root, files=mod_files)
         ),
@@ -772,10 +478,6 @@ def lint_tool(
     return enforce_budget(summary, heavy_keys=("issues",))
 
 
-def _is_lintable_txt(path: str) -> bool:
-    return path.endswith(".txt") and not _TXT_LINT_EXCLUDES_RE.search(path)
-
-
 def _staged_files(mod_root: Path) -> List[str]:
     """Files in the git index (staged for commit)."""
     try:
@@ -838,36 +540,3 @@ def _changed_files(mod_root: Path) -> List[str]:
             seen.add(path)
             files.append(path)
     return files
-
-
-def _select_files(
-    mod_root: Path,
-    mode: str,
-    explicit: Optional[List[str]],
-    predicate: Callable[[str], bool],
-) -> List[str]:
-    """Resolve which files a given check should run against.
-
-    Precedence: explicit `files=` → mode-resolved set → all matching files
-    under mod_root (slow path, only when `mode=all`).
-    """
-    if explicit is not None:
-        return [f for f in explicit if predicate(f)]
-    if mode == "changed":
-        return [f for f in _changed_files(mod_root) if predicate(f)]
-    if mode == "staged":
-        return [f for f in _staged_files(mod_root) if predicate(f)]
-    # mode == "all" — brute scan. Capped at 5000 to avoid pathological cases.
-    out: List[str] = []
-    for p in mod_root.rglob("*"):
-        if not p.is_file():
-            continue
-        try:
-            rel = str(p.relative_to(mod_root))
-        except ValueError:
-            continue
-        if predicate(rel):
-            out.append(rel)
-            if len(out) >= 5000:
-                break
-    return out

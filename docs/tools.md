@@ -150,7 +150,7 @@ Enumerate available validators with their titles.
 
 ### `lint(mode?, files?, checks?, validators?, severity_min?, limit?, counts_only?) -> dict`
 
-Run the **full linting suite**. Wraps seven `Millennium-Dawn/tools/linting/`
+Run the **full linting suite**. Wraps three `Millennium-Dawn/tools/linting/`
 scripts behind one tool — the one-stop-shop for "check this code's quality."
 Opt in with `validators=` to fold mod validators into the same call.
 
@@ -159,17 +159,17 @@ Opt in with `validators=` to fold mod validators into the same call.
   - `"staged"` = only files in the git index — matches pre-commit's view.
   - `"all"` = brute scan every matching file under the mod root. Slow; use when you want a clean baseline.
 - **`files=[...]`** — explicit mod-relative paths. Overrides `mode`. Each check
-  filters this list by its own file-pattern (e.g. braces ignores `.yml`).
+  filters this list by its own file-pattern (e.g. `mod_encoding` only looks at `.mod`).
 - **`checks=[...]`** — subset of:
   - `common_mistakes` (`check_common_mistakes.py` — threat scale, scope, modifiers)
-  - `braces` (`check_braces.py` — unmatched `{` / `}`)
-  - `basic_style` (`check_basic_style.py` — bracket/paren balance)
-  - `basic_style_2` (`check_basic_style_2.py` — missing spaces around braces)
-  - `coding_standards` (`coding_standards.py` — focus-ID format, news_event format)
   - `mod_encoding` (`validate_mod_encoding.py` — `.mod` UTF-8 validity)
   - `loc_encoding` (`validate_localization_encoding.py` — English loc YAML BOM)
 
-  Omit to run all seven.
+  Omit to run all three.
+
+  Brace matching, basic style, and coding standards are no longer separate
+  checks — they were absorbed into `tools/validation/validate_style.py` on the
+  mod side. Reach them with `validators=["style"]`, not a `checks=` entry.
 - **`validators=[...]`** — also run mod validators (`tools/validation/`) and
   merge their issues into the same response. Off by default because validators
   scan their whole domain (seconds, not milliseconds).
@@ -197,19 +197,19 @@ Returns:
 {
   "ok": true,
   "mode": "staged",
-  "checks_run": ["common_mistakes", "braces", ...],
+  "checks_run": ["common_mistakes", "mod_encoding", ...],
   "validators_run": ["focus_tree", "modifiers"],
-  "counts": { "error": 3, "warning": 12, "info": 0 },
-  "issues_total_after_filter": 15,
+  "counts": { "error": 3, "warning": 14, "info": 0 },
+  "issues_total_after_filter": 17,
   "truncated": false,
   "checks": [
-    { "name": "common_mistakes", "ok": true, "total": 0, "exit_code": 0 },
-    { "name": "braces", "ok": true, "total": 3, "exit_code": 1 },
+    { "name": "common_mistakes", "ok": true, "total": 12, "exit_code": 1 },
+    { "name": "loc_encoding", "ok": true, "total": 3, "exit_code": 1 },
     { "name": "validator:focus_tree", "ok": true, "total": 2, "total_mod_wide": 37 },
     ...
   ],
   "issues": [
-    { "check": "braces", "file": "...", "line": 42, "col": 1, "message": "...", "severity": "error" },
+    { "check": "common_mistakes", "file": "...", "line": 42, "message": "...", "severity": "warning" },
     { "check": "validator:focus_tree", "file": "...", "line": 7, "message": "...",
       "severity": "warning", "category": "missing-can-staff-guard" },
     ...
@@ -220,21 +220,13 @@ Returns:
 `validators_run` only appears when `validators=` was requested. With
 `["auto"]` and a clean tree it's `[]` and no validator runs.
 
-Per-check failures are **isolated** — if `tools/linting/check_braces.py` is
-missing or crashes, the corresponding entry in `checks` has `ok: false` and
+Per-check failures are **isolated** — if `tools/linting/check_common_mistakes.py`
+is missing or crashes, the corresponding entry in `checks` has `ok: false` and
 an `error` field, but the rest of the run still completes.
 
-When a check's filtered file list is empty (e.g. `braces` in `mode="changed"`
-with no modified `.txt` files), the dispatcher skips that check entirely and
-reports it with `skipped: "no files in scope"`.
-
-**Special case for `coding_standards`** — the underlying script only accepts
-`--mode {staged,all}`, no per-file invocation. So when `mode="changed"` or
-`files=[...]`, the dispatcher runs the script in `--mode all` and post-filters
-the issues by the relevant file set. This is correct but slower than the
-other checks (the script always scans every file under `common/`). When the
-scope contains no `.txt` files at all, the scan is skipped entirely — the
-script only reports on `.txt` code files.
+When a check's filtered file list is empty (e.g. `mod_encoding` in
+`mode="changed"` with no modified `.mod` files), the dispatcher skips that
+check entirely and reports it with `skipped: "no files in scope"`.
 
 **Tip:** start with `lint(counts_only=True)` to see which checks fired, then
 re-call with `checks=["<one>"]` to get the full issue list for just that check.

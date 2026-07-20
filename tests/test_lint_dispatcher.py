@@ -17,8 +17,6 @@ from md_mcp.tools.linting_tools import (
     _ALL_CHECKS,
     _changed_files,
     _staged_files,
-    lint_basic_style_2_tool,
-    lint_coding_standards_tool,
     lint_loc_encoding_tool,
     lint_tool,
 )
@@ -36,10 +34,6 @@ def _seed_all_scripts(root: Path, body_map: dict[str, str]) -> None:
     """Create stub scripts for every linter, defaulting to clean (exit 0, no output)."""
     defaults = {
         "tools/linting/check_common_mistakes.py": "import sys\nsys.exit(0)\n",
-        "tools/linting/check_braces.py": "import sys\nsys.exit(0)\n",
-        "tools/linting/check_basic_style.py": "import sys\nsys.exit(0)\n",
-        "tools/linting/check_basic_style_2.py": "import sys\nsys.exit(0)\n",
-        "tools/linting/coding_standards.py": "import sys\nsys.exit(0)\n",
         "tools/linting/validate_mod_encoding.py": "import sys\nsys.exit(0)\n",
         "tools/linting/validate_localization_encoding.py": "import sys\nsys.exit(0)\n",
     }
@@ -55,51 +49,12 @@ def _seed_all_scripts(root: Path, body_map: dict[str, str]) -> None:
 
 def test_secondary_wrapper_signatures():
     cases: list[tuple[Callable, tuple[str, ...]]] = [
-        (lint_basic_style_2_tool, ("mod_root", "mode", "files", "limit")),
-        (lint_coding_standards_tool, ("mod_root", "mode", "limit")),
         (lint_loc_encoding_tool, ("mod_root", "files", "limit")),
     ]
     for fn, required in cases:
         params = inspect.signature(fn).parameters
         for p in required:
             assert p in params, f"{fn.__name__} missing param: {p}"
-
-
-def test_basic_style_2_parses_warning_lines(tmp_path):
-    _make_script(
-        tmp_path,
-        "tools/linting/check_basic_style_2.py",
-        """import sys
-print("Validating Basic Style - Secondary Check (Mode: all)")
-print("WARNING: Missing a space before or after open brace at /tmp/x.txt Line number: 1")
-print("WARNING: Missing a space before or after close brace at /tmp/x.txt Line number: 2")
-sys.exit(1)
-""",
-    )
-    out = lint_basic_style_2_tool(tmp_path, mode="all")
-    assert out["ok"] is True
-    assert out["total"] == 2
-    assert all(i["severity"] == "warning" for i in out["issues"])
-    assert out["issues"][0]["line"] == 1
-
-
-def test_coding_standards_parses_warning_in_file(tmp_path):
-    _make_script(
-        tmp_path,
-        "tools/linting/coding_standards.py",
-        """import sys
-print("Validating Coding Standards (Mode: all)")
-print("WARNING: BadID must be TAG_focus_name in /tmp/x.txt Line number: 5")
-sys.exit(0)
-""",
-    )
-    out = lint_coding_standards_tool(tmp_path, mode="all")
-    assert out["ok"] is True
-    assert out["total"] == 1
-    issue = out["issues"][0]
-    assert issue["severity"] == "warning"
-    assert issue["line"] == 5
-    assert "BadID" in issue["message"]
 
 
 def test_loc_encoding_parses_missing_bom(tmp_path):
@@ -143,56 +98,58 @@ def test_lint_rejects_unknown_check(tmp_path):
 
 def test_lint_subset_only_runs_requested(tmp_path):
     _seed_all_scripts(tmp_path, {})
-    out = lint_tool(tmp_path, checks=["braces", "coding_standards"], mode="all")
+    out = lint_tool(tmp_path, checks=["common_mistakes", "loc_encoding"], mode="all")
     assert out["ok"] is True
     ran = {c["name"] for c in out["checks"]}
-    assert ran == {"braces", "coding_standards"}
+    assert ran == {"common_mistakes", "loc_encoding"}
 
 
 def test_lint_aggregates_issues_from_multiple_checks(tmp_path):
     _seed_all_scripts(
         tmp_path,
         {
-            "tools/linting/check_braces.py": """import sys
-print("a.txt:", file=sys.stderr)
-print("  Line 1, Column 1: Opening brace '{' without matching closing brace", file=sys.stderr)
+            "tools/linting/check_common_mistakes.py": """import sys
+print("sub/a.txt:1: is_in_faction = TAG is not valid")
 sys.exit(1)
 """,
-            "tools/linting/check_basic_style_2.py": """import sys
-print("WARNING: Missing space at a.txt Line number: 1")
-sys.exit(1)
-""",
-        },
-    )
-    out = lint_tool(tmp_path, checks=["braces", "basic_style_2"], files=["a.txt"])
-    assert out["ok"] is True
-    assert out["counts"]["error"] == 1
-    assert out["counts"]["warning"] == 1
-    # Each issue is tagged with which check produced it.
-    by_check = {i["check"] for i in out["issues"]}
-    assert by_check == {"braces", "basic_style_2"}
-
-
-def test_lint_severity_floor_filters_warnings(tmp_path):
-    _seed_all_scripts(
-        tmp_path,
-        {
-            "tools/linting/check_basic_style_2.py": """import sys
-print("WARNING: foo at a.txt Line number: 1")
-print("WARNING: bar at a.txt Line number: 2")
-sys.exit(1)
-""",
-            "tools/linting/check_braces.py": """import sys
-print("a.txt:", file=sys.stderr)
-print("  Line 9, Column 1: stray brace", file=sys.stderr)
+            "tools/linting/validate_mod_encoding.py": """import sys
+print("descriptor.mod: Invalid UTF-8 encoding - byte 0x80 at position 3", file=sys.stderr)
 sys.exit(1)
 """,
         },
     )
     out = lint_tool(
         tmp_path,
-        checks=["braces", "basic_style_2"],
-        files=["a.txt"],
+        checks=["common_mistakes", "mod_encoding"],
+        files=["sub/a.txt", "descriptor.mod"],
+    )
+    assert out["ok"] is True
+    assert out["counts"]["error"] == 1
+    assert out["counts"]["warning"] == 1
+    # Each issue is tagged with which check produced it.
+    by_check = {i["check"] for i in out["issues"]}
+    assert by_check == {"common_mistakes", "mod_encoding"}
+
+
+def test_lint_severity_floor_filters_warnings(tmp_path):
+    _seed_all_scripts(
+        tmp_path,
+        {
+            "tools/linting/check_common_mistakes.py": """import sys
+print("sub/a.txt:1: foo")
+print("sub/a.txt:2: bar")
+sys.exit(1)
+""",
+            "tools/linting/validate_mod_encoding.py": """import sys
+print("descriptor.mod: Invalid UTF-8 encoding - byte 0x80 at position 3", file=sys.stderr)
+sys.exit(1)
+""",
+        },
+    )
+    out = lint_tool(
+        tmp_path,
+        checks=["common_mistakes", "mod_encoding"],
+        files=["sub/a.txt", "descriptor.mod"],
         severity_min="error",
     )
     # Counts are pre-filter, issues are post-filter.
@@ -206,30 +163,30 @@ def test_lint_counts_only_omits_issues(tmp_path):
     _seed_all_scripts(
         tmp_path,
         {
-            "tools/linting/check_basic_style_2.py": """import sys
-print("WARNING: foo at a.txt Line number: 1")
+            "tools/linting/check_common_mistakes.py": """import sys
+print("sub/a.txt:1: foo")
 sys.exit(1)
 """,
         },
     )
-    out = lint_tool(tmp_path, checks=["basic_style_2"], files=["a.txt"], counts_only=True)
+    out = lint_tool(tmp_path, checks=["common_mistakes"], files=["sub/a.txt"], counts_only=True)
     assert out["ok"] is True
     assert "issues" not in out
     assert out["counts"]["warning"] == 1
 
 
 def test_lint_limit_truncates(tmp_path):
-    body = "\n".join(f'print("WARNING: msg{i} at a.txt Line number: {i}")' for i in range(1, 21))
+    body = "\n".join(f'print("sub/a.txt:{i}: msg{i}")' for i in range(1, 21))
     _seed_all_scripts(
         tmp_path,
         {
-            "tools/linting/check_basic_style_2.py": f"import sys\n{body}\nsys.exit(1)\n",
+            "tools/linting/check_common_mistakes.py": f"import sys\n{body}\nsys.exit(1)\n",
         },
     )
     out = lint_tool(
         tmp_path,
-        checks=["basic_style_2"],
-        files=["a.txt"],
+        checks=["common_mistakes"],
+        files=["sub/a.txt"],
         limit=5,
     )
     assert out["issues_total_after_filter"] == 20
@@ -240,17 +197,16 @@ def test_lint_limit_truncates(tmp_path):
 def test_lint_per_check_failure_isolated(tmp_path):
     """One missing script doesn't bring down the rest of the run.
 
-    `basic_style` always invokes (script-side --mode all auto-discovers).
-    `coding_standards` always invokes. Delete one and confirm the other still
-    completes ok.
+    In `mode=all` both checks always invoke (script-side auto-discovery).
+    Delete one script and confirm the other still completes ok.
     """
     _seed_all_scripts(tmp_path, {})
-    (tmp_path / "tools" / "linting" / "coding_standards.py").unlink()
-    out = lint_tool(tmp_path, checks=["coding_standards", "basic_style"], mode="all")
+    (tmp_path / "tools" / "linting" / "check_common_mistakes.py").unlink()
+    out = lint_tool(tmp_path, checks=["common_mistakes", "loc_encoding"], mode="all")
     assert out["ok"] is True  # overall pass
     by_name = {c["name"]: c for c in out["checks"]}
-    assert by_name["coding_standards"]["ok"] is False
-    assert by_name["basic_style"]["ok"] is True
+    assert by_name["common_mistakes"]["ok"] is False
+    assert by_name["loc_encoding"]["ok"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -329,47 +285,24 @@ def test_lint_default_mode_is_changed(tmp_path):
     _seed_all_scripts(
         tmp_path,
         {
-            "tools/linting/check_basic_style.py": """import sys
+            "tools/linting/check_common_mistakes.py": """import sys
 # Echo each arg back as a parseable issue line so the dispatcher captures it.
 for f in sys.argv[1:]:
     if f.startswith("--"):
         continue
-    print(f"ERROR: saw arg at {f} Line number: 1")
+    print(f"{f}:1: saw arg")
 sys.exit(0)
 """,
         },
     )
     # Untracked .txt — should be picked up by `changed`.
-    (tmp_path / "new.txt").write_text("focus = { }\n")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "new.txt").write_text("focus = { }\n")
 
-    out = lint_tool(tmp_path, checks=["basic_style"])  # no mode → default
+    out = lint_tool(tmp_path, checks=["common_mistakes"])  # no mode → default
     assert out["mode"] == "changed"
     files_in_issues = {i.get("file") for i in out["issues"]}
-    assert "new.txt" in files_in_issues
-
-
-def test_lint_changed_mode_filters_coding_standards_postfilter(tmp_path):
-    """coding_standards has no files= API; issues are post-filtered by the changed set."""
-    _init_repo(tmp_path)
-    _seed_all_scripts(
-        tmp_path,
-        {
-            # Always emit two warnings — one for a "changed" file, one for an unrelated file.
-            # The dispatcher should keep only the changed one in mode=changed.
-            "tools/linting/coding_standards.py": """import sys
-print("Validating Coding Standards (Mode: all)")
-print("WARNING: focus format error in mine.txt Line number: 1")
-print("WARNING: focus format error in not-mine.txt Line number: 1")
-sys.exit(0)
-""",
-        },
-    )
-    (tmp_path / "mine.txt").write_text("focus = { }\n")
-
-    out = lint_tool(tmp_path, checks=["coding_standards"])
-    assert out["mode"] == "changed"
-    files_in_issues = {i.get("file") for i in out["issues"]}
-    assert files_in_issues == {"mine.txt"}
+    assert "sub/new.txt" in files_in_issues
 
 
 def test_lint_changed_mode_no_changes_is_clean_run(tmp_path):
@@ -389,26 +322,16 @@ def test_lint_invalid_mode_rejected(tmp_path):
     assert "Invalid mode" in out["error"]
 
 
-def test_lint_changed_skips_coding_standards_without_txt(tmp_path):
-    """No .txt in scope -> coding_standards never runs its full-common scan."""
+def test_lint_skips_mod_encoding_without_mod_files(tmp_path):
+    """No .mod file in scope -> mod_encoding is skipped rather than auto-discovering."""
     _init_repo(tmp_path)
-    _seed_all_scripts(
-        tmp_path,
-        {
-            # Emits a warning for a file that IS in the changed set, so the
-            # post-filter alone would keep it; only the .txt guard drops it.
-            "tools/linting/coding_standards.py": """import sys
-print("Validating Coding Standards (Mode: all)")
-print("WARNING: bad in localisation/english/x_l_english.yml Line number: 1")
-sys.exit(0)
-""",
-        },
-    )
+    _seed_all_scripts(tmp_path, {})
+    (tmp_path / "descriptor.mod").write_text('name = "x"\n')
     loc = tmp_path / "localisation" / "english" / "x_l_english.yml"
     loc.parent.mkdir(parents=True)
     loc.write_text('l_english:\n x:0 "y"\n')
 
     out = lint_tool(tmp_path, files=["localisation/english/x_l_english.yml"])
-    cs = next(c for c in out["checks"] if c["name"] == "coding_standards")
-    assert cs["total"] == 0
-    assert not [i for i in out["issues"] if i.get("check") == "coding_standards"]
+    me = next(c for c in out["checks"] if c["name"] == "mod_encoding")
+    assert me["skipped"] == "no files in scope"
+    assert me["total"] == 0

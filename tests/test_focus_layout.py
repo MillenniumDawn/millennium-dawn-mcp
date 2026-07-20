@@ -120,3 +120,67 @@ def test_missing_file_reported(tmp_path):
     assert out["ok"] is True
     assert out["focus_count"] == 0
     assert out["parse_errors"][0]["error"] == "not found"
+
+
+class _StubIndex:
+    """Stands in for FocusIndex.files_for_tag without building a real index."""
+
+    def __init__(self, files):
+        self._files = files
+
+    def files_for_tag(self, tag):
+        return self._files
+
+
+def test_duplicate_id_does_not_collide_with_itself(tmp_path):
+    """A focus defined in two scope files must not be reported as its own collision."""
+    body = "focus_tree = {\n    focus = { id = TST_dup x = 1 y = 1 }\n}\n"
+    _write_tree(tmp_path, body, name="TST_one.txt")
+    _write_tree(tmp_path, body, name="TST_two.txt")
+    idx = _StubIndex(["common/national_focus/TST_one.txt", "common/national_focus/TST_two.txt"])
+
+    out = focus_layout(tmp_path, idx, tag="TST", include_positions=True)
+
+    assert out["focus_count"] == 1
+    assert out["collision_count"] == 0
+    assert out["positions_total"] == 1
+    # The duplicate definition is still surfaced, just not as a collision.
+    assert out["duplicate_definitions"] == [
+        {
+            "id": "TST_dup",
+            "files": ["common/national_focus/TST_one.txt", "common/national_focus/TST_two.txt"],
+        }
+    ]
+
+
+def test_broken_parent_reported_once_not_per_descendant(tmp_path):
+    """One unresolvable parent must yield one chain error, not one per dependent."""
+    kids = "\n".join(
+        f"    focus = {{ id = TST_kid{i} x = 1 y = {i} relative_position_id = TST_parent }}"
+        for i in range(1, 7)
+    )
+    body = f"focus_tree = {{\n    focus = {{ id = TST_parent }}\n{kids}\n}}\n"
+    rel = _write_tree(tmp_path, body, name="TST_hub.txt")
+
+    out = focus_layout(tmp_path, None, file=rel)
+
+    missing_xy = [e for e in out["chain_errors"] if e["error"] == "missing_xy"]
+    assert missing_xy == [
+        {"focus": "TST_parent", "error": "missing_xy", "file": "common/national_focus/TST_hub.txt"}
+    ]
+    assert out["resolved_count"] == 0
+
+
+def test_missing_relative_still_reported_per_referrer(tmp_path):
+    """Each focus pointing at an absent id has its own broken link — keep them all."""
+    kids = "\n".join(
+        f"    focus = {{ id = TST_k{i} x = 1 y = {i} relative_position_id = TST_ghost }}"
+        for i in range(1, 4)
+    )
+    body = f"focus_tree = {{\n{kids}\n}}\n"
+    rel = _write_tree(tmp_path, body, name="TST_ghost.txt")
+
+    out = focus_layout(tmp_path, None, file=rel)
+
+    missing = sorted(e["focus"] for e in out["chain_errors"] if e["error"] == "missing_relative")
+    assert missing == ["TST_k1", "TST_k2", "TST_k3"]

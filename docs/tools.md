@@ -333,9 +333,13 @@ Focus tree geometry. Resolves every focus to absolute grid coordinates by
 walking `relative_position_id` chains, then reports what only shows up in-game
 otherwise:
 
-- **`collisions`** — two+ focuses at the same resolved cell.
+- **`collisions`** — two+ distinct focuses at the same resolved cell.
 - **`chain_errors`** — `missing_relative` (target doesn't exist),
-  `cyclic_relative`, `missing_xy`.
+  `cyclic_relative`, `missing_xy`. `missing_relative` is reported per referring
+  focus; an unresolvable focus is reported once, not once per descendant.
+- **`duplicate_definitions`** — present only when the same focus id is defined
+  in more than one scope file, as `{id, files}`. The first definition wins for
+  position resolution.
 - **`bounding_box`** — the tree's extent.
 - **`include_positions=True`** — per-focus `{id, x, y, relative_to}` (capped by
   `limit`), for picking a free slot near a branch.

@@ -16,7 +16,7 @@ Ignored in v1: dynamic `offset = { ... }` blocks (trigger-conditional shifts).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from ..indexes import FocusIndex
 from ..paradox import parse_string
@@ -38,10 +38,11 @@ def focus_layout(
 ) -> dict:
     """Resolve the focus grid for a tag or file.
 
-    Returns collisions (two+ focuses at the same resolved cell), chain errors
-    (missing/cyclic `relative_position_id`, missing x/y), and the bounding box.
-    `include_positions=True` adds the per-focus resolved coordinates (capped by
-    `limit`).
+    Returns collisions (two+ distinct focuses at the same resolved cell), chain
+    errors (missing/cyclic `relative_position_id`, missing x/y), and the
+    bounding box. `include_positions=True` adds the per-focus resolved
+    coordinates (capped by `limit`). An id defined in more than one scope file
+    is reported once, under `duplicate_definitions`.
     """
     if not tag and not file:
         return {"ok": False, "error": "Pass tag= or file= (mod-relative focus file path)."}
@@ -63,6 +64,8 @@ def focus_layout(
     # `scope_ids` is what we report on.
     all_records: Dict[str, dict] = {}
     scope_ids: List[str] = []
+    seen_in_scope: Set[str] = set()
+    duplicate_files: Dict[str, List[str]] = {}
     parse_errors: List[dict] = []
     for relpath in candidate_files:
         abs_path = resolve_scope_file(relpath, mod_root, vanilla_path)
@@ -77,22 +80,34 @@ def focus_layout(
             continue
         for rec in extract_focus_records(root, source=text):
             rec["file"] = relpath
-            all_records.setdefault(rec["id"], rec)
-            if file or rec["id"].upper().startswith(prefix):
+            kept = all_records.setdefault(rec["id"], rec)
+            if kept is not rec:
+                # Same id defined twice. Keep the first record (as before) but
+                # record the clash — without this the id would enter scope_ids
+                # twice and collide with itself.
+                duplicate_files.setdefault(rec["id"], [kept["file"]]).append(relpath)
+            if (file or rec["id"].upper().startswith(prefix)) and rec["id"] not in seen_in_scope:
+                seen_in_scope.add(rec["id"])
                 scope_ids.append(rec["id"])
 
     resolved: Dict[str, Tuple[int, int]] = {}
     chain_errors: List[dict] = []
+    # Focuses already reported as unresolvable. Without this a broken parent is
+    # re-reported once per descendant that walks through it.
+    failed: Set[str] = set()
 
     def _abs_pos(fid: str, visiting: tuple) -> Optional[Tuple[int, int]]:
         if fid in resolved:
             return resolved[fid]
+        if fid in failed:
+            return None
         rec = all_records.get(fid)
         if rec is None:
             return None
         x, y = _as_int(rec.get("x")), _as_int(rec.get("y"))
         if x is None or y is None:
             chain_errors.append({"focus": fid, "error": "missing_xy", "file": rec["file"]})
+            failed.add(fid)
             return None
         rel = rec.get("relative_position_id")
         if not rel:
@@ -102,14 +117,17 @@ def focus_layout(
             chain_errors.append(
                 {"focus": fid, "error": "cyclic_relative", "ref": rel, "file": rec["file"]}
             )
+            failed.add(fid)
             return None
         parent = _abs_pos(rel, (*visiting, fid))
         if parent is None:
             if rel not in all_records:
+                # Distinct per referrer: each referring focus has its own broken link.
                 chain_errors.append(
                     {"focus": fid, "error": "missing_relative", "ref": rel, "file": rec["file"]}
                 )
             # cyclic/missing_xy already reported on the parent itself
+            failed.add(fid)
             return None
         resolved[fid] = (parent[0] + x, parent[1] + y)
         return resolved[fid]
@@ -146,6 +164,10 @@ def focus_layout(
     }
     if parse_errors:
         result["parse_errors"] = parse_errors
+    if duplicate_files:
+        result["duplicate_definitions"] = [
+            {"id": fid, "files": files} for fid, files in sorted(duplicate_files.items())
+        ]
     if include_positions:
         positions = [
             {

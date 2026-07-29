@@ -92,6 +92,38 @@ def _plant(mod_root: Path, name: str, source: str) -> None:
     (mod_root / "tools" / "validation" / f"validate_{name}.py").write_text(source, encoding="utf-8")
 
 
+# Emits the non-uniform `Issue.file` shapes the upstream suite produces.
+_BASENAMES = (
+    _ISSUE_CLASS
+    + """
+class Validator:
+    TITLE = "Basenames"
+
+    def __init__(self, mod_path, output_file=None, use_colors=True, staged_only=False, **kw):
+        self._issues = []
+
+    def run_all_validations(self):
+        self._issues = [
+            _Issue(severity="warning", category="x", message="bad", file="test_events.txt"),
+            _Issue(severity="warning", category="x", message="other", file="test.txt"),
+            _Issue(severity="info", category="x", message="nowhere", file="unknown"),
+        ]
+"""
+)
+
+
+def test_files_filter_resolves_nonuniform_issue_paths(fake_mod_root):
+    """A bare-basename issue must land in scope via attribution, not be dropped."""
+    _plant(fake_mod_root, "basenames", _BASENAMES)
+    result = ValidatorRunner(fake_mod_root).run("basenames", files=["events/test_events.txt"])
+    assert result["ok"] is True
+    assert [i["file"] for i in result["issues"]] == ["events/test_events.txt"]
+    # "test.txt" resolves to common/national_focus/test.txt — attributed but out
+    # of scope. "unknown" with no filename in the message stays unattributed.
+    assert result["unattributed"] == 1
+    assert result["counts"] == {"error": 0, "warning": 1, "info": 0}
+
+
 def test_available_validators_empty_for_fake_mod(fake_mod_root):
     # Our fixture has `tools/validation/` empty.
     infos = available_validators(fake_mod_root)

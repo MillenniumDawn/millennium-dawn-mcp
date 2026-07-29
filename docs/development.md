@@ -126,11 +126,19 @@ Conventions the tools don't cover:
 
 ## Performance budgets
 
-These are smoke-tested in `tests/test_perf.py`:
+The only budget under test is the cold index build: `tests/test_perf.py`
+asserts per-index ceilings (Focus/Loc 10 s, Event/Gfx 5 s, Decision/Idea 3 s)
+and 30 s total. It is integration-marked, so it needs `MD_MOD_ROOT` and runs
+in the nightly workflow, not per-PR CI.
+
+Budgets were calibrated on a 14-core Mac. `MD_PERF_BUDGET_SCALE` (default 1.0)
+multiplies every budget for slower runners; the nightly workflow sets it to 3
+for the 4-vCPU ubuntu box it runs on.
+
+The rest are targets to hold by hand, not assertions:
 
 | Operation | Target |
 |---|---|
-| Cold index build (mod only) | < 6 s |
 | Warm `ensure_fresh()` (no changes) | < 50 ms |
 | Single `resolve_*` after fresh | < 1 ms |
 | `parse_string` on 50 KB input | < 10 ms |
@@ -168,8 +176,8 @@ are smaller than real data.
 Two workflows under `.github/workflows/`:
 
 - **`ci.yml`** (every PR + push to main): ruff check, ruff format check, and
-  mypy on 3.12; `pytest -q -n auto` on a 3.10/3.14 matrix. The unit-scoped
-  perf assertions in `tests/test_perf.py` run as part of the plain suite.
+  mypy on 3.12; `pytest -q -n auto` on a 3.10/3.14 matrix. Integration tests
+  (including the perf budget) skip there — no `MD_MOD_ROOT` on the runner.
 - **`nightly.yml`** (cron + manual dispatch): sparse-clones Millennium-Dawn
   main (~380 MB instead of the 8 GB full tree) and runs every fast validator
   through `pytest -m integration`. This is the validator-coupling drift check

@@ -36,8 +36,16 @@ jobs:
             "$repo_url" "$RUNNER_TEMP/Millennium-Dawn"
           git -C "$RUNNER_TEMP/Millennium-Dawn" sparse-checkout set \
             common events interface localisation history tools
+      - name: Verify the clone still looks like a mod root
+        # conftest skips every integration test when this check fails, which
+        # would turn the drift check green while testing nothing.
+        run: |
+          test -f "$RUNNER_TEMP/Millennium-Dawn/descriptor.mod"
+          test -d "$RUNNER_TEMP/Millennium-Dawn/tools/validation"
       - name: Integration suite
-        run: MD_MOD_ROOT="$RUNNER_TEMP/Millennium-Dawn" pytest -q -m integration
+        run: |
+          MD_MOD_ROOT="$RUNNER_TEMP/Millennium-Dawn" MD_PERF_BUDGET_SCALE=3 \
+            pytest -q -m integration
 
   report-failure:
     needs: integration

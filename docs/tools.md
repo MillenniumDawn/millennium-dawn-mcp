@@ -335,6 +335,8 @@ validators can't be scoped to a file, and `resolve_*` is one id per call.
   scope, plus custom_effect_tooltip), `decision`.
 - Unresolved refs are deduped by (kind, id) with `count` and up to 3 `sites`
   (`{file, line, via, referrer}`).
+- **`limit=200`**, **`offset=0`** — paginate the unresolved list. `-1` returns
+  it in full, guarded only by `enforce_budget`.
 - `not_checked` lists what no index covers yet (country flags, variables,
   scripted effects); `vanilla_indexed: false` warns that vanilla-defined ids
   will show as unresolved when `HOI4_PATH` isn't configured.

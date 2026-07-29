@@ -166,7 +166,6 @@ def focus_layout(
         "files_scanned": len(candidate_files),
         "focus_count": len(scope_ids),
         "resolved_count": sum(1 for f in scope_ids if f in resolved),
-        "collision_count": collisions_total,
         "collisions_total": collisions_total,
         "collisions": collisions_page,
         "collisions_truncated": collisions_truncated,
@@ -196,7 +195,16 @@ def focus_layout(
         result["positions"] = positions[:limit]
         result["positions_truncated"] = len(positions) > limit
 
-    return enforce_budget(result, heavy_keys=("positions", "collisions", "chain_errors"))
+    return enforce_budget(
+        result,
+        heavy_keys=(
+            "positions",
+            "collisions",
+            "chain_errors",
+            "parse_errors",
+            "duplicate_definitions",
+        ),
+    )
 
 
 def _as_int(v) -> Optional[int]:

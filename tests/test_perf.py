@@ -8,6 +8,7 @@ cold.
 
 from __future__ import annotations
 
+import os
 import time
 
 import pytest
@@ -23,16 +24,18 @@ from md_mcp.indexes import (
 
 # Per-index ceilings, in seconds. Generous enough to absorb CI variance but
 # tight enough to flag obvious regressions (e.g. removing the GFX fast scanner
-# would push that bucket past 15s).
+# would push that bucket past 15s). Calibrated on a 14-core Mac; MD_PERF_BUDGET_SCALE
+# scales every budget for slower CI runners (the nightly workflow sets it to 3).
+_BUDGET_SCALE = float(os.environ.get("MD_PERF_BUDGET_SCALE", "1.0"))
 _BUDGETS = {
-    "Focus": 10.0,
-    "Loc": 10.0,
-    "Event": 5.0,
-    "Decision": 3.0,
-    "Idea": 3.0,
-    "Gfx": 5.0,
+    "Focus": 10.0 * _BUDGET_SCALE,
+    "Loc": 10.0 * _BUDGET_SCALE,
+    "Event": 5.0 * _BUDGET_SCALE,
+    "Decision": 3.0 * _BUDGET_SCALE,
+    "Idea": 3.0 * _BUDGET_SCALE,
+    "Gfx": 5.0 * _BUDGET_SCALE,
 }
-_TOTAL_BUDGET = 30.0  # the plan's stated target
+_TOTAL_BUDGET = 30.0 * _BUDGET_SCALE  # the plan's stated target
 
 
 @pytest.mark.integration

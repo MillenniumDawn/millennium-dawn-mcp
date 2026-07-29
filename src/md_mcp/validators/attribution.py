@@ -53,6 +53,7 @@ class IssueAttributor:
     def __init__(self, mod_root: Path):
         self.mod_root = Path(mod_root)
         self._index: Optional[Dict[str, List[str]]] = None
+        self._path_tuple: Optional[Tuple[str, ...]] = None
 
     def resolve(self, issue: dict, scan_prefixes: Sequence[str] = ()) -> Optional[str]:
         """Return the mod-relative path this issue belongs to, or None."""
@@ -95,7 +96,7 @@ class IssueAttributor:
         return self._index
 
     def _paths(self) -> Tuple[str, ...]:
-        if not hasattr(self, "_path_tuple"):
+        if self._path_tuple is None:
             self._path_tuple = _list_mod_files(self.mod_root)
         return self._path_tuple
 

@@ -151,7 +151,7 @@ def focus_graph(
             "cheapest member per OR prerequisite group, shared prereqs counted once. "
             f"Focuses without an explicit cost count as {_DEFAULT_FOCUS_COST:g}."
         )
-        return enforce_budget(result, heavy_keys=("paths", "cycles"))
+        return enforce_budget(result, heavy_keys=("paths", "dangling_prereqs", "cycles", "roots"))
 
     if detail == "summary":
         # Sample a few node IDs so the agent has something concrete to query next.
@@ -161,7 +161,7 @@ def focus_graph(
             "graph, detail='full' with focus_ids=[...] for metadata on a subset, "
             "or detail='paths' with focus_ids=[...] for prereq chains + timing."
         )
-        return result
+        return enforce_budget(result, heavy_keys=("dangling_prereqs", "cycles", "roots"))
 
     # Pagination for ids/full tiers.
     nodes_total = len(visible_nodes)

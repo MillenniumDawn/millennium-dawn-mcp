@@ -77,7 +77,7 @@ def test_file_scope_resolves_chains_and_collisions(tmp_path):
     assert pos["TST_grandchild"] == (12, 2)
 
     # TST_overlap sits at (12, 1) — same cell as resolved TST_child.
-    assert out["collision_count"] == 1
+    assert out["collisions_total"] == 1
     assert out["collisions"][0]["focuses"] == ["TST_child", "TST_overlap"]
 
     errors = {e["focus"]: e["error"] for e in out["chain_errors"]}
@@ -136,7 +136,6 @@ def test_collisions_truncation(tmp_path):
     out = focus_layout(tmp_path, None, file=rel, limit=2)
 
     assert out["collisions_total"] == 3
-    assert out["collision_count"] == 3
     assert len(out["collisions"]) == 2
     assert out["collisions_truncated"] is True
 
@@ -183,7 +182,7 @@ def test_duplicate_id_does_not_collide_with_itself(tmp_path):
     out = focus_layout(tmp_path, idx, tag="TST", include_positions=True)
 
     assert out["focus_count"] == 1
-    assert out["collision_count"] == 0
+    assert out["collisions_total"] == 0
     assert out["positions_total"] == 1
     # The duplicate definition is still surfaced, just not as a collision.
     assert out["duplicate_definitions"] == [

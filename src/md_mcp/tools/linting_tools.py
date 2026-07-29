@@ -385,7 +385,7 @@ def lint_tool(
     #   relevant=None means "no filter — let each script do its native --mode all"
     #   relevant=[]   means "user has nothing in scope — every check no-ops"
     if files is not None:
-        relevant: Optional[List[str]] = list(files)
+        relevant: Optional[List[str]] = [_norm_scope_path(f) for f in files]
     elif mode == "all":
         relevant = None
     elif mode == "changed":
@@ -413,11 +413,6 @@ def lint_tool(
             runner = validator_runner or ValidatorRunner(mod_root)
             available = {v.name for v in runner.list()}
         except Exception as e:
-            validator_names = (
-                ["style"]
-                if validators is None
-                else sorted(v for v in validator_request if v not in {"auto", "*"})
-            )
             failed_name = "validator:style" if validators is None else "validator:setup"
             validator_setup_entries.append(
                 {
@@ -483,10 +478,13 @@ def lint_tool(
         return runner()
 
     runners: Dict[str, Callable[[], dict]] = {
-        "common_mistakes": lambda: lint_common_mistakes_tool(
-            mod_root,
-            mode="all" if relevant is None else "staged",
-            files=relevant,
+        "common_mistakes": lambda: _maybe(
+            relevant,
+            lambda: lint_common_mistakes_tool(
+                mod_root,
+                mode="all" if relevant is None else "staged",
+                files=relevant,
+            ),
         ),
         "mod_encoding": lambda: _maybe(
             mod_files, lambda: lint_mod_encoding_tool(mod_root, files=mod_files)
@@ -525,7 +523,9 @@ def lint_tool(
         per_check.append(check_summary)
 
     per_check.extend(validator_setup_entries)
+    validators_ran = False
     if validator_names and runner is not None and not validator_setup_entries:
+        validators_ran = True
         v_entries, v_issues = run_validators_for_lint(
             runner,
             validator_names,
@@ -547,9 +547,9 @@ def lint_tool(
     failed_checks = [c["name"] for c in per_check if not c.get("ok")]
     summary: dict = {
         "ok": not failed_checks,
-        "mode": "files" if files else mode,
+        "mode": "files" if files is not None else mode,
         "checks_run": selected,
-        "validators_run": validator_names,
+        "validators_run": validator_names if validators_ran else [],
         "failed_checks": failed_checks,
         "counts": overall,
         "issues_total_after_filter": len(filtered),
@@ -580,20 +580,30 @@ def _staged_files(mod_root: Path) -> List[str]:
     return [line for line in proc.stdout.splitlines() if line]
 
 
+def _norm_scope_path(path: str) -> str:
+    """Posix separators, no `./` prefix — the shape the prefix matchers expect."""
+    path = path.strip().replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    return path
+
+
 def _changed_files(mod_root: Path) -> List[str]:
     """Every file `git status` reports — staged, unstaged, and untracked.
 
-    Parses `git status --porcelain` (stable machine-readable format).
+    Parses `git status --porcelain -z` (NUL-terminated, so paths with spaces or
+    non-ASCII arrive verbatim instead of C-quoted).
     `--untracked-files=all` lists files inside untracked directories
     individually; without it git collapses them to `?? dir/` and the files
     never reach the per-check filters.
-    For renames (`R  old -> new`) the **new** path is returned.
+    For renames the **new** path is returned (with `-z` it comes first, the old
+    path follows as its own NUL-terminated entry).
     Deletions are skipped — there's nothing to lint for a removed file.
     Returns [] when `mod_root` isn't a git repo.
     """
     try:
         proc = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=all"],
+            ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
             cwd=str(mod_root),
             capture_output=True,
             text=True,
@@ -607,19 +617,17 @@ def _changed_files(mod_root: Path) -> List[str]:
 
     files: List[str] = []
     seen: set = set()
-    for raw in proc.stdout.splitlines():
+    entries = iter(proc.stdout.split("\0"))
+    for raw in entries:
         if len(raw) < 4:
             continue
         status = raw[:2]
         path = raw[3:]
-        # Renames: "R  old -> new" — take the destination.
-        if "R" in status and " -> " in path:
-            path = path.split(" -> ", 1)[1]
+        if "R" in status or "C" in status:
+            next(entries, None)  # drop the old path that follows the new one
         # Skip deletions; nothing to lint.
         if status.strip() == "D":
             continue
-        # Strip surrounding quotes that git uses for paths with special chars.
-        path = path.strip().strip('"')
         if path and path not in seen:
             seen.add(path)
             files.append(path)

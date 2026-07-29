@@ -20,6 +20,7 @@ from .indexes import (
     LocalisationIndex,
 )
 from .paradox import parse_string
+from .paradox.nodes import SymbolNode
 from .util.encoding import read_text
 
 
@@ -199,14 +200,11 @@ def _extract_focus_block(text: str, focus_id: str) -> str:
         id_node = cand.get("id")
         if id_node is None:
             continue
-        from .paradox.nodes import SymbolNode
-
         v = id_node.value
-        if (isinstance(v, SymbolNode) and v.name == focus_id) or (
+        matches = (isinstance(v, SymbolNode) and v.name == focus_id) or (
             isinstance(v, str) and v == focus_id
-        ):
-            pass
-        else:
+        )
+        if not matches:
             continue
 
         # Have the matching focus block — slice text from `cand.name_token.start`

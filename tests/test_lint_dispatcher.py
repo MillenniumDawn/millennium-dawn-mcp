@@ -375,6 +375,13 @@ def test_changed_files_non_git_dir_returns_empty(tmp_path):
     assert _changed_files(tmp_path) == []
 
 
+def test_changed_files_non_ascii_paths_arrive_verbatim(tmp_path):
+    """`-z` output is unquoted; without it git C-quotes `café.txt` into escapes."""
+    _init_repo(tmp_path)
+    (tmp_path / "café.txt").write_text("x\n", encoding="utf-8")
+    assert "café.txt" in _changed_files(tmp_path)
+
+
 def test_staged_files_returns_index_only(tmp_path):
     _init_repo(tmp_path)
     (tmp_path / "staged.txt").write_text("x\n")
@@ -413,11 +420,46 @@ def test_lint_changed_mode_no_changes_is_clean_run(tmp_path):
     """When git is clean, all checks no-op (skipped) with overall ok."""
     _init_repo(tmp_path)
     _seed_all_scripts(tmp_path, {})
+    # Commit the stubs so the tree is genuinely clean.
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "stubs")
     out = lint_tool(tmp_path, validators=[])
     assert out["ok"] is True
     assert out["mode"] == "changed"
-    # Every check reported, none with errors.
     assert out["counts"] == {"error": 0, "warning": 0, "info": 0}
+    # Genuinely skipped, not "ran against whatever happened to be staged".
+    assert all(c.get("skipped") == "no files in scope" for c in out["checks"])
+
+
+def test_lint_empty_files_scope_skips_every_check(tmp_path):
+    _init_repo(tmp_path)
+    _seed_all_scripts(tmp_path, {})
+    out = lint_tool(tmp_path, files=[], validators=[])
+    assert out["ok"] is True
+    assert out["mode"] == "files"
+    assert all(c.get("skipped") == "no files in scope" for c in out["checks"])
+
+
+def test_lint_files_scope_normalises_paths(tmp_path):
+    """`./`-prefixed and backslash paths reach the checkers in canonical form."""
+    _init_repo(tmp_path)
+    _seed_all_scripts(
+        tmp_path,
+        {
+            "tools/linting/check_common_mistakes.py": """import sys
+for f in sys.argv[1:]:
+    if not f.startswith("--"):
+        print(f"{f}:1: saw arg")
+sys.exit(0)
+""",
+        },
+    )
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "new.txt").write_text("x = 1\n")
+
+    out = lint_tool(tmp_path, checks=["common_mistakes"], validators=[], files=["./sub/new.txt"])
+    assert out["mode"] == "files"
+    assert {i.get("file") for i in out["issues"]} == {"sub/new.txt"}
 
 
 def test_lint_invalid_mode_rejected(tmp_path):

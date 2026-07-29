@@ -29,9 +29,11 @@ def main() -> int:
     ap.add_argument("--staged-only", action="store_true")
     args = ap.parse_args()
 
+    # Same insertion sequence as ValidatorRunner._ensure_sys_path, so both modes
+    # resolve a colliding module name to the same file.
     for d in (
-        os.path.join(args.mod_root, "tools", "validation"),
         os.path.join(args.mod_root, "tools"),
+        os.path.join(args.mod_root, "tools", "validation"),
     ):
         if d not in sys.path:
             sys.path.insert(0, d)

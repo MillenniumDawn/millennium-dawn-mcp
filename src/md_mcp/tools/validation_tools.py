@@ -68,11 +68,12 @@ def validate_tool(
             return result
         issues = result.get("issues", [])
         kept, truncated, total = _filter_and_cap(issues, severity_min=severity_min, limit=limit)
-        result["issues"] = [] if counts_only else kept
         result["issues_total_after_filter"] = total
         result["truncated"] = truncated
         if counts_only:
             result.pop("issues", None)
+        else:
+            result["issues"] = kept
         return enforce_budget(result, heavy_keys=("issues",))
 
     # Run-all path: skip the slow opt-in validators by default.

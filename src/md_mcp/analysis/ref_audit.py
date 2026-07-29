@@ -82,7 +82,8 @@ def check_refs(
     Scope: `files=[...]` (mod-relative paths, any script type) or `tag=` (the
     tag's prefix-matched focus files; use `files=` to audit event/decision
     files). Unresolved refs are deduped by (kind, id) with an occurrence count
-    and first sites.
+    and first sites. `limit=-1` returns the full unresolved list, guarded only
+    by `enforce_budget`.
     """
     if not tag and not files:
         return {"ok": False, "error": "Pass tag= or files=[...] (mod-relative paths)."}
@@ -187,6 +188,7 @@ def check_refs(
 
     unresolved = sorted(unresolved_by_key.values(), key=lambda e: (e["kind"], e["ref"]))
     total = len(unresolved)
+    offset = max(offset, 0)
     sliced = unresolved[offset : offset + limit] if limit >= 0 else unresolved[offset:]
 
     result: dict = {
@@ -230,7 +232,7 @@ def _walk(
         ctx = referrer
 
         if name in _FOCUS_DEF_NODES:
-            fid = _symbol_or_str(child_get(child, "id"))
+            fid = _symbol_or_str(_child_get(child, "id"))
             if fid:
                 ctx = fid
                 focus_defs.append({"id": fid, "file": relpath, "line": _line(child, line_starts)})
@@ -250,7 +252,7 @@ def _walk(
         if "event" in kinds and name in _EVENT_NODES:
             ref = _symbol_or_str(child)
             if ref is None and isinstance(child.value, list):
-                ref = _symbol_or_str(child_get(child, "id"))
+                ref = _symbol_or_str(_child_get(child, "id"))
             if ref:
                 refs.append(_ref("event", ref, name, relpath, child, line_starts, ctx))
 
@@ -318,7 +320,7 @@ def _is_texture_path(value: str) -> bool:
     return value.lower().endswith((".dds", ".tga", ".png"))
 
 
-def child_get(node: Node, name: str) -> Optional[Node]:
+def _child_get(node: Node, name: str) -> Optional[Node]:
     for c in node.children():
         if c.name == name:
             return c

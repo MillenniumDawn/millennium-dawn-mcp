@@ -30,7 +30,9 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+
+from .attribution import IssueAttributor
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +207,8 @@ class ValidatorRunner:
             }
 
         issues = [i.to_dict() for i in getattr(inst, "_issues", [])]
-        return _summarise(info, _filter_by_files(issues, files))
+        kept, unattributed = _filter_by_files(issues, files, self.mod_root)
+        return _summarise(info, kept, unattributed=unattributed)
 
     # ------------------------------------------------------------------
     # isolated mode (default)
@@ -266,25 +269,46 @@ class ValidatorRunner:
         if not payload.get("ok"):
             return {"ok": False, "validator": info.name, "error": payload.get("error")}
 
-        return _summarise(info, _filter_by_files(payload.get("issues", []), files))
+        kept, unattributed = _filter_by_files(payload.get("issues", []), files, self.mod_root)
+        return _summarise(info, kept, unattributed=unattributed)
 
 
-def _filter_by_files(issues: List[dict], files: Optional[List[str]]) -> List[dict]:
+def _filter_by_files(
+    issues: List[dict], files: Optional[List[str]], mod_root: Path
+) -> Tuple[List[dict], int]:
+    """Post-filter issues to a file scope.
+
+    `Issue.file` isn't uniform (mod-relative, bare basename, "", "unknown"), so
+    each issue is resolved to a real path via `IssueAttributor` before the scope
+    test. Issues that won't resolve are counted, not guessed into scope.
+    """
     if not files:
-        return issues
+        return issues, 0
     wanted = {os.path.normpath(f) for f in files}
-    return [i for i in issues if os.path.normpath(i.get("file") or "") in wanted]
+    attributor = IssueAttributor(mod_root)
+    kept: List[dict] = []
+    unattributed = 0
+    for i in issues:
+        resolved = attributor.resolve(i)
+        if resolved is None:
+            unattributed += 1
+        elif os.path.normpath(resolved) in wanted:
+            kept.append(dict(i, file=resolved))
+    return kept, unattributed
 
 
-def _summarise(info: ValidatorInfo, issues: List[dict]) -> dict:
+def _summarise(info: ValidatorInfo, issues: List[dict], *, unattributed: int = 0) -> dict:
     counts = {"error": 0, "warning": 0, "info": 0}
     for i in issues:
         sev = i.get("severity", "info")
         counts[sev] = counts.get(sev, 0) + 1
-    return {
+    result = {
         "ok": True,
         "validator": info.name,
         "title": info.title,
         "counts": counts,
         "issues": issues,
     }
+    if unattributed:
+        result["unattributed"] = unattributed
+    return result

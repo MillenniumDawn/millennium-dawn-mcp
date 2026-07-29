@@ -418,7 +418,8 @@ def test_lint_unavailable_default_style_is_a_failed_check(tmp_path):
     runner = FakeRunner(names=[])
     out = lint_tool(tmp_path, validator_runner=runner)
     assert out["ok"] is False
-    assert out["validators_run"] == ["style"]
+    # Nothing ran: the setup failure blocks the run, and validators_run says so.
+    assert out["validators_run"] == []
     assert out["failed_checks"] == ["validator:style"]
     assert runner.calls == []
     style = next(c for c in out["checks"] if c["name"] == "validator:style")

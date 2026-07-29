@@ -74,13 +74,13 @@ def resolve_scope_file(relpath: str, mod_root: Path, vanilla_path: Path | None) 
 
 
 def _contained(root: Path, relpath: str) -> Path | None:
-    """`root / relpath`, or None if it escapes `root`."""
+    """`root / relpath`, or None if it escapes `root` or isn't a usable path."""
     if PurePath(relpath).is_absolute():
         return None
-    candidate = (root / relpath).resolve()
     try:
+        candidate = (root / relpath).resolve()
         candidate.relative_to(root.resolve())
-    except ValueError:
+    except (ValueError, OSError):
         return None
     return candidate
 

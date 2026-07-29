@@ -605,7 +605,7 @@ def main() -> None:  # pragma: no cover — entry point
         # the parent's stdin/stdout FDs. Force serial parsing here. Users build
         # the cache up-front via `md-mcp build-index`; the server is meant for the
         # warm path (cache hit, ≈10 ms) and never needs the process pool.
-        os.environ.setdefault("MD_MCP_SERIAL_PARSE", "1")
+        os.environ["MD_MCP_SERIAL_PARSE"] = "1"
         # Same reason, one layer out: most mod validators fork a Pool of their
         # own, so in-process validation hangs the server outright. It stays
         # available to the CLI and to library callers, just not under mcp.run().

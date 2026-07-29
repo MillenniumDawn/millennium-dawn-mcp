@@ -150,8 +150,9 @@ hand for setup / cache priming.
 ### Validation
 
 `validate` (one validator or all), `validate_list`, `lint` (the whole linting
-suite on changed files; `validators=["auto"]` folds in domain-matched
-validators), `review_branch`, `check_encoding`.
+suite on changed files, including the style and brace validator for applicable
+script scopes; `validators=["auto"]` selects all domain-matched validators),
+`review_branch`, `check_encoding`.
 
 ### Analysis
 

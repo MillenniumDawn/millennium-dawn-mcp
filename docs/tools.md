@@ -151,8 +151,8 @@ Enumerate available validators with their titles.
 ### `lint(mode?, files?, checks?, validators?, severity_min?, limit?, counts_only?) -> dict`
 
 Run the **full linting suite**. Wraps three `Millennium-Dawn/tools/linting/`
-scripts behind one tool — the one-stop-shop for "check this code's quality."
-Opt in with `validators=` to fold mod validators into the same call.
+scripts and the mod-side `style` validator behind one tool, the one-stop-shop
+for "check this code's quality."
 
 - **`mode`** — `"changed"` (default) | `"staged"` | `"all"`.
   - `"changed"` = staged + unstaged + untracked (everything `git status --porcelain` sees). This is what you want mid-edit before anything is committed.
@@ -168,11 +168,14 @@ Opt in with `validators=` to fold mod validators into the same call.
   Omit to run all three.
 
   Brace matching, basic style, and coding standards are no longer separate
-  checks — they were absorbed into `tools/validation/validate_style.py` on the
-  mod side. Reach them with `validators=["style"]`, not a `checks=` entry.
-- **`validators=[...]`** — also run mod validators (`tools/validation/`) and
-  merge their issues into the same response. Off by default because validators
-  scan their whole domain (seconds, not milliseconds).
+  checks. They were absorbed into `tools/validation/validate_style.py` on the
+  mod side.
+- **`validators=[...]`** — choose the mod validators (`tools/validation/`) to
+  merge into the same response. When omitted, `style` runs for `mode="all"` or
+  when the resolved scope contains a `.txt` file under `common/`, `events/`, or
+  `history/`. A clean tree or explicit non-script-only scope runs no validator.
+  Pass an explicit `[]` to disable all validators. Other explicit selections
+  replace the default and retain exact/union semantics.
   - `["auto"]` — select validators by the domain of the files in scope, e.g.
     a change under `common/national_focus/` runs `focus_tree`,
     `scripted_params`, `simplifications`, `modifiers`, and `style`; a change
@@ -181,7 +184,8 @@ Opt in with `validators=` to fold mod validators into the same call.
     (`variables`, `set_variables`, `cosmetic_tags`) and the slow two
     (`unused_scripted`, `unused_textures`) are never auto-selected.
   - `["*"]` — every fast validator (same exclusions as `validate`'s run-all).
-  - Explicit names run exactly those; sentinels and names union.
+  - Explicit names run exactly those; sentinels and names union. For example,
+    `["history"]` runs `history`, not `history` plus the default `style`.
 
   Validator issues are attributed back to real mod paths, then post-filtered to
   the file scope. Each `validator:<name>` entry reports the on-scope `total`
@@ -202,31 +206,38 @@ Returns:
   "ok": true,
   "mode": "staged",
   "checks_run": ["common_mistakes", "mod_encoding", ...],
-  "validators_run": ["focus_tree", "modifiers"],
+  "validators_run": ["style"],
+  "failed_checks": [],
   "counts": { "error": 3, "warning": 14, "info": 0 },
   "issues_total_after_filter": 17,
   "truncated": false,
   "checks": [
     { "name": "common_mistakes", "ok": true, "total": 12, "exit_code": 1 },
     { "name": "loc_encoding", "ok": true, "total": 3, "exit_code": 1 },
-    { "name": "validator:focus_tree", "ok": true, "total": 2, "total_mod_wide": 37 },
+    { "name": "validator:style", "ok": true, "total": 2, "total_mod_wide": 37 },
     ...
   ],
   "issues": [
     { "check": "common_mistakes", "file": "...", "line": 42, "message": "...", "severity": "warning" },
-    { "check": "validator:focus_tree", "file": "...", "line": 7, "message": "...",
+    { "check": "validator:style", "file": "...", "line": 7, "message": "...",
       "severity": "warning", "category": "missing-can-staff-guard" },
     ...
   ]
 }
 ```
 
-`validators_run` only appears when `validators=` was requested. With
-`["auto"]` and a clean tree it's `[]` and no validator runs.
+`validators_run` always reports the selected validators. With `validators`
+omitted, it is `["style"]` for full-tree or applicable script scopes and `[]`
+for clean or non-script-only scopes. It is also `[]` when validators are
+explicitly disabled or when `["auto"]` has no domain match.
 
-Per-check failures are **isolated** — if `tools/linting/check_common_mistakes.py`
-is missing or crashes, the corresponding entry in `checks` has `ok: false` and
-an `error` field, but the rest of the run still completes.
+Per-check failures are **isolated**. If a lint script or requested validator is
+missing, unavailable, or crashes, the corresponding entry in `checks` has
+`ok: false` and an `error` field, but the rest of the run still completes. The
+top-level `ok` is false when any per-check status fails, and `failed_checks`
+lists those check names. An unavailable default `style` validator is therefore
+a setup failure whenever the current scope selects it, never a clean zero-issue
+result.
 
 When a check's filtered file list is empty (e.g. `mod_encoding` in
 `mode="changed"` with no modified `.mod` files), the dispatcher skips that
@@ -244,6 +255,7 @@ or extract sections.
 ### `check_encoding(files?: list) -> dict`
 
 Verify BOM rules per `general-rules.md`:
+
 - `.txt` files must have **no** BOM
 - `localisation/*.yml` files **must** have a BOM
 

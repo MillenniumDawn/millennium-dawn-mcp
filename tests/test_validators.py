@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from md_mcp.validators import ValidatorRunner, available_validators
+from md_mcp.validators import SLOW_VALIDATORS, ValidatorRunner, available_validators
 
 _ISSUE_CLASS = """
 class _Issue:
@@ -177,13 +177,23 @@ def test_validator_list_against_real_mod(real_mod_root):
 
 
 @pytest.mark.integration
-def test_run_cheap_validator(real_mod_root):
+def test_run_all_fast_validators(real_mod_root):
     runner = ValidatorRunner(real_mod_root)
-    result = runner.run("cosmetic_tags")
-    assert result["ok"] is True
-    assert "counts" in result
-    # Issues might be present or not; just ensure the wrapper completes.
-    assert isinstance(result["issues"], list)
+    names = [v.name for v in available_validators(real_mod_root) if v.name not in SLOW_VALIDATORS]
+    failures = []
+    for name in names:
+        try:
+            result = runner.run(name)
+        except Exception as e:
+            failures.append(f"{name}: raised {type(e).__name__}: {e}")
+            continue
+        if not result.get("ok"):
+            failures.append(f"{name}: {result.get('error', 'reported ok=false')}")
+            continue
+        if "counts" not in result or not isinstance(result.get("issues"), list):
+            failures.append(f"{name}: invalid result shape")
+
+    assert not failures, "Fast validator failures:\n" + "\n".join(failures)
 
 
 @pytest.mark.integration

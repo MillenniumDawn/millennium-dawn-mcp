@@ -12,14 +12,17 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 jobs:
   integration:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -28,21 +31,37 @@ jobs:
       - run: pip install -e '.[dev]'
       - name: Sparse-clone Millennium-Dawn main
         run: |
+          repo_url=https://github.com/MillenniumDawn/Millennium-Dawn.git
           git clone --depth 1 --filter=blob:none --sparse \
-            https://github.com/MillenniumDawn/Millennium-Dawn.git "$RUNNER_TEMP/Millennium-Dawn"
+            "$repo_url" "$RUNNER_TEMP/Millennium-Dawn"
           git -C "$RUNNER_TEMP/Millennium-Dawn" sparse-checkout set \
             common events interface localisation history tools
       - name: Integration suite
         run: MD_MOD_ROOT="$RUNNER_TEMP/Millennium-Dawn" pytest -q -m integration
+
+  report-failure:
+    needs: integration
+    if: ${{ always() && needs.integration.result != 'success' }}
+    permissions:
+      issues: write
+    runs-on: ubuntu-latest
+    steps:
       - name: Open or update failure issue
-        if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh label create nightly-failure --color B60205 --force || true
-          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --label nightly-failure --state open \
-            --json number --jq '.[0].number')
-          body="Nightly integration vs Millennium-Dawn main failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          gh label create nightly-failure --repo "$GITHUB_REPOSITORY" \
+            --color B60205 --force
+          n=$(
+            gh issue list --repo "$GITHUB_REPOSITORY" \
+              --label nightly-failure --state open \
+              --json number --jq '.[0].number'
+          )
+          run_url="${{ github.server_url }}/${{ github.repository }}"
+          run_url="$run_url/actions/runs/${{ github.run_id }}"
+          body="Nightly integration vs Millennium-Dawn main failed."
+          body="$body Integration job result: ${{ needs.integration.result }}."
+          body="$body Run: $run_url"
           if [ -n "$n" ]; then
             gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$body"
           else

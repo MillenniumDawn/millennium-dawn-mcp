@@ -239,7 +239,7 @@ def build_server(settings: Settings):
         limit: int = 500,
         counts_only: bool = False,
     ) -> dict:
-        """Run the full linting suite on changed files (default: staged + unstaged + untracked). mode=changed|staged|all; checks=[...] subsets; validators=['auto'|'*'|names] also runs domain-matched mod validators on the same file scope (slower); severity_min/limit/counts_only narrow output."""
+        """Run lint scripts plus style/brace checks for applicable script scopes. mode=changed|staged|all; checks=[...] subsets scripts; omit validators for scoped style, use [] to disable, or select ['auto'|'*'|names]; severity_min/limit/counts_only narrow output."""
         return lint_tool(
             settings.mod_root,
             mode=mode,

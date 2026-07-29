@@ -10,8 +10,9 @@ in `Millennium-Dawn/tools/`:
   * `tools/analysis/review_branch.py`               — freeform diff summary
 
 Brace, style, and coding-standards checks were absorbed into
-`tools/validation/validate_style.py` on the mod side; reach them through the
-`validators=` path (`style`) rather than a per-check wrapper here.
+`tools/validation/validate_style.py` on the mod side. The dispatcher runs that
+validator by default for full-tree and applicable script scopes rather than
+wrapping it as a lint script.
 
 Pattern: subprocess the script, regex-parse its line output, emit structured
 issues. Each wrapper returns `{name, ok, issues, exit_code, stderr_tail, counts}`.
@@ -44,6 +45,31 @@ _LOC_ENC_BAD_RE = re.compile(r"^(?P<file>.+?):\s+Missing UTF-8 BOM.*$")
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 _SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2}
+
+
+def _completed_process_failure(
+    script: Path,
+    proc: subprocess.CompletedProcess,
+    issue_count: int,
+) -> Optional[dict]:
+    if proc.returncode == 0 or (proc.returncode == 1 and issue_count):
+        return None
+
+    if proc.returncode == 1:
+        error = f"{script.name} exited with code 1 without recognized diagnostics"
+    else:
+        error = f"{script.name} exited with unexpected code {proc.returncode}"
+
+    stderr_tail = (proc.stderr or "")[-1000:]
+    output_tail = stderr_tail or (proc.stdout or "")[-1000:]
+    if output_tail.strip():
+        error = f"{error}. Output tail: {output_tail.strip()}"
+    return {
+        "ok": False,
+        "error": error,
+        "exit_code": proc.returncode,
+        "stderr_tail": stderr_tail,
+    }
 
 
 def lint_common_mistakes_tool(
@@ -103,6 +129,10 @@ def lint_common_mistakes_tool(
                 "severity": "warning",
             }
         )
+
+    failure = _completed_process_failure(script, proc, len(issues))
+    if failure is not None:
+        return failure
 
     return {
         "ok": True,
@@ -216,6 +246,10 @@ def lint_mod_encoding_tool(
                 }
             )
 
+    failure = _completed_process_failure(script, proc, len(issues))
+    if failure is not None:
+        return failure
+
     truncated = len(issues) > limit
     return enforce_budget(
         {
@@ -265,6 +299,10 @@ def lint_loc_encoding_tool(
                     "severity": "error",
                 }
             )
+
+    failure = _completed_process_failure(script, proc, len(issues))
+    if failure is not None:
+        return failure
 
     truncated = len(issues) > limit
     return enforce_budget(
@@ -317,11 +355,13 @@ def lint_tool(
         files         — explicit mod-relative paths. Each checker filters by its
                         own file pattern (e.g. braces ignores `.yml`).
         checks        — subset of `_ALL_CHECKS` to run; omit for all.
-        validators    — also run mod validators, merged into the same output.
-                        `["auto"]` selects by the domain of the files in scope,
-                        `["*"]` runs every fast validator, explicit names run
-                        exactly those; sentinels and names union. Slower than
-                        the lint scripts — validators scan their whole domain.
+        validators    — mod validators to merge into the same output. Omit to
+                        run `style` for full-tree mode or scoped script files;
+                        pass `[]` to disable validators. `["auto"]` selects by
+                        the domain of the files in scope, `["*"]` runs every
+                        fast validator, and explicit names run exactly those;
+                        sentinels and names union. Slower than the lint scripts
+                        because validators scan their whole domain.
         severity_min  — `info` | `warning` | `error`. Drops issues below floor.
         limit         — cap returned issues. `counts_only=True` skips the array.
         counts_only   — return only per-check counts; no `issues` array.
@@ -355,30 +395,68 @@ def lint_tool(
 
     relevant_set: Optional[set] = set(relevant) if relevant is not None else None
 
-    # Expand the validators request up front so bad names fail fast.
+    # Expand the validators request up front so bad explicit names fail fast.
+    # `None` and `[]` differ intentionally: omission keeps style enforcement
+    # for script scopes, while an explicit empty list disables all validators.
+    style_in_scope = relevant is None or any(
+        f.endswith(".txt") and f.startswith(("common/", "events/", "history/")) for f in relevant
+    )
+    if validators is None:
+        validator_request = ["style"] if style_in_scope else []
+    else:
+        validator_request = list(validators)
     validator_names: List[str] = []
+    validator_setup_entries: List[dict] = []
     runner: Optional[ValidatorRunner] = None
-    if validators:
-        runner = validator_runner or ValidatorRunner(mod_root)
-        available = {v.name for v in runner.list()}
-        expanded: set = set()
-        for v in validators:
-            if v == "*":
-                expanded |= available - SLOW_VALIDATORS
-            elif v != "auto":
-                expanded.add(v)
-        unknown_validators = sorted(expanded - available)
-        if unknown_validators:
-            return {
-                "ok": False,
-                "error": (
-                    f"Unknown validator(s): {unknown_validators}. "
-                    f"Valid: {sorted(available)} plus 'auto' and '*'"
-                ),
-            }
-        if "auto" in validators:
-            expanded |= set(select_validators(relevant, available))
-        validator_names = sorted(expanded)
+    if validator_request:
+        try:
+            runner = validator_runner or ValidatorRunner(mod_root)
+            available = {v.name for v in runner.list()}
+        except Exception as e:
+            validator_names = (
+                ["style"]
+                if validators is None
+                else sorted(v for v in validator_request if v not in {"auto", "*"})
+            )
+            failed_name = "validator:style" if validators is None else "validator:setup"
+            validator_setup_entries.append(
+                {
+                    "name": failed_name,
+                    "ok": False,
+                    "error": f"Failed to discover validators: {e}",
+                }
+            )
+            runner = None
+        else:
+            if validators is None:
+                validator_names = ["style"]
+                if "style" not in available:
+                    validator_setup_entries.append(
+                        {
+                            "name": "validator:style",
+                            "ok": False,
+                            "error": "Default style validator is unavailable",
+                        }
+                    )
+            else:
+                expanded: set = set()
+                for v in validator_request:
+                    if v == "*":
+                        expanded |= available - SLOW_VALIDATORS
+                    elif v != "auto":
+                        expanded.add(v)
+                unknown_validators = sorted(expanded - available)
+                if unknown_validators:
+                    return {
+                        "ok": False,
+                        "error": (
+                            f"Unknown validator(s): {unknown_validators}. "
+                            f"Valid: {sorted(available)} plus 'auto' and '*'"
+                        ),
+                    }
+                if "auto" in validator_request:
+                    expanded |= set(select_validators(relevant, available))
+                validator_names = sorted(expanded)
 
     if relevant is not None:
         mod_files: Optional[List[str]] = [f for f in relevant if f.endswith(".mod")]
@@ -434,6 +512,8 @@ def lint_tool(
             check_summary["skipped"] = result["skipped"]
         if not result.get("ok"):
             check_summary["error"] = result.get("error")
+            if result.get("stderr_tail"):
+                check_summary["stderr_tail"] = result["stderr_tail"]
         else:
             issues = result.get("issues", []) or []
             # Tag each issue with which check produced it (helps the agent).
@@ -444,7 +524,8 @@ def lint_tool(
             all_issues.extend(issues)
         per_check.append(check_summary)
 
-    if validator_names and runner is not None:
+    per_check.extend(validator_setup_entries)
+    if validator_names and runner is not None and not validator_setup_entries:
         v_entries, v_issues = run_validators_for_lint(
             runner,
             validator_names,
@@ -463,17 +544,18 @@ def lint_tool(
     truncated = len(filtered) > limit if limit >= 0 else False
     issues_capped = filtered[:limit] if limit >= 0 else filtered
 
+    failed_checks = [c["name"] for c in per_check if not c.get("ok")]
     summary: dict = {
-        "ok": True,
+        "ok": not failed_checks,
         "mode": "files" if files else mode,
         "checks_run": selected,
+        "validators_run": validator_names,
+        "failed_checks": failed_checks,
         "counts": overall,
         "issues_total_after_filter": len(filtered),
         "truncated": truncated,
         "checks": per_check,
     }
-    if validators:
-        summary["validators_run"] = validator_names
     if not counts_only:
         summary["issues"] = issues_capped
 

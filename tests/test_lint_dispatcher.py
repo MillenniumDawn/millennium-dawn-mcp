@@ -13,6 +13,8 @@ import subprocess
 from pathlib import Path
 from typing import Callable
 
+import pytest
+
 from md_mcp.tools.linting_tools import (
     _ALL_CHECKS,
     _changed_files,
@@ -78,10 +80,10 @@ sys.exit(1)
 # ---------------------------------------------------------------------------
 
 
-def test_lint_runs_every_check_by_default(tmp_path):
+def test_lint_runs_every_script_check_when_validators_disabled(tmp_path):
     _seed_all_scripts(tmp_path, {})
     (tmp_path / "descriptor.mod").write_text('name = "x"\n')
-    out = lint_tool(tmp_path, mode="all")
+    out = lint_tool(tmp_path, mode="all", validators=[])
     assert out["ok"] is True
     # Every check ran with ok=true, even when there's no work.
     names = {c["name"] for c in out["checks"]}
@@ -98,7 +100,7 @@ def test_lint_rejects_unknown_check(tmp_path):
 
 def test_lint_subset_only_runs_requested(tmp_path):
     _seed_all_scripts(tmp_path, {})
-    out = lint_tool(tmp_path, checks=["common_mistakes", "loc_encoding"], mode="all")
+    out = lint_tool(tmp_path, checks=["common_mistakes", "loc_encoding"], mode="all", validators=[])
     assert out["ok"] is True
     ran = {c["name"] for c in out["checks"]}
     assert ran == {"common_mistakes", "loc_encoding"}
@@ -122,6 +124,7 @@ sys.exit(1)
         tmp_path,
         checks=["common_mistakes", "mod_encoding"],
         files=["sub/a.txt", "descriptor.mod"],
+        validators=[],
     )
     assert out["ok"] is True
     assert out["counts"]["error"] == 1
@@ -151,6 +154,7 @@ sys.exit(1)
         checks=["common_mistakes", "mod_encoding"],
         files=["sub/a.txt", "descriptor.mod"],
         severity_min="error",
+        validators=[],
     )
     # Counts are pre-filter, issues are post-filter.
     assert out["counts"]["warning"] == 2
@@ -169,7 +173,13 @@ sys.exit(1)
 """,
         },
     )
-    out = lint_tool(tmp_path, checks=["common_mistakes"], files=["sub/a.txt"], counts_only=True)
+    out = lint_tool(
+        tmp_path,
+        checks=["common_mistakes"],
+        files=["sub/a.txt"],
+        counts_only=True,
+        validators=[],
+    )
     assert out["ok"] is True
     assert "issues" not in out
     assert out["counts"]["warning"] == 1
@@ -188,6 +198,7 @@ def test_lint_limit_truncates(tmp_path):
         checks=["common_mistakes"],
         files=["sub/a.txt"],
         limit=5,
+        validators=[],
     )
     assert out["issues_total_after_filter"] == 20
     assert len(out["issues"]) == 5
@@ -202,11 +213,104 @@ def test_lint_per_check_failure_isolated(tmp_path):
     """
     _seed_all_scripts(tmp_path, {})
     (tmp_path / "tools" / "linting" / "check_common_mistakes.py").unlink()
-    out = lint_tool(tmp_path, checks=["common_mistakes", "loc_encoding"], mode="all")
-    assert out["ok"] is True  # overall pass
+    out = lint_tool(tmp_path, checks=["common_mistakes", "loc_encoding"], mode="all", validators=[])
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["common_mistakes"]
     by_name = {c["name"]: c for c in out["checks"]}
     assert by_name["common_mistakes"]["ok"] is False
     assert by_name["loc_encoding"]["ok"] is True
+
+
+@pytest.mark.parametrize(
+    "check,script,files",
+    [
+        (
+            "common_mistakes",
+            "tools/linting/check_common_mistakes.py",
+            ["common/x.txt"],
+        ),
+        (
+            "mod_encoding",
+            "tools/linting/validate_mod_encoding.py",
+            ["descriptor.mod"],
+        ),
+        (
+            "loc_encoding",
+            "tools/linting/validate_localization_encoding.py",
+            ["localisation/english/x_l_english.yml"],
+        ),
+    ],
+)
+def test_lint_script_crash_without_recognized_output_fails(tmp_path, check, script, files):
+    _seed_all_scripts(tmp_path, {script: "raise RuntimeError('synthetic crash')\n"})
+
+    out = lint_tool(tmp_path, checks=[check], files=files, validators=[])
+
+    assert out["ok"] is False
+    assert out["failed_checks"] == [check]
+    check_result = out["checks"][0]
+    assert check_result["ok"] is False
+    assert "without recognized diagnostics" in check_result["error"]
+    assert "synthetic crash" in check_result["stderr_tail"]
+
+
+@pytest.mark.parametrize(
+    "check,script,files,diagnostic",
+    [
+        (
+            "common_mistakes",
+            "tools/linting/check_common_mistakes.py",
+            ["common/x.txt"],
+            'print("common/x.txt:1: parsed issue")',
+        ),
+        (
+            "mod_encoding",
+            "tools/linting/validate_mod_encoding.py",
+            ["descriptor.mod"],
+            'print("descriptor.mod: Invalid UTF-8 encoding - bad byte")',
+        ),
+        (
+            "loc_encoding",
+            "tools/linting/validate_localization_encoding.py",
+            ["localisation/english/x_l_english.yml"],
+            'print("localisation/english/x_l_english.yml: Missing UTF-8 BOM")',
+        ),
+    ],
+)
+def test_lint_unexpected_exit_code_fails_even_with_parsed_issue(
+    tmp_path, check, script, files, diagnostic
+):
+    _seed_all_scripts(tmp_path, {script: f"import sys\n{diagnostic}\nsys.exit(2)\n"})
+
+    out = lint_tool(tmp_path, checks=[check], files=files, validators=[])
+
+    assert out["ok"] is False
+    assert out["failed_checks"] == [check]
+    assert "unexpected code 2" in out["checks"][0]["error"]
+
+
+def test_lint_negative_exit_code_is_a_failure(tmp_path, monkeypatch):
+    _seed_all_scripts(tmp_path, {})
+
+    def killed(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command,
+            -9,
+            stdout="common/x.txt:1: parsed issue\n",
+            stderr="terminated\n",
+        )
+
+    monkeypatch.setattr("md_mcp.tools.linting_tools.subprocess.run", killed)
+    out = lint_tool(
+        tmp_path,
+        checks=["common_mistakes"],
+        files=["common/x.txt"],
+        validators=[],
+    )
+
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["common_mistakes"]
+    assert "unexpected code -9" in out["checks"][0]["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +403,7 @@ sys.exit(0)
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "new.txt").write_text("focus = { }\n")
 
-    out = lint_tool(tmp_path, checks=["common_mistakes"])  # no mode → default
+    out = lint_tool(tmp_path, checks=["common_mistakes"], validators=[])  # no mode → default
     assert out["mode"] == "changed"
     files_in_issues = {i.get("file") for i in out["issues"]}
     assert "sub/new.txt" in files_in_issues
@@ -309,7 +413,7 @@ def test_lint_changed_mode_no_changes_is_clean_run(tmp_path):
     """When git is clean, all checks no-op (skipped) with overall ok."""
     _init_repo(tmp_path)
     _seed_all_scripts(tmp_path, {})
-    out = lint_tool(tmp_path)
+    out = lint_tool(tmp_path, validators=[])
     assert out["ok"] is True
     assert out["mode"] == "changed"
     # Every check reported, none with errors.
@@ -331,7 +435,7 @@ def test_lint_skips_mod_encoding_without_mod_files(tmp_path):
     loc.parent.mkdir(parents=True)
     loc.write_text('l_english:\n x:0 "y"\n')
 
-    out = lint_tool(tmp_path, files=["localisation/english/x_l_english.yml"])
+    out = lint_tool(tmp_path, files=["localisation/english/x_l_english.yml"], validators=[])
     me = next(c for c in out["checks"] if c["name"] == "mod_encoding")
     assert me["skipped"] == "no files in scope"
     assert me["total"] == 0

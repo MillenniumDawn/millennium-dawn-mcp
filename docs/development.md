@@ -171,10 +171,12 @@ Two workflows under `.github/workflows/`:
   mypy on 3.12; `pytest -q -n auto` on a 3.10/3.14 matrix. The unit-scoped
   perf assertions in `tests/test_perf.py` run as part of the plain suite.
 - **`nightly.yml`** (cron + manual dispatch): sparse-clones Millennium-Dawn
-  main (~380 MB instead of the 8 GB full tree) and runs
-  `pytest -m integration` against it. This is the validator-coupling drift
-  check from [`docs/validators.md`](./validators.md). On failure it opens or
-  updates a GitHub issue labelled `nightly-failure`.
+  main (~380 MB instead of the 8 GB full tree) and runs every fast validator
+  through `pytest -m integration`. This is the validator-coupling drift check
+  from [`docs/validators.md`](./validators.md). The read-only integration job
+  does not persist checkout credentials. A dependent job with only
+  `issues: write` opens or updates a `nightly-failure` issue after integration
+  failures or job timeouts.
 
 ### Future work: differential parser suite
 

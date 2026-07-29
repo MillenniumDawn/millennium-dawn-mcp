@@ -65,7 +65,7 @@ the same validator skip startup cost (a single import is multi-second on
 some validators — they pull pandas, openpyxl, etc.).
 
 **Output capture**: validators are chatty. The wrapper redirects their stdout
-+ stderr into `io.StringIO()` buffers and discards them. Only the structured
+and stderr into `io.StringIO()` buffers and discards them. Only the structured
 issues come back to the agent.
 
 **`SystemExit` guard**: some validators call `sys.exit(N)` to signal failure.
@@ -111,12 +111,15 @@ Mitigations:
 2. **`in_process` for triage.** When isolated mode reports a failure and you
    want the traceback in your own process, rerun with
    `MD_MCP_VALIDATOR_MODE=in_process` outside the server.
-3. **CI nightly check** runs the wrapper against `Millennium-Dawn` `main` and
-   opens an issue on breakage. Wired: `.github/workflows/nightly.yml` runs
-   `pytest -m integration` against a fresh sparse clone and files an issue
-   labelled `nightly-failure`.
+3. **CI nightly check** runs every fast validator wrapper against
+   `Millennium-Dawn` `main` and opens an issue on breakage. Wired:
+   `.github/workflows/nightly.yml` runs `pytest -m integration` against a fresh
+   sparse clone and files an issue labelled `nightly-failure`. The integration
+   job is read-only; a dependent issues-only job reports integration failures
+   and job timeouts.
 
 When you encounter a breakage:
+
 - First check whether `BaseValidator._issues` or `Issue.to_dict()` signatures
   changed in [`validator_common.py`](../../Millennium-Dawn/tools/validation/validator_common.py).
 - Run the validator's own CLI directly to confirm it still works at all.
@@ -171,12 +174,15 @@ file. Slower than `staged_only` for big trees.
 
 ## Running validators through `lint`
 
-`lint(validators=["auto"])` runs domain-matched validators on the same
-changed-file scope as the lint scripts and merges the issues into one
-response (check names `validator:<name>`, with both on-scope and mod-wide
-totals). See the lint section of [`docs/tools.md`](./tools.md). The bridge
-consumes `ValidatorRunner.run()` output only — the coupling caveat above
-still has a single adapter point.
+`lint()` runs the `style` validator by default in full-tree mode or when the
+resolved scope contains `.txt` files under `common/`, `events/`, or `history/`.
+A clean tree or a non-script-only scope runs no validator. Explicit selections
+retain their current behavior: `lint(validators=["auto"])` uses domain-matched
+validators, and `validators=[]` disables validators. Validator issues merge into
+the lint response as `validator:<name>` checks with both on-scope and mod-wide
+totals. See the lint section of [`docs/tools.md`](./tools.md). The bridge
+consumes `ValidatorRunner.run()` output only, so the coupling caveat above still
+has a single adapter point.
 
 Scoping can't compare `Issue.file` to the changed-file set directly, because
 that field isn't uniform (mod-relative, basename, `""`, `"unknown"`, and it

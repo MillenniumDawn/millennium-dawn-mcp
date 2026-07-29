@@ -16,7 +16,7 @@ from md_mcp.tools.lint_validators import (
 from md_mcp.tools.linting_tools import lint_tool
 from md_mcp.validators import SLOW_VALIDATORS, ValidatorInfo, ValidatorRunner
 
-from .test_lint_dispatcher import _init_repo, _seed_all_scripts
+from .test_lint_dispatcher import _git, _init_repo, _seed_all_scripts
 
 _ALL_NAMES = sorted(
     {v for _, vals in VALIDATOR_AUTO_MAP for v in vals}
@@ -92,6 +92,12 @@ def _issue(file, message="bad", severity="warning", line=0, category="CAT"):
             {"decisions", "scripted_params", "simplifications", "modifiers", "style"},
         ),
         ("common/ideas/USA.txt", {"ideas", "modifiers", "style"}),
+        ("common/characters/USA.txt", {"ideas", "style"}),
+        ("common/country_leader/USA.txt", {"style"}),
+        ("common/modifiers/USA.txt", {"style"}),
+        ("common/opinion_modifiers/USA.txt", {"style"}),
+        ("common/dynamic_modifiers/USA.txt", {"modifiers", "style"}),
+        ("common/modifier_definitions/USA.txt", {"modifiers", "style"}),
         ("common/scripted_guis/x.txt", {"scripted_gui", "gfx_references", "style"}),
         ("common/ai_strategy/USA.txt", {"ai_roles", "style"}),
         ("common/units/inf.txt", {"ai_navy", "oob_units", "style"}),
@@ -104,6 +110,19 @@ def _issue(file, message="bad", severity="warning", line=0, category="CAT"):
 )
 def test_select_validators_mapping(path, expected):
     assert set(select_validators([path], set(_ALL_NAMES))) == expected
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "common/characters/USA.txt",
+        "common/country_leader/USA.txt",
+        "common/modifiers/USA.txt",
+        "common/opinion_modifiers/USA.txt",
+    ],
+)
+def test_select_validators_does_not_route_modifiers_outside_scan_domain(path):
+    assert "modifiers" not in select_validators([path], set(_ALL_NAMES))
 
 
 def test_select_validators_dedups_across_files():
@@ -326,15 +345,96 @@ def test_lint_signature_has_validator_params():
     assert params["validator_runner"].default is None
 
 
-def test_lint_default_runs_no_validators(tmp_path):
+@pytest.mark.parametrize(
+    "mode,staged_only",
+    [("changed", False), ("staged", True), ("all", False)],
+)
+def test_lint_default_runs_style_validator_for_script_scope(tmp_path, mode, staged_only):
     _init_repo(tmp_path)
     _seed_all_scripts(tmp_path, {})
-    runner = FakeRunner()
-    out = lint_tool(tmp_path, validator_runner=runner)
+    (tmp_path / "descriptor.mod").write_text('name = "x"\n')
+    script_file = tmp_path / "common" / "x.txt"
+    script_file.parent.mkdir()
+    script_file.write_text("x = 1\n")
+    if mode == "staged":
+        _git(tmp_path, "add", "common/x.txt")
+
+    runner = FakeRunner(names=["style"])
+    out = lint_tool(tmp_path, mode=mode, validator_runner=runner)
+
     assert out["ok"] is True
-    assert "validators_run" not in out
+    assert out["validators_run"] == ["style"]
+    assert out["failed_checks"] == []
+    assert runner.calls == [{"name": "style", "staged_only": staged_only}]
+    assert any(c["name"] == "validator:style" for c in out["checks"])
+
+
+def test_lint_default_clean_tree_runs_no_validators(tmp_path):
+    _init_repo(tmp_path)
+    _seed_all_scripts(tmp_path, {})
+    _git(tmp_path, "add", "tools")
+    _git(tmp_path, "commit", "-qm", "add lint fixtures")
+    runner = FakeRunner(names=["style"])
+
+    out = lint_tool(tmp_path, validator_runner=runner)
+
+    assert out["ok"] is True
+    assert out["validators_run"] == []
     assert runner.calls == []
     assert not [c for c in out["checks"] if c["name"].startswith("validator:")]
+
+
+def test_lint_default_non_script_scope_runs_no_validators(tmp_path):
+    _init_repo(tmp_path)
+    _seed_all_scripts(tmp_path, {})
+    (tmp_path / "descriptor.mod").write_text('name = "x"\n')
+    runner = FakeRunner(names=["style"])
+
+    out = lint_tool(tmp_path, files=["descriptor.mod"], validator_runner=runner)
+
+    assert out["ok"] is True
+    assert out["validators_run"] == []
+    assert runner.calls == []
+    assert not [c for c in out["checks"] if c["name"].startswith("validator:")]
+
+
+def test_lint_explicit_empty_validators_disables_validator_runs(tmp_path):
+    _init_repo(tmp_path)
+    _seed_all_scripts(tmp_path, {})
+    runner = FakeRunner(names=["style"])
+    out = lint_tool(tmp_path, validators=[], validator_runner=runner)
+    assert out["ok"] is True
+    assert out["validators_run"] == []
+    assert runner.calls == []
+    assert not [c for c in out["checks"] if c["name"].startswith("validator:")]
+
+
+def test_lint_unavailable_default_style_is_a_failed_check(tmp_path):
+    _init_repo(tmp_path)
+    _seed_all_scripts(tmp_path, {})
+    script_file = tmp_path / "events" / "x.txt"
+    script_file.parent.mkdir()
+    script_file.write_text("x = 1\n")
+    runner = FakeRunner(names=[])
+    out = lint_tool(tmp_path, validator_runner=runner)
+    assert out["ok"] is False
+    assert out["validators_run"] == ["style"]
+    assert out["failed_checks"] == ["validator:style"]
+    assert runner.calls == []
+    style = next(c for c in out["checks"] if c["name"] == "validator:style")
+    assert style["ok"] is False
+    assert "unavailable" in style["error"]
+    assert all(c["ok"] for c in out["checks"] if not c["name"].startswith("validator:"))
+
+
+def test_lint_requested_validator_failure_sets_top_level_failure(tmp_path):
+    _init_repo(tmp_path)
+    _seed_all_scripts(tmp_path, {})
+    runner = FakeRunner(names=["history"], results={"history": {"ok": False, "error": "boom"}})
+    out = lint_tool(tmp_path, validators=["history"], validator_runner=runner)
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["validator:history"]
+    assert all(c["ok"] for c in out["checks"] if not c["name"].startswith("validator:"))
 
 
 def test_lint_validators_auto_merges_and_scopes(tmp_path):

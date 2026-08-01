@@ -188,12 +188,10 @@ def _scan_files(mod_root: Path, subdir: str, patterns: tuple, *, prefix: str) ->
             if not p.is_file():
                 continue
             stem = p.stem.upper()
-            if stem.startswith(prefix + "_") or stem == prefix:
+            matched = stem.startswith(prefix + "_") or stem == prefix
+            if not matched and "_" in stem:
+                matched = stem.split("_")[1] == prefix
+            if matched:
                 with contextlib.suppress(ValueError):
                     out.append(str(p.relative_to(mod_root)))
-            elif "_" in stem:
-                parts = stem.split("_")
-                if len(parts) >= 2 and parts[1] == prefix:
-                    with contextlib.suppress(ValueError):
-                        out.append(str(p.relative_to(mod_root)))
     return sorted(out)

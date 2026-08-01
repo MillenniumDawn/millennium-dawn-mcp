@@ -67,7 +67,6 @@ def focus_graph(
             "error": f"Invalid detail '{detail}'. Use one of: {list(_VALID_DETAIL)}",
         }
 
-    focus_index.ensure_fresh()
     tag_upper = tag.upper()
     prefix = tag_upper + "_"
     wanted_ids = {f.upper() for f in focus_ids} if focus_ids else None
@@ -142,7 +141,10 @@ def focus_graph(
             return {"ok": False, "error": "detail='paths' requires focus_ids=[...]"}
         cycle_ids = {fid for cyc in cycles for fid in cyc}
         requested, paths_truncated, paths_total = paginate(focus_ids, 0, node_limit)
-        result["paths"] = [_path_entry(req, by_id, cycle_ids) for req in requested]
+        by_upper = {fid.upper(): fid for fid in by_id}
+        result["paths"] = [
+            _path_entry(req, by_upper.get(req.upper()), by_id, cycle_ids) for req in requested
+        ]
         result["paths_total"] = paths_total
         result["paths_returned"] = len(requested)
         result["paths_truncated"] = paths_truncated
@@ -187,7 +189,7 @@ def focus_graph(
     return enforce_budget(result, heavy_keys=("nodes", "edges", "cycles"))
 
 
-def _read_cost(c) -> "tuple[float, bool]":
+def _read_cost(c) -> tuple[float, bool]:
     """Return (numeric cost, defaulted). defaulted is True when c is missing or not numeric."""
     try:
         return float(c), False
@@ -195,10 +197,10 @@ def _read_cost(c) -> "tuple[float, bool]":
         return _DEFAULT_FOCUS_COST, True
 
 
-def _path_entry(requested: str, by_id: Dict[str, dict], cycle_ids: set) -> dict:
+def _path_entry(
+    requested: str, real: Optional[str], by_id: Dict[str, dict], cycle_ids: set
+) -> dict:
     """Resolve one focus's cheapest completion set and timing estimate."""
-    ci = {fid.upper(): fid for fid in by_id}
-    real = ci.get(requested.upper())
     if real is None:
         return {"focus": requested, "found": False}
 

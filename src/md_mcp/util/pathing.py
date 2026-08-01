@@ -83,17 +83,3 @@ def _contained(root: Path, relpath: str) -> Path | None:
     except (ValueError, OSError, RuntimeError):
         return None
     return candidate
-
-
-def find_vanilla_path(mod_root: Path) -> Path | None:
-    """Auto-detect a sibling `Hearts of Iron IV/` directory. Returns None if absent.
-
-    Honours the HOI4_PATH env var as override.
-    """
-    env = os.environ.get("HOI4_PATH")
-    if env:
-        p = Path(env).expanduser().resolve()
-        return p if p.is_dir() else None
-
-    sibling = mod_root.parent / "Hearts of Iron IV"
-    return sibling if sibling.is_dir() else None

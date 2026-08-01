@@ -8,13 +8,14 @@ from pathlib import Path
 import pytest
 
 from md_mcp.tools.lint_validators import (
+    SCAN_PREFIXES,
     UNATTRIBUTED_SAMPLE,
     VALIDATOR_AUTO_MAP,
     run_validators_for_lint,
     select_validators,
 )
 from md_mcp.tools.linting_tools import lint_tool
-from md_mcp.validators import SLOW_VALIDATORS, ValidatorInfo, ValidatorRunner
+from md_mcp.validators import SLOW_VALIDATORS, ValidatorInfo, ValidatorRunner, available_validators
 
 from .test_lint_dispatcher import _git, _init_repo, _seed_all_scripts
 
@@ -603,3 +604,13 @@ def test_lint_with_real_validator(real_mod_root, tmp_path):
     assert out["ok"] is True
     assert out["validators_run"] == ["cosmetic_tags"]
     assert any(c["name"] == "validator:cosmetic_tags" for c in out["checks"])
+
+
+@pytest.mark.integration
+def test_auto_map_validator_names_exist_upstream(real_mod_root):
+    # SCAN_PREFIXES is the full universe select_validators can return for
+    # validators=["auto"]. A silent upstream rename would drop a name from
+    # here without failing anything else — catch that drift explicitly.
+    available = {v.name for v in available_validators(real_mod_root)}
+    missing = set(SCAN_PREFIXES) - available
+    assert not missing, f"auto-routable validator names missing upstream: {sorted(missing)}"

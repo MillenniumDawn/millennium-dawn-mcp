@@ -153,8 +153,9 @@ def focus_layout(
         if len(ids) > 1
     ]
 
-    xs = [p[0] for f in scope_ids if (p := resolved.get(f))]
-    ys = [p[1] for f in scope_ids if (p := resolved.get(f))]
+    points = [resolved[f] for f in scope_ids if f in resolved]
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
     bbox = {"min_x": min(xs), "max_x": max(xs), "min_y": min(ys), "max_y": max(ys)} if xs else None
 
     collisions_page, collisions_truncated, collisions_total = paginate(collisions, 0, limit)
@@ -165,7 +166,7 @@ def focus_layout(
         "scope": scope_desc,
         "files_scanned": len(candidate_files),
         "focus_count": len(scope_ids),
-        "resolved_count": sum(1 for f in scope_ids if f in resolved),
+        "resolved_count": len(points),
         "collisions_total": collisions_total,
         "collisions": collisions_page,
         "collisions_truncated": collisions_truncated,
@@ -208,7 +209,7 @@ def focus_layout(
 
 
 def _as_int(v) -> Optional[int]:
-    if isinstance(v, bool) or v is None:
+    if isinstance(v, bool):
         return None
     try:
         return int(float(v))

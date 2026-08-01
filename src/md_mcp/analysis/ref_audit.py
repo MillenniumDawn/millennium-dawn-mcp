@@ -58,6 +58,15 @@ _LOC_NODES = frozenset({"custom_effect_tooltip"})
 _DECISION_NODES = frozenset({"activate_decision", "unlock_decision_tooltip"})
 _FOCUS_DEF_NODES = frozenset({"focus", "shared_focus", "joint_focus"})
 
+# Kinds whose refs are a plain symbol under one of the listed node names. The
+# name sets are mutually disjoint, so at most one entry matches a given child.
+_SYMBOL_REF_NODES = (
+    ("focus", _FOCUS_SYMBOL_NODES),
+    ("idea", _IDEA_SYMBOL_NODES),
+    ("loc", _LOC_NODES),
+    ("decision", _DECISION_NODES),
+)
+
 
 def check_refs(
     mod_root: Path,
@@ -171,15 +180,9 @@ def check_refs(
             resolved_cache[key] = ok
         if ok:
             continue
-        entry = unresolved_by_key.get(key)
-        if entry is None:
-            entry = {
-                "kind": kind,
-                "ref": ref,
-                "count": 0,
-                "sites": [],
-            }
-            unresolved_by_key[key] = entry
+        entry = unresolved_by_key.setdefault(
+            key, {"kind": kind, "ref": ref, "count": 0, "sites": []}
+        )
         entry["count"] += 1
         if len(entry["sites"]) < 3:
             site = {"file": r["file"], "line": r["line"], "via": r["via"]}
@@ -238,17 +241,12 @@ def _walk(
                 ctx = fid
                 focus_defs.append({"id": fid, "file": relpath, "line": _line(child, line_starts)})
 
-        if "focus" in kinds:
-            if name in ("prerequisite", "mutually_exclusive"):
-                for m in child.children():
-                    if m.name == "focus":
-                        ref = _symbol_or_str(m)
-                        if ref:
-                            refs.append(_ref("focus", ref, name, relpath, m, line_starts, ctx))
-            elif name in _FOCUS_SYMBOL_NODES:
-                ref = _symbol_or_str(child)
-                if ref:
-                    refs.append(_ref("focus", ref, name, relpath, child, line_starts, ctx))
+        if "focus" in kinds and name in ("prerequisite", "mutually_exclusive"):
+            for m in child.children():
+                if m.name == "focus":
+                    ref = _symbol_or_str(m)
+                    if ref:
+                        refs.append(_ref("focus", ref, name, relpath, m, line_starts, ctx))
 
         if "event" in kinds and name in _EVENT_NODES:
             ref = _symbol_or_str(child)
@@ -257,20 +255,15 @@ def _walk(
             if ref:
                 refs.append(_ref("event", ref, name, relpath, child, line_starts, ctx))
 
-        if "idea" in kinds:
-            if name in _IDEA_BLOCK_NODES:
-                ref = _symbol_or_str(child)
-                if ref:
-                    refs.append(_ref("idea", ref, name, relpath, child, line_starts, ctx))
-                elif isinstance(child.value, list):
-                    for m in child.children():
-                        # bare symbols inside the block parse as name-only nodes
-                        if m.value is None and m.name:
-                            refs.append(_ref("idea", m.name, name, relpath, m, line_starts, ctx))
-            elif name in _IDEA_SYMBOL_NODES:
-                ref = _symbol_or_str(child)
-                if ref:
-                    refs.append(_ref("idea", ref, name, relpath, child, line_starts, ctx))
+        if "idea" in kinds and name in _IDEA_BLOCK_NODES:
+            ref = _symbol_or_str(child)
+            if ref:
+                refs.append(_ref("idea", ref, name, relpath, child, line_starts, ctx))
+            elif isinstance(child.value, list):
+                for m in child.children():
+                    # bare symbols inside the block parse as name-only nodes
+                    if m.value is None and m.name:
+                        refs.append(_ref("idea", m.name, name, relpath, m, line_starts, ctx))
 
         if "sprite" in kinds and name in _SPRITE_NODES:
             ref = _symbol_or_str(child)
@@ -283,15 +276,11 @@ def _walk(
             elif ref and not _is_texture_path(ref):
                 refs.append(_ref("sprite", ref, name, relpath, child, line_starts, ctx))
 
-        if "loc" in kinds and name in _LOC_NODES:
-            ref = _symbol_or_str(child)
-            if ref:
-                refs.append(_ref("loc", ref, name, relpath, child, line_starts, ctx))
-
-        if "decision" in kinds and name in _DECISION_NODES:
-            ref = _symbol_or_str(child)
-            if ref:
-                refs.append(_ref("decision", ref, name, relpath, child, line_starts, ctx))
+        for kind, names in _SYMBOL_REF_NODES:
+            if kind in kinds and name in names:
+                ref = _symbol_or_str(child)
+                if ref:
+                    refs.append(_ref(kind, ref, name, relpath, child, line_starts, ctx))
 
         if isinstance(child.value, list):
             _walk(child, relpath, line_starts, kinds, refs, focus_defs, ctx)

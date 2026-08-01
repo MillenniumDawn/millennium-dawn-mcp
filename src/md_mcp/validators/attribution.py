@@ -84,7 +84,8 @@ class IssueAttributor:
             return None
         candidates = self._index_by_basename().get(os.path.basename(partial), ())
         if scan_prefixes:
-            candidates = [c for c in candidates if c.startswith(tuple(scan_prefixes))]
+            prefixes = tuple(scan_prefixes)
+            candidates = [c for c in candidates if c.startswith(prefixes)]
         matches = [c for c in candidates if c == partial or c.endswith("/" + partial)]
         return matches[0] if len(matches) == 1 else None
 

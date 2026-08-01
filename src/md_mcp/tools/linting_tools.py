@@ -85,27 +85,11 @@ def lint_common_mistakes_tool(
         files — explicit file list (mod-relative); overrides `mode`
     """
     script = mod_root / "tools" / "linting" / "check_common_mistakes.py"
-    if not script.exists():
-        return {"ok": False, "error": f"check_common_mistakes.py not found at {script}"}
-
-    cmd = [sys.executable, str(script)]
-    if files:
-        cmd.extend(files)
-    else:
-        cmd.extend(["--mode", mode])
-
-    try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(mod_root),
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-    except (subprocess.TimeoutExpired, OSError, ValueError) as e:
-        if isinstance(e, subprocess.TimeoutExpired):
-            return {"ok": False, "error": "check_common_mistakes.py timed out after 300s"}
-        return {"ok": False, "error": f"Subprocess failed: {e}"}
+    proc, err = _run_script(
+        script, mod_root, list(files) if files else ["--mode", mode], timeout=300
+    )
+    if proc is None:
+        return {"ok": False, "error": err}
 
     issues: List[dict] = []
     for line in proc.stdout.splitlines():
@@ -152,22 +136,9 @@ def review_branch_tool(mod_root: Path, base: str = "main") -> dict:
     the parts it needs.
     """
     script = mod_root / "tools" / "analysis" / "review_branch.py"
-    if not script.exists():
-        return {"ok": False, "error": f"review_branch.py not found at {script}"}
-
-    cmd = [sys.executable, str(script), base]
-    try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(mod_root),
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    except (subprocess.TimeoutExpired, OSError, ValueError) as e:
-        if isinstance(e, subprocess.TimeoutExpired):
-            return {"ok": False, "error": "review_branch.py timed out after 120s"}
-        return {"ok": False, "error": f"Subprocess failed: {e}"}
+    proc, err = _run_script(script, mod_root, [base])
+    if proc is None:
+        return {"ok": False, "error": err}
 
     return {
         "ok": True,
@@ -196,9 +167,9 @@ def _run_script(
             text=True,
             timeout=timeout,
         )
-    except (subprocess.TimeoutExpired, OSError, ValueError) as e:
-        if isinstance(e, subprocess.TimeoutExpired):
-            return None, f"{script.name} timed out after {timeout}s"
+    except subprocess.TimeoutExpired:
+        return None, f"{script.name} timed out after {timeout}s"
+    except (OSError, ValueError) as e:
         return None, f"Subprocess failed: {e}"
     return proc, None
 
@@ -226,7 +197,7 @@ def lint_mod_encoding_tool(
         return {"ok": False, "error": err}
 
     issues: List[dict] = []
-    checked: List[str] = []
+    checked = 0
     combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
     for raw in combined.splitlines():
         line = _ANSI_RE.sub("", raw).rstrip()
@@ -234,7 +205,7 @@ def lint_mod_encoding_tool(
             continue
         m = _MOD_ENC_OK_RE.match(line)
         if m:
-            checked.append(m.group("file").strip())
+            checked += 1
             continue
         m = _MOD_ENC_BAD_RE.match(line)
         if m:
@@ -254,7 +225,7 @@ def lint_mod_encoding_tool(
     return enforce_budget(
         {
             "ok": True,
-            "checked": len(checked) + len(issues),
+            "checked": checked + len(issues),
             "total": len(issues),
             "returned": min(limit, len(issues)),
             "truncated": truncated,
@@ -398,10 +369,11 @@ def lint_tool(
     # Expand the validators request up front so bad explicit names fail fast.
     # `None` and `[]` differ intentionally: omission keeps style enforcement
     # for script scopes, while an explicit empty list disables all validators.
-    style_in_scope = relevant is None or any(
-        f.endswith(".txt") and f.startswith(("common/", "events/", "history/")) for f in relevant
-    )
     if validators is None:
+        style_in_scope = relevant is None or any(
+            f.endswith(".txt") and f.startswith(("common/", "events/", "history/"))
+            for f in relevant
+        )
         validator_request = ["style"] if style_in_scope else []
     else:
         validator_request = list(validators)

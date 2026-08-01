@@ -8,7 +8,6 @@ from md_mcp import config
 from md_mcp.util.pathing import (
     ModRootNotFound,
     find_mod_root,
-    find_vanilla_path,
     resolve_scope_file,
 )
 
@@ -35,25 +34,6 @@ def test_no_match_raises_with_actionable_message(tmp_path):
     msg = str(e.value)
     assert "MD_MOD_ROOT" in msg
     assert "walk-up" in msg
-
-
-def test_vanilla_path_via_env(tmp_path, monkeypatch):
-    vanilla = tmp_path / "Hearts of Iron IV"
-    vanilla.mkdir()
-    monkeypatch.setenv("HOI4_PATH", str(vanilla))
-    assert find_vanilla_path(tmp_path / "mod") == vanilla
-
-
-def test_vanilla_path_sibling_auto_detect(tmp_path):
-    vanilla = tmp_path / "Hearts of Iron IV"
-    vanilla.mkdir()
-    mod = tmp_path / "mod"
-    mod.mkdir()
-    assert find_vanilla_path(mod) == vanilla
-
-
-def test_vanilla_path_absent(tmp_path):
-    assert find_vanilla_path(tmp_path) is None
 
 
 def test_resolve_scope_file_finds_mod_file(tmp_path):
@@ -117,3 +97,35 @@ def test_malformed_config_file_fails_loudly(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CONFIG_PATH", bad)
     with pytest.raises(RuntimeError, match="Could not load configuration file"):
         config._load_file_config()
+
+
+def _make_mod_root(path):
+    (path / "tools" / "validation").mkdir(parents=True)
+    (path / "descriptor.mod").write_text('name = "x"\n', encoding="utf-8")
+    return path
+
+
+def test_env_mod_root_wins_over_config_file(tmp_path, monkeypatch):
+    env_root = _make_mod_root(tmp_path / "EnvMod")
+    file_root = _make_mod_root(tmp_path / "FileMod")
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(f'mod_root = "{file_root}"\n', encoding="utf-8")
+    monkeypatch.setattr(config, "CONFIG_PATH", cfg)
+    monkeypatch.setenv("MD_MOD_ROOT", str(env_root))
+    assert config.load().mod_root == env_root
+
+
+def test_explicit_mod_root_wins_over_env(tmp_path, monkeypatch):
+    explicit_root = _make_mod_root(tmp_path / "ExplicitMod")
+    env_root = _make_mod_root(tmp_path / "EnvMod")
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
+    monkeypatch.setenv("MD_MOD_ROOT", str(env_root))
+    assert config.load(str(explicit_root)).mod_root == explicit_root
+
+
+def test_unrecognized_validator_mode_fails_loudly(tmp_path, monkeypatch):
+    root = _make_mod_root(tmp_path / "Mod")
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
+    monkeypatch.setenv("MD_MCP_VALIDATOR_MODE", "in-process")
+    with pytest.raises(RuntimeError, match="in-process"):
+        config.load(str(root))

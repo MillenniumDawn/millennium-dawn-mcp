@@ -62,7 +62,7 @@ The pattern lives in [`src/md_mcp/util/response.py`](../src/md_mcp/util/response
 ### `BUDGET_BYTES`
 
 ```python
-BUDGET_BYTES = 100_000   # ~25K tokens at 4-bytes/token, with envelope headroom
+BUDGET_BYTES = 100_000  # ~25K tokens at 4-bytes/token, with envelope headroom
 ```
 
 Self-imposed JSON-byte ceiling. 100 KB clears every MCP client cap we've seen

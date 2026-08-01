@@ -80,7 +80,7 @@ def _contained(root: Path, relpath: str) -> Path | None:
     try:
         candidate = (root / relpath).resolve()
         candidate.relative_to(root.resolve())
-    except (ValueError, OSError):
+    except (ValueError, OSError, RuntimeError):
         return None
     return candidate
 

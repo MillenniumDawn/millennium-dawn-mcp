@@ -6,6 +6,7 @@ into the index and tool layers.
 
 from __future__ import annotations
 
+import importlib
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,21 +62,18 @@ def load(mod_root: Optional[str] = None) -> Settings:
 
 
 def _load_file_config() -> dict:
-    """Best-effort load of ~/.config/md-mcp/config.toml.
+    """Load ~/.config/md-mcp/config.toml when present.
 
-    Uses stdlib tomllib (Python 3.11+); silently falls back to {} on older
-    runtimes or any read/parse failure.
+    Raises RuntimeError when an existing config file cannot be read or parsed.
     """
     if not CONFIG_PATH.exists():
         return {}
     try:
-        import tomllib  # type: ignore[import-not-found]
+        tomllib = importlib.import_module("tomllib")
     except ModuleNotFoundError:
-        return {}
+        tomllib = importlib.import_module("tomli")
     try:
         with open(CONFIG_PATH, "rb") as f:
             return tomllib.load(f)
-    except (OSError, ValueError):
-        # TOMLDecodeError subclasses ValueError, so a malformed config file
-        # degrades to defaults instead of taking the server down at startup.
-        return {}
+    except (OSError, ValueError) as e:
+        raise RuntimeError(f"Could not load configuration file {CONFIG_PATH}: {e}") from e

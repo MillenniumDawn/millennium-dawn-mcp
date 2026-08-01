@@ -17,7 +17,7 @@ jobs:
   integration:
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    runs-on: default
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +52,7 @@ jobs:
     if: ${{ always() && needs.integration.result != 'success' }}
     permissions:
       issues: write
-    runs-on: ubuntu-latest
+    runs-on: default
     steps:
       - name: Open or update failure issue
         env:
@@ -63,7 +63,7 @@ jobs:
           n=$(
             gh issue list --repo "$GITHUB_REPOSITORY" \
               --label nightly-failure --state open \
-              --json number --jq '.[0].number'
+              --json number --jq '.[0].number // empty'
           )
           run_url="${{ github.server_url }}/${{ github.repository }}"
           run_url="$run_url/actions/runs/${{ github.run_id }}"

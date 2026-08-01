@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sys
-
 import pytest
 
 from md_mcp import config
@@ -106,12 +104,16 @@ def test_resolve_scope_file_traversal_not_reachable_via_vanilla(tmp_path):
     assert resolve_scope_file("../outside.txt", mod, vanilla) is None
 
 
-@pytest.mark.skipif(
-    sys.version_info < (3, 11), reason="tomllib is stdlib from 3.11; older runtimes return {} early"
-)
-def test_malformed_config_file_degrades_to_defaults(tmp_path, monkeypatch):
-    """A broken config.toml must not take the server down at startup."""
+def test_resolve_scope_file_rejects_symlink_loop(tmp_path):
+    mod = tmp_path / "mod"
+    mod.mkdir()
+    (mod / "loop").symlink_to("loop", target_is_directory=True)
+    assert resolve_scope_file("loop/file.txt", mod, None) is None
+
+
+def test_malformed_config_file_fails_loudly(tmp_path, monkeypatch):
     bad = tmp_path / "config.toml"
     bad.write_text("this is not = valid = toml", encoding="utf-8")
     monkeypatch.setattr(config, "CONFIG_PATH", bad)
-    assert config._load_file_config() == {}
+    with pytest.raises(RuntimeError, match="Could not load configuration file"):
+        config._load_file_config()

@@ -280,6 +280,7 @@ not in the hook. Run `pytest -q` yourself; it isn't a hook either.
    from md_mcp.config import load
    from md_mcp.indexes import FocusIndex
    from md_mcp.analysis.focus_graph import focus_graph
+
    s = load("/path/to/Millennium-Dawn")
    focus_graph("ISR", s.mod_root, FocusIndex(s.mod_root, s.cache_dir, s.vanilla_path))
    ```

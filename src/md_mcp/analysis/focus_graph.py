@@ -285,7 +285,7 @@ def _find_cycles(graph: Dict[str, List[str]]) -> List[List[str]]:
         for nxt in graph.get(node, []):
             if color.get(nxt) == 1:
                 if nxt in stack:
-                    cyc = stack[stack.index(nxt) :] + [nxt]
+                    cyc = [*stack[stack.index(nxt) :], nxt]
                     cycles.append(cyc)
             elif color.get(nxt) == 0:
                 dfs(nxt)

@@ -10,19 +10,20 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
-    "mcp>=1.0,<2",
-    "pyyaml>=6.0",
-    "typing-extensions>=4.0",
+  "mcp>=1.0,<2",
+  "tomli>=2.0; python_version < '3.11'",
+  "pyyaml>=6.0",
+  "typing-extensions>=4.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0",
-    "pytest-xdist>=3.0",
-    "ruff==0.8.6",
-    "mypy>=1.14",
-    "types-PyYAML",
-    "pre-commit>=4.0",
+  "pytest>=7.0",
+  "pytest-xdist>=3.0",
+  "ruff==0.8.6",
+  "mypy>=1.14",
+  "types-PyYAML",
+  "pre-commit>=4.0",
 ]
 
 [project.scripts]
@@ -35,7 +36,7 @@ packages = ["src/md_mcp"]
 testpaths = ["tests"]
 addopts = "--strict-markers"
 markers = [
-    "integration: requires a real Millennium-Dawn checkout (set MD_MOD_ROOT)",
+  "integration: requires a real Millennium-Dawn checkout (set MD_MOD_ROOT)",
 ]
 
 [tool.ruff]

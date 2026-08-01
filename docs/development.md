@@ -133,12 +133,12 @@ in the nightly workflow, not per-PR CI.
 
 Budgets were calibrated on a 14-core Mac. `MD_PERF_BUDGET_SCALE` (default 1.0)
 multiplies every budget for slower runners; the nightly workflow sets it to 3
-for the 4-vCPU ubuntu box it runs on.
+for CI.
 
 The rest are targets to hold by hand, not assertions:
 
 | Operation | Target |
-|---|---|
+| --- | --- |
 | Warm `ensure_fresh()` (no changes) | < 50 ms |
 | Single `resolve_*` after fresh | < 1 ms |
 | `parse_string` on 50 KB input | < 10 ms |
@@ -157,13 +157,17 @@ import asyncio
 from mcp.client.stdio import stdio_client, StdioServerParameters
 from mcp.client.session import ClientSession
 
+
 async def main():
-    params = StdioServerParameters(command="md-mcp", args=["serve"], env={"MD_MOD_ROOT": "/path/to/Millennium-Dawn"})
+    params = StdioServerParameters(
+        command="md-mcp", args=["serve"], env={"MD_MOD_ROOT": "/path/to/Millennium-Dawn"}
+    )
     async with stdio_client(params) as (r, w):
         async with ClientSession(r, w) as s:
             await s.initialize()
             result = await s.call_tool("focus_graph", {"tag": "ISR", "detail": "summary"})
             print(len(str(result.content)))  # bytes after MCP framing
+
 
 asyncio.run(main())
 ```

@@ -140,8 +140,9 @@ def check_refs(
         "focus": lambda r: focus_index.resolve(r) is not None,
         "event": lambda r: event_index.resolve(r) is not None,
         "idea": lambda r: idea_index.resolve(r) is not None,
-        "sprite": lambda r: gfx_index.resolve(r) is not None
-        or gfx_index.resolve(f"GFX_{r}") is not None,
+        "sprite": lambda r: (
+            gfx_index.resolve(r) is not None or gfx_index.resolve(f"GFX_{r}") is not None
+        ),
         "loc": lambda r: loc_index.resolve(r, lang) is not None,
         "decision": lambda r: decision_index.resolve(r) is not None,
     }

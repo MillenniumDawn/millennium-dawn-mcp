@@ -27,9 +27,9 @@ the list of top-level child Nodes.
 ```python
 @dataclass
 class Node:
-    name: Optional[str]          # e.g. "focus" in `focus = { ... }`
-    operator: Optional[str]      # usually "=", sometimes ">=", "<=", "!=", "<", ">"
-    value: NodeValue             # tagged union (see below)
+    name: Optional[str]  # e.g. "focus" in `focus = { ... }`
+    operator: Optional[str]  # usually "=", sometimes ">=", "<=", "!=", "<", ">"
+    value: NodeValue  # tagged union (see below)
     value_attachment: Optional[SymbolNode]  # for `value @attach` syntax
 
     name_token: Optional[Token]
@@ -43,11 +43,11 @@ class Node:
 
 ```python
 NodeValue = Union[
-    None,         # keyword-only nodes, e.g. `add_namespace`
-    str,          # quoted string literal (escapes resolved)
+    None,  # keyword-only nodes, e.g. `add_namespace`
+    str,  # quoted string literal (escapes resolved)
     int | float,  # numeric
-    SymbolNode,   # bare identifier (e.g. `yes`, `TAG`, `idea_name`)
-    list[Node],   # block contents `{ ... }`
+    SymbolNode,  # bare identifier (e.g. `yes`, `TAG`, `idea_name`)
+    list[Node],  # block contents `{ ... }`
 ]
 ```
 

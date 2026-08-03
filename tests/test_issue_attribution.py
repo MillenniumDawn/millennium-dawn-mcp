@@ -106,3 +106,14 @@ def test_index_is_built_once(fake_mod_root):
     before = at._index
     at.resolve(_issue(file="test_l_english.yml"), scan_prefixes=("localisation/",))
     assert at._index is before
+
+
+def test_dot_prefix_is_stripped_once_not_greedily(fake_mod_root):
+    # _normalise must strip a leading "./" (and a repeat), but must not eat a
+    # leading "." from a real filename like ".gitignore".
+    at = IssueAttributor(fake_mod_root)
+    assert at.resolve(_issue(file="./events/test_events.txt"), scan_prefixes=("events/",)) == (
+        "events/test_events.txt"
+    )
+    # A bare dotted name is no longer mangled by the old lstrip("./").
+    assert at.resolve(_issue(file=".gitignore")) is None

@@ -13,7 +13,9 @@ Reference kinds and where they're harvested:
   event     — `country_event` / `news_event` (symbol form or `{ id = ... }` block)
   idea      — `add_ideas` / `remove_ideas` (symbol or block), `add_idea` /
               `remove_idea` / `idea` / `has_idea`
-  sprite    — `icon` / `picture` (tries the raw name, then `GFX_<name>`)
+  sprite    — `icon` / `picture` (tries the raw name, then `GFX_<name>`, then
+              `GFX_idea_<name>` — HOI4 resolves idea `picture` fields as
+              `GFX_idea_<picture>`)
   loc       — `<focus_id>` and `<focus_id>_desc` for every focus defined in
               scope, plus `custom_effect_tooltip` keys
   decision  — `activate_decision`, `unlock_decision_tooltip`
@@ -150,7 +152,9 @@ def check_refs(
         "event": lambda r: event_index.resolve(r) is not None,
         "idea": lambda r: idea_index.resolve(r) is not None,
         "sprite": lambda r: (
-            gfx_index.resolve(r) is not None or gfx_index.resolve(f"GFX_{r}") is not None
+            gfx_index.resolve(r) is not None
+            or gfx_index.resolve(f"GFX_{r}") is not None
+            or gfx_index.resolve(f"GFX_idea_{r}") is not None
         ),
         "loc": lambda r: loc_index.resolve(r, lang) is not None,
         "decision": lambda r: decision_index.resolve(r) is not None,

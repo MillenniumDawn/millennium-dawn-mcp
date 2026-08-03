@@ -192,9 +192,12 @@ def run_validators_for_lint(
     """Run validators and normalise output into the lint dispatcher's shape.
 
     Returns (check_entries, issues). Check entries are named `validator:<name>`
-    and carry `total` (on-scope, and equal to the issues actually returned for
-    that validator) plus `total_mod_wide` and, when any survive, `unattributed`.
-    Per-validator failures are isolated, same as lint checks.
+    and carry `total` (on-scope only), plus `total_mod_wide` and, when any
+    survive, `unattributed`. The returned issue list also appends up to
+    `UNATTRIBUTED_SAMPLE` unattributed issues (tagged `scope="unattributed"`),
+    and `lint_tool` folds those into its top-level counts, so when unattributed
+    issues exist `total` is the on-scope count, not the length of the returned
+    list. Per-validator failures are isolated, same as lint checks.
 
     Without `mod_root` there's nothing to resolve partial paths against, so
     matching degrades to exact comparison.

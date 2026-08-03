@@ -28,7 +28,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, FrozenSet, List, Optional, Sequence, Tuple
 
 # Extensions the validator suite reports on. Bounds the message scrape so prose
 # like "1.13.*" or "ALG.2001" can't be mistaken for a filename.
@@ -53,7 +53,7 @@ class IssueAttributor:
     def __init__(self, mod_root: Path):
         self.mod_root = Path(mod_root)
         self._index: Optional[Dict[str, List[str]]] = None
-        self._path_tuple: Optional[Tuple[str, ...]] = None
+        self._path_set: Optional[FrozenSet[str]] = None
 
     def resolve(self, issue: dict, scan_prefixes: Sequence[str] = ()) -> Optional[str]:
         """Return the mod-relative path this issue belongs to, or None."""
@@ -96,14 +96,18 @@ class IssueAttributor:
                 self._index.setdefault(os.path.basename(p), []).append(p)
         return self._index
 
-    def _paths(self) -> Tuple[str, ...]:
-        if self._path_tuple is None:
-            self._path_tuple = _list_mod_files(self.mod_root)
-        return self._path_tuple
+    def _paths(self) -> FrozenSet[str]:
+        """Every mod-relative file path. Built once, then O(1) membership."""
+        if self._path_set is None:
+            self._path_set = frozenset(_list_mod_files(self.mod_root))
+        return self._path_set
 
 
 def _normalise(value: str) -> str:
-    return value.replace("\\", "/").strip().lstrip("./")
+    value = value.replace("\\", "/").strip()
+    while value.startswith("./"):
+        value = value[2:]
+    return value
 
 
 def _list_mod_files(mod_root: Path) -> Tuple[str, ...]:

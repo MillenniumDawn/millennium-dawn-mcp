@@ -185,6 +185,30 @@ sys.exit(1)
     assert out["counts"]["warning"] == 1
 
 
+def test_lint_common_mistakes_reports_total_per_check(tmp_path):
+    # lint_common_mistakes_tool returns its count as `count`; the dispatcher's
+    # per-check summary reads `total`. Regression: total used to stay 0 even
+    # when the check produced issues.
+    _seed_all_scripts(
+        tmp_path,
+        {
+            "tools/linting/check_common_mistakes.py": """import sys
+print("sub/a.txt:1: foo")
+sys.exit(1)
+""",
+        },
+    )
+    out = lint_tool(
+        tmp_path,
+        checks=["common_mistakes"],
+        files=["sub/a.txt"],
+        validators=[],
+    )
+    cm = next(c for c in out["checks"] if c["name"] == "common_mistakes")
+    assert cm["ok"] is True
+    assert cm["total"] == 1
+
+
 def test_lint_limit_truncates(tmp_path):
     body = "\n".join(f'print("sub/a.txt:{i}: msg{i}")' for i in range(1, 21))
     _seed_all_scripts(

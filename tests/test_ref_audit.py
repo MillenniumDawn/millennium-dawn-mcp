@@ -234,6 +234,43 @@ def test_scope_file_not_found_anywhere(fake_mod_root, cache_dir):
     ]
 
 
+def test_idea_picture_resolves_as_gfx_idea(fake_mod_root, cache_dir):
+    """HOI4 resolves idea `picture` fields as GFX_idea_<picture>, not GFX_<picture>."""
+    (fake_mod_root / "interface").mkdir(exist_ok=True)
+    (fake_mod_root / "interface" / "idea_sprites.gfx").write_text(
+        (
+            "spriteTypes = {\n"
+            "\tspriteType = {\n"
+            '\t\tname = "GFX_idea_generic_foo"\n'
+            '\t\ttexturefile = "gfx/foo.dds"\n'
+            "\t}\n}\n"
+        ),
+        encoding="utf-8",
+    )
+    ideas_file = fake_mod_root / "common" / "ideas" / "TST_ideas.txt"
+    ideas_file.parent.mkdir(parents=True, exist_ok=True)
+    ideas_file.write_text(
+        (
+            "ideas = {\n"
+            "\tcountries = {\n"
+            "\t\tTST_IDEA = {\n"
+            "\t\t\tpicture = generic_foo\n"
+            "\t\t\tpicture = generic_missing\n"
+            "\t\t}\n\t}\n}\n"
+        ),
+        encoding="utf-8",
+    )
+    out = check_refs(
+        fake_mod_root,
+        files=["common/ideas/TST_ideas.txt"],
+        kinds=["sprite"],
+        **_indexes(fake_mod_root, cache_dir),
+    )
+    unresolved = {(e["kind"], e["ref"]) for e in out["unresolved"]}
+    assert ("sprite", "generic_foo") not in unresolved  # resolved as GFX_idea_generic_foo
+    assert ("sprite", "generic_missing") in unresolved
+
+
 def test_texture_paths_not_sprite_refs(fake_mod_root, cache_dir):
     """picture = foo.dds inside leader-creation effects is a file path, not a sprite id."""
     body = """focus_tree = {

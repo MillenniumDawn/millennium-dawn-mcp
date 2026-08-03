@@ -92,6 +92,14 @@ class ValidatorRunner:
         self._infos: Optional[Dict[str, ValidatorInfo]] = None
         self._modules: Dict[str, object] = {}
         self._sys_path_inserted = False
+        self._attributor_cache: Optional[IssueAttributor] = None
+
+    def _attributor(self) -> IssueAttributor:
+        """Lazily-built, shared path index. Building it shells out `git ls-files`
+        over the whole mod, so reuse it across validator runs in one call."""
+        if self._attributor_cache is None:
+            self._attributor_cache = IssueAttributor(self.mod_root)
+        return self._attributor_cache
 
     def list(self) -> List[ValidatorInfo]:
         self._infos = self._infos or {v.name: v for v in available_validators(self.mod_root)}
@@ -207,7 +215,7 @@ class ValidatorRunner:
             }
 
         issues = [i.to_dict() for i in getattr(inst, "_issues", [])]
-        kept, unattributed = _filter_by_files(issues, files, self.mod_root)
+        kept, unattributed = _filter_by_files(issues, files, self._attributor())
         return _summarise(info, kept, unattributed=unattributed)
 
     # ------------------------------------------------------------------
@@ -269,12 +277,12 @@ class ValidatorRunner:
         if not payload.get("ok"):
             return {"ok": False, "validator": info.name, "error": payload.get("error")}
 
-        kept, unattributed = _filter_by_files(payload.get("issues", []), files, self.mod_root)
+        kept, unattributed = _filter_by_files(payload.get("issues", []), files, self._attributor())
         return _summarise(info, kept, unattributed=unattributed)
 
 
 def _filter_by_files(
-    issues: List[dict], files: Optional[List[str]], mod_root: Path
+    issues: List[dict], files: Optional[List[str]], attributor: IssueAttributor
 ) -> Tuple[List[dict], int]:
     """Post-filter issues to a file scope.
 
@@ -285,7 +293,6 @@ def _filter_by_files(
     if not files:
         return issues, 0
     wanted = {os.path.normpath(f) for f in files}
-    attributor = IssueAttributor(mod_root)
     kept: List[dict] = []
     unattributed = 0
     for i in issues:

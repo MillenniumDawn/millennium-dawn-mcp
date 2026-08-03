@@ -138,6 +138,7 @@ def lint_common_mistakes_tool(
         "ok": True,
         "issues": issues,
         "count": len(issues),
+        "total": len(issues),
         "mode": "files" if files else mode,
         "exit_code": proc.returncode,
         "stderr": proc.stderr[-2000:] if proc.stderr else "",

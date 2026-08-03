@@ -250,7 +250,7 @@ def test_lint_script_crash_without_recognized_output_fails(tmp_path, check, scri
     assert out["failed_checks"] == [check]
     check_result = out["checks"][0]
     assert check_result["ok"] is False
-    assert "without recognized diagnostics" in check_result["error"]
+    assert "crashed mid-run" in check_result["error"]
     assert "synthetic crash" in check_result["stderr_tail"]
 
 
@@ -311,6 +311,70 @@ def test_lint_negative_exit_code_is_a_failure(tmp_path, monkeypatch):
     assert out["ok"] is False
     assert out["failed_checks"] == ["common_mistakes"]
     assert "unexpected code -9" in out["checks"][0]["error"]
+
+
+@pytest.mark.parametrize(
+    "check,script,files,diagnostic",
+    [
+        (
+            "common_mistakes",
+            "tools/linting/check_common_mistakes.py",
+            ["common/x.txt"],
+            'print("common/x.txt:1: parsed issue")',
+        ),
+        (
+            "mod_encoding",
+            "tools/linting/validate_mod_encoding.py",
+            ["descriptor.mod"],
+            'print("descriptor.mod: Invalid UTF-8 encoding - bad byte")',
+        ),
+        (
+            "loc_encoding",
+            "tools/linting/validate_localization_encoding.py",
+            ["localisation/english/x_l_english.yml"],
+            'print("localisation/english/x_l_english.yml: Missing UTF-8 BOM")',
+        ),
+    ],
+)
+def test_lint_traceback_with_parsed_issue_is_a_failure(tmp_path, check, script, files, diagnostic):
+    """Regression: exit 1 + a parseable issue used to read as success even when
+    the script crashed mid-scan and the issues were partial."""
+    _seed_all_scripts(tmp_path, {script: f"import sys\n{diagnostic}\nraise RuntimeError('boom')\n"})
+
+    out = lint_tool(tmp_path, checks=[check], files=files, validators=[])
+
+    assert out["ok"] is False
+    assert out["failed_checks"] == [check]
+    check_result = out["checks"][0]
+    assert check_result["ok"] is False
+    assert "crashed mid-run" in check_result["error"]
+    assert "boom" in check_result["stderr_tail"]
+    assert not any(i["check"] == check for i in out.get("issues", []))
+
+
+def test_lint_traceback_exit_0_is_a_failure(tmp_path, monkeypatch):
+    """A script that prints a traceback but exits 0 still aborted its scan."""
+    _seed_all_scripts(tmp_path, {})
+
+    def traced(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="common/x.txt:1: parsed issue\n",
+            stderr='Traceback (most recent call last):\n  File "x", line 1\nRuntimeError: boom\n',
+        )
+
+    monkeypatch.setattr("md_mcp.tools.linting_tools.subprocess.run", traced)
+    out = lint_tool(
+        tmp_path,
+        checks=["common_mistakes"],
+        files=["common/x.txt"],
+        validators=[],
+    )
+
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["common_mistakes"]
+    assert "crashed mid-run" in out["checks"][0]["error"]
 
 
 # ---------------------------------------------------------------------------

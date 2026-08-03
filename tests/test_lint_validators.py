@@ -77,36 +77,70 @@ def _issue(file, message="bad", severity="warning", line=0, category="CAT"):
 # ---------------------------------------------------------------------------
 
 
+# Broad rows cover the validators whose source scan globs reach the whole
+# common/, events/, and/or history/ tree (see VALIDATOR_AUTO_MAP docstring);
+# narrow rows add the domain-specific pass for that directory.
+_BROAD_COMMON = {
+    "agency_upgrades",
+    "events",
+    "file_paths",
+    "gfx_references",
+    "ideas",
+    "scripted_gui",
+    "simplifications",
+}
+# Same for history/: the common/ broad set minus simplifications, which only
+# reaches common/ and events/ upstream.
+_BROAD_HISTORY = {"agency_upgrades", "events", "file_paths", "gfx_references", "history", "ideas"}
+
+
 @pytest.mark.parametrize(
     "path,expected",
     [
         (
             "common/national_focus/USA.txt",
-            {"focus_tree", "scripted_params", "simplifications", "modifiers", "style"},
+            _BROAD_COMMON | {"focus_tree", "modifiers", "oob_units", "scripted_params", "style"},
         ),
         (
             "events/Afghanistan.txt",
-            {"events", "on_actions", "scripted_params", "simplifications", "scripted_gui", "style"},
+            _BROAD_COMMON | {"focus_tree", "on_actions", "oob_units", "scripted_params", "style"},
         ),
         (
             "common/decisions/USA.txt",
-            {"decisions", "scripted_params", "simplifications", "modifiers", "style"},
+            _BROAD_COMMON | {"decisions", "modifiers", "oob_units", "scripted_params", "style"},
         ),
-        ("common/ideas/USA.txt", {"ideas", "modifiers", "style"}),
-        ("common/characters/USA.txt", {"ideas", "style"}),
-        ("common/country_leader/USA.txt", {"style"}),
-        ("common/modifiers/USA.txt", {"style"}),
-        ("common/opinion_modifiers/USA.txt", {"style"}),
-        ("common/dynamic_modifiers/USA.txt", {"modifiers", "style"}),
-        ("common/modifier_definitions/USA.txt", {"modifiers", "style"}),
-        ("common/scripted_guis/x.txt", {"scripted_gui", "gfx_references", "style"}),
-        ("common/ai_strategy/USA.txt", {"ai_roles", "style"}),
-        ("common/units/inf.txt", {"ai_navy", "oob_units", "style"}),
-        ("history/units/USA_2000.txt", {"oob_units", "history", "style"}),
-        ("history/countries/USA.txt", {"history", "style"}),
-        ("interface/usa.gfx", {"gfx_references", "scripted_gui"}),
-        ("localisation/english/MD_focus_USA_l_english.yml", {"localisation"}),
-        ("descriptor.mod", set()),
+        ("common/ideas/USA.txt", _BROAD_COMMON | {"history", "modifiers", "style"}),
+        ("common/characters/USA.txt", _BROAD_COMMON | {"style"}),
+        ("common/country_leader/USA.txt", _BROAD_COMMON | {"style"}),
+        ("common/modifiers/USA.txt", _BROAD_COMMON | {"style"}),
+        ("common/opinion_modifiers/USA.txt", _BROAD_COMMON | {"style"}),
+        ("common/dynamic_modifiers/USA.txt", _BROAD_COMMON | {"modifiers", "style"}),
+        ("common/modifier_definitions/USA.txt", _BROAD_COMMON | {"modifiers", "style"}),
+        ("common/scripted_guis/x.txt", _BROAD_COMMON | {"style"}),
+        ("common/ai_strategy/USA.txt", _BROAD_COMMON | {"ai_roles", "style"}),
+        (
+            "common/units/inf.txt",
+            _BROAD_COMMON | {"ai_equipment", "ai_navy", "modifiers", "oob_units", "style"},
+        ),
+        ("history/units/USA_2000.txt", _BROAD_HISTORY | {"oob_units", "style"}),
+        ("history/countries/USA.txt", _BROAD_HISTORY | {"oob_units", "style"}),
+        (
+            "interface/usa.gfx",
+            {
+                "agency_upgrades",
+                "factions",
+                "file_paths",
+                "gfx_references",
+                "ideas",
+                "scripted_gui",
+                "scripted_localisation",
+            },
+        ),
+        (
+            "localisation/english/MD_focus_USA_l_english.yml",
+            {"file_paths", "gfx_references", "localisation", "scripted_gui"},
+        ),
+        ("descriptor.mod", {"mod_descriptors"}),
     ],
 )
 def test_select_validators_mapping(path, expected):
@@ -128,7 +162,7 @@ def test_select_validators_does_not_route_modifiers_outside_scan_domain(path):
 
 def test_select_validators_dedups_across_files():
     got = select_validators(["common/ideas/USA.txt", "common/ideas/CAN.txt"], set(_ALL_NAMES))
-    assert got == sorted({"ideas", "modifiers", "style"})
+    assert got == sorted(_BROAD_COMMON | {"history", "modifiers", "style"})
 
 
 def test_select_validators_mode_all_is_fast_set():

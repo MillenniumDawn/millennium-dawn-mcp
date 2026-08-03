@@ -28,6 +28,9 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy
+      # actionlint auto-discovers .github/actionlint.yaml.
+      - name: Lint workflow files
+        uses: rhysd/actionlint@v1.7.12
 
   test:
     strategy:

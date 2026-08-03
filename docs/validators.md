@@ -49,9 +49,9 @@ a crashed validator as a clean run.
 
 ## In-process mode
 
-```bash
-MD_MCP_VALIDATOR_MODE=in_process md-mcp doctor --mod-root /path/to/Millennium-Dawn
-```
+`md-mcp doctor` only prints settings — it runs no validators. To exercise a
+validator in-process with a real traceback, use the runner directly (full
+snippet in [Debugging](#debugging) below).
 
 **Not safe under `md-mcp serve`.** A forking validator deadlocks the stdio
 loop, so the `serve` subcommand logs a warning and overrides this back to

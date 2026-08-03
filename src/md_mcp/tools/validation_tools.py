@@ -107,7 +107,7 @@ def validate_tool(
     kept, truncated, total = _filter_and_cap(aggregated, severity_min=severity_min, limit=limit)
 
     summary: dict = {
-        "ok": True,
+        "ok": all(v["ok"] for v in per_validator),
         "skipped_slow": sorted(SLOW_VALIDATORS),
         "validators": per_validator,
         "counts": overall,

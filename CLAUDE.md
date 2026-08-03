@@ -125,12 +125,19 @@ a scope set directly.
 
 To debug a validator failure with a real traceback, run it outside the server:
 
-```bash
-MD_MCP_VALIDATOR_MODE=in_process md-mcp doctor --mod-root ...
+```python
+from md_mcp.config import load
+from md_mcp.validators import ValidatorRunner
+
+settings = load("/path/to/Millennium-Dawn")
+result = ValidatorRunner(settings.mod_root, mode="in_process").run("events")
+print(result)
 ```
 
 (`in_process` deadlocks under `serve` — see rule 6 — so `serve` overrides it
-back to isolated.) See [`docs/validators.md`](./docs/validators.md).
+back to isolated. `md-mcp doctor` only prints settings; it runs no validators.
+See [`docs/validators.md`](./docs/validators.md) for the fuller debugging
+snippet.)
 
 ### 5. BOM rules on emitted files
 
@@ -276,6 +283,7 @@ not in the hook. Run `pytest -q` yourself; it isn't a hook either.
    `md-mcp build-index`.
 4. The MCP framing layer can swallow exceptions raised inside a `@mcp.tool()`.
    When debugging mid-call failures, run the tool directly:
+
    ```python
    from md_mcp.config import load
    from md_mcp.indexes import FocusIndex

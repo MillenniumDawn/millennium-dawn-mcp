@@ -52,6 +52,22 @@ def _completed_process_failure(
     proc: subprocess.CompletedProcess,
     issue_count: int,
 ) -> Optional[dict]:
+    # A Python traceback on stderr means the script died mid-scan: whatever
+    # issues were parsed came from a partial run, and exit 1 no longer means
+    # "issues found". Report the crash instead of the partial output.
+    if "Traceback (most recent call last):" in (proc.stderr or ""):
+        error = f"{script.name} crashed mid-run (traceback on stderr)"
+        stderr_tail = (proc.stderr or "")[-1000:]
+        output_tail = stderr_tail or (proc.stdout or "")[-1000:]
+        if output_tail.strip():
+            error = f"{error}. Output tail: {output_tail.strip()}"
+        return {
+            "ok": False,
+            "error": error,
+            "exit_code": proc.returncode,
+            "stderr_tail": stderr_tail,
+        }
+
     if proc.returncode == 0 or (proc.returncode == 1 and issue_count):
         return None
 

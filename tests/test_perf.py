@@ -64,10 +64,10 @@ def test_cold_build_under_budget(real_mod_root, tmp_path):
 
     for name, elapsed in timings.items():
         budget = _BUDGETS[name]
-        assert elapsed < budget, (
-            f"{name} cold build took {elapsed:.2f}s (budget {budget}s). All timings: {breakdown}"
-        )
+        assert (
+            elapsed < budget
+        ), f"{name} cold build took {elapsed:.2f}s (budget {budget}s). All timings: {breakdown}"
 
-    assert total < _TOTAL_BUDGET, (
-        f"Total cold build {total:.2f}s exceeds {_TOTAL_BUDGET}s budget. Breakdown: {breakdown}"
-    )
+    assert (
+        total < _TOTAL_BUDGET
+    ), f"Total cold build {total:.2f}s exceeds {_TOTAL_BUDGET}s budget. Breakdown: {breakdown}"

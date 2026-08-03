@@ -32,35 +32,110 @@ UNATTRIBUTED_SAMPLE = 5
 
 # Path-prefix -> validators whose scan domain covers that directory. A file can
 # match several rows; matches union. Derived from the scan globs in
-# Millennium-Dawn/tools/validation/validate_*.py.
+# Millennium-Dawn/tools/validation/validate_*.py: self._collect_files(...)
+# calls, module-level SCAN_PATTERNS-style constants, and direct glob.glob(...)
+# calls — verified against source, not inferred from directory naming.
+#
+# Several validators scan the whole common/, events/, and/or history/ tree
+# recursively in addition to their "obvious" subdirectory — e.g. gfx_references
+# resolves GFX references out of every script file, not just interface/. Those
+# get their own broad row here and compose with the narrower rows via union.
+# style's equally broad common/events/history domain and localisation's *.yml
+# domain are already handled as extension-keyed special cases below, so they
+# don't need a row here too.
 #
 # Deliberately absent: variables, set_variables, cosmetic_tags (global
 # cross-reference scans, meaningless per-file) and the SLOW_VALIDATORS.
 # All stay reachable by explicit name; the fast globals also run under "*".
 VALIDATOR_AUTO_MAP: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
-    ("common/national_focus/", ("focus_tree", "scripted_params", "simplifications", "modifiers")),
-    ("events/", ("events", "on_actions", "scripted_params", "simplifications", "scripted_gui")),
+    (
+        "common/",
+        (
+            "agency_upgrades",
+            "events",
+            "file_paths",
+            "gfx_references",
+            "ideas",
+            "scripted_gui",
+            "simplifications",
+        ),
+    ),
+    (
+        "events/",
+        (
+            "agency_upgrades",
+            "events",
+            "file_paths",
+            "focus_tree",
+            "gfx_references",
+            "ideas",
+            "oob_units",
+            "on_actions",
+            "scripted_gui",
+            "scripted_params",
+            "simplifications",
+        ),
+    ),
+    ("history/", ("agency_upgrades", "events", "file_paths", "gfx_references", "history", "ideas")),
+    ("localisation/", ("file_paths", "gfx_references", "scripted_gui")),
+    (
+        "interface/",
+        (
+            "agency_upgrades",
+            "factions",
+            "file_paths",
+            "gfx_references",
+            "ideas",
+            "scripted_gui",
+            "scripted_localisation",
+        ),
+    ),
+    (
+        "common/national_focus/",
+        ("focus_tree", "modifiers", "oob_units", "scripted_params", "simplifications"),
+    ),
     ("common/on_actions/", ("events", "on_actions", "simplifications")),
-    ("common/decisions/", ("decisions", "scripted_params", "simplifications", "modifiers")),
-    ("common/ideas/", ("ideas", "modifiers")),
+    (
+        "common/decisions/",
+        ("decisions", "modifiers", "oob_units", "scripted_params", "simplifications"),
+    ),
+    ("common/bop/", ("decisions",)),
+    ("common/ideas/", ("history", "ideas", "modifiers")),
     ("common/characters/", ("ideas",)),
     ("common/dynamic_modifiers/", ("modifiers",)),
     ("common/modifier_definitions/", ("modifiers",)),
     ("common/idea_tags/", ("modifiers",)),
-    ("common/scripted_effects/", ("scripted_params", "simplifications")),
+    ("common/operations/", ("modifiers",)),
+    ("common/scripted_effects/", ("focus_tree", "oob_units", "scripted_params", "simplifications")),
     ("common/scripted_triggers/", ("simplifications",)),
     ("common/scripted_guis/", ("scripted_gui", "gfx_references")),
-    ("common/scripted_localisation/", ("scripted_localisation", "gfx_references")),
+    ("common/scripted_localisation/", ("decisions", "scripted_localisation", "gfx_references")),
     ("common/ai_strategy/", ("ai_roles",)),
-    ("common/ai_equipment/", ("ai_equipment",)),
+    ("common/ai_templates/", ("ai_roles", "oob_units")),
+    ("common/ai_equipment/", ("ai_equipment", "ai_roles")),
     ("common/ai_navy/", ("ai_navy",)),
-    ("common/units/", ("ai_navy", "oob_units")),
+    ("common/units/", ("ai_equipment", "ai_navy", "modifiers", "oob_units")),
+    ("common/units/names/", ("oob_units",)),
+    ("common/units/names_ships/", ("oob_units",)),
+    ("common/units/names_divisions/", ("oob_units",)),
     ("common/intelligence_agency_upgrades/", ("agency_upgrades",)),
+    ("common/special_projects/", ("history", "oob_units")),
+    ("common/technologies/", ("history",)),
     ("common/factions/", ("factions",)),
-    ("common/defines/", ("defines",)),
+    ("common/defines/MD_defines.lua", ("defines",)),
+    ("descriptor.mod", ("mod_descriptors",)),
+    ("Millennium_Dawn.mod", ("mod_descriptors",)),
     ("history/units/", ("oob_units",)),
-    ("history/", ("history",)),
-    ("interface/", ("gfx_references", "scripted_gui")),
+    ("history/countries/", ("oob_units",)),
+    ("history/states/", ("history",)),
+    ("descriptions/", ("file_paths",)),
+    ("gfx/", ("file_paths",)),
+    ("map/", ("file_paths",)),
+    ("music/", ("file_paths",)),
+    ("portraits/", ("file_paths",)),
+    ("scenario_tests/", ("file_paths",)),
+    ("sound/", ("file_paths",)),
+    ("tutorial/", ("file_paths",)),
 )
 
 

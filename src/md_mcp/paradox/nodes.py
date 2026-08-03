@@ -12,7 +12,7 @@ Node.value is a tagged union — represented in Python as one of:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, Union
 
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from md_mcp.analysis.refs import find_references
 
 

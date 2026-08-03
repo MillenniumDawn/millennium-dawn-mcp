@@ -24,7 +24,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 
 @dataclass
@@ -50,10 +50,10 @@ def file_signature(path: Path) -> FileSig | None:
 
 @dataclass
 class Staleness:
-    stale: List[str]     # known files whose mtime/size moved
-    removed: List[str]   # known files now missing
-    added: List[str]     # new files not in the manifest
-    unchanged: List[str] # safe to reuse
+    stale: List[str]  # known files whose mtime/size moved
+    removed: List[str]  # known files now missing
+    added: List[str]  # new files not in the manifest
+    unchanged: List[str]  # safe to reuse
 
 
 def compute_staleness(manifest: Dict[str, FileSig], current: Dict[str, FileSig]) -> Staleness:
@@ -127,9 +127,7 @@ class IndexCache:
         os.replace(tmp, self.data_path)
 
 
-def signatures_for(
-    paths: Iterable[Path], roots: Path | list[Path]
-) -> Dict[str, FileSig]:
+def signatures_for(paths: Iterable[Path], roots: Path | list[Path]) -> Dict[str, FileSig]:
     """Build a {relative_path: signature} map. Missing files are skipped.
 
     `roots` may be a single root or a list. The first matching root is used for
@@ -166,7 +164,8 @@ class GenericTxtIndex:
         * `subdir: str`         — path under each root, e.g. `events`
         * `pattern: str`        — glob like `*.txt`
         * `content_prefilter`   — cheap substring test before parsing
-        * `parser_fn`           — *module-level* function `(abs_path: str, relpath: str) -> Optional[List[dict]]`
+        * `parser_fn`           — *module-level* function
+                                  `(abs_path: str, relpath: str) -> Optional[List[dict]]`
                                   (must be picklable for ProcessPoolExecutor)
         * `primary_key`         — record field used for the reverse map
 
@@ -282,7 +281,7 @@ class GenericTxtIndex:
 
         if to_parse:
             results = self._parse_parallel(to_parse)
-            for relpath, recs in zip(to_parse, results):
+            for relpath, recs in zip(to_parse, results, strict=False):
                 if recs is not None:
                     new_by_file[relpath] = recs
 
@@ -323,10 +322,7 @@ class GenericTxtIndex:
             else:
                 jobs.append((str(base / rp), rp))
 
-        serial = (
-            os.environ.get("MD_MCP_SERIAL_PARSE") == "1"
-            or len(jobs) < 4
-        )
+        serial = os.environ.get("MD_MCP_SERIAL_PARSE") == "1" or len(jobs) < 4
         if serial:
             return [fn(abs_path, rp) if abs_path else None for abs_path, rp in jobs]
 
@@ -362,11 +358,12 @@ def _default_workers() -> int:
     return max(2, min(8, n - 1))
 
 
-def _parser_dispatch(args: Tuple[Callable, str, str]) -> "Optional[List[dict]]":
+def _parser_dispatch(args: Tuple[Callable, str, str]) -> Any:
     """Top-level helper so the process pool can pickle the call site.
 
     `args` is `(parser_fn, abs_path, relpath)`. We can't pass a bound method through
     ProcessPoolExecutor (it pickles by name and bound methods can capture state).
+    Return type follows the dispatched parser fn (list-of-records or single dict).
     """
     fn, abs_path, relpath = args
     if not abs_path:

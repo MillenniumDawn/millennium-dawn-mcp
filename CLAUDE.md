@@ -15,9 +15,9 @@ live under [`docs/`](./docs/).
 `Millennium-Dawn/tools/` validators and ports the `MD-VSCode-Utility-Tool`
 paradox-script parser. It exposes:
 
-- **24 tools** (`resolve_*`, `find_*`, `parse_*`, `validate*`, `generate_*`,
-  `focus_graph`, `diff_summary`, `check_encoding`, `lint`, `review_branch`,
-  `list_country_content`)
+- **26 tools** (`resolve_*`, `find_*`, `parse_*`, `validate*`, `generate_*`,
+  `focus_graph`, `check_refs`, `focus_layout`, `diff_summary`,
+  `check_encoding`, `lint`, `review_branch`, `list_country_content`)
 - **6 resources** under the `md://` URI scheme (`md://focus/{id}` etc.)
 
 It is **read-only** by design. Generators return content as strings; the agent
@@ -61,8 +61,9 @@ src/md_mcp/
     └── pathing.py       mod_root / vanilla discovery
 ```
 
-Tests live in `tests/`. Integration tests (gated on `MD_MOD_ROOT`) live in
-`tests/integration/`.
+Tests live in `tests/`. Integration tests are marker-gated
+(`@pytest.mark.integration`, skipped unless `MD_MOD_ROOT` points at a real
+checkout); there is no separate `tests/integration/` directory.
 
 ---
 
@@ -110,17 +111,33 @@ it for edits, copies, or commits.
 
 `ValidatorRunner` imports `Millennium-Dawn/tools/validation/validate_*.py` and
 reads `validator._issues` — that underscore means it's not a public API. A
-refactor in `Millennium-Dawn/tools` can break us. When the validator runner
-breaks, **fix it in `runner.py` only** (single adapter point) and consider
-whether the change should also tolerate older `Millennium-Dawn` checkouts.
+refactor in `Millennium-Dawn/tools` can break us. The import/read sequence
+lives in two mirrored places: `_shim.py` (`_collect`, the default isolated
+path) and `_run_inprocess` in `runner.py`. **Patch both** and consider whether
+the change should also tolerate older `Millennium-Dawn` checkouts.
 
-If you need to hand the user a workaround, the env-var fallback is:
+`Issue.file` is not uniform: mod-relative path, bare basename, `""`, or the
+literal `"unknown"`, sometimes several within one validator. Anything keying on
+it must go through `IssueAttributor`
+([`validators/attribution.py`](./src/md_mcp/validators/attribution.py)), which
+resolves by shape against the real file list — never compare `issue["file"]` to
+a scope set directly.
 
-```bash
-MD_MCP_VALIDATOR_MODE=subprocess md-mcp serve --mod-root ...
+To debug a validator failure with a real traceback, run it outside the server:
+
+```python
+from md_mcp.config import load
+from md_mcp.validators import ValidatorRunner
+
+settings = load("/path/to/Millennium-Dawn")
+result = ValidatorRunner(settings.mod_root, mode="in_process").run("events")
+print(result)
 ```
 
-See [`docs/validators.md`](./docs/validators.md).
+(`in_process` deadlocks under `serve` — see rule 6 — so `serve` overrides it
+back to isolated. `md-mcp doctor` only prints settings; it runs no validators.
+See [`docs/validators.md`](./docs/validators.md) for the fuller debugging
+snippet.)
 
 ### 5. BOM rules on emitted files
 
@@ -140,6 +157,12 @@ sub-command that primes caches before the server starts).
 **If you add work that uses `concurrent.futures` or `multiprocessing`**, make
 sure it's gated on `MD_MCP_SERIAL_PARSE` and never reaches a fork inside
 `mcp.run()`.
+
+The mod validators are the other fork source: 19 of 26 fork a `Pool` from
+`validator_common.py`, which we don't control. That's why `ValidatorRunner`
+defaults to `isolated` mode (runs each validator in a child via `_shim.py`) and
+`serve` forces it — in-process validation hangs the server the same way. Don't
+route validators through the in-process path from inside `mcp.run()`.
 
 ### 7. `Node.children()` is a method, not an attribute
 
@@ -198,7 +221,7 @@ Run the full unit suite:
 pytest -q
 ```
 
-92 tests, ~0.5 s. No mod checkout needed.
+Sub-second, no mod checkout needed.
 
 Run the integration suite (requires a real `Millennium-Dawn/` checkout):
 
@@ -206,10 +229,11 @@ Run the integration suite (requires a real `Millennium-Dawn/` checkout):
 MD_MOD_ROOT=/path/to/Millennium-Dawn pytest -m integration
 ```
 
-Run parser parity tests against the TypeScript implementation (optional):
+Lint and type-check before committing (pre-commit runs ruff automatically;
+mypy is CI-only):
 
 ```bash
-pytest -m differential
+ruff check . && ruff format --check . && mypy
 ```
 
 Before claiming an optimisation works, **also probe the live MCP protocol**
@@ -226,7 +250,7 @@ The ISR focus_graph probe in the git history is a useful template.
 | `MD_MOD_ROOT` | Path to the `Millennium-Dawn/` checkout. Required when not auto-discovered. |
 | `HOI4_PATH` | Path to vanilla `Hearts of Iron IV/`. Optional; doubles cold-build time. |
 | `MD_MCP_CACHE_DIR` | Override `.md-mcp-cache/` location (use for read-only checkouts). |
-| `MD_MCP_VALIDATOR_MODE` | `in_process` (default) or `subprocess`. |
+| `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process`. `in_process` is unsafe under `serve`; see rule 6. |
 | `MD_MCP_DEFAULT_LANG` | Default loc language for `resolve_loc` (default `en`). |
 | `MD_MCP_SERIAL_PARSE` | `1` forces serial parsing — auto-set by `md-mcp serve`. |
 
@@ -240,8 +264,9 @@ file > computed default.
 Standard project conventions: meaningful imperative subject, no
 `Co-Authored-By` lines (per the workspace `CLAUDE.md`), no `--no-verify`.
 
-Pre-commit isn't wired here yet; the only check is `pytest` and a manual
-`pip install -e .` to make sure the entry point still resolves.
+Pre-commit is wired (`pre-commit install` after cloning): hygiene hooks plus
+`ruff check --fix` and `ruff format`. Mypy runs in CI (`.github/workflows/ci.yml`),
+not in the hook. Run `pytest -q` yourself; it isn't a hook either.
 
 ---
 
@@ -250,17 +275,20 @@ Pre-commit isn't wired here yet; the only check is `pytest` and a manual
 1. **First** — read [`docs/architecture.md`](./docs/architecture.md). Most
    confusion comes from not knowing the parser → index → tool layering.
 2. The parser is a **direct port** of `hoiparser.ts`. When the AST disagrees
-   with vanilla content, run `pytest -m differential` to confirm against the
-   TS implementation before changing the port.
+   with vanilla content, read the TS source
+   (`MD-VSCode-Utility-Tool/src/hoiformat/hoiparser.ts`) and confirm the
+   behaviour there before changing the Python side.
 3. The index cache is **stat-based**, not content-based. If an index seems
    stale, blow away `<mod_root>/.md-mcp-cache/v1/` and rerun
    `md-mcp build-index`.
 4. The MCP framing layer can swallow exceptions raised inside a `@mcp.tool()`.
    When debugging mid-call failures, run the tool directly:
+
    ```python
    from md_mcp.config import load
    from md_mcp.indexes import FocusIndex
    from md_mcp.analysis.focus_graph import focus_graph
+
    s = load("/path/to/Millennium-Dawn")
    focus_graph("ISR", s.mod_root, FocusIndex(s.mod_root, s.cache_dir, s.vanilla_path))
    ```

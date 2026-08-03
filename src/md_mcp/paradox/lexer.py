@@ -8,10 +8,9 @@ which anchors at `pos` and returns None if the pattern doesn't match there.
 from __future__ import annotations
 
 import re
-from typing import List, Optional
+from typing import List, NoReturn, Optional
 
 from .nodes import Token
-
 
 # Order matches the priority sort in `hoiparser.ts`: lower priority value first.
 #   comment(0) < operator(10), string(10) < symbol(40) < unitnumber(49) < number(50) < eof(1000)
@@ -50,7 +49,7 @@ class Tokenizer:
     Comments are silently consumed.
     """
 
-    __slots__ = ("_input", "_pos", "_prev_pos", "_pending", "_line_ends", "_error_prefix")
+    __slots__ = ("_error_prefix", "_input", "_line_ends", "_pending", "_pos", "_prev_pos")
 
     def __init__(self, input_text: str, error_prefix: str = ""):
         self._input = input_text
@@ -78,7 +77,9 @@ class Tokenizer:
             for name in _TOKEN_NAMES:
                 value = match.group(name)
                 if value is not None:
-                    token = Token(value=value, start=self._pos - len(value), end=self._pos, type=name)
+                    token = Token(
+                        value=value, start=self._pos - len(value), end=self._pos, type=name
+                    )
                     break
             else:  # pragma: no cover — regex guarantees one group matches
                 self._raise("Invalid token")
@@ -96,7 +97,7 @@ class Tokenizer:
         self._pending = None
         return token
 
-    def _raise(self, message: str, prev: bool = False):
+    def _raise(self, message: str, prev: bool = False) -> NoReturn:
         pos = self._prev_pos if prev else self._pos
         line_idx = next((i for i, end in enumerate(self._line_ends) if end > pos), -1)
         if line_idx == -1:

@@ -12,7 +12,7 @@ Additional extractors (events, decisions, ideas, sprites) land in Milestone 2.
 
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any, List, Optional
 
 from .nodes import Node, SymbolNode
 
@@ -58,7 +58,7 @@ def _value_to_json(value: Any) -> Any:
 
 # Line numbers are computed on demand in to_json; we don't have the source text here,
 # so callers wanting accurate lines must supply them externally. Default to None.
-def _token_line(_start: int) -> None:
+def _token_line(_start: int) -> Optional[int]:
     return None
 
 
@@ -115,9 +115,7 @@ def _pos_to_line(pos: int, line_ends: List[int]) -> int:
 
 def is_focus_file_content(text: str) -> bool:
     """Cheap pre-filter mirroring sharedFocusIndex.ts behaviour."""
-    return (
-        "focus_tree" in text or "shared_focus" in text or "joint_focus" in text
-    )
+    return "focus_tree" in text or "shared_focus" in text or "joint_focus" in text
 
 
 def extract_focus_ids(root: Node) -> List[str]:
@@ -210,7 +208,24 @@ def _focus_record(node: Node, kind: str, line_ends: List[int] | None) -> dict | 
         "prerequisites": prereqs,
         "mutually_exclusive": mutex,
         "relative_position_id": _scalar(node.get("relative_position_id")),
+        "ai_will_do": _ai_will_do_summary(node),
     }
+
+
+def _ai_will_do_summary(node: Node) -> dict | None:
+    """Compact `ai_will_do` projection: base/factor scalars + modifier count."""
+    awd = node.get("ai_will_do")
+    if awd is None:
+        return None
+    out: dict = {"modifiers": 0}
+    for c in awd.children():
+        if c.name in ("base", "factor"):
+            v = _scalar(c)
+            if v is not None:
+                out[c.name] = v
+        elif c.name == "modifier":
+            out["modifiers"] += 1
+    return out
 
 
 def _get_id(node: Node) -> str | None:
@@ -231,7 +246,9 @@ def _get_id(node: Node) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-_EVENT_KINDS = frozenset({"country_event", "news_event", "state_event", "unit_leader_event", "operative_leader_event"})
+_EVENT_KINDS = frozenset(
+    {"country_event", "news_event", "state_event", "unit_leader_event", "operative_leader_event"}
+)
 
 
 def extract_event_records(root: Node, source: str | None = None) -> List[dict]:
@@ -447,10 +464,7 @@ _IDEA_PROPERTIES = frozenset(
 
 def _looks_like_slot_wrapper(node: Node) -> bool:
     """True if `node` is a slot containing more idea blocks, not an idea itself."""
-    for c in node.children():
-        if c.name in _IDEA_PROPERTIES:
-            return False
-    return True
+    return all(c.name not in _IDEA_PROPERTIES for c in node.children())
 
 
 # ---------------------------------------------------------------------------

@@ -146,11 +146,11 @@ module-level function so pickling works.
 from md_mcp.indexes import FocusIndex
 
 idx = FocusIndex(mod_root, cache_dir, vanilla_path)
-idx.ensure_fresh()                       # cold-build or refresh
+idx.ensure_fresh()  # cold-build or refresh
 
-idx.resolve("ISR_idf_modernization")     # → {id, file, line, kind}
-idx.list_keys()                          # → sorted list of all IDs
-idx.list_files()                         # → sorted list of all contributing files
+idx.resolve("ISR_idf_modernization")  # → {id, file, line, kind}
+idx.list_keys()  # → sorted list of all IDs
+idx.list_files()  # → sorted list of all contributing files
 idx.records_for_file("common/national_focus/MD_ISR_focus.txt")
 ```
 

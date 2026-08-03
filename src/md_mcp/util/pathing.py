@@ -10,7 +10,7 @@ Resolution order (matches plan):
 from __future__ import annotations
 
 import os
-from pathlib import Path
+from pathlib import Path, PurePath
 
 
 class ModRootNotFound(RuntimeError):
@@ -38,7 +38,9 @@ def find_mod_root(explicit: str | Path | None = None, start: Path | None = None)
     for parent in [cwd, *cwd.parents]:
         if _looks_like_mod_root(parent):
             return parent
-    attempts.append(f"walk-up from cwd ({cwd}): no parent had both descriptor.mod and tools/validation/")
+    attempts.append(
+        f"walk-up from cwd ({cwd}): no parent had both descriptor.mod and tools/validation/"
+    )
 
     for base in (cwd, cwd.parent):
         candidate = base / "Millennium-Dawn"
@@ -52,22 +54,32 @@ def find_mod_root(explicit: str | Path | None = None, start: Path | None = None)
 
 
 def _looks_like_mod_root(p: Path) -> bool:
-    return (
-        p.is_dir()
-        and (p / "descriptor.mod").exists()
-        and (p / "tools" / "validation").is_dir()
-    )
+    return p.is_dir() and (p / "descriptor.mod").exists() and (p / "tools" / "validation").is_dir()
 
 
-def find_vanilla_path(mod_root: Path) -> Path | None:
-    """Auto-detect a sibling `Hearts of Iron IV/` directory. Returns None if absent.
+def resolve_scope_file(relpath: str, mod_root: Path, vanilla_path: Path | None) -> Path | None:
+    """Locate a scope file, falling back to vanilla for files the mod doesn't override.
 
-    Honours the HOI4_PATH env var as override.
+    `relpath` is caller-supplied (a tool argument), so it must stay inside the
+    root it resolves against: absolute paths and `..` traversal are rejected
+    rather than read.
     """
-    env = os.environ.get("HOI4_PATH")
-    if env:
-        p = Path(env).expanduser().resolve()
-        return p if p.is_dir() else None
+    for root in (mod_root, vanilla_path):
+        if root is None:
+            continue
+        p = _contained(root, relpath)
+        if p is not None and p.exists():
+            return p
+    return None
 
-    sibling = mod_root.parent / "Hearts of Iron IV"
-    return sibling if sibling.is_dir() else None
+
+def _contained(root: Path, relpath: str) -> Path | None:
+    """`root / relpath`, or None if it escapes `root` or isn't a usable path."""
+    if PurePath(relpath).is_absolute():
+        return None
+    try:
+        candidate = (root / relpath).resolve()
+        candidate.relative_to(root.resolve())
+    except (ValueError, OSError, RuntimeError):
+        return None
+    return candidate

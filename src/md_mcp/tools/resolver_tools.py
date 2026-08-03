@@ -145,7 +145,9 @@ def resolve_event_tool(event_id: str, settings: Settings, event_index: EventInde
     }
 
 
-def resolve_decision_tool(decision_id: str, settings: Settings, decision_index: DecisionIndex) -> dict:
+def resolve_decision_tool(
+    decision_id: str, settings: Settings, decision_index: DecisionIndex
+) -> dict:
     """Get a decision's file/line + category."""
     rec = decision_index.resolve(decision_id)
     if rec is None:

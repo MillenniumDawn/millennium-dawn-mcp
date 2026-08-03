@@ -9,9 +9,10 @@ The server is **read-only**: generators return paradox-script fragments as
 strings, and the agent writes them into place via its own Edit/Write tools so
 diffs stay visible to the user.
 
-- Wraps the 18 validators in `Millennium-Dawn/tools/validation/`.
+- Wraps the validators in `Millennium-Dawn/tools/validation/` (auto-discovered,
+  26 at last count).
 - Ports the paradox parser from `MD-VSCode-Utility-Tool/src/hoiformat/`.
-- 24 tools and 6 `md://` resources.
+- 26 tools and 6 `md://` resources.
 
 For agents working on the server itself: see [`CLAUDE.md`](./CLAUDE.md).
 
@@ -24,11 +25,12 @@ cd /path/to/millennium-dawn-mcp
 pip install -e .
 ```
 
-Requires Python 3.10+. The wrapped validators bring their own deps from
-`Millennium-Dawn/tools/requirements.txt`; you'll want those installed too:
+Requires Python 3.10+. The wrapped validators are stdlib-only; no extra deps
+needed. For working on the server itself, install the dev extras instead:
 
 ```bash
-pip install -r /path/to/Millennium-Dawn/tools/requirements.txt
+pip install -e '.[dev]'
+pre-commit install
 ```
 
 Verify the install:
@@ -38,7 +40,7 @@ md-mcp doctor --mod-root /path/to/Millennium-Dawn
 # mod_root:       /Users/.../Millennium-Dawn
 # vanilla_path:   /Users/.../Hearts of Iron IV
 # cache_dir:      /Users/.../Millennium-Dawn/.md-mcp-cache
-# validator_mode: in_process
+# validator_mode: isolated
 # default_lang:   en
 ```
 
@@ -104,7 +106,7 @@ Full env-var reference:
 | `MD_MOD_ROOT` | Path to the `Millennium-Dawn/` checkout. |
 | `HOI4_PATH` | Path to the vanilla `Hearts of Iron IV/` install (optional). |
 | `MD_MCP_CACHE_DIR` | Override the cache location (use this for read-only checkouts). |
-| `MD_MCP_VALIDATOR_MODE` | `in_process` (default, fast) or `subprocess` (isolated). |
+| `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process` (faster, but deadlocks the server). |
 | `MD_MCP_DEFAULT_LANG` | Default loc language for `resolve_loc` (defaults to `en`). |
 
 Example `~/.config/md-mcp/config.toml`:
@@ -112,7 +114,7 @@ Example `~/.config/md-mcp/config.toml`:
 ```toml
 mod_root      = "/Users/me/Programming/MD/Millennium-Dawn"
 hoi4_path     = "/Users/me/Programming/MD/Hearts of Iron IV"
-validator_mode = "in_process"
+validator_mode = "isolated"
 default_lang   = "en"
 ```
 
@@ -133,7 +135,7 @@ hand for setup / cache priming.
 
 ## Tool & resource catalogue
 
-24 tools, 6 resources. Full reference in [`docs/tools.md`](./docs/tools.md).
+26 tools, 6 resources. Full reference in [`docs/tools.md`](./docs/tools.md).
 
 ### Resolvers — "where is X defined?"
 
@@ -147,14 +149,18 @@ hand for setup / cache priming.
 
 ### Validation
 
-`validate` (one validator or all), `validate_list`, `lint_common_mistakes`,
+`validate` (one validator or all), `validate_list`, `lint` (the whole linting
+suite on changed files, including the style and brace validator for applicable
+script scopes; `validators=["auto"]` selects all domain-matched validators),
 `review_branch`, `check_encoding`.
 
 ### Analysis
 
 `find_focuses`, `find_references` (paginated; `files_only` mode collapses to
-a unique file list), `focus_graph` (tiered `summary`/`ids`/`full`),
-`diff_summary` (kind-filterable, `with_ids` opt-out for speed).
+a unique file list), `focus_graph` (tiered `summary`/`ids`/`full`/`paths`),
+`check_refs` (scoped dangling-reference audit), `focus_layout` (grid
+collisions and relative-position chains), `diff_summary` (kind-filterable,
+`with_ids` opt-out for speed).
 
 ### Generators
 
@@ -188,9 +194,14 @@ Quick rule for callers:
 ## Testing
 
 ```bash
-pytest -q                       # 92 unit tests, ~0.5 s, no checkout needed
+pytest -q                       # unit suite, sub-second, no checkout needed
 MD_MOD_ROOT=... pytest -m integration   # real-mod integration suite
-pytest -m differential          # Python parser vs TS parser parity
+```
+
+Lint and type-check the server code:
+
+```bash
+ruff check . && ruff format --check . && mypy
 ```
 
 ---

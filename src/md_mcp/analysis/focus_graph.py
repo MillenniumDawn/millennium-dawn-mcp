@@ -15,8 +15,16 @@ has three detail tiers:
       to render structure without metadata. Typically 20–80 KB for a big tag.
 
   * `detail="full"`
-      Full per-node metadata (x, y, cost, icon, prereqs, mutex). Always paginate
-      with `node_limit` (default 100) or `focus_ids=[...]` to pin a subset.
+      Full per-node metadata (x, y, cost, icon, prereqs, mutex, ai_will_do).
+      Always paginate with `node_limit` (default 100) or `focus_ids=[...]` to
+      pin a subset.
+
+  * `detail="paths"` (requires `focus_ids=[...]`)
+      Per requested focus: the transitive prerequisite closure resolved to a
+      cheapest completion set, its estimated days (7 days per cost point,
+      focus-rush, cheapest member per OR group, shared prereqs counted once),
+      the chain in completion order, and the focus's `ai_will_do` summary.
+      Entries are capped by `node_limit`.
 
 Cycles and dangling prereqs are always computed and returned because they're
 small and load-bearing for review.
@@ -31,10 +39,13 @@ from ..indexes import FocusIndex
 from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records
 from ..util.encoding import read_text
-from ..util.response import enforce_budget
+from ..util.pathing import resolve_scope_file
+from ..util.response import enforce_budget, paginate
 
+_VALID_DETAIL = ("summary", "ids", "full", "paths")
 
-_VALID_DETAIL = ("summary", "ids", "full")
+_DEFAULT_FOCUS_COST = 10.0  # vanilla default when a focus omits `cost`
+_DAYS_PER_COST = 7.0
 
 
 def focus_graph(
@@ -56,18 +67,11 @@ def focus_graph(
             "error": f"Invalid detail '{detail}'. Use one of: {list(_VALID_DETAIL)}",
         }
 
-    focus_index.ensure_fresh()
     tag_upper = tag.upper()
     prefix = tag_upper + "_"
     wanted_ids = {f.upper() for f in focus_ids} if focus_ids else None
 
-    candidate_files = sorted(
-        {
-            focus_index.resolve(fid)["file"]
-            for fid in focus_index.list_keys()
-            if fid.upper().startswith(prefix)
-        }
-    )
+    candidate_files = focus_index.files_for_tag(tag)
 
     # Always parse fully internally — we need the prereq/mutex links for the
     # graph algorithms regardless of which detail tier the caller asked for.
@@ -75,7 +79,7 @@ def focus_graph(
     by_id: Dict[str, dict] = {}
 
     for relpath in candidate_files:
-        abs_path = _resolve(relpath, mod_root, vanilla_path)
+        abs_path = resolve_scope_file(relpath, mod_root, vanilla_path)
         if abs_path is None:
             continue
         try:
@@ -87,19 +91,7 @@ def focus_graph(
         for rec in extract_focus_records(root, source=text):
             if not rec["id"].upper().startswith(prefix):
                 continue
-            entry = {
-                "id": rec["id"],
-                "file": relpath,
-                "line": rec["line"],
-                "kind": rec["kind"],
-                "x": rec["x"],
-                "y": rec["y"],
-                "cost": rec["cost"],
-                "icon": rec["icon"],
-                "prerequisites": rec["prerequisites"],
-                "mutually_exclusive": rec["mutually_exclusive"],
-                "relative_position_id": rec["relative_position_id"],
-            }
+            entry = {**rec, "file": relpath}
             full_nodes.append(entry)
             by_id[rec["id"]] = entry
 
@@ -144,14 +136,34 @@ def focus_graph(
         "dangling_prereqs": dangling,
     }
 
+    if detail == "paths":
+        if not focus_ids:
+            return {"ok": False, "error": "detail='paths' requires focus_ids=[...]"}
+        cycle_ids = {fid for cyc in cycles for fid in cyc}
+        requested, paths_truncated, paths_total = paginate(focus_ids, 0, node_limit)
+        by_upper = {fid.upper(): fid for fid in by_id}
+        result["paths"] = [
+            _path_entry(req, by_upper.get(req.upper()), by_id, cycle_ids) for req in requested
+        ]
+        result["paths_total"] = paths_total
+        result["paths_returned"] = len(requested)
+        result["paths_truncated"] = paths_truncated
+        result["note"] = (
+            "estimated_days = 7 days per cost point, uninterrupted focus rush, "
+            "cheapest member per OR prerequisite group, shared prereqs counted once. "
+            f"Focuses without an explicit cost count as {_DEFAULT_FOCUS_COST:g}."
+        )
+        return enforce_budget(result, heavy_keys=("paths", "dangling_prereqs", "cycles", "roots"))
+
     if detail == "summary":
         # Sample a few node IDs so the agent has something concrete to query next.
         result["sample_node_ids"] = [n["id"] for n in visible_nodes[:20]]
         result["hint"] = (
             "Default detail is 'summary'. Pass detail='ids' for the full id/edge "
-            "graph, or detail='full' with focus_ids=[...] for metadata on a subset."
+            "graph, detail='full' with focus_ids=[...] for metadata on a subset, "
+            "or detail='paths' with focus_ids=[...] for prereq chains + timing."
         )
-        return result
+        return enforce_budget(result, heavy_keys=("dangling_prereqs", "cycles", "roots"))
 
     # Pagination for ids/full tiers.
     nodes_total = len(visible_nodes)
@@ -177,6 +189,92 @@ def focus_graph(
     return enforce_budget(result, heavy_keys=("nodes", "edges", "cycles"))
 
 
+def _read_cost(c) -> tuple[float, bool]:
+    """Return (numeric cost, defaulted). defaulted is True when c is missing or not numeric."""
+    try:
+        return float(c), False
+    except (TypeError, ValueError):
+        return _DEFAULT_FOCUS_COST, True
+
+
+def _path_entry(
+    requested: str, real: Optional[str], by_id: Dict[str, dict], cycle_ids: set
+) -> dict:
+    """Resolve one focus's cheapest completion set and timing estimate."""
+    if real is None:
+        return {"focus": requested, "found": False}
+
+    memo: Dict[str, tuple] = {}
+    dangling: set = set()
+
+    def cost_of(fid: str) -> float:
+        return _read_cost(by_id[fid].get("cost"))[0]
+
+    def solve(fid: str, visiting: frozenset) -> Optional[tuple]:
+        """Returns (chosen frozenset incl fid, total cost) or None if fid unknown."""
+        if fid not in by_id:
+            dangling.add(fid)
+            return None
+        if fid in memo:
+            return memo[fid]
+        if fid in visiting:
+            # Cycle: count self only; cycles are reported at the top level.
+            return (frozenset({fid}), cost_of(fid))
+        chosen = {fid}
+        for group in by_id[fid]["prerequisites"]:
+            best: Optional[tuple] = None
+            for member in group:
+                r = solve(member, visiting | {fid})
+                if r is not None and (best is None or r[1] < best[1]):
+                    best = r
+            if best is not None:
+                chosen |= best[0]
+        res = (frozenset(chosen), sum(cost_of(f) for f in chosen))
+        memo[fid] = res
+        return res
+
+    solved = solve(real, frozenset())
+    assert solved is not None  # real is in by_id
+    chosen, total_cost = solved
+
+    # Completion order: prereq depth within the chosen set, ties by id.
+    depth: Dict[str, int] = {}
+
+    def depth_of(fid: str, visiting: frozenset) -> int:
+        if fid in depth:
+            return depth[fid]
+        if fid in visiting:
+            return 0
+        parents = [
+            m for group in by_id[fid]["prerequisites"] for m in group if m in chosen and m != fid
+        ]
+        d = 1 + max((depth_of(p, visiting | {fid}) for p in parents), default=-1)
+        depth[fid] = d
+        return d
+
+    chain = sorted(chosen, key=lambda f: (depth_of(f, frozenset()), f))
+
+    defaulted = sum(1 for f in chosen if _read_cost(by_id[f].get("cost"))[1])
+    entry: dict = {
+        "focus": real,
+        "found": True,
+        "estimated_focus_count": len(chosen),
+        "estimated_days": round(total_cost * _DAYS_PER_COST, 1),
+        "chain": chain[:100],
+        "chain_truncated": len(chain) > 100,
+        "ai_will_do": by_id[real].get("ai_will_do"),
+    }
+    if chosen & cycle_ids:
+        # The greedy cheapest-set solve is only correct on a DAG; a prereq cycle in
+        # the closure can truncate it. Flag rather than trust the numbers.
+        entry["estimate_unreliable"] = "prerequisite cycle in closure; see top-level cycles"
+    if dangling:
+        entry["dangling_prereqs"] = sorted(dangling)
+    if defaulted:
+        entry["cost_defaulted_count"] = defaulted
+    return entry
+
+
 def _find_cycles(graph: Dict[str, List[str]]) -> List[List[str]]:
     """Tarjan-style cycle enumeration over a small DAG. Returns one cycle per SCC."""
     cycles: List[List[str]] = []
@@ -189,7 +287,7 @@ def _find_cycles(graph: Dict[str, List[str]]) -> List[List[str]]:
         for nxt in graph.get(node, []):
             if color.get(nxt) == 1:
                 if nxt in stack:
-                    cyc = stack[stack.index(nxt) :] + [nxt]
+                    cyc = [*stack[stack.index(nxt) :], nxt]
                     cycles.append(cyc)
             elif color.get(nxt) == 0:
                 dfs(nxt)
@@ -200,14 +298,3 @@ def _find_cycles(graph: Dict[str, List[str]]) -> List[List[str]]:
         if color[n] == 0:
             dfs(n)
     return cycles
-
-
-def _resolve(relpath: str, mod_root: Path, vanilla_path: Optional[Path]) -> Optional[Path]:
-    p = mod_root / relpath
-    if p.exists():
-        return p
-    if vanilla_path is not None:
-        p = vanilla_path / relpath
-        if p.exists():
-            return p
-    return None

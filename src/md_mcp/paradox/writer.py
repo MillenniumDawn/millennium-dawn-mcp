@@ -54,7 +54,7 @@ def _render_value(value: object, indent: int) -> str:
     if isinstance(value, (int, float)):
         return _format_number(value)
     if isinstance(value, str):
-        return f"\"{_escape_string(value)}\""
+        return f'"{_escape_string(value)}"'
     if isinstance(value, list):
         if not value:
             return "{ }"

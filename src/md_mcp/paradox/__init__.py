@@ -4,10 +4,10 @@ from .writer import node_to_str
 
 __all__ = [
     "Node",
+    "ParseError",
     "SymbolNode",
     "Token",
-    "ParseError",
+    "node_to_str",
     "parse_file",
     "parse_string",
-    "node_to_str",
 ]

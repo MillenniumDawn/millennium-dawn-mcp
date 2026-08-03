@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Iterable, List, Literal, Optional
+from typing import List, Literal, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -99,9 +99,7 @@ def _variable_pattern(target: str) -> re.Pattern:
 
 def _loc_pattern(target: str) -> re.Pattern:
     # Both `KEY:` definitions and `[KEY]` / `$KEY$` references.
-    return re.compile(
-        r"(?<![\w])" + re.escape(target) + r"(?![\w])"
-    )
+    return re.compile(r"(?<![\w])" + re.escape(target) + r"(?![\w])")
 
 
 def _sprite_pattern(target: str) -> re.Pattern:
@@ -290,10 +288,10 @@ def find_references(
                             break
 
     if files_only:
-        files_list = sorted(
-            ({"file": f, "hits": n} for f, n in file_hits.items()),
-            key=lambda r: (-r["hits"], r["file"]),
-        )
+        files_list = [
+            {"file": f, "hits": n}
+            for f, n in sorted(file_hits.items(), key=lambda kv: (-kv[1], kv[0]))
+        ]
         total = len(files_list)
         sliced = files_list[offset : offset + limit]
         return enforce_budget(

@@ -10,7 +10,6 @@ from md_mcp.paradox.schema import (
     to_json_with_lines,
 )
 
-
 SAMPLE = """
 focus_tree = {
     id = sample_tree

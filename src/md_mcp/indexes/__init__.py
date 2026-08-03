@@ -7,13 +7,13 @@ from .idea import IdeaIndex
 from .localisation import LocalisationIndex
 
 __all__ = [
-    "IndexCache",
-    "GenericTxtIndex",
-    "file_signature",
-    "FocusIndex",
-    "LocalisationIndex",
-    "GfxIndex",
-    "EventIndex",
     "DecisionIndex",
+    "EventIndex",
+    "FocusIndex",
+    "GenericTxtIndex",
+    "GfxIndex",
     "IdeaIndex",
+    "IndexCache",
+    "LocalisationIndex",
+    "file_signature",
 ]

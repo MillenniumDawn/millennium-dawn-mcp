@@ -28,11 +28,10 @@ import os
 import re
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from ..util.encoding import read_text
 from .base import (
-    FileSig,
     IndexCache,
     StaleCheck,
     _default_workers,
@@ -69,9 +68,7 @@ _FILENAME_LANG_RE = re.compile(
 _HEADER_RE = re.compile(r"^\s*(l_[a-z_]+)\s*:\s*$")
 # `  KEY: "value"`  or  `  KEY:0 "value"`  — tolerant of optional version digit.
 # Captures key and quoted value; trailing `# comment` is allowed.
-_ENTRY_RE = re.compile(
-    r"^\s*([^:#\s][^:#]*?)\s*:\s*\d*\s*\"((?:\\.|[^\"\\])*)\"\s*(?:#.*)?$"
-)
+_ENTRY_RE = re.compile(r"^\s*([^:#\s][^:#]*?)\s*:\s*\d*\s*\"((?:\\.|[^\"\\])*)\"\s*(?:#.*)?$")
 
 
 class LocalisationIndex:
@@ -165,12 +162,7 @@ class LocalisationIndex:
         staleness = compute_staleness(manifest, current_sigs)
 
         # Fast path: nothing changed on disk AND we already have in-process state.
-        if (
-            self._loaded
-            and not staleness.stale
-            and not staleness.added
-            and not staleness.removed
-        ):
+        if self._loaded and not staleness.stale and not staleness.added and not staleness.removed:
             return
 
         if self._loaded:
@@ -187,7 +179,7 @@ class LocalisationIndex:
         files_to_parse = staleness.stale + staleness.added
         if files_to_parse:
             results = self._parse_parallel(files_to_parse)
-            for relpath, parsed in zip(files_to_parse, results):
+            for relpath, parsed in zip(files_to_parse, results, strict=False):
                 if parsed is not None:
                     new_by_file[relpath] = parsed
 
@@ -213,7 +205,10 @@ class LocalisationIndex:
             self._cache.save_manifest(current_sigs)
 
     def _parse_parallel(self, relpaths: List[str]) -> List[Optional[dict]]:
-        """Dispatch loc parsing to a process pool — biggest win is on the english tier (~500 files)."""
+        """Dispatch loc parsing to a process pool.
+
+        Biggest win is on the english tier (~500 files).
+        """
         jobs: List[tuple] = []
         for rp in relpaths:
             base = self._resolve_root(rp)

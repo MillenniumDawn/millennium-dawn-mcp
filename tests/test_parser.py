@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from md_mcp.paradox import parse_string, node_to_str
+from md_mcp.paradox import node_to_str, parse_string
 from md_mcp.paradox.nodes import SymbolNode
 
 

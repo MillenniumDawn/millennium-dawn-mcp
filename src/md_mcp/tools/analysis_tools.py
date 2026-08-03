@@ -52,7 +52,9 @@ def find_focuses_tool(
         candidates = _filter_deep(candidates, settings, has_prereq, mutex_with)
 
     for rec in candidates[:limit]:
-        matches.append({"id": rec["id"], "file": rec["file"], "line": rec["line"], "kind": rec["kind"]})
+        matches.append(
+            {"id": rec["id"], "file": rec["file"], "line": rec["line"], "kind": rec["kind"]}
+        )
 
     return {
         "ok": True,

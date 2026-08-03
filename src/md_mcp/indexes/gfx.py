@@ -14,9 +14,10 @@ for anything ambiguous.
 
 from __future__ import annotations
 
+import bisect
 import logging
 import re
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from ..paradox import parse_string
 from ..paradox.schema import extract_sprite_records
@@ -40,9 +41,7 @@ _SPRITE_KINDS = (
 # Match `<kind> = {`. Case-sensitive because HOI4 itself is case-sensitive on identifiers
 # (per general-rules.md). Field-name regexes stay case-insensitive — `name` and
 # `texturefile` are *property* keys inside a sprite block and the engine is lenient there.
-_SPRITE_OPEN_RE = re.compile(
-    r"\b(" + "|".join(_SPRITE_KINDS) + r")\s*=\s*\{"
-)
+_SPRITE_OPEN_RE = re.compile(r"\b(" + "|".join(_SPRITE_KINDS) + r")\s*=\s*\{")
 _NAME_RE = re.compile(r'\bname\s*=\s*"([^"\\]*(?:\\.[^"\\]*)*)"', re.IGNORECASE)
 _NAME_BARE_RE = re.compile(r"\bname\s*=\s*([A-Za-z_][\w.]*)", re.IGNORECASE)
 _TEXTUREFILE_RE = re.compile(r'\btexturefile\s*=\s*"([^"]+)"', re.IGNORECASE)
@@ -65,8 +64,6 @@ def _build_line_offsets(text: str) -> List[int]:
 def _line_at(line_offsets: List[int], pos: int) -> int:
     """Binary search line index for the given position. 1-based line number."""
     # bisect_right gives the insertion point; line index is that - 1, 1-based becomes that.
-    import bisect
-
     return bisect.bisect_right(line_offsets, pos)
 
 
@@ -143,9 +140,6 @@ def _scan_sprite_blocks(text: str) -> List[dict]:
         )
 
     return records
-
-
-import bisect  # noqa: E402 — used by _line_at; imported at module load for hot-path perf
 
 
 def _parse_gfx_file(abs_path: str, relpath: str) -> Optional[List[dict]]:

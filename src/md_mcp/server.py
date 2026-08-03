@@ -10,12 +10,15 @@ import argparse
 import logging
 import os
 import sys
+from dataclasses import replace
 from typing import Optional
 
 from .analysis.diff_summary import diff_summary
 from .analysis.encoding import check_encoding
 from .analysis.focus_graph import focus_graph
+from .analysis.focus_layout import focus_layout
 from .analysis.manifest import list_country_content
+from .analysis.ref_audit import check_refs
 from .analysis.refs import find_references
 from .config import Settings, load
 from .generators import (
@@ -231,19 +234,22 @@ def build_server(settings: Settings):
         mode: str = "changed",
         files: Optional[list] = None,
         checks: Optional[list] = None,
+        validators: Optional[list] = None,
         severity_min: str = "info",
         limit: int = 500,
         counts_only: bool = False,
     ) -> dict:
-        """Run the full linting suite on changed files (default: staged + unstaged + untracked). mode=changed|staged|all; checks=[...] subsets; severity_min/limit/counts_only narrow output."""
+        """Run lint scripts plus style/brace checks for applicable script scopes. mode=changed|staged|all; checks=[...] subsets scripts; omit validators for scoped style, use [] to disable, or select ['auto'|'*'|names]; severity_min/limit/counts_only narrow output."""
         return lint_tool(
             settings.mod_root,
             mode=mode,
             files=files,
             checks=checks,
+            validators=validators,
             severity_min=severity_min,
             limit=limit,
             counts_only=counts_only,
+            validator_runner=validator_runner,
         )
 
     @mcp.tool()
@@ -439,7 +445,7 @@ def build_server(settings: Settings):
         include_edges: bool = True,
         include_nodes: bool = True,
     ) -> dict:
-        """Prereq/mutex DAG for a tag's focuses. detail=summary|ids|full; pass focus_ids=[...] to pin a subset. Default returns counts/roots/cycles/dangling only."""
+        """Prereq/mutex DAG for a tag's focuses. detail=summary|ids|full|paths; paths (with focus_ids=[...], capped by node_limit) adds prereq chains with estimated days + ai_will_do. Default returns counts/roots/cycles/dangling only."""
         return focus_graph(
             tag,
             settings.mod_root,
@@ -451,6 +457,52 @@ def build_server(settings: Settings):
             edge_limit=edge_limit,
             include_edges=include_edges,
             include_nodes=include_nodes,
+        )
+
+    @mcp.tool(name="check_refs")
+    def _check_refs(
+        tag: Optional[str] = None,
+        files: Optional[list] = None,
+        kinds: Optional[list] = None,
+        limit: int = 200,
+        offset: int = 0,
+        counts_only: bool = False,
+    ) -> dict:
+        """Audit cross-references in a tag's focus files (or explicit files=): focus/event/idea/sprite/loc/decision ids resolved against the indexes; returns deduped unresolved refs with file:line sites. kinds=[...] subsets."""
+        return check_refs(
+            settings.mod_root,
+            focus_index=focus_index,
+            event_index=event_index,
+            idea_index=idea_index,
+            gfx_index=gfx_index,
+            loc_index=loc_index,
+            decision_index=decision_index,
+            tag=tag,
+            files=files,
+            kinds=kinds,
+            vanilla_path=settings.vanilla_path,
+            lang=settings.default_lang,
+            limit=limit,
+            offset=offset,
+            counts_only=counts_only,
+        )
+
+    @mcp.tool(name="focus_layout")
+    def _focus_layout(
+        tag: Optional[str] = None,
+        file: Optional[str] = None,
+        include_positions: bool = False,
+        limit: int = 300,
+    ) -> dict:
+        """Focus tree geometry for a tag or file: resolves relative_position_id chains to absolute x/y; reports collisions, broken chains, bounding box. include_positions=True adds per-focus coordinates. limit caps each list."""
+        return focus_layout(
+            settings.mod_root,
+            focus_index,
+            tag=tag,
+            file=file,
+            vanilla_path=settings.vanilla_path,
+            include_positions=include_positions,
+            limit=limit,
         )
 
     @mcp.tool(name="diff_summary")
@@ -553,6 +605,16 @@ def main() -> None:  # pragma: no cover — entry point
         # the parent's stdin/stdout FDs. Force serial parsing here. Users build
         # the cache up-front via `md-mcp build-index`; the server is meant for the
         # warm path (cache hit, ≈10 ms) and never needs the process pool.
-        os.environ.setdefault("MD_MCP_SERIAL_PARSE", "1")
+        os.environ["MD_MCP_SERIAL_PARSE"] = "1"
+        # Same reason, one layer out: most mod validators fork a Pool of their
+        # own, so in-process validation hangs the server outright. It stays
+        # available to the CLI and to library callers, just not under mcp.run().
+        if settings.validator_mode != "isolated":
+            logging.warning(
+                "validator_mode=%s is unsafe under the stdio server (forking "
+                "validators deadlock it); using isolated for this run",
+                settings.validator_mode,
+            )
+            settings = replace(settings, validator_mode="isolated")
         mcp = build_server(settings)
         mcp.run()

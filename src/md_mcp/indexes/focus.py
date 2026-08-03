@@ -29,7 +29,6 @@ from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records, is_focus_file_content
 from ..util.encoding import read_text
 from .base import (
-    FileSig,
     IndexCache,
     StaleCheck,
     _default_workers,
@@ -84,7 +83,7 @@ class FocusIndex:
 
         # In-process state, populated on first ensure_fresh().
         self._by_file: Dict[str, List[dict]] = {}
-        self._by_id: Dict[str, dict] = {}      # focus_id → {file, line, kind, id}
+        self._by_id: Dict[str, dict] = {}  # focus_id → {file, line, kind, id}
         self._loaded = False
 
     # ------------------------------------------------------------------
@@ -106,6 +105,14 @@ class FocusIndex:
 
     # Backwards-compatible alias for callers that pre-date the M2 harmonisation.
     list_ids = list_keys
+
+    def files_for_tag(self, tag: str) -> List[str]:
+        """Sorted set of files defining a focus whose id starts with `<TAG>_`."""
+        self.ensure_fresh()
+        prefix = tag.upper() + "_"
+        return sorted(
+            {r["file"] for fid, r in self._by_id.items() if fid.upper().startswith(prefix)}
+        )
 
     def records_for_file(self, relative_path: str) -> List[dict]:
         self.ensure_fresh()
@@ -148,12 +155,7 @@ class FocusIndex:
         manifest = self._cache.load_manifest() or {}
         staleness = compute_staleness(manifest, current_sigs)
 
-        if (
-            self._loaded
-            and not staleness.stale
-            and not staleness.added
-            and not staleness.removed
-        ):
+        if self._loaded and not staleness.stale and not staleness.added and not staleness.removed:
             return
 
         if self._loaded:
@@ -170,7 +172,7 @@ class FocusIndex:
         files_to_parse = staleness.stale + staleness.added
         if files_to_parse:
             results = self._parse_parallel(files_to_parse)
-            for relpath, records in zip(files_to_parse, results):
+            for relpath, records in zip(files_to_parse, results, strict=False):
                 if records is not None:
                     new_by_file[relpath] = records
 

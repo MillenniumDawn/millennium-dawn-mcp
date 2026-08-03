@@ -1,0 +1,79 @@
+name: Nightly integration
+
+# Runs the integration suite against Millennium-Dawn main. This is the
+# validator-coupling drift check from docs/validators.md: the in-process
+# wrapper reads private validator internals, so an upstream refactor shows
+# up here first, as a filed issue instead of a broken agent session.
+
+on:
+  schedule:
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e '.[dev]'
+      - name: Sparse-clone Millennium-Dawn main
+        run: |
+          repo_url=https://github.com/MillenniumDawn/Millennium-Dawn.git
+          git clone --depth 1 --filter=blob:none --sparse \
+            "$repo_url" "$RUNNER_TEMP/Millennium-Dawn"
+          git -C "$RUNNER_TEMP/Millennium-Dawn" sparse-checkout set \
+            common events interface localisation history tools
+      - name: Verify the clone still looks like a mod root
+        # conftest skips every integration test when this check fails, which
+        # would turn the drift check green while testing nothing.
+        run: |
+          test -f "$RUNNER_TEMP/Millennium-Dawn/descriptor.mod"
+          test -d "$RUNNER_TEMP/Millennium-Dawn/tools/validation"
+      - name: Integration suite
+        run: |
+          MD_MOD_ROOT="$RUNNER_TEMP/Millennium-Dawn" MD_PERF_BUDGET_SCALE=3 \
+            pytest -q -m integration
+
+  report-failure:
+    needs: integration
+    if: ${{ always() && needs.integration.result != 'success' }}
+    permissions:
+      issues: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open or update failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create nightly-failure --repo "$GITHUB_REPOSITORY" \
+            --color B60205 --force
+          n=$(
+            gh issue list --repo "$GITHUB_REPOSITORY" \
+              --label nightly-failure --state open \
+              --json number --jq '.[0].number // empty'
+          )
+          run_url="${{ github.server_url }}/${{ github.repository }}"
+          run_url="$run_url/actions/runs/${{ github.run_id }}"
+          body="Nightly integration vs Millennium-Dawn main failed."
+          body="$body Integration job result: ${{ needs.integration.result }}."
+          body="$body Run: $run_url"
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "Nightly integration vs Millennium-Dawn main failed" \
+              --label nightly-failure --body "$body"
+          fi

@@ -1,6 +1,6 @@
 # Tool & Resource Reference
 
-26 tools and 6 resources, grouped by purpose. Output shapes show the
+27 tools and 6 resources, grouped by purpose. Output shapes show the
 **default** behaviour — most tools have detail-tier or `limit` knobs.
 
 All tools return either `{"ok": True, ...}` or `{"ok": False, "error": "..."}`.
@@ -416,6 +416,29 @@ Scaffold an idea. Goes inside `ideas = { <category> = { ... } }`.
 
 Scaffold a `spriteType = { ... }` entry. Goes inside `spriteTypes = { }` in a
 `.gfx` file.
+
+### `generate_gfx_merge(texture_dir, gfx_file, prefix?, kind?, frames?, legacy_lazy_load?, protected?, limit?, offset?, include_file?) -> dict`
+
+Scan a texture directory and merge it into an existing `.gfx` file using the
+same rules as `Millennium-Dawn/tools/gfx_entry_generator.py`: unchanged entries
+stay byte-identical, texturefile changes replace in place, new names are
+appended, orphans are reported and never deleted. The server never writes.
+
+- **`prefix="GFX_"`** — prepended to each stem unless the stem already starts
+  with it.
+- **`protected`** — sprite names that must not be updated (e.g. vanilla
+  `GFX_goal_unknown`).
+- **`limit=100` / `offset=0`** — paginate the `new` / `changed` / `orphaned`
+  name lists. Totals stay accurate.
+- **`include_file=True`** — also return `file_txt`, the complete merged
+  document. Large files (`goals.gfx`) will trip the output budget and drop it.
+
+`txt` is the new sprite blocks to append. If `gfx_file` does not exist yet,
+`txt` is a full `spriteTypes = { ... }` document. `changed` entries include a
+replacement `txt` for in-place Edit.
+
+Returns `{ok, txt, new, changed, orphaned, deduped, conflicts, would_write,
+exists, scanned, ...}`.
 
 ### `generate_loc_stub(keys: [{key, value}], lang?, include_header?, bom_prefix?) -> dict`
 

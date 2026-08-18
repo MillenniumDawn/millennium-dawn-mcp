@@ -65,6 +65,7 @@ EXPECTED_TOOLS = {
     "generate_decision",
     "generate_idea",
     "generate_gfx_entry",
+    "generate_gfx_merge",
     "generate_loc_stub",
     # M3 analysis
     "focus_graph",

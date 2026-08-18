@@ -26,6 +26,7 @@ from .generators import (
     generate_event,
     generate_focus,
     generate_gfx_entry,
+    generate_gfx_merge,
     generate_idea,
     generate_loc_stub,
 )
@@ -416,6 +417,34 @@ def build_server(settings: Settings):
             kind=kind,
             frames=frames,
             legacy_lazy_load=legacy_lazy_load,
+        )
+
+    @mcp.tool(name="generate_gfx_merge")
+    def _gen_gfx_merge(
+        texture_dir: str,
+        gfx_file: str,
+        prefix: str = "GFX_",
+        kind: str = "spriteType",
+        frames: Optional[int] = None,
+        legacy_lazy_load: bool = False,
+        protected: Optional[list] = None,
+        limit: int = 100,
+        offset: int = 0,
+        include_file: bool = False,
+    ) -> dict:
+        """Merge a texture dir into a .gfx file. Returns {txt} of new entries plus new/changed/orphaned; never writes. limit paginates names; include_file adds the full merged file."""
+        return generate_gfx_merge(
+            settings.mod_root,
+            texture_dir=texture_dir,
+            gfx_file=gfx_file,
+            prefix=prefix,
+            kind=kind,
+            frames=frames,
+            legacy_lazy_load=legacy_lazy_load,
+            protected=protected,
+            limit=limit,
+            offset=offset,
+            include_file=include_file,
         )
 
     @mcp.tool(name="generate_loc_stub")

@@ -261,6 +261,10 @@ def test_limit_at_total_not_truncated(tmp_path):
     assert len(out["positions"]) == 4
     assert out["positions_truncated"] is False
     assert out["positions_total"] == 4
+    assert out["collisions_total"] == 1
+    assert out["collisions_truncated"] is False
+    assert out["chain_errors_total"] == 2
+    assert out["chain_errors_truncated"] is False
 
 
 def test_limit_one_below_total_truncated(tmp_path):
@@ -277,7 +281,11 @@ def test_negative_limit_without_positions_still_clamps(tmp_path):
     assert "positions_total" not in out
     assert "positions_truncated" not in out
     assert out["collisions"] == []
+    assert out["collisions_total"] == 1
+    assert out["collisions_truncated"] is True
     assert out["chain_errors"] == []
+    assert out["chain_errors_total"] == 2
+    assert out["chain_errors_truncated"] is True
 
 
 def test_negative_limit_empty_collisions_not_truncated(tmp_path):

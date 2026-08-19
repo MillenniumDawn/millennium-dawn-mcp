@@ -53,6 +53,7 @@ def focus_layout(
     if not tag and not file:
         return {"ok": False, "error": "Pass tag= or file= (mod-relative focus file path)."}
 
+    # clamp early — paginate also clamps; normalize for consistent semantics
     if limit < 0:
         limit = 0
 

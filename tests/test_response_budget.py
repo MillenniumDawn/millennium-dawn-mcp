@@ -52,6 +52,13 @@ def test_paginate_limit_at_total_not_truncated():
     assert total == 5
 
 
+def test_paginate_empty_with_negative_limit():
+    sliced, truncated, total = paginate([], offset=0, limit=-1)
+    assert sliced == []
+    assert total == 0
+    assert truncated is False
+
+
 def test_enforce_budget_pass_through_when_small():
     result = {"ok": True, "items": list(range(5))}
     out = enforce_budget(result, heavy_keys=("items",))

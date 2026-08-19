@@ -82,6 +82,7 @@ def _issue(file, message="bad", severity="warning", line=0, category="CAT"):
 # narrow rows add the domain-specific pass for that directory.
 _BROAD_COMMON = {
     "agency_upgrades",
+    "decisions",
     "dlc_guards",
     "events",
     "file_paths",
@@ -92,7 +93,15 @@ _BROAD_COMMON = {
 }
 # Same for history/: the common/ broad set minus simplifications, which only
 # reaches common/ and events/ upstream.
-_BROAD_HISTORY = {"agency_upgrades", "events", "file_paths", "gfx_references", "history", "ideas"}
+_BROAD_HISTORY = {
+    "agency_upgrades",
+    "decisions",
+    "events",
+    "file_paths",
+    "gfx_references",
+    "history",
+    "ideas",
+}
 
 
 @pytest.mark.parametrize(

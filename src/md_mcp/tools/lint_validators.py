@@ -52,6 +52,7 @@ VALIDATOR_AUTO_MAP: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
         "common/",
         (
             "agency_upgrades",
+            "decisions",
             "dlc_guards",
             "events",
             "file_paths",
@@ -66,6 +67,7 @@ VALIDATOR_AUTO_MAP: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
         (
             "agency_upgrades",
             "characters",
+            "decisions",
             "dlc_guards",
             "events",
             "file_paths",
@@ -79,7 +81,18 @@ VALIDATOR_AUTO_MAP: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
             "simplifications",
         ),
     ),
-    ("history/", ("agency_upgrades", "events", "file_paths", "gfx_references", "history", "ideas")),
+    (
+        "history/",
+        (
+            "agency_upgrades",
+            "decisions",
+            "events",
+            "file_paths",
+            "gfx_references",
+            "history",
+            "ideas",
+        ),
+    ),
     (
         "localisation/",
         ("file_paths", "gfx_references", "ideas", "mios", "scripted_gui"),

@@ -35,7 +35,7 @@ jobs:
           git clone --depth 1 --filter=blob:none --sparse \
             "$repo_url" "$RUNNER_TEMP/Millennium-Dawn"
           git -C "$RUNNER_TEMP/Millennium-Dawn" sparse-checkout set \
-            common events interface localisation history tools
+            common events interface localisation history tools .github/workflows
       - name: Verify the clone still looks like a mod root
         # conftest skips every integration test when this check fails, which
         # would turn the drift check green while testing nothing.

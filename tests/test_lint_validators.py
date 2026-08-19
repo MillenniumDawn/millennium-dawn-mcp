@@ -82,6 +82,7 @@ def _issue(file, message="bad", severity="warning", line=0, category="CAT"):
 # narrow rows add the domain-specific pass for that directory.
 _BROAD_COMMON = {
     "agency_upgrades",
+    "dlc_guards",
     "events",
     "file_paths",
     "gfx_references",
@@ -99,31 +100,80 @@ _BROAD_HISTORY = {"agency_upgrades", "events", "file_paths", "gfx_references", "
     [
         (
             "common/national_focus/USA.txt",
-            _BROAD_COMMON | {"focus_tree", "modifiers", "oob_units", "scripted_params", "style"},
+            _BROAD_COMMON
+            | {
+                "characters",
+                "focus_tree",
+                "modifiers",
+                "oob_units",
+                "scripted_params",
+                "style",
+            },
         ),
         (
             "events/Afghanistan.txt",
-            _BROAD_COMMON | {"focus_tree", "on_actions", "oob_units", "scripted_params", "style"},
+            _BROAD_COMMON
+            | {
+                "characters",
+                "focus_tree",
+                "on_actions",
+                "oob_units",
+                "scripted_params",
+                "style",
+            },
         ),
         (
             "common/decisions/USA.txt",
-            _BROAD_COMMON | {"decisions", "modifiers", "oob_units", "scripted_params", "style"},
+            _BROAD_COMMON
+            | {
+                "characters",
+                "decisions",
+                "modifiers",
+                "oob_units",
+                "scripted_params",
+                "style",
+            },
         ),
         ("common/ideas/USA.txt", _BROAD_COMMON | {"history", "modifiers", "style"}),
-        ("common/characters/USA.txt", _BROAD_COMMON | {"style"}),
+        (
+            "common/on_actions/00_on_actions.txt",
+            _BROAD_COMMON
+            | {"characters", "events", "on_actions", "oob_units", "simplifications", "style"},
+        ),
+        ("common/operations/x.txt", _BROAD_COMMON | {"modifiers", "oob_units", "style"}),
+        (
+            "common/resistance_compliance_modifiers/x.txt",
+            _BROAD_COMMON | {"oob_units", "style"},
+        ),
+        ("common/characters/USA.txt", _BROAD_COMMON | {"characters", "style"}),
         ("common/country_leader/USA.txt", _BROAD_COMMON | {"style"}),
         ("common/modifiers/USA.txt", _BROAD_COMMON | {"style"}),
         ("common/opinion_modifiers/USA.txt", _BROAD_COMMON | {"style"}),
         ("common/dynamic_modifiers/USA.txt", _BROAD_COMMON | {"modifiers", "style"}),
         ("common/modifier_definitions/USA.txt", _BROAD_COMMON | {"modifiers", "style"}),
-        ("common/scripted_guis/x.txt", _BROAD_COMMON | {"style"}),
+        ("common/scripted_guis/x.txt", _BROAD_COMMON | {"oob_units", "style"}),
         ("common/ai_strategy/USA.txt", _BROAD_COMMON | {"ai_roles", "style"}),
+        (
+            "common/military_industrial_organization/organizations/USA.txt",
+            _BROAD_COMMON | {"mios", "style"},
+        ),
+        (
+            "common/scientist_traits/USA.txt",
+            _BROAD_COMMON | {"scientist_traits", "style"},
+        ),
+        (
+            "common/technologies/USA.txt",
+            _BROAD_COMMON | {"history", "technologies", "style"},
+        ),
         (
             "common/units/inf.txt",
             _BROAD_COMMON | {"ai_equipment", "ai_navy", "modifiers", "oob_units", "style"},
         ),
         ("history/units/USA_2000.txt", _BROAD_HISTORY | {"oob_units", "style"}),
-        ("history/countries/USA.txt", _BROAD_HISTORY | {"oob_units", "style"}),
+        (
+            "history/countries/USA.txt",
+            _BROAD_HISTORY | {"characters", "oob_units", "style"},
+        ),
         (
             "interface/usa.gfx",
             {
@@ -132,13 +182,14 @@ _BROAD_HISTORY = {"agency_upgrades", "events", "file_paths", "gfx_references", "
                 "file_paths",
                 "gfx_references",
                 "ideas",
+                "scientist_traits",
                 "scripted_gui",
                 "scripted_localisation",
             },
         ),
         (
             "localisation/english/MD_focus_USA_l_english.yml",
-            {"file_paths", "gfx_references", "localisation", "scripted_gui"},
+            {"file_paths", "gfx_references", "ideas", "localisation", "mios", "scripted_gui"},
         ),
         ("descriptor.mod", {"mod_descriptors"}),
     ],

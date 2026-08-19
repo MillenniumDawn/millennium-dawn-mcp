@@ -1,6 +1,6 @@
 # Tool & Resource Reference
 
-26 tools and 6 resources, grouped by purpose. Output shapes show the
+27 tools and 6 resources, grouped by purpose. Output shapes show the
 **default** behaviour — most tools have detail-tier or `limit` knobs.
 
 All tools return either `{"ok": True, ...}` or `{"ok": False, "error": "..."}`.
@@ -416,6 +416,38 @@ Scaffold an idea. Goes inside `ideas = { <category> = { ... } }`.
 
 Scaffold a `spriteType = { ... }` entry. Goes inside `spriteTypes = { }` in a
 `.gfx` file.
+
+### `generate_gfx_merge(texture_dir, gfx_file, prefix, kind?, frames?, legacy_lazy_load?, protected?, limit?, offset?, include_file?) -> dict`
+
+Scan a texture directory and merge it into an existing `.gfx` file using the
+same merge rules as `Millennium-Dawn/tools/gfx_entry_generator.py`: unchanged
+entries stay byte-identical, texturefile changes replace in place, new names
+are appended, orphans are reported and never deleted. The server never writes.
+
+Sprite *naming* is not ported. Upstream hardcodes a rule per content generator,
+so you pass `prefix` and it applies to the whole directory.
+
+- **`prefix`** — required, prepended to each stem unless the stem already
+  starts with it. Match the target file or the merge inverts: `goals.gfx`
+  stores bare stems (`prefix=""`), `MD_eventpictures.gfx` stores `GFX_`-
+  prefixed ones. Get it wrong and every existing entry reads as orphaned and
+  every scanned file as new.
+- **`protected`** — sprite names that must not be updated (e.g. vanilla
+  `GFX_goal_unknown`).
+- **`limit=100` / `offset=0`** — paginate `txt` and the `new` / `changed` /
+  `orphaned` / `deduped` / `conflicts` / `scan_duplicates` lists. Totals stay
+  accurate.
+- **`include_file=True`** — also return `file_txt`, the complete merged
+  document. Large files (`goals.gfx`) will trip the output budget and drop it.
+
+`txt` is the sprite blocks for the `new` names on this page, so paging it and
+paging `new` stay in step. If `gfx_file` is missing or empty, `txt` is a full
+`spriteTypes = { ... }` document instead: page 0 carries the header and the
+last page the closing brace, so appending the pages in order rebuilds the file.
+`changed` entries include a replacement `txt` for in-place Edit.
+
+Returns `{ok, txt, new, changed, orphaned, deduped, conflicts, scan_duplicates,
+would_write, exists, scanned, ...}` plus a `*_total` per list.
 
 ### `generate_loc_stub(keys: [{key, value}], lang?, include_header?, bom_prefix?) -> dict`
 

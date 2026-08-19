@@ -423,7 +423,7 @@ def build_server(settings: Settings):
     def _gen_gfx_merge(
         texture_dir: str,
         gfx_file: str,
-        prefix: str = "GFX_",
+        prefix: str,
         kind: str = "spriteType",
         frames: Optional[int] = None,
         legacy_lazy_load: bool = False,
@@ -432,7 +432,7 @@ def build_server(settings: Settings):
         offset: int = 0,
         include_file: bool = False,
     ) -> dict:
-        """Merge a texture dir into a .gfx file. Returns {txt} of new entries plus new/changed/orphaned; never writes. limit paginates names; include_file adds the full merged file."""
+        """Merge a texture dir into a .gfx file. Returns {txt} of new entries plus new/changed/orphaned; never writes. prefix must match the target file ("" for goals.gfx, "GFX_" for MD_eventpictures.gfx); limit/offset page the names and txt together; include_file adds the full merged file."""
         return generate_gfx_merge(
             settings.mod_root,
             texture_dir=texture_dir,

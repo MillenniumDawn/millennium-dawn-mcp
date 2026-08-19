@@ -140,6 +140,32 @@ def test_call_find_focuses_with_prereq(server):
     assert ids == {"TST_branch_a", "TST_branch_b"}
 
 
+def test_call_generate_gfx_merge(server, fake_mod_root):
+    tex = fake_mod_root / "gfx" / "test"
+    tex.mkdir(parents=True)
+    for stem in ("one", "three"):
+        (tex / f"{stem}.dds").write_bytes(b"x")
+
+    async def go():
+        return await server.call_tool(
+            "generate_gfx_merge",
+            {
+                "texture_dir": "gfx/test",
+                "gfx_file": "interface/test_sprites.gfx",
+                "prefix": "GFX_test_sprite_",
+                "protected": ["GFX_test_tile"],
+            },
+        )
+
+    result = asyncio.new_event_loop().run_until_complete(go())
+    payload = json.loads(_text(result))
+    assert payload["ok"] is True
+    assert payload["new"] == ["GFX_test_sprite_three"]
+    assert payload["orphaned"] == ["GFX_test_sprite_two"]
+    assert 'name = "GFX_test_sprite_three"' in payload["txt"]
+    assert payload["would_write"] is True
+
+
 def test_resource_focus_raw(server):
     async def go():
         return await server.read_resource("md://focus/TST_root")

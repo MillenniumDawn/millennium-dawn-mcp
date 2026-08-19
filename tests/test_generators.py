@@ -288,7 +288,9 @@ def test_generate_gfx_merge_appends_without_writing(tmp_path):
     existing = "spriteTypes = {\n" + _render("GFX_old", "gfx/icons/old.dds") + "}\n"
     _tex, gfx_path = _plant_merge_mod(tmp_path, textures=["old", "new"], gfx_body=existing)
     before = gfx_path.read_text(encoding="utf-8")
-    r = generate_gfx_merge(tmp_path, texture_dir="gfx/icons", gfx_file="interface/icons.gfx")
+    r = generate_gfx_merge(
+        tmp_path, texture_dir="gfx/icons", gfx_file="interface/icons.gfx", prefix="GFX_"
+    )
     assert r["ok"] is True
     assert r["exists"] is True
     assert r["new"] == ["GFX_new"]
@@ -301,7 +303,9 @@ def test_generate_gfx_merge_appends_without_writing(tmp_path):
 
 def test_generate_gfx_merge_new_file_returns_full_document(tmp_path):
     _plant_merge_mod(tmp_path, textures=["only"])
-    r = generate_gfx_merge(tmp_path, texture_dir="gfx/icons", gfx_file="interface/icons.gfx")
+    r = generate_gfx_merge(
+        tmp_path, texture_dir="gfx/icons", gfx_file="interface/icons.gfx", prefix="GFX_"
+    )
     assert r["ok"] is True
     assert r["exists"] is False
     assert r["txt"].startswith("spriteTypes = {")
@@ -312,7 +316,9 @@ def test_generate_gfx_merge_new_file_returns_full_document(tmp_path):
 
 def test_generate_gfx_merge_skips_existing_prefix_on_stem(tmp_path):
     _plant_merge_mod(tmp_path, textures=["GFX_already"])
-    r = generate_gfx_merge(tmp_path, texture_dir="gfx/icons", gfx_file="interface/icons.gfx")
+    r = generate_gfx_merge(
+        tmp_path, texture_dir="gfx/icons", gfx_file="interface/icons.gfx", prefix="GFX_"
+    )
     assert r["new"] == ["GFX_already"]
     assert "GFX_GFX_already" not in r["txt"]
 
@@ -320,7 +326,7 @@ def test_generate_gfx_merge_skips_existing_prefix_on_stem(tmp_path):
 def test_generate_gfx_merge_limit_truncates(tmp_path):
     _plant_merge_mod(tmp_path, textures=["a", "b", "c"])
     r = generate_gfx_merge(
-        tmp_path, texture_dir="gfx/icons", gfx_file="interface/icons.gfx", limit=1
+        tmp_path, texture_dir="gfx/icons", gfx_file="interface/icons.gfx", prefix="GFX_", limit=1
     )
     assert r["ok"] is True
     assert r["new_total"] == 3
@@ -336,6 +342,7 @@ def test_generate_gfx_merge_include_file_drops_when_over_budget(tmp_path):
         tmp_path,
         texture_dir="gfx/icons",
         gfx_file="interface/icons.gfx",
+        prefix="GFX_",
         include_file=True,
     )
     assert r["ok"] is True
@@ -344,14 +351,85 @@ def test_generate_gfx_merge_include_file_drops_when_over_budget(tmp_path):
     assert r["file_txt_dropped"] >= 1
 
 
+def test_generate_gfx_merge_txt_is_bounded_by_limit(tmp_path):
+    _plant_merge_mod(tmp_path, textures=[f"icon_{i:03d}" for i in range(400)])
+    r = generate_gfx_merge(
+        tmp_path, texture_dir="gfx/icons", gfx_file="interface/icons.gfx", prefix="GFX_", limit=100
+    )
+    assert r["new_total"] == 400
+    assert "txt" in r
+    assert r["txt"].count("spriteType = {") == 100
+    assert r.get("size_truncated") is None
+
+
+def test_generate_gfx_merge_txt_pages_rebuild_the_document(tmp_path):
+    _plant_merge_mod(tmp_path, textures=["a", "b", "c"])
+    first = generate_gfx_merge(
+        tmp_path,
+        texture_dir="gfx/icons",
+        gfx_file="interface/icons.gfx",
+        prefix="GFX_",
+        limit=2,
+        offset=0,
+        include_file=True,
+    )
+    second = generate_gfx_merge(
+        tmp_path,
+        texture_dir="gfx/icons",
+        gfx_file="interface/icons.gfx",
+        prefix="GFX_",
+        limit=2,
+        offset=2,
+    )
+    assert first["txt"].startswith("spriteTypes = {")
+    assert not first["txt"].endswith("}\n}\n")
+    assert not second["txt"].startswith("spriteTypes = {")
+    assert second["txt"].endswith("}\n}\n")
+    assert first["txt"] + second["txt"] == first["file_txt"]
+
+
+def test_generate_gfx_merge_empty_file_returns_full_document(tmp_path):
+    _plant_merge_mod(tmp_path, textures=["only"], gfx_body="")
+    r = generate_gfx_merge(
+        tmp_path, texture_dir="gfx/icons", gfx_file="interface/icons.gfx", prefix="GFX_"
+    )
+    assert r["exists"] is True
+    assert r["txt"].startswith("spriteTypes = {")
+    assert r["txt"].rstrip().endswith("}")
+
+
+def test_generate_gfx_merge_paginates_scan_duplicates(tmp_path):
+    tex = tmp_path / "gfx" / "icons"
+    for sub in ("a", "b"):
+        (tex / sub).mkdir(parents=True)
+        for i in range(5):
+            (tex / sub / f"dup_{i}.dds").write_bytes(b"x")
+    r = generate_gfx_merge(
+        tmp_path, texture_dir="gfx/icons", gfx_file="interface/icons.gfx", prefix="GFX_", limit=2
+    )
+    assert r["scanned"] == 10
+    assert r["scan_duplicate_total"] == 5
+    assert len(r["scan_duplicates"]) == 2
+    assert r["truncated"] is True
+
+
+def test_generate_gfx_merge_requires_prefix():
+    params = inspect.signature(generate_gfx_merge).parameters
+    assert params["prefix"].default is inspect.Parameter.empty
+
+
 def test_generate_gfx_merge_missing_dir(tmp_path):
-    r = generate_gfx_merge(tmp_path, texture_dir="gfx/missing", gfx_file="interface/icons.gfx")
+    r = generate_gfx_merge(
+        tmp_path, texture_dir="gfx/missing", gfx_file="interface/icons.gfx", prefix="GFX_"
+    )
     assert r["ok"] is False
     assert "not a directory" in r["error"]
     assert r["texture_dir"] == "gfx/missing"
 
 
 def test_generate_gfx_merge_rejects_path_escape(tmp_path):
-    r = generate_gfx_merge(tmp_path, texture_dir="../outside", gfx_file="interface/icons.gfx")
+    r = generate_gfx_merge(
+        tmp_path, texture_dir="../outside", gfx_file="interface/icons.gfx", prefix="GFX_"
+    )
     assert r["ok"] is False
     assert "escapes mod root" in r["error"]

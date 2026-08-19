@@ -5,6 +5,10 @@ ports the merge semantics from `Millennium-Dawn/tools/gfx_entry_generator.py`:
 unchanged entries stay byte-identical, texturefile changes replace in place,
 new names are appended, orphans are reported and never deleted. Both return
 strings. Neither writes a file.
+
+Sprite naming is *not* ported. Upstream hardcodes a different rule per content
+generator (`goals` uses bare stems, `event_pictures` prepends `GFX_`), so the
+caller passes `prefix` to match the target file. There is no default.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from ..util.encoding import read_text
 from ..util.response import enforce_budget, paginate
 
 IMAGE_EXTENSIONS = {".dds", ".png", ".tga"}
+SPRITETYPES_HEADER = "spriteTypes = {\n"
 
 _SPRITETYPE_RE = re.compile(r"[sS]priteType\s*=\s*\{")
 _NAME_RE = re.compile(r'name\s*=\s*"([^"]+)"')
@@ -63,7 +68,7 @@ def generate_gfx_merge(
     *,
     texture_dir: str,
     gfx_file: str,
-    prefix: str = "GFX_",
+    prefix: str,
     kind: str = "spriteType",
     frames: Optional[int] = None,
     legacy_lazy_load: bool = False,
@@ -76,10 +81,14 @@ def generate_gfx_merge(
 
     Scans `texture_dir` for `.dds`/`.png`/`.tga`, names each `prefix + stem`
     (or the stem alone when it already starts with `prefix`), and merges into
-    `gfx_file` using the same rules as the mod's `gfx_entry_generator.py`.
+    `gfx_file` using the same merge rules as the mod's `gfx_entry_generator.py`.
+    `prefix` has to match the target file's convention: `goals.gfx` stores bare
+    stems (`prefix=""`), `MD_eventpictures.gfx` stores `GFX_`-prefixed ones.
 
-    `txt` is the new sprite blocks to append (or a full `spriteTypes` file when
-    `gfx_file` does not exist yet). Name lists are paginated. Pass
+    `txt` covers exactly the returned `new` slice, so `limit`/`offset` bound it
+    along with the name lists. When `gfx_file` is missing or empty, `txt` is a
+    full `spriteTypes` document: page 0 carries the header, the last page the
+    closing brace, so concatenating the pages in order rebuilds the file. Pass
     `include_file=True` to also get `file_txt` (the complete merged document);
     real MD files like `goals.gfx` will trip `enforce_budget` and drop it.
 
@@ -104,6 +113,8 @@ def generate_gfx_merge(
     entries, scan_duplicates = _scan_entries(root, tex_root, prefix)
     exists = gfx_path.is_file()
     original = read_text(gfx_path) if exists else ""
+    if not original.strip():
+        original = ""
 
     def render(name: str, texture_path: str) -> str:
         return (
@@ -134,45 +145,56 @@ def generate_gfx_merge(
         }
         for name, old in merged["changed"]
     ]
-    if exists:
-        txt = "".join(render(name, entries[name]) for name in new_names)
-    elif new_names:
-        txt = merged["txt"]
-    else:
-        txt = ""
-
     new_s, new_trunc, new_total = paginate(new_names, offset, limit)
     ch_s, ch_trunc, ch_total = paginate(changed_rows, offset, limit)
     or_s, or_trunc, or_total = paginate(merged["orphaned"], offset, limit)
     du_s, du_trunc, du_total = paginate(merged["deduped"], offset, limit)
     cf_s, cf_trunc, conflict_total = paginate(merged["conflicts"], offset, limit)
+    sd_s, sd_trunc, sd_total = paginate(scan_duplicates, offset, limit)
+
+    txt = "".join(render(name, entries[name]) for name in new_s)
+    if not original and new_names:
+        if offset <= 0:
+            txt = SPRITETYPES_HEADER + txt
+        if not new_trunc:
+            txt += "}\n"
 
     result = {
         "ok": True,
         "gfx_file": gfx_file,
         "exists": exists,
         "scanned": len(entries) + len(scan_duplicates),
-        "would_write": merged["would_write"] if exists else bool(new_names),
+        "would_write": merged["would_write"],
         "txt": txt,
         "new_total": new_total,
         "changed_total": ch_total,
         "orphaned_total": or_total,
         "deduped_total": du_total,
         "conflict_total": conflict_total,
+        "scan_duplicate_total": sd_total,
         "new": new_s,
         "changed": ch_s,
         "orphaned": or_s,
         "deduped": du_s,
         "conflicts": cf_s,
-        "scan_duplicates": scan_duplicates,
-        "truncated": new_trunc or ch_trunc or or_trunc or du_trunc or cf_trunc,
-        "returned": len(new_s) + len(ch_s) + len(or_s) + len(du_s),
+        "scan_duplicates": sd_s,
+        "truncated": new_trunc or ch_trunc or or_trunc or du_trunc or cf_trunc or sd_trunc,
+        "returned": len(new_s) + len(ch_s) + len(or_s) + len(du_s) + len(cf_s) + len(sd_s),
     }
     if include_file:
         result["file_txt"] = merged["txt"]
     return enforce_budget(
         result,
-        heavy_keys=("file_txt", "txt", "changed", "new", "orphaned", "deduped", "conflicts"),
+        heavy_keys=(
+            "file_txt",
+            "changed",
+            "scan_duplicates",
+            "orphaned",
+            "deduped",
+            "conflicts",
+            "new",
+            "txt",
+        ),
     )
 
 
@@ -181,13 +203,14 @@ def merge_gfx_text(
     entries: dict[str, str],
     render: _Render,
     *,
-    header: str = "spriteTypes = {\n",
+    header: str = SPRITETYPES_HEADER,
     protected: frozenset[str] = frozenset(),
 ) -> dict:
     """Merge `name -> texturefile` entries into an existing spriteTypes document.
 
     Pure function: returns the merged text and the same report lists as
-    `merge_gfx_entries` in the mod tool. Does not touch the filesystem.
+    `merge_gfx_entries` in the mod tool. Does not touch the filesystem. An
+    empty `original` means "no document yet" and gets a `header`/`}` wrapper.
 
     `changed` is a list of `(name, old_texturefile)` pairs. `conflicts` is a
     list of `{name, kept, dropped}` dicts for de-duplicated blocks whose

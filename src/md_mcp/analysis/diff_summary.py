@@ -25,6 +25,7 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
+from subprocess import TimeoutExpired
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from typing_extensions import TypeIs
@@ -106,9 +107,11 @@ def diff_summary(
 
     Args:
       kinds    — restrict to these kinds (focus/event/decision/idea/loc/gfx/mio/history/...).
+                 None means no filter; an empty list matches no kinds.
       with_ids — diff added/removed IDs per file (slow on big branches; parses both revs).
                  Set False for a fast file-only listing.
-      limit    — cap returned `files`. `total_files` + `counts_by_kind` stay accurate.
+      limit    — cap returned `files`; values below zero are treated as zero.
+                 `total_files` + `counts_by_kind` stay accurate.
     """
     try:
         base = _validate_rev("base", base)
@@ -119,11 +122,16 @@ def diff_summary(
     if isinstance(diff_records, dict) and not diff_records.get("ok", True):
         return diff_records
 
-    kinds_set = set(kinds) if kinds else None
+    # `None` means "no filter" (include all kinds); an empty list means
+    # "match nothing" (drop every file). Both are intentional — leave them
+    # distinguishable.
+    kinds_set = set(kinds) if kinds is not None else None
+    limit = max(0, limit)
     by_kind: Dict[str, List[dict]] = {}
     file_records: List[dict] = []
 
-    assert isinstance(diff_records, list)
+    if not isinstance(diff_records, list):
+        return {"ok": False, "error": "git diff returned invalid output"}
     for rec in diff_records:
         status = rec["status"]
         old_path = rec.get("old_path")
@@ -147,54 +155,43 @@ def diff_summary(
             # reproduce the rename.
             record["path"] = new_path
 
-        if with_ids and kind in ("focus", "event", "decision", "idea"):
+        if with_ids and kind in ("focus", "event", "decision", "idea") and status != "D":
             id_block: Dict[str, Any] = {}
             base_err: Optional[str] = None
             head_err: Optional[str] = None
             head_text: str = ""
             base_text: str = ""
-            try:
-                head_text_r = _read_at(mod_root, "HEAD", new_path)
-            except _GitRevError as exc:
-                return {"ok": False, "error": f"invalid revision: {exc}"}
+
+            head_text_r = _read_at(mod_root, "HEAD", new_path)
             if _is_read_error(head_text_r):
                 head_err = head_text_r.error
             else:
                 head_text = head_text_r
 
-                # Pure additions have no file at base.
-                if status != "A":
-                    # For renames, compare against the OLD path at base.
-                    compare_path = old_path if status == "R" else new_path
-                    base_text_r = _read_at(mod_root, base, compare_path)
-                    if _is_read_error(base_text_r):
-                        err_msg = base_text_r.error_msg
-                        # git's "does not exist in <rev>" / "Not a valid object"
-                        # is the expected signal for a file that wasn't there
-                        # at base (rename source deleted, brand-new file moved
-                        # in later). Treat as empty text, not an error.
-                        if "does not exist" in err_msg or "Not a valid object" in err_msg:
-                            base_text = ""
-                        else:
-                            base_err = base_text_r.error
-                    else:
-                        base_text = base_text_r
-
-                if base_err is None and head_err is None:
-                    try:
-                        added, removed = _diff_ids(base_text, head_text, kind)
-                    except (RuntimeError, ValueError, TypeError, KeyError) as exc:
-                        id_block["error"] = f"parser failure: {exc.__class__.__name__}: {exc}"
-                    else:
-                        if added:
-                            record["added_ids"] = added
-                        if removed:
-                            record["removed_ids"] = removed
+            if head_err is None and status != "A":
+                # For renames/copies, compare against the OLD path at base.
+                compare_path = old_path if status in ("R", "C") else new_path
+                base_text_r = _read_at(mod_root, base, compare_path)
+                if _is_read_error(base_text_r):
+                    base_err = base_text_r.error
                 else:
-                    if base_err:
-                        id_block["base_error"] = base_err
-                    if head_err:
-                        id_block["head_error"] = head_err
+                    base_text = base_text_r
+
+            if base_err is None and head_err is None:
+                try:
+                    added, removed = _diff_ids(base_text, head_text, kind)
+                except (RuntimeError, ValueError, TypeError, KeyError) as exc:
+                    id_block["error"] = f"parser failure: {exc.__class__.__name__}: {exc}"
+                else:
+                    if added:
+                        record["added_ids"] = added
+                    if removed:
+                        record["removed_ids"] = removed
+            else:
+                if base_err:
+                    id_block["base_error"] = base_err
+                if head_err:
+                    id_block["head_error"] = head_err
 
             if id_block:
                 record["id_diff"] = id_block
@@ -268,9 +265,9 @@ def _git_diff_files(mod_root: Path, base: str) -> Any:
             check=False,
             timeout=GIT_TIMEOUT_DIFF,
         )
-    except FileNotFoundError:
-        return {"ok": False, "error": "git not found on PATH"}
-    except subprocess.TimeoutExpired:
+    except (FileNotFoundError, TimeoutExpired) as exc:
+        if isinstance(exc, FileNotFoundError):
+            return {"ok": False, "error": "git not found on PATH"}
         return {
             "ok": False,
             "error": f"git diff timed out after {GIT_TIMEOUT_DIFF:g}s",
@@ -323,19 +320,20 @@ def _parse_name_status_z(raw: str) -> List[Dict[str, str]]:
             i += 1
             records.append({"status": status, "old_path": "", "new_path": new_path})
         else:
-            # Unknown status letter — the chunk itself was the status;
-            # nothing more to consume.
-            continue
+            # All other git statuses use one path. Preserve them rather than
+            # silently dropping a file if git adds a new status letter.
+            new_path = parts[i] if i < len(parts) else ""
+            i += 1
+            records.append({"status": status, "old_path": "", "new_path": new_path})
     return records
 
 
 def _read_at(mod_root: Path, rev: str, path: str) -> Union[str, _GitReadError]:
     """Return the contents of `path` at git revision `rev`.
 
-    Returns the text on success, or a `_GitReadError` on failure. Empty string is
-    reserved for "file doesn't exist at that rev" — that's the only case where
-    a missing file is not an error (it happens when comparing a brand-new file
-    at HEAD against base).
+    Returns the text on success, or a `_GitReadError` on failure. An empty
+    string is valid content for an empty file; missing files are represented by
+    `_GitReadError`, not by an empty string.
 
     The revision and path are validated and passed after `--end-of-options`
     so neither can be reinterpreted as a git option.
@@ -360,9 +358,9 @@ def _read_at(mod_root: Path, rev: str, path: str) -> Union[str, _GitReadError]:
             check=False,
             timeout=GIT_TIMEOUT_SHOW,
         )
-    except FileNotFoundError:
-        return _GitReadError("git not found on PATH")
-    except subprocess.TimeoutExpired:
+    except (FileNotFoundError, TimeoutExpired) as exc:
+        if isinstance(exc, FileNotFoundError):
+            return _GitReadError("git not found on PATH")
         return _GitReadError(f"git show timed out after {GIT_TIMEOUT_SHOW:g}s")
     if proc.returncode != 0:
         msg = (proc.stderr or "").strip() or proc.stdout.strip()

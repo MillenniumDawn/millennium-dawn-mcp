@@ -224,3 +224,54 @@ def test_missing_relative_still_reported_per_referrer(tmp_path):
 
     missing = sorted(e["focus"] for e in out["chain_errors"] if e["error"] == "missing_relative")
     assert missing == ["TST_k1", "TST_k2", "TST_k3"]
+
+
+def test_negative_limit_clamped_to_empty_pages(tmp_path):
+    """Negative limit must clamp to 0 for all three paginated lists (bug #6)."""
+    rel = _write_tree(tmp_path)
+    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=-5)
+    assert out["positions"] == []
+    assert out["positions_total"] == 4
+    assert out["positions_truncated"] is True
+    assert out["collisions"] == []
+    assert out["collisions_total"] == 1
+    assert out["collisions_truncated"] is True
+    assert out["chain_errors"] == []
+    assert out["chain_errors_total"] == 2
+    assert out["chain_errors_truncated"] is True
+
+
+def test_zero_limit_yields_empty_pages(tmp_path):
+    rel = _write_tree(tmp_path)
+    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=0)
+    assert out["positions"] == []
+    assert out["positions_truncated"] is True
+    assert out["collisions"] == []
+    assert out["collisions_truncated"] is True
+    assert out["chain_errors"] == []
+    assert out["chain_errors_truncated"] is True
+
+
+def test_limit_at_total_not_truncated(tmp_path):
+    rel = _write_tree(tmp_path)
+    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=4)
+    assert len(out["positions"]) == 4
+    assert out["positions_truncated"] is False
+    assert out["positions_total"] == 4
+
+
+def test_limit_one_below_total_truncated(tmp_path):
+    rel = _write_tree(tmp_path)
+    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=3)
+    assert len(out["positions"]) == 3
+    assert out["positions_truncated"] is True
+
+
+def test_negative_limit_without_positions_still_clamps(tmp_path):
+    rel = _write_tree(tmp_path)
+    out = focus_layout(tmp_path, None, file=rel, include_positions=False, limit=-1)
+    assert "positions" not in out
+    assert "positions_total" not in out
+    assert "positions_truncated" not in out
+    assert out["collisions"] == []
+    assert out["chain_errors"] == []

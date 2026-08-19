@@ -28,6 +28,30 @@ def test_paginate_clamps_negatives():
     assert sliced == [0, 1]
 
 
+def test_paginate_negative_limit_yields_empty_and_truncated():
+    items = list(range(5))
+    sliced, truncated, total = paginate(items, offset=0, limit=-1)
+    assert sliced == []
+    assert total == 5
+    assert truncated is True
+
+
+def test_paginate_zero_limit_yields_empty_and_truncated():
+    items = list(range(5))
+    sliced, truncated, total = paginate(items, offset=0, limit=0)
+    assert sliced == []
+    assert truncated is True
+    assert total == 5
+
+
+def test_paginate_limit_at_total_not_truncated():
+    items = list(range(5))
+    sliced, truncated, total = paginate(items, offset=0, limit=5)
+    assert sliced == items
+    assert truncated is False
+    assert total == 5
+
+
 def test_enforce_budget_pass_through_when_small():
     result = {"ok": True, "items": list(range(5))}
     out = enforce_budget(result, heavy_keys=("items",))

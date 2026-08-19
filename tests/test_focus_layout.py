@@ -5,6 +5,8 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
+import pytest
+
 from md_mcp.analysis.focus_layout import focus_layout
 from md_mcp.indexes import FocusIndex
 
@@ -226,24 +228,10 @@ def test_missing_relative_still_reported_per_referrer(tmp_path):
     assert missing == ["TST_k1", "TST_k2", "TST_k3"]
 
 
-def test_negative_limit_clamped_to_empty_pages(tmp_path):
-    """Negative limit must clamp to 0 for all three paginated lists (bug #6)."""
+@pytest.mark.parametrize("limit", [-5, 0])
+def test_nonpositive_limit_clamped_to_empty_pages(tmp_path, limit):
     rel = _write_tree(tmp_path)
-    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=-5)
-    assert out["positions"] == []
-    assert out["positions_total"] == 4
-    assert out["positions_truncated"] is True
-    assert out["collisions"] == []
-    assert out["collisions_total"] == 1
-    assert out["collisions_truncated"] is True
-    assert out["chain_errors"] == []
-    assert out["chain_errors_total"] == 2
-    assert out["chain_errors_truncated"] is True
-
-
-def test_zero_limit_yields_empty_pages(tmp_path):
-    rel = _write_tree(tmp_path)
-    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=0)
+    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=limit)
     assert out["positions"] == []
     assert out["positions_total"] == 4
     assert out["positions_truncated"] is True

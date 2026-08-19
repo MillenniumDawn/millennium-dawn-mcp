@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from md_mcp.tools.validation_tools import _filter_and_cap
 from md_mcp.util.response import BUDGET_BYTES, clip_strings, enforce_budget, paginate
 
@@ -28,20 +30,13 @@ def test_paginate_clamps_negatives():
     assert sliced == [0, 1]
 
 
-def test_paginate_negative_limit_yields_empty_and_truncated():
+@pytest.mark.parametrize("limit", [-1, 0])
+def test_paginate_nonpositive_limit_yields_empty_and_truncated(limit):
     items = list(range(5))
-    sliced, truncated, total = paginate(items, offset=0, limit=-1)
+    sliced, truncated, total = paginate(items, offset=0, limit=limit)
     assert sliced == []
     assert total == 5
     assert truncated is True
-
-
-def test_paginate_zero_limit_yields_empty_and_truncated():
-    items = list(range(5))
-    sliced, truncated, total = paginate(items, offset=0, limit=0)
-    assert sliced == []
-    assert truncated is True
-    assert total == 5
 
 
 def test_paginate_limit_at_total_not_truncated():

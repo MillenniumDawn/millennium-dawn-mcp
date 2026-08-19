@@ -28,7 +28,6 @@ coverage. If the vanilla install isn't configured, ids defined in vanilla
 
 from __future__ import annotations
 
-import bisect
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
@@ -43,6 +42,8 @@ from ..indexes import (
 from ..paradox import parse_string
 from ..paradox.nodes import Node, SymbolNode
 from ..util.encoding import read_text
+from ..util.line_numbers import line_starts as _line_starts
+from ..util.line_numbers import pos_to_line
 from ..util.pathing import resolve_scope_file
 from ..util.response import enforce_budget
 
@@ -336,12 +337,4 @@ def _line(node: Node, line_starts: List[int]) -> Optional[int]:
     tok = node.name_token
     if tok is None:
         return None
-    return bisect.bisect_right(line_starts, tok.start)
-
-
-def _line_starts(text: str) -> List[int]:
-    starts = [0]
-    for i, c in enumerate(text):
-        if c == "\n":
-            starts.append(i + 1)
-    return starts
+    return pos_to_line(tok.start, line_starts)

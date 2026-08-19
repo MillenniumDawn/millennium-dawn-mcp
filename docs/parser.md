@@ -58,13 +58,13 @@ NodeValue = Union[
 From `lexer.py`:
 
 | Token type | Pattern (Python-flavoured regex) | Examples |
-|---|---|---|
-| `comment` | `#.*(?:[\r\n]|$)` | `# this is a comment` |
+| --- | --- | --- |
+| `comment` | `#.*(?:[\r\n] | $)` | `# this is a comment` |
 | `operator` | `[={}<>;,]` plus `>=`, `<=`, `!=` | `=`, `{`, `}`, `>=` |
-| `string` | `"(?:\\"|\\\\|[^"])*"` | `"localised key"` |
-| `symbol` | `(?:\d+\.)?[a-zA-Z_@\[\]][\w:\._@\[\]\-\?\^\/ -ɏ|]*` | `ISR_idf`, `[VAR]`, `5.cycle_var` |
-| `unitnumber` | `(?:-?\d*\.\d+|-?\d+)(?:%%?)` | `5%`, `42%%` |
-| `number` | `-?\d*\.\d+|-?\d+|0x\d+` | `42`, `-3.5`, `0xFF` |
+| `string` | `"(?:\\" | \\\\ | [^"])*"` | `"localised key"` |
+| `symbol` | `(?:\d+\.)?[a-zA-Z_@\[\]][\w:\._@\[\]\-\?\^\/ -ɏ | ]*` | `ISR_idf`, `[VAR]`, `5.cycle_var` |
+| `unitnumber` | `(?:-?\d*\.\d+ | -?\d+)(?:%%?)` | `5%`, `42%%` |
+| `number` | `-?\d*\.\d+ | -?\d+ | 0x\d+` | `42`, `-3.5`, `0xFF` |
 | `eof` | `$` | (end of stream) |
 
 The order in `_TOKEN_TYPES` matters: `symbol` must be tried before `number`
@@ -73,8 +73,9 @@ with optional `\d+\.`), not as the number `539` followed by an invalid
 `.productivity_state_var`.
 
 `Token.start` and `Token.end` are **byte offsets** into the source string,
-not line/column. To translate to line numbers, use `_line_starts(text)` +
-`_pos_to_line(pos, line_starts)`. We learned this the hard way — early code
+not line/column. To translate to line numbers, use `line_starts(text)` +
+`pos_to_line(pos, line_starts)` from `src/md_mcp/util/line_numbers.py`.
+We learned this the hard way — early code
 treated `Token.start` as a line number and produced subtly wrong line
 references in `parse_file`'s `top_level_only` mode.
 
@@ -167,12 +168,14 @@ The Python AST exposes it as a method to avoid hidden allocation.
 ### `Token.start` is a byte offset
 
 ```python
+from md_mcp.util.line_numbers import line_starts, pos_to_line
+
 # Wrong — produces nonsense line numbers
 return {"name": child.name, "line": child.name_token.start}
 
 # Correct
-line_starts = _line_starts(text)
-return {"name": child.name, "line": _pos_to_line(child.name_token.start, line_starts)}
+starts = line_starts(text)
+return {"name": child.name, "line": pos_to_line(child.name_token.start, starts)}
 ```
 
 ### Empty blocks parse to `value=[]`

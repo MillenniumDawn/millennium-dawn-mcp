@@ -53,6 +53,9 @@ def focus_layout(
     if not tag and not file:
         return {"ok": False, "error": "Pass tag= or file= (mod-relative focus file path)."}
 
+    if limit < 0:
+        limit = 0
+
     prefix = ""
     if file:
         candidate_files = [file]
@@ -192,9 +195,10 @@ def focus_layout(
             for fid in scope_ids
             if fid in resolved
         ]
-        result["positions_total"] = len(positions)
-        result["positions"] = positions[:limit]
-        result["positions_truncated"] = len(positions) > limit
+        positions_page, positions_truncated, positions_total = paginate(positions, 0, limit)
+        result["positions_total"] = positions_total
+        result["positions"] = positions_page
+        result["positions_truncated"] = positions_truncated
 
     return enforce_budget(
         result,

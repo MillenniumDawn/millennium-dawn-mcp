@@ -371,13 +371,18 @@ blocks are ignored.
 Structured branch diff vs `base` (default `main`).
 
 - **`kinds=[...]`** — restrict to specific content kinds (focus/event/...).
+  `kinds=[]` matches no kinds; omit it for an unfiltered diff.
 - **`with_ids=False`** — skip per-file ID diff (much faster; doesn't re-parse
   both revisions).
 - **`limit=200`** — cap returned `files`. `total_files` + `counts_by_kind` stay
-  accurate regardless.
+  accurate regardless. Values below zero are treated as zero.
 
 Returns `{ok, base, total_files, files_returned, counts_by_kind, truncated, files}`.
-Each file record is `{path, status, kind, added_ids?, removed_ids?}`.
+Each file record is `{path, status, kind, added_ids?, removed_ids?, old_path?, id_diff?}`.
+For renames, `path` is the new path and `old_path` is the base path. If a Git read
+or parser fails, `id_diff` contains `base_error`, `head_error`, or `error`, and no
+ID delta is reported for that file. Deleted files do not perform an ID read.
+Invalid bases and Git failures return `{ok: false, error, error_msg?}`.
 
 ---
 

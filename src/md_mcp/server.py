@@ -125,10 +125,11 @@ def build_server(settings: Settings):
         max_bytes: int = 500_000,
         top_level_only: bool = False,
     ) -> dict:
-        """Parse a .txt file to a JSON AST. Refuses files > max_bytes; top_level_only returns just top-level node names+lines."""
+        """Parse a .txt/.gfx file under mod_root or vanilla_path to a JSON AST. Refuses files > max_bytes; top_level_only returns just top-level node names+lines."""
         return parse_file_tool(
             path,
             settings.mod_root,
+            settings.vanilla_path,
             max_bytes=max_bytes,
             top_level_only=top_level_only,
         )

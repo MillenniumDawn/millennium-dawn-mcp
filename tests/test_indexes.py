@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
-from md_mcp.indexes import FocusIndex, LocalisationIndex
+from md_mcp.indexes import FocusIndex, IdeaIndex, LocalisationIndex
+
+_DUP_IDEA = "ideas = {\n\tcountry = {\n\t\tTST_dup = { picture = generic_idea }\n\t}\n}\n"
 
 
 def test_focus_index_builds_from_fixture(fake_mod_root, cache_dir):
@@ -83,6 +87,37 @@ def test_loc_index_fallback_to_english(fake_mod_root, cache_dir):
     assert r is not None
     assert r["value"] == "The Root Focus"
     assert r["lang"] == "en"
+
+
+def test_generic_index_duplicates_empty_by_default(fake_mod_root, cache_dir):
+    idx = IdeaIndex(fake_mod_root, cache_dir, include_vanilla=False)
+    idx.ensure_fresh()
+    assert idx.duplicates() == {}
+
+
+def test_generic_index_logs_duplicate_key(tmp_path, cache_dir, caplog):
+    root = tmp_path / "DupMod"
+    ideas_dir = root / "common" / "ideas"
+    ideas_dir.mkdir(parents=True)
+    (ideas_dir / "a_ideas.txt").write_text(_DUP_IDEA, encoding="utf-8")
+    (ideas_dir / "b_ideas.txt").write_text(_DUP_IDEA, encoding="utf-8")
+
+    idx = IdeaIndex(root, cache_dir, include_vanilla=False)
+    with caplog.at_level(logging.WARNING):
+        idx.ensure_fresh()
+
+    rec = idx.resolve("TST_dup")
+    assert rec is not None
+    files = {"common/ideas/a_ideas.txt", "common/ideas/b_ideas.txt"}
+    winner = rec["file"]
+    shadowed = next(iter(files - {winner}))
+
+    assert idx.duplicates() == {"TST_dup": [shadowed]}
+
+    dup_warnings = [r for r in caplog.records if "TST_dup" in r.getMessage()]
+    assert len(dup_warnings) == 1
+    assert shadowed in dup_warnings[0].getMessage()
+    assert winner in dup_warnings[0].getMessage()
 
 
 @pytest.mark.integration

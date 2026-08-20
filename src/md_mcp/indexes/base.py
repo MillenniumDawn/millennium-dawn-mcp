@@ -226,7 +226,11 @@ class GenericTxtIndex:
     def duplicates(self) -> Dict[str, List[str]]:
         """Return {key: [shadowed files]} recorded by the last rebuild.
 
-        Empty until a rebuild actually runs — cache-hit loads never populate it.
+        `_rebuild` recomputes this on every call, including a fresh instance's
+        first load from the persistent cache (no reparse needed) — so this
+        reflects the mod's current duplicate state even on a cache hit. It only
+        stays stale (unchanged) when `ensure_fresh` skips `_rebuild` outright,
+        i.e. an already-loaded instance within the staleness-check TTL.
         """
         self.ensure_fresh()
         return self._duplicates

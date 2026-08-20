@@ -192,6 +192,14 @@ def test_limit_uncoercible_returns_error_not_raise(tmp_path):
     out = focus_layout(tmp_path, None, file=rel, limit="not-a-number")
     assert out["ok"] is False
     assert "limit" in out["error"]
+    assert out["error"] == "limit must be an integer, got 'not-a-number'"
+
+
+def test_limit_string_matches_int_output(tmp_path):
+    rel = _write_tree(tmp_path)
+    string_out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit="5")
+    int_out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=5)
+    assert string_out == int_out
 
 
 class _StubIndex:

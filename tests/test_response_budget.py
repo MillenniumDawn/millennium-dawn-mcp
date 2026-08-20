@@ -7,7 +7,7 @@ import json
 import pytest
 
 from md_mcp.tools.validation_tools import _filter_and_cap
-from md_mcp.util.response import BUDGET_BYTES, clip_strings, enforce_budget, paginate
+from md_mcp.util.response import BUDGET_BYTES, clip_strings, coerce_int, enforce_budget, paginate
 
 
 def _byte_size(obj: object) -> int:
@@ -92,6 +92,54 @@ def test_paginate_limit_uncoercible_raises_value_error():
 def test_paginate_limit_infinity_raises_value_error():
     with pytest.raises(ValueError, match="limit"):
         paginate(list(range(5)), offset=0, limit=float("inf"))
+
+
+def test_paginate_limit_nan_raises_value_error():
+    with pytest.raises(ValueError, match="limit"):
+        paginate(list(range(5)), offset=0, limit=float("nan"))
+
+
+def test_paginate_offset_numeric_string():
+    items = list(range(10))
+    sliced, truncated, total = paginate(items, offset="2", limit=3)
+    assert sliced == [2, 3, 4]
+    assert truncated is True
+    assert total == 10
+
+
+def test_paginate_offset_none_uses_default():
+    items = list(range(10))
+    sliced, truncated, total = paginate(items, offset=None, limit=3)
+    assert sliced == [0, 1, 2]
+    assert truncated is True
+    assert total == 10
+
+
+def test_paginate_offset_float_truncates():
+    items = list(range(10))
+    sliced, _, _ = paginate(items, offset=2.9, limit=3)
+    assert sliced == [2, 3, 4]
+
+
+def test_paginate_offset_uncoercible_raises_value_error():
+    with pytest.raises(ValueError, match="offset"):
+        paginate(list(range(5)), offset="not-a-number", limit=3)
+
+
+def test_paginate_offset_negative_numeric_string_clamps_like_int():
+    items = list(range(5))
+    string_result = paginate(items, offset="-3", limit=2)
+    int_result = paginate(items, offset=-3, limit=2)
+    assert string_result == int_result
+
+
+def test_coerce_int_rejects_bool_pass_through_but_still_coerces():
+    # bool is an int subclass; coerce_int explicitly excludes it from the
+    # pass-through branch but still routes it through the float path, so
+    # True/False coerce to plain ints 1/0 rather than being rejected.
+    assert coerce_int(True, name="limit", default=0) == 1
+    assert coerce_int(False, name="limit", default=0) == 0
+    assert type(coerce_int(True, name="limit", default=0)) is int
 
 
 def test_enforce_budget_pass_through_when_small():

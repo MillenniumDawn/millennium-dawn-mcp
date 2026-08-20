@@ -57,15 +57,17 @@ NodeValue = Union[
 
 From `lexer.py`:
 
+<!-- markdownlint-disable MD060 -->
 | Token type | Pattern (Python-flavoured regex) | Examples |
-| --- | --- | --- |
-| `comment` | `#.*(?:[\r\n] | $)` | `# this is a comment` |
+|---|---|---|
+| `comment` | `#.*(?:[\r\n]|$)` | `# this is a comment` |
 | `operator` | `[={}<>;,]` plus `>=`, `<=`, `!=` | `=`, `{`, `}`, `>=` |
-| `string` | `"(?:\\" | \\\\ | [^"])*"` | `"localised key"` |
-| `symbol` | `(?:\d+\.)?[a-zA-Z_@\[\]][\w:\._@\[\]\-\?\^\/ -ɏ | ]*` | `ISR_idf`, `[VAR]`, `5.cycle_var` |
-| `unitnumber` | `(?:-?\d*\.\d+ | -?\d+)(?:%%?)` | `5%`, `42%%` |
-| `number` | `-?\d*\.\d+ | -?\d+ | 0x\d+` | `42`, `-3.5`, `0xFF` |
+| `string` | `"(?:\\"|\\\\|[^"])*"` | `"localised key"` |
+| `symbol` | `(?:\d+\.)?[a-zA-Z_@\[\]][\w:\._@\[\]\-\?\^\/ -ɏ|]*` | `ISR_idf`, `[VAR]`, `5.cycle_var` |
+| `unitnumber` | `(?:-?\d*\.\d+|-?\d+)(?:%%?)` | `5%`, `42%%` |
+| `number` | `-?\d*\.\d+|-?\d+|0x\d+` | `42`, `-3.5`, `0xFF` |
 | `eof` | `$` | (end of stream) |
+<!-- markdownlint-enable MD060 -->
 
 The order in `_TOKEN_TYPES` matters: `symbol` must be tried before `number`
 so that `539.productivity_state_var` parses as one symbol (the regex starts

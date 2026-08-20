@@ -42,8 +42,7 @@ from ..indexes import (
 from ..paradox import parse_string
 from ..paradox.nodes import Node, SymbolNode
 from ..util.encoding import read_text
-from ..util.line_numbers import line_starts as _line_starts
-from ..util.line_numbers import pos_to_line
+from ..util.line_numbers import line_starts, pos_to_line
 from ..util.pathing import resolve_scope_file
 from ..util.response import enforce_budget
 
@@ -131,8 +130,8 @@ def check_refs(
         except Exception as e:
             parse_errors.append({"file": relpath, "error": str(e)[:200]})
             continue
-        line_starts = _line_starts(text)
-        _walk(root, relpath, line_starts, selected_set, refs, focus_defs, referrer=None)
+        starts = line_starts(text)
+        _walk(root, relpath, starts, selected_set, refs, focus_defs, referrer=None)
 
     if "loc" in selected_set:
         for fd in focus_defs:
@@ -230,7 +229,7 @@ def check_refs(
 def _walk(
     node: Node,
     relpath: str,
-    line_starts: List[int],
+    line_starts: list[int],
     kinds: Set[str],
     refs: List[dict],
     focus_defs: List[dict],
@@ -297,7 +296,7 @@ def _ref(
     via: str,
     relpath: str,
     node: Node,
-    line_starts: List[int],
+    line_starts: list[int],
     referrer: Optional[str],
 ) -> dict:
     return {
@@ -333,7 +332,7 @@ def _symbol_or_str(node: Optional[Node]) -> Optional[str]:
     return None
 
 
-def _line(node: Node, line_starts: List[int]) -> Optional[int]:
+def _line(node: Node, line_starts: list[int]) -> Optional[int]:
     tok = node.name_token
     if tok is None:
         return None

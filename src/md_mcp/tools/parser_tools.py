@@ -16,8 +16,7 @@ from pathlib import Path
 from ..paradox import parse_string as _parse_string_impl
 from ..paradox.schema import to_json_with_lines
 from ..util.encoding import read_text
-from ..util.line_numbers import line_starts as _line_starts
-from ..util.line_numbers import pos_to_line as _pos_to_line
+from ..util.line_numbers import line_starts, pos_to_line
 from ..util.response import enforce_budget
 
 _DEFAULT_MAX_BYTES = 500_000
@@ -64,14 +63,14 @@ def parse_file_tool(
 
     if top_level_only:
         # Best-effort skim: top-level nodes' names + lines. Avoids serialising children.
-        line_starts = _line_starts(text)
+        starts = line_starts(text)
         top: list[dict] = []
         for child in root.children():
             start = child.name_token.start if child.name_token else 0
             top.append(
                 {
                     "name": child.name,
-                    "line": _pos_to_line(start, line_starts),
+                    "line": pos_to_line(start, starts),
                 }
             )
         return enforce_budget(

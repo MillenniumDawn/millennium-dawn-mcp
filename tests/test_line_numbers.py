@@ -42,7 +42,7 @@ def test_line_starts_trailing_newlines():
     assert line_starts("\n\n") == [0, 1, 2]
 
 
-def test_line_starts_only_newlines():
+def test_line_starts_trailing_newline_with_content():
     assert line_starts("a\nb\n") == [0, 2, 4]
 
 
@@ -96,8 +96,7 @@ def test_round_trip_starts_give_their_line():
     text = "x\ny\nz\n"
     starts = line_starts(text)
     for idx, off in enumerate(starts):
-        if off < len(text) or text.endswith("\n"):
-            assert pos_to_line(off, starts) == idx + 1
+        assert pos_to_line(off, starts) == idx + 1
 
 
 # ---------------------------------------------------------------------------

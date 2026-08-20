@@ -234,7 +234,9 @@ def _extract_focus_block(text: str, focus_id: str) -> str:
         # Have the matching focus block — slice text from `cand.name_token.start`
         # back to the start of the line, forward to the matching `}`.
         if cand.name_token is None or cand.value_end_token is None:
-            return ""  # malformed; bail
+            raise KeyError(
+                f"Focus '{focus_id}' has no position information (malformed parse)"
+            )
         start = _line_start(text, cand.name_token.start)
         end = cand.value_end_token.end
         return text[start:end]

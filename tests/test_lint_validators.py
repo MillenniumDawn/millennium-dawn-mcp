@@ -588,14 +588,65 @@ def test_lint_validators_explicit_union_with_auto(tmp_path):
     assert out["validators_run"] == ["history", "style", "variables"]
 
 
-def test_lint_validators_unknown_rejected(tmp_path):
+def test_lint_validators_unknown_isolated(tmp_path):
     _init_repo(tmp_path)
     runner = FakeRunner(names=["focus_tree"])
     out = lint_tool(tmp_path, validators=["nonsense"], validator_runner=runner)
     assert out["ok"] is False
-    assert "nonsense" in out["error"]
-    assert "focus_tree" in out["error"]
+    assert out["failed_checks"] == ["validator:nonsense"]
+    assert out["validators_run"] == []
     assert runner.calls == []
+    entry = next(c for c in out["checks"] if c["name"] == "validator:nonsense")
+    assert entry["ok"] is False
+    assert "nonsense" in entry["error"]
+    assert "focus_tree" in entry["error"]
+
+
+def test_lint_validators_unknown_among_valid_still_runs_valid(tmp_path):
+    _init_repo(tmp_path)
+    _seed_all_scripts(tmp_path, {})
+    (tmp_path / "descriptor.mod").write_text('name = "x"\n')
+    runner = FakeRunner(
+        names=["focus_tree"],
+        results={"focus_tree": {"ok": True, "issues": [_issue("common/x.txt")]}},
+    )
+    out = lint_tool(
+        tmp_path, mode="all", validators=["focus_tree", "nonsense"], validator_runner=runner
+    )
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["validator:nonsense"]
+    assert out["validators_run"] == ["focus_tree"]
+    assert runner.calls == [{"name": "focus_tree", "staged_only": False}]
+    unknown_entry = next(c for c in out["checks"] if c["name"] == "validator:nonsense")
+    assert unknown_entry["ok"] is False
+    assert "nonsense" in unknown_entry["error"]
+    focus_entry = next(c for c in out["checks"] if c["name"] == "validator:focus_tree")
+    assert focus_entry["ok"] is True
+    assert focus_entry["total"] == 1
+    assert any(i["check"] == "validator:focus_tree" for i in out["issues"])
+
+
+def test_lint_validators_unknown_with_auto_still_runs_auto_selected(tmp_path):
+    _init_repo(tmp_path)
+    _seed_all_scripts(tmp_path, {})
+    changed = tmp_path / "history" / "countries" / "USA.txt"
+    changed.parent.mkdir(parents=True)
+    changed.write_text("x = 1\n")
+
+    runner = FakeRunner(names=["history", "style"])
+    out = lint_tool(
+        tmp_path, mode="changed", validators=["auto", "nonsense"], validator_runner=runner
+    )
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["validator:nonsense"]
+    assert out["validators_run"] == ["history", "style"]
+    assert runner.calls == [
+        {"name": "history", "staged_only": False},
+        {"name": "style", "staged_only": False},
+    ]
+    entry = next(c for c in out["checks"] if c["name"] == "validator:nonsense")
+    assert entry["ok"] is False
+    assert "nonsense" in entry["error"]
 
 
 def test_lint_validators_star_excludes_slow(tmp_path):

@@ -17,6 +17,7 @@ mtime alone would miss.
 from __future__ import annotations
 
 import json
+import logging
 import multiprocessing
 import os
 import sys
@@ -25,6 +26,8 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -199,6 +202,7 @@ class GenericTxtIndex:
 
         self._by_file: Dict[str, List[dict]] = {}
         self._by_key: Dict[str, dict] = {}
+        self._duplicates: Dict[str, List[str]] = {}
         self._loaded = False
 
     # ---------- public API ----------
@@ -218,6 +222,18 @@ class GenericTxtIndex:
     def records_for_file(self, relpath: str) -> List[dict]:
         self.ensure_fresh()
         return self._by_file.get(relpath, [])
+
+    def duplicates(self) -> Dict[str, List[str]]:
+        """Return {key: [shadowed files]} recorded by the last rebuild.
+
+        `_rebuild` recomputes this on every call, including a fresh instance's
+        first load from the persistent cache (no reparse needed) — so this
+        reflects the mod's current duplicate state even on a cache hit. It only
+        stays stale (unchanged) when `ensure_fresh` skips `_rebuild` outright,
+        i.e. an already-loaded instance within the staleness-check TTL.
+        """
+        self.ensure_fresh()
+        return self._duplicates
 
     def ensure_fresh(self) -> None:
         if self._loaded and not self._stale_check.should_check():
@@ -285,16 +301,33 @@ class GenericTxtIndex:
                 if recs is not None:
                     new_by_file[relpath] = recs
 
+        # Last-write-wins: iteration order over new_by_file (dict insertion order,
+        # i.e. unchanged files then newly parsed ones) decides which record survives
+        # a duplicated key. A later record silently shadows an earlier one.
         new_by_key: Dict[str, dict] = {}
+        new_duplicates: Dict[str, List[str]] = {}
         for relpath, recs in new_by_file.items():
             for rec in recs:
                 k = rec.get(self.primary_key)
                 if k is None:
                     continue
+                existing = new_by_key.get(k)
+                if existing is not None:
+                    shadowed_file = existing["file"]
+                    if k not in new_duplicates:
+                        logger.warning(
+                            "Duplicate key %r in %s: %s shadowed by %s",
+                            k,
+                            self.cache_name,
+                            shadowed_file,
+                            relpath,
+                        )
+                    new_duplicates.setdefault(k, []).append(shadowed_file)
                 new_by_key[k] = {**rec, "file": relpath}
 
         self._by_file = new_by_file
         self._by_key = new_by_key
+        self._duplicates = new_duplicates
 
         if to_parse or staleness.removed or not manifest:
             self._cache.save_data({"files": new_by_file})

@@ -18,6 +18,10 @@ from ..util.line_numbers import line_starts, pos_to_line
 from .nodes import Node, SymbolNode
 
 
+def _starts(source: str | None) -> list[int] | None:
+    return line_starts(source) if source else None
+
+
 def to_json(node: Node) -> dict:
     """Convert a Node to a JSON-friendly dict.
 
@@ -134,7 +138,7 @@ def extract_focus_records(root: Node, source: str | None = None) -> List[dict]:
     (`focus_tree` | `shared_focus` | `joint_focus`), `x`, `y`, `cost`, `icon`,
     `prerequisites: list[list[str]]`, `mutually_exclusive: list[str]`.
     """
-    starts = line_starts(source) if source else None
+    starts = _starts(source)
     records: List[dict] = []
 
     for top in root.children():
@@ -242,7 +246,7 @@ def extract_event_records(root: Node, source: str | None = None) -> List[dict]:
     `file_namespaces` is the list of `add_namespace = X` declarations from the same file —
     helpful for cross-checking the validator's "namespace mismatch" rule.
     """
-    starts = line_starts(source) if source else None
+    starts = _starts(source)
     file_namespaces: List[str] = []
     records: List[dict] = []
 
@@ -313,7 +317,7 @@ def extract_decision_records(root: Node, source: str | None = None) -> List[dict
             # plus optional category-level keywords (icon, picture, priority, ...)
         }
     """
-    starts = line_starts(source) if source else None
+    starts = _starts(source)
     records: List[dict] = []
 
     for top in root.children():
@@ -359,7 +363,7 @@ def extract_idea_records(root: Node, source: str | None = None) -> List[dict]:
     category-level config (`law = yes`, `use_list_view = yes`) and slot-only nodes.
     A leaf is recognised as an idea when its value is a block (has children).
     """
-    starts = line_starts(source) if source else None
+    starts = _starts(source)
     records: List[dict] = []
 
     ideas_root = next((c for c in root.children() if c.name == "ideas"), None)
@@ -478,7 +482,7 @@ def extract_sprite_records(root: Node, source: str | None = None) -> List[dict]:
     `spriteType = { name = "GFX_x" texturefile = "..." }` style entries (plus the
     other sprite-kind variants enumerated above).
     """
-    starts = line_starts(source) if source else None
+    starts = _starts(source)
     records: List[dict] = []
     for top in root.children():
         if top.name and top.name.lower().startswith("spritetypes"):

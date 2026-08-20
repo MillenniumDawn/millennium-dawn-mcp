@@ -1,8 +1,6 @@
 """Byte offset → line number translation.
 
-Canonical implementation for ``Token.start`` (byte offset) to 1-based line
-number. Extracted from three copies in ``tools/parser_tools.py``,
-``paradox/schema.py``, and ``analysis/ref_audit.py`` (issue #5).
+Canonical ``Token.start`` → 1-based line via ``line_starts`` + ``pos_to_line``.
 """
 
 from __future__ import annotations

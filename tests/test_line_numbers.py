@@ -1,9 +1,6 @@
-"""Direct contract tests for util/line_numbers — the canonical offset→line translation.
+"""Contract tests for util/line_numbers — offset→line translation.
 
-These guard the deduplication in issue #5. Every other site (parser_tools,
-paradox/schema, analysis/ref_audit) now delegates here, so an off-by-one here
-breaks every line number the agent sees. Prior coverage was indirect and weak
-(``line is not None and > 0``). These tests pin exact values and boundaries.
+Every site delegates here, so an off-by-one breaks all line numbers.
 """
 
 from __future__ import annotations

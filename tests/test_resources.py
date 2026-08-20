@@ -7,9 +7,11 @@ from typing import cast
 
 import pytest
 
+from md_mcp import resources
 from md_mcp.config import Settings
 from md_mcp.indexes import DecisionIndex, IdeaIndex
-from md_mcp.resources import decision_resource, idea_resource
+from md_mcp.paradox.parser import parse_string
+from md_mcp.resources import _extract_focus_block, decision_resource, idea_resource
 
 
 def _settings(mod_root: Path, cache_dir: Path) -> Settings:
@@ -95,7 +97,7 @@ DECISIONS_WITH_DUPES = """TST_category = {
 """
 
 DECISIONS_WITH_COMMENT = (
-    "TST_category = {\n" "\tTST_commented = {\n" "\t\tcost = 30 # important note\n" "\t}\n" "}\n"
+    "TST_category = {\n\tTST_commented = {\n\t\tcost = 30 # important note\n\t}\n}\n"
 )
 
 
@@ -180,3 +182,73 @@ def test_decision_resource_exact_source_preserved_with_comment(tmp_path):
 
     expected = "\tTST_commented = {\n\t\tcost = 30 # important note\n\t}"
     assert result == expected
+
+
+# --- Focus blocks: malformed parses raise rather than stream empty text (#53) ---
+
+FOCUS_TREE = """focus_tree = {
+\tid = test_tree
+\tfocus = {
+\t\tid = TST_industry
+\t\tx = 1 # keep this comment
+\t\ty = 2
+\t}
+}
+"""
+
+
+def _focus_root_missing(text: str, field: str):
+    """A real parse of `text` with one position token removed from the focus node.
+
+    The parser rejects an unbalanced block outright (LexError -> ParseError), so
+    a node reaching the slicer without position information is not something a
+    source file can produce today. Building the state directly is the only way
+    to cover the branch, and covering it is the point: it is the branch that
+    used to return "".
+    """
+    root = parse_string(text)
+    for top in root.children():
+        if top.name == "focus_tree":
+            for sub in top.children():
+                if sub.name == "focus":
+                    setattr(sub, field, None)
+    return root
+
+
+def test_focus_block_is_extracted_with_comments_intact():
+    """Control. Without this, a slicer that raised unconditionally would pass
+    both tests below."""
+    result = _extract_focus_block(FOCUS_TREE, "TST_industry")
+
+    assert (
+        result
+        == "\tfocus = {\n\t\tid = TST_industry\n\t\tx = 1 # keep this comment\n\t\ty = 2\n\t}"
+    )
+
+
+@pytest.mark.parametrize("field", ["name_token", "value_end_token"])
+def test_malformed_focus_block_raises_naming_the_focus(monkeypatch, field):
+    """Previously `return ""`. An md://focus/{id} read that streams an empty
+    string is indistinguishable from a focus whose body really is empty, so the
+    agent cannot tell a broken parse from a boring answer."""
+    root = _focus_root_missing(FOCUS_TREE, field)
+    monkeypatch.setattr(resources, "parse_string", lambda _text: root)
+
+    with pytest.raises(KeyError, match="TST_industry"):
+        _extract_focus_block(FOCUS_TREE, "TST_industry")
+
+
+def test_malformed_focus_block_says_why_it_failed(monkeypatch):
+    """The id alone does not distinguish this from 'not located in file', which
+    is the other KeyError this function raises."""
+    root = _focus_root_missing(FOCUS_TREE, "value_end_token")
+    monkeypatch.setattr(resources, "parse_string", lambda _text: root)
+
+    with pytest.raises(KeyError, match="malformed parse"):
+        _extract_focus_block(FOCUS_TREE, "TST_industry")
+
+
+def test_missing_focus_still_raises_the_not_located_error():
+    """The pre-existing failure mode is unchanged, and is a different message."""
+    with pytest.raises(KeyError, match="not located in file"):
+        _extract_focus_block(FOCUS_TREE, "TST_nonexistent")

@@ -231,13 +231,18 @@ def _extract_focus_block(text: str, focus_id: str) -> str:
         if not matches:
             continue
 
-        # Have the matching focus block — slice text from `cand.name_token.start`
-        # back to the start of the line, forward to the matching `}`.
+        # Have the matching focus block. Raise rather than return "" when the
+        # parse carries no position information: an md://focus/{id} read that
+        # streams an empty string is indistinguishable to the agent from a
+        # focus whose body really is empty, and every other resource in this
+        # module signals a failure to locate by raising. Same treatment
+        # _slice_node got in #31.
         if cand.name_token is None or cand.value_end_token is None:
-            return ""  # malformed; bail
-        start = _line_start(text, cand.name_token.start)
-        end = cand.value_end_token.end
-        return text[start:end]
+            raise KeyError(
+                f"Focus '{focus_id}' matched but its block has no position "
+                "information (malformed parse); cannot slice the source text"
+            )
+        return _slice_node(text, cand)
 
     raise KeyError(f"Focus '{focus_id}' resolved by index but not located in file")
 

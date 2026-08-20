@@ -42,33 +42,85 @@ def enforce_budget(
     budget: int = BUDGET_BYTES,
     heavy_keys: Sequence[str] = (),
 ) -> dict:
-    """If `result` JSON-encodes larger than `budget`, drop heavy list keys.
+    """If `result` JSON-encodes larger than `budget` bytes, drop heavy list keys.
 
     Drops in `heavy_keys` order until the result fits or we run out of keys.
     Replaces each dropped key with `<key>_dropped: <original_count>` and sets
     `size_truncated=True` on the result. This is a safety net — tools should
     still apply their own paginate/detail defaults so they never reach here.
+
+    Guarantees: the returned dict always JSON-encodes to `<= budget` UTF-8
+    bytes and is always JSON-serializable, even if `result` itself isn't or
+    if dropping every heavy key still leaves it over budget.
     """
-    if _jsize(result) <= budget:
-        return result
+    try:
+        if _jsize(result) <= budget:
+            return result
+    except (TypeError, ValueError) as exc:
+        return _unserializable_result(exc, budget)
+
     for k in heavy_keys:
-        if k in result:
-            v = result[k]
-            count = len(v) if hasattr(v, "__len__") else None
-            del result[k]
-            result[f"{k}_dropped"] = count
-            result["size_truncated"] = True
+        if k not in result:
+            continue
+        v = result[k]
+        count = len(v) if hasattr(v, "__len__") else None
+        del result[k]
+        result[f"{k}_dropped"] = count
+        result["size_truncated"] = True
+        try:
             if _jsize(result) <= budget:
                 return result
+        except (TypeError, ValueError) as exc:
+            return _unserializable_result(exc, budget)
+
     result["size_truncated"] = True
-    return result
+    try:
+        if _jsize(result) <= budget:
+            return result
+    except (TypeError, ValueError) as exc:
+        return _unserializable_result(exc, budget)
+    return _bounded_fallback(result, budget)
 
 
 def _jsize(obj: Any) -> int:
-    try:
-        return len(json.dumps(obj, ensure_ascii=False, default=str))
-    except (TypeError, ValueError):
-        return 0
+    """UTF-8 byte length of `obj`'s JSON encoding. Raises on unserializable input."""
+    return len(json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8"))
+
+
+def _unserializable_result(exc: Exception, budget: int) -> dict:
+    return {
+        "ok": False,
+        "error": f"response is not JSON-serializable: {exc}"[:200],
+        "size_truncated": True,
+        "budget": budget,
+    }
+
+
+def _bounded_fallback(result: dict, budget: int) -> dict:
+    """Last-resort response when `result` is serializable but still over budget
+    after dropping every heavy key. Keeps only counts, never content."""
+    dropped_keys = sorted(k[: -len("_dropped")] for k in result if k.endswith("_dropped"))
+    remaining_key_sizes = {
+        k: (len(v) if hasattr(v, "__len__") else None)
+        for k, v in result.items()
+        if k != "size_truncated" and not k.endswith("_dropped")
+    }
+    fallback = {
+        "ok": False,
+        "error": "response exceeded byte budget even after dropping heavy keys",
+        "size_truncated": True,
+        "budget": budget,
+        "dropped_keys": dropped_keys,
+        "remaining_key_sizes": remaining_key_sizes,
+    }
+    if _jsize(fallback) <= budget:
+        return fallback
+    return {
+        "ok": False,
+        "error": "response exceeded byte budget even after dropping heavy keys",
+        "size_truncated": True,
+        "budget": budget,
+    }
 
 
 def clip_strings(items: Iterable[dict], key: str, max_chars: int) -> List[dict]:

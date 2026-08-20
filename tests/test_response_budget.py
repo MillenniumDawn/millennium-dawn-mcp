@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from md_mcp.tools.validation_tools import _filter_and_cap
 from md_mcp.util.response import BUDGET_BYTES, clip_strings, enforce_budget, paginate
+
+
+def _byte_size(obj: object) -> int:
+    return len(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
 
 
 def test_paginate_basic():
@@ -73,6 +79,44 @@ def test_enforce_budget_drops_heavy_keys_when_over():
 
 def test_enforce_budget_default_constant_is_sane():
     assert BUDGET_BYTES >= 50_000
+
+
+def test_enforce_budget_measures_utf8_bytes_not_chars():
+    # 400 chars of 3-byte-UTF8 content: ~425 chars (under budget by the old
+    # char-counting bug) but ~1225 UTF-8 bytes (over budget for real).
+    multibyte = "€" * 400
+    result = {"ok": True, "items": [multibyte]}
+    out = enforce_budget(result, budget=1000, heavy_keys=("items",))
+    assert out.get("size_truncated") is True
+    assert "items" not in out
+    assert out.get("items_dropped") == 1
+    assert _byte_size(out) <= 1000
+
+
+def test_enforce_budget_circular_reference_returns_bounded_error():
+    circular: dict = {"ok": True}
+    circular["self"] = circular
+    out = enforce_budget(circular, budget=1000)
+    assert out.get("ok") is False
+    assert out.get("size_truncated") is True
+    assert "error" in out
+    assert _byte_size(out) <= 1000
+
+
+def test_enforce_budget_oversized_without_heavy_keys_falls_back():
+    result = {"ok": True, "notes": "x" * 5000}
+    out = enforce_budget(result, budget=1000)
+    assert out.get("size_truncated") is True
+    assert out.get("ok") is False
+    assert _byte_size(out) <= 1000
+
+
+def test_enforce_budget_heavy_keys_insufficient_falls_back():
+    result = {"ok": True, "items": ["x" * 100], "notes": "y" * 5000}
+    out = enforce_budget(result, budget=1000, heavy_keys=("items",))
+    assert out.get("size_truncated") is True
+    assert out.get("ok") is False
+    assert _byte_size(out) <= 1000
 
 
 def test_clip_strings():

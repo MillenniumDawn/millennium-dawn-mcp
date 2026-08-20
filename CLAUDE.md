@@ -172,8 +172,8 @@ Earlier code wrote `for c in node.children:` and crashed with
 `'method' object is not iterable`. Always call it: `node.children()`.
 
 Similarly, `Token.start` is a **byte offset**, not a line number. To translate,
-use `_line_starts(text)` + `_pos_to_line(pos, line_starts)` from
-[`tools/parser_tools.py`](./src/md_mcp/tools/parser_tools.py).
+use `line_starts(text)` + `pos_to_line(pos, line_starts)` from
+[`util/line_numbers.py`](./src/md_mcp/util/line_numbers.py).
 
 ---
 
@@ -246,7 +246,7 @@ The ISR focus_graph probe in the git history is a useful template.
 ## Configuration knobs (env vars)
 
 | Env var | Effect |
-|---|---|
+| --- | --- |
 | `MD_MOD_ROOT` | Path to the `Millennium-Dawn/` checkout. Required when not auto-discovered. |
 | `HOI4_PATH` | Path to vanilla `Hearts of Iron IV/`. Optional; doubles cold-build time. |
 | `MD_MCP_CACHE_DIR` | Override `.md-mcp-cache/` location (use for read-only checkouts). |

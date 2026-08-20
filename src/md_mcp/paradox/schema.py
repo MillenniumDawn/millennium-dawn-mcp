@@ -14,7 +14,12 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
+from ..util.line_numbers import line_starts, pos_to_line
 from .nodes import Node, SymbolNode
+
+
+def _starts(source: str | None) -> list[int] | None:
+    return line_starts(source) if source else None
 
 
 def to_json(node: Node) -> dict:
@@ -67,45 +72,28 @@ def to_json_with_lines(node: Node, source: str) -> dict:
 
     Used by parse_file/parse_string MCP tools so the agent can navigate directly.
     """
-    line_ends = _compute_line_ends(source)
-    return _to_json_with_lines(node, line_ends)
+    starts = line_starts(source)
+    return _to_json_with_lines(node, starts)
 
 
-def _to_json_with_lines(node: Node, line_ends: List[int]) -> dict:
+def _to_json_with_lines(node: Node, starts: list[int]) -> dict:
     return {
         "name": node.name,
         "operator": node.operator,
-        "value": _value_to_json_with_lines(node.value, line_ends),
+        "value": _value_to_json_with_lines(node.value, starts),
         "value_attachment": node.value_attachment.name if node.value_attachment else None,
-        "line": _pos_to_line(node.name_token.start, line_ends) if node.name_token else None,
+        "line": pos_to_line(node.name_token.start, starts) if node.name_token else None,
     }
 
 
-def _value_to_json_with_lines(value: Any, line_ends: List[int]) -> Any:
+def _value_to_json_with_lines(value: Any, starts: list[int]) -> Any:
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, SymbolNode):
         return {"kind": "symbol", "name": value.name}
     if isinstance(value, list):
-        return {"kind": "block", "children": [_to_json_with_lines(c, line_ends) for c in value]}
+        return {"kind": "block", "children": [_to_json_with_lines(c, starts) for c in value]}
     raise TypeError(f"Unrepresentable value of type {type(value).__name__}")
-
-
-def _compute_line_ends(source: str) -> List[int]:
-    ends: List[int] = []
-    running = 0
-    for line in source.split("\n"):
-        running += len(line) + 1
-        ends.append(running)
-    return ends
-
-
-def _pos_to_line(pos: int, line_ends: List[int]) -> int:
-    # Binary search would be O(log n) but linear is fine for typical file sizes.
-    for i, end in enumerate(line_ends):
-        if end > pos:
-            return i + 1
-    return len(line_ends)
 
 
 # ---------------------------------------------------------------------------
@@ -150,29 +138,29 @@ def extract_focus_records(root: Node, source: str | None = None) -> List[dict]:
     (`focus_tree` | `shared_focus` | `joint_focus`), `x`, `y`, `cost`, `icon`,
     `prerequisites: list[list[str]]`, `mutually_exclusive: list[str]`.
     """
-    line_ends = _compute_line_ends(source) if source else None
+    starts = _starts(source)
     records: List[dict] = []
 
     for top in root.children():
         if top.name == "focus_tree":
             for sub in top.children():
                 if sub.name == "focus":
-                    rec = _focus_record(sub, "focus_tree", line_ends)
+                    rec = _focus_record(sub, "focus_tree", starts)
                     if rec:
                         records.append(rec)
         elif top.name == "shared_focus":
-            rec = _focus_record(top, "shared_focus", line_ends)
+            rec = _focus_record(top, "shared_focus", starts)
             if rec:
                 records.append(rec)
         elif top.name == "joint_focus":
-            rec = _focus_record(top, "joint_focus", line_ends)
+            rec = _focus_record(top, "joint_focus", starts)
             if rec:
                 records.append(rec)
 
     return records
 
 
-def _focus_record(node: Node, kind: str, line_ends: List[int] | None) -> dict | None:
+def _focus_record(node: Node, kind: str, starts: list[int] | None) -> dict | None:
     fid = _get_id(node)
     if not fid:
         return None
@@ -197,8 +185,8 @@ def _focus_record(node: Node, kind: str, line_ends: List[int] | None) -> dict | 
         "id": fid,
         "kind": kind,
         "line": (
-            _pos_to_line(node.name_token.start, line_ends)
-            if line_ends is not None and node.name_token
+            pos_to_line(node.name_token.start, starts)
+            if starts is not None and node.name_token
             else None
         ),
         "x": _scalar(node.get("x")),
@@ -258,7 +246,7 @@ def extract_event_records(root: Node, source: str | None = None) -> List[dict]:
     `file_namespaces` is the list of `add_namespace = X` declarations from the same file —
     helpful for cross-checking the validator's "namespace mismatch" rule.
     """
-    line_ends = _compute_line_ends(source) if source else None
+    starts = _starts(source)
     file_namespaces: List[str] = []
     records: List[dict] = []
 
@@ -282,8 +270,8 @@ def extract_event_records(root: Node, source: str | None = None) -> List[dict]:
                     "kind": top.name,
                     "namespace": ns,
                     "line": (
-                        _pos_to_line(top.name_token.start, line_ends)
-                        if line_ends is not None and top.name_token
+                        pos_to_line(top.name_token.start, starts)
+                        if starts is not None and top.name_token
                         else None
                     ),
                 }
@@ -329,7 +317,7 @@ def extract_decision_records(root: Node, source: str | None = None) -> List[dict
             # plus optional category-level keywords (icon, picture, priority, ...)
         }
     """
-    line_ends = _compute_line_ends(source) if source else None
+    starts = _starts(source)
     records: List[dict] = []
 
     for top in root.children():
@@ -347,8 +335,8 @@ def extract_decision_records(root: Node, source: str | None = None) -> List[dict
                     "id": child.name,
                     "category": category,
                     "line": (
-                        _pos_to_line(child.name_token.start, line_ends)
-                        if line_ends is not None and child.name_token
+                        pos_to_line(child.name_token.start, starts)
+                        if starts is not None and child.name_token
                         else None
                     ),
                 }
@@ -375,7 +363,7 @@ def extract_idea_records(root: Node, source: str | None = None) -> List[dict]:
     category-level config (`law = yes`, `use_list_view = yes`) and slot-only nodes.
     A leaf is recognised as an idea when its value is a block (has children).
     """
-    line_ends = _compute_line_ends(source) if source else None
+    starts = _starts(source)
     records: List[dict] = []
 
     ideas_root = next((c for c in root.children() if c.name == "ideas"), None)
@@ -386,7 +374,7 @@ def extract_idea_records(root: Node, source: str | None = None) -> List[dict]:
         if category.name is None or not isinstance(category.value, list):
             continue
         cat_name = category.name
-        _walk_idea_category(category, cat_name, records, line_ends)
+        _walk_idea_category(category, cat_name, records, starts)
 
     return records
 
@@ -395,7 +383,7 @@ def _walk_idea_category(
     category: Node,
     cat_name: str,
     out: List[dict],
-    line_ends: List[int] | None,
+    starts: list[int] | None,
 ) -> None:
     for child in category.children():
         if child.name in _IDEA_SLOT_KEYWORDS:
@@ -417,8 +405,8 @@ def _walk_idea_category(
                         "category": cat_name,
                         "slot": child.name,
                         "line": (
-                            _pos_to_line(grandchild.name_token.start, line_ends)
-                            if line_ends is not None and grandchild.name_token
+                            pos_to_line(grandchild.name_token.start, starts)
+                            if starts is not None and grandchild.name_token
                             else None
                         ),
                     }
@@ -431,8 +419,8 @@ def _walk_idea_category(
                 "category": cat_name,
                 "slot": None,
                 "line": (
-                    _pos_to_line(child.name_token.start, line_ends)
-                    if line_ends is not None and child.name_token
+                    pos_to_line(child.name_token.start, starts)
+                    if starts is not None and child.name_token
                     else None
                 ),
             }
@@ -494,19 +482,19 @@ def extract_sprite_records(root: Node, source: str | None = None) -> List[dict]:
     `spriteType = { name = "GFX_x" texturefile = "..." }` style entries (plus the
     other sprite-kind variants enumerated above).
     """
-    line_ends = _compute_line_ends(source) if source else None
+    starts = _starts(source)
     records: List[dict] = []
     for top in root.children():
         if top.name and top.name.lower().startswith("spritetypes"):
             for sprite in top.children():
                 if sprite.name and sprite.name in _SPRITE_KINDS:
-                    rec = _sprite_record(sprite, top.name, line_ends)
+                    rec = _sprite_record(sprite, top.name, starts)
                     if rec:
                         records.append(rec)
     return records
 
 
-def _sprite_record(node: Node, parent: str, line_ends: List[int] | None) -> dict | None:
+def _sprite_record(node: Node, parent: str, starts: list[int] | None) -> dict | None:
     name_node = node.get("name")
     if name_node is None:
         return None
@@ -525,8 +513,8 @@ def _sprite_record(node: Node, parent: str, line_ends: List[int] | None) -> dict
         "texturefile": texture_val,
         "parent": parent,
         "line": (
-            _pos_to_line(node.name_token.start, line_ends)
-            if line_ends is not None and node.name_token
+            pos_to_line(node.name_token.start, starts)
+            if starts is not None and node.name_token
             else None
         ),
     }

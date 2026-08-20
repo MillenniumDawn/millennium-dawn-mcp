@@ -28,7 +28,6 @@ coverage. If the vanilla install isn't configured, ids defined in vanilla
 
 from __future__ import annotations
 
-import bisect
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
@@ -43,6 +42,7 @@ from ..indexes import (
 from ..paradox import parse_string
 from ..paradox.nodes import Node, SymbolNode
 from ..util.encoding import read_text
+from ..util.line_numbers import line_starts, pos_to_line
 from ..util.pathing import resolve_scope_file
 from ..util.response import enforce_budget
 
@@ -130,8 +130,8 @@ def check_refs(
         except Exception as e:
             parse_errors.append({"file": relpath, "error": str(e)[:200]})
             continue
-        line_starts = _line_starts(text)
-        _walk(root, relpath, line_starts, selected_set, refs, focus_defs, referrer=None)
+        starts = line_starts(text)
+        _walk(root, relpath, starts, selected_set, refs, focus_defs, referrer=None)
 
     if "loc" in selected_set:
         for fd in focus_defs:
@@ -229,7 +229,7 @@ def check_refs(
 def _walk(
     node: Node,
     relpath: str,
-    line_starts: List[int],
+    starts: list[int],
     kinds: Set[str],
     refs: List[dict],
     focus_defs: List[dict],
@@ -243,31 +243,31 @@ def _walk(
             fid = _symbol_or_str(_child_get(child, "id"))
             if fid:
                 ctx = fid
-                focus_defs.append({"id": fid, "file": relpath, "line": _line(child, line_starts)})
+                focus_defs.append({"id": fid, "file": relpath, "line": _line(child, starts)})
 
         if "focus" in kinds and name in ("prerequisite", "mutually_exclusive"):
             for m in child.children():
                 if m.name == "focus":
                     ref = _symbol_or_str(m)
                     if ref:
-                        refs.append(_ref("focus", ref, name, relpath, m, line_starts, ctx))
+                        refs.append(_ref("focus", ref, name, relpath, m, starts, ctx))
 
         if "event" in kinds and name in _EVENT_NODES:
             ref = _symbol_or_str(child)
             if ref is None and isinstance(child.value, list):
                 ref = _symbol_or_str(_child_get(child, "id"))
             if ref:
-                refs.append(_ref("event", ref, name, relpath, child, line_starts, ctx))
+                refs.append(_ref("event", ref, name, relpath, child, starts, ctx))
 
         if "idea" in kinds and name in _IDEA_BLOCK_NODES:
             ref = _symbol_or_str(child)
             if ref:
-                refs.append(_ref("idea", ref, name, relpath, child, line_starts, ctx))
+                refs.append(_ref("idea", ref, name, relpath, child, starts, ctx))
             elif isinstance(child.value, list):
                 for m in child.children():
                     # bare symbols inside the block parse as name-only nodes
                     if m.value is None and m.name:
-                        refs.append(_ref("idea", m.name, name, relpath, m, line_starts, ctx))
+                        refs.append(_ref("idea", m.name, name, relpath, m, starts, ctx))
 
         if "sprite" in kinds and name in _SPRITE_NODES:
             ref = _symbol_or_str(child)
@@ -276,18 +276,18 @@ def _walk(
                     if m.name == "value":
                         v = _symbol_or_str(m)
                         if v and not _is_texture_path(v):
-                            refs.append(_ref("sprite", v, name, relpath, m, line_starts, ctx))
+                            refs.append(_ref("sprite", v, name, relpath, m, starts, ctx))
             elif ref and not _is_texture_path(ref):
-                refs.append(_ref("sprite", ref, name, relpath, child, line_starts, ctx))
+                refs.append(_ref("sprite", ref, name, relpath, child, starts, ctx))
 
         for kind, names in _SYMBOL_REF_NODES:
             if kind in kinds and name in names:
                 ref = _symbol_or_str(child)
                 if ref:
-                    refs.append(_ref(kind, ref, name, relpath, child, line_starts, ctx))
+                    refs.append(_ref(kind, ref, name, relpath, child, starts, ctx))
 
         if isinstance(child.value, list):
-            _walk(child, relpath, line_starts, kinds, refs, focus_defs, ctx)
+            _walk(child, relpath, starts, kinds, refs, focus_defs, ctx)
 
 
 def _ref(
@@ -296,7 +296,7 @@ def _ref(
     via: str,
     relpath: str,
     node: Node,
-    line_starts: List[int],
+    starts: list[int],
     referrer: Optional[str],
 ) -> dict:
     return {
@@ -304,7 +304,7 @@ def _ref(
         "ref": ref,
         "via": via,
         "file": relpath,
-        "line": _line(node, line_starts),
+        "line": _line(node, starts),
         "referrer": referrer,
     }
 
@@ -332,16 +332,8 @@ def _symbol_or_str(node: Optional[Node]) -> Optional[str]:
     return None
 
 
-def _line(node: Node, line_starts: List[int]) -> Optional[int]:
+def _line(node: Node, starts: list[int]) -> Optional[int]:
     tok = node.name_token
     if tok is None:
         return None
-    return bisect.bisect_right(line_starts, tok.start)
-
-
-def _line_starts(text: str) -> List[int]:
-    starts = [0]
-    for i, c in enumerate(text):
-        if c == "\n":
-            starts.append(i + 1)
-    return starts
+    return pos_to_line(tok.start, starts)

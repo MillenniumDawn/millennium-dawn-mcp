@@ -626,6 +626,29 @@ def test_lint_validators_unknown_among_valid_still_runs_valid(tmp_path):
     assert any(i["check"] == "validator:focus_tree" for i in out["issues"])
 
 
+def test_lint_validators_unknown_with_auto_still_runs_auto_selected(tmp_path):
+    _init_repo(tmp_path)
+    _seed_all_scripts(tmp_path, {})
+    changed = tmp_path / "history" / "countries" / "USA.txt"
+    changed.parent.mkdir(parents=True)
+    changed.write_text("x = 1\n")
+
+    runner = FakeRunner(names=["history", "style"])
+    out = lint_tool(
+        tmp_path, mode="changed", validators=["auto", "nonsense"], validator_runner=runner
+    )
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["validator:nonsense"]
+    assert out["validators_run"] == ["history", "style"]
+    assert runner.calls == [
+        {"name": "history", "staged_only": False},
+        {"name": "style", "staged_only": False},
+    ]
+    entry = next(c for c in out["checks"] if c["name"] == "validator:nonsense")
+    assert entry["ok"] is False
+    assert "nonsense" in entry["error"]
+
+
 def test_lint_validators_star_excludes_slow(tmp_path):
     _init_repo(tmp_path)
     _seed_all_scripts(tmp_path, {})

@@ -17,6 +17,18 @@ pre-commit install
 `pytest-xdist`, `ruff`, `mypy`, and `pre-commit`. The wrapped validators are
 stdlib-only; no extra deps needed for validator work.
 
+A fresh git worktree has no `.venv`. `uv run pytest` (or `mypy`) then falls
+back to whatever the ambient interpreter provides. On a machine with a stale
+editable install or `.pth` pointing at the main checkout, tests collect from
+the worktree but import the main checkout's `md_mcp`. Edits appear to have no
+effect, or new modules raise `ModuleNotFoundError`.
+
+After creating a worktree, run this before any `uv run` command:
+
+```bash
+uv sync --extra dev
+```
+
 ## Running tests
 
 ```bash

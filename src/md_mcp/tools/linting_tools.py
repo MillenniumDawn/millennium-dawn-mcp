@@ -47,35 +47,11 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 _SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2}
 
 
-def _completed_process_failure(
+def _failure_payload(
     script: Path,
     proc: subprocess.CompletedProcess,
-    issue_count: int,
-) -> Optional[dict]:
-    # A Python traceback on stderr means the script died mid-scan: whatever
-    # issues were parsed came from a partial run, and exit 1 no longer means
-    # "issues found". Report the crash instead of the partial output.
-    if "Traceback (most recent call last):" in (proc.stderr or ""):
-        error = f"{script.name} crashed mid-run (traceback on stderr)"
-        stderr_tail = (proc.stderr or "")[-1000:]
-        output_tail = stderr_tail or (proc.stdout or "")[-1000:]
-        if output_tail.strip():
-            error = f"{error}. Output tail: {output_tail.strip()}"
-        return {
-            "ok": False,
-            "error": error,
-            "exit_code": proc.returncode,
-            "stderr_tail": stderr_tail,
-        }
-
-    if proc.returncode == 0 or (proc.returncode == 1 and issue_count):
-        return None
-
-    if proc.returncode == 1:
-        error = f"{script.name} exited with code 1 without recognized diagnostics"
-    else:
-        error = f"{script.name} exited with unexpected code {proc.returncode}"
-
+    error: str,
+) -> dict:
     stderr_tail = (proc.stderr or "")[-1000:]
     output_tail = stderr_tail or (proc.stdout or "")[-1000:]
     if output_tail.strip():
@@ -86,6 +62,29 @@ def _completed_process_failure(
         "exit_code": proc.returncode,
         "stderr_tail": stderr_tail,
     }
+
+
+def _completed_process_failure(
+    script: Path,
+    proc: subprocess.CompletedProcess,
+    issue_count: int,
+) -> Optional[dict]:
+    # A Python traceback on stderr means the script died mid-scan: whatever
+    # issues were parsed came from a partial run, and exit 1 no longer means
+    # "issues found". Report the crash instead of the partial output.
+    if "Traceback (most recent call last):" in (proc.stderr or ""):
+        return _failure_payload(
+            script, proc, f"{script.name} crashed mid-run (traceback on stderr)"
+        )
+
+    if proc.returncode == 0 or (proc.returncode == 1 and issue_count):
+        return None
+
+    if proc.returncode == 1:
+        error = f"{script.name} exited with code 1 without recognized diagnostics"
+    else:
+        error = f"{script.name} exited with unexpected code {proc.returncode}"
+    return _failure_payload(script, proc, error)
 
 
 def lint_common_mistakes_tool(
@@ -101,48 +100,41 @@ def lint_common_mistakes_tool(
         files — explicit file list (mod-relative); overrides `mode`
     """
     script = mod_root / "tools" / "linting" / "check_common_mistakes.py"
-    proc, err = _run_script(
-        script, mod_root, list(files) if files else ["--mode", mode], timeout=300
-    )
-    if proc is None:
-        return {"ok": False, "error": err}
 
-    issues: List[dict] = []
-    for line in proc.stdout.splitlines():
-        m = _LINT_LINE_RE.match(line.strip())
+    def collect(line: str) -> Optional[dict]:
+        m = _LINT_LINE_RE.match(line)
         if not m:
-            continue
+            return None
         # The script also prints summary lines like `Checked N files` — skip if file
         # doesn't look like a path (no slash).
         file_path = m.group("file")
         if "/" not in file_path and "\\" not in file_path:
-            continue
+            return None
         try:
             line_no = int(m.group("line"))
         except ValueError:
-            continue
-        issues.append(
-            {
-                "file": file_path,
-                "line": line_no,
-                "message": m.group("msg"),
-                "severity": "warning",
-            }
-        )
+            return None
+        return {
+            "file": file_path,
+            "line": line_no,
+            "message": m.group("msg"),
+            "severity": "warning",
+        }
 
-    failure = _completed_process_failure(script, proc, len(issues))
-    if failure is not None:
-        return failure
-
-    return {
-        "ok": True,
-        "issues": issues,
-        "count": len(issues),
-        "total": len(issues),
-        "mode": "files" if files else mode,
-        "exit_code": proc.returncode,
-        "stderr": proc.stderr[-2000:] if proc.stderr else "",
-    }
+    return _run_parsed_script(
+        script,
+        mod_root,
+        list(files) if files else ["--mode", mode],
+        collect,
+        timeout=300,
+        combined=False,
+        limit=None,
+        extra=lambda proc, issues: {
+            "count": len(issues),
+            "mode": "files" if files else mode,
+            "stderr": proc.stderr[-2000:] if proc.stderr else "",
+        },
+    )
 
 
 def review_branch_tool(mod_root: Path, base: str = "main") -> dict:
@@ -191,6 +183,54 @@ def _run_script(
     return proc, None
 
 
+def _run_parsed_script(
+    script: Path,
+    mod_root: Path,
+    args: List[str],
+    collect: Callable[[str], Optional[dict]],
+    *,
+    timeout: int = 120,
+    combined: bool = True,
+    limit: Optional[int] = 200,
+    extra: Optional[Callable[[subprocess.CompletedProcess, List[dict]], dict]] = None,
+) -> dict:
+    """Run a script, parse its output, and shape its issue response."""
+    proc, err = _run_script(script, mod_root, args, timeout=timeout)
+    if proc is None:
+        return {"ok": False, "error": err}
+
+    output = (proc.stdout or "") + "\n" + (proc.stderr or "") if combined else proc.stdout or ""
+    issues: List[dict] = []
+    for raw in output.splitlines():
+        line = _ANSI_RE.sub("", raw).rstrip() if combined else raw.strip()
+        if not line.strip():
+            continue
+        issue = collect(line)
+        if issue is not None:
+            issues.append(issue)
+
+    failure = _completed_process_failure(script, proc, len(issues))
+    if failure is not None:
+        return failure
+
+    result: dict = {"ok": True, "total": len(issues)}
+    if extra is not None:
+        result.update(extra(proc, issues))
+    result.update({"exit_code": proc.returncode})
+    if limit is None:
+        result["issues"] = issues
+        return result
+
+    result.update(
+        {
+            "returned": min(limit, len(issues)),
+            "truncated": len(issues) > limit,
+            "issues": issues[:limit],
+        }
+    )
+    return enforce_budget(result, heavy_keys=("issues",))
+
+
 def lint_mod_encoding_tool(
     mod_root: Path,
     *,
@@ -209,48 +249,30 @@ def lint_mod_encoding_tool(
     if not files:
         return {"ok": False, "error": "lint_mod_encoding requires at least one .mod file"}
 
-    proc, err = _run_script(script, mod_root, list(files))
-    if proc is None:
-        return {"ok": False, "error": err}
-
-    issues: List[dict] = []
     checked = 0
-    combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    for raw in combined.splitlines():
-        line = _ANSI_RE.sub("", raw).rstrip()
-        if not line.strip():
-            continue
+
+    def collect(line: str) -> Optional[dict]:
+        nonlocal checked
         m = _MOD_ENC_OK_RE.match(line)
         if m:
             checked += 1
-            continue
+            return None
         m = _MOD_ENC_BAD_RE.match(line)
-        if m:
-            issues.append(
-                {
-                    "file": m.group("file").strip(),
-                    "message": f"Invalid UTF-8 encoding: {m.group('msg').strip()}",
-                    "severity": "error",
-                }
-            )
+        if not m:
+            return None
+        return {
+            "file": m.group("file").strip(),
+            "message": f"Invalid UTF-8 encoding: {m.group('msg').strip()}",
+            "severity": "error",
+        }
 
-    failure = _completed_process_failure(script, proc, len(issues))
-    if failure is not None:
-        return failure
-
-    truncated = len(issues) > limit
-    return enforce_budget(
-        {
-            "ok": True,
-            "checked": checked + len(issues),
-            "total": len(issues),
-            "returned": min(limit, len(issues)),
-            "truncated": truncated,
-            "exit_code": proc.returncode,
-            "stderr_tail": (proc.stderr or "")[-1000:],
-            "issues": issues[:limit],
-        },
-        heavy_keys=("issues",),
+    return _run_parsed_script(
+        script,
+        mod_root,
+        list(files),
+        collect,
+        limit=limit,
+        extra=lambda proc, issues: {"checked": checked + len(issues)},
     )
 
 
@@ -268,43 +290,18 @@ def lint_loc_encoding_tool(
     """
     script = mod_root / "tools" / "linting" / "validate_localization_encoding.py"
     args: List[str] = list(files) if files else []
-    proc, err = _run_script(script, mod_root, args)
-    if proc is None:
-        return {"ok": False, "error": err}
 
-    issues: List[dict] = []
-    combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    for raw in combined.splitlines():
-        line = _ANSI_RE.sub("", raw).rstrip()
-        if not line.strip():
-            continue
+    def collect(line: str) -> Optional[dict]:
         m = _LOC_ENC_BAD_RE.match(line)
-        if m:
-            issues.append(
-                {
-                    "file": m.group("file").strip(),
-                    "message": "Missing UTF-8 BOM (required for HOI4 localization)",
-                    "severity": "error",
-                }
-            )
+        if not m:
+            return None
+        return {
+            "file": m.group("file").strip(),
+            "message": "Missing UTF-8 BOM (required for HOI4 localization)",
+            "severity": "error",
+        }
 
-    failure = _completed_process_failure(script, proc, len(issues))
-    if failure is not None:
-        return failure
-
-    truncated = len(issues) > limit
-    return enforce_budget(
-        {
-            "ok": True,
-            "total": len(issues),
-            "returned": min(limit, len(issues)),
-            "truncated": truncated,
-            "exit_code": proc.returncode,
-            "stderr_tail": (proc.stderr or "")[-1000:],
-            "issues": issues[:limit],
-        },
-        heavy_keys=("issues",),
-    )
+    return _run_parsed_script(script, mod_root, args, collect, limit=limit)
 
 
 # ---------------------------------------------------------------------------

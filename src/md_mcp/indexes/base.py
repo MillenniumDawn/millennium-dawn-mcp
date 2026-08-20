@@ -17,6 +17,7 @@ mtime alone would miss.
 from __future__ import annotations
 
 import json
+import logging
 import multiprocessing
 import os
 import sys
@@ -25,6 +26,8 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -199,6 +202,7 @@ class GenericTxtIndex:
 
         self._by_file: Dict[str, List[dict]] = {}
         self._by_key: Dict[str, dict] = {}
+        self._duplicates: Dict[str, List[str]] = {}
         self._loaded = False
 
     # ---------- public API ----------
@@ -206,6 +210,13 @@ class GenericTxtIndex:
     def resolve(self, key: str) -> "Optional[dict]":
         self.ensure_fresh()
         return self._by_key.get(key)
+
+    def duplicates(self) -> "Dict[str, List[str]]":
+        """Ids defined in more than one scanned file, each mapped to the files
+        that define it, in resolution order. The last file listed is the one
+        `resolve` returns. Empty when there are no conflicts."""
+        self.ensure_fresh()
+        return {k: list(v) for k, v in self._duplicates.items()}
 
     def list_keys(self) -> List[str]:
         self.ensure_fresh()
@@ -286,15 +297,36 @@ class GenericTxtIndex:
                     new_by_file[relpath] = recs
 
         new_by_key: Dict[str, dict] = {}
-        for relpath, recs in new_by_file.items():
-            for rec in recs:
+        new_duplicates: Dict[str, List[str]] = {}
+        # Iterate files in a stable, sorted order so resolution is deterministic
+        # across runs regardless of scan or parse order. Within that order the
+        # last file to define a key wins (last-write-wins), which keeps the old
+        # behaviour but no longer leaves the winner up to dict iteration order.
+        for relpath in sorted(new_by_file):
+            for rec in new_by_file[relpath]:
                 k = rec.get(self.primary_key)
                 if k is None:
                     continue
+                if k in new_by_key:
+                    files = new_duplicates.setdefault(k, [new_by_key[k]["file"]])
+                    if relpath not in files:
+                        files.append(relpath)
                 new_by_key[k] = {**rec, "file": relpath}
+
+        for k, files in new_duplicates.items():
+            logger.warning(
+                "%s: id %r is defined in %d files (%s); resolve() returns the "
+                "last in sorted order (%s)",
+                type(self).__name__,
+                k,
+                len(files),
+                ", ".join(files),
+                files[-1],
+            )
 
         self._by_file = new_by_file
         self._by_key = new_by_key
+        self._duplicates = new_duplicates
 
         if to_parse or staleness.removed or not manifest:
             self._cache.save_data({"files": new_by_file})

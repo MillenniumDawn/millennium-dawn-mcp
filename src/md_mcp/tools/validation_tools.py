@@ -100,7 +100,10 @@ def validate_tool(
                 "name": v.name,
                 "title": v.title,
                 "ok": result.get("ok"),
-                "counts": result.get("counts", {}),
+                # Copied, not aliased: the strict fold below rewrites this dict,
+                # and _apply_strict mutates in place -- without the copy it would
+                # reach back into the runner's own result.
+                "counts": dict(result.get("counts", {})),
                 "error": result.get("error"),
             }
         )
@@ -111,6 +114,15 @@ def validate_tool(
 
     if strict:
         overall = _apply_strict(overall)
+        # And each per-validator breakdown, or it no longer sums to the strict
+        # total and a caller reconciling the two sees inconsistent numbers.
+        # Must come after the accumulation above, which reads the raw counts.
+        for entry in per_validator:
+            # Guarded the same way the single-validator path is: a validator
+            # that failed to run has no counts, and folding {} would invent an
+            # {"error": 0, "warning": 0} it never reported.
+            if entry["counts"]:
+                entry["counts"] = _apply_strict(entry["counts"])
 
     kept, truncated, total = _filter_and_cap(aggregated, severity_min=severity_min, limit=limit)
 

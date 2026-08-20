@@ -133,3 +133,53 @@ def test_validate_all_strict_still_folds_aggregate_counts(fake_mod_root):
     result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root), strict=True)
     assert result["ok"] is True
     assert result["counts"] == {"error": 2, "warning": 0, "info": 0}
+
+
+def test_validate_all_strict_folds_each_validator_breakdown(fake_mod_root):
+    """The per-validator counts must sum to the strict total (#54).
+
+    They were captured before the fold, so `overall` was strict while the
+    breakdown stayed raw and a caller reconciling the two saw a warning count
+    that appeared in one place and not the other.
+    """
+    _plant(fake_mod_root, "warnonly", _WARNING_ONLY)
+    _plant(fake_mod_root, "good", _GOOD)
+
+    result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root), strict=True)
+
+    assert result["counts"] == {"error": 4, "warning": 0, "info": 0}
+
+    by_name = {v["name"]: v["counts"] for v in result["validators"]}
+    assert by_name["warnonly"] == {"error": 2, "warning": 0, "info": 0}
+    assert by_name["good"] == {"error": 2, "warning": 0, "info": 0}
+
+    # The property the issue names, asserted directly rather than implied by
+    # the two equalities above.
+    for key in ("error", "warning", "info"):
+        assert sum(c.get(key, 0) for c in by_name.values()) == result["counts"][key]
+
+
+def test_validate_all_non_strict_breakdown_is_unchanged(fake_mod_root):
+    """Control. A fold applied unconditionally would pass the test above."""
+    _plant(fake_mod_root, "warnonly", _WARNING_ONLY)
+    _plant(fake_mod_root, "good", _GOOD)
+
+    result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root))
+
+    assert result["counts"] == {"error": 1, "warning": 3, "info": 0}
+    by_name = {v["name"]: v["counts"] for v in result["validators"]}
+    assert by_name["warnonly"] == {"error": 0, "warning": 2, "info": 0}
+    assert by_name["good"] == {"error": 1, "warning": 1, "info": 0}
+
+
+def test_validate_all_strict_leaves_a_failed_validator_without_counts(fake_mod_root):
+    """A validator that could not run reported no counts, and strict must not
+    invent an {"error": 0, "warning": 0} for it."""
+    _plant(fake_mod_root, "warnonly", _WARNING_ONLY)
+    _plant(fake_mod_root, "broken", _BROKEN)
+
+    result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root), strict=True)
+
+    broken = next(v for v in result["validators"] if v["name"] == "broken")
+    assert broken["ok"] is False
+    assert broken["counts"] == {}

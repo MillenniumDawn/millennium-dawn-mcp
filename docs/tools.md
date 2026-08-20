@@ -92,7 +92,11 @@ Categories: `focuses`, `events`, `event_files`, `decisions`, `ideas`,
 
 ### `parse_file(path: str, max_bytes?: int, top_level_only?: bool) -> dict`
 
-Parse a `.txt` paradox script file. `path` is absolute or relative to mod root.
+Parse a `.txt`/`.gfx` paradox script file. `path` is absolute or relative to mod
+root; relative paths always resolve against mod root, never vanilla. Absolute
+paths must resolve (after following symlinks and `..`) inside `mod_root` or
+`vanilla_path`, when configured — anything else, plus non-regular files and
+unsupported extensions, is rejected with `ok=False`.
 
 - **`max_bytes=500_000`** (default) — files larger than this are refused with
   a pointer to the right `resolve_*` tool. Set to `0` to disable.

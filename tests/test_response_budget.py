@@ -119,6 +119,22 @@ def test_enforce_budget_heavy_keys_insufficient_falls_back():
     assert _byte_size(out) <= 1000
 
 
+def test_enforce_budget_does_not_mutate_caller_dict_when_over():
+    # Over-budget calls must leave the caller's original dict untouched.
+    huge = "x" * 50_000
+    result = {"ok": True, "items": [huge]}
+    before = dict(result)
+    out = enforce_budget(result, budget=1000, heavy_keys=("items",))
+    # The returned copy is trimmed...
+    assert "items" not in out
+    assert out.get("size_truncated") is True
+    # ...but the caller's dict is unchanged.
+    assert result == before
+    assert "items" in result
+    assert "size_truncated" not in result
+    assert out is not result
+
+
 def test_clip_strings():
     items = [{"snippet": "abcdefghij"}, {"snippet": "xy"}]
     out = clip_strings(items, "snippet", 3)

@@ -20,8 +20,10 @@ from .indexes import (
     LocalisationIndex,
 )
 from .paradox import parse_string
-from .paradox.nodes import SymbolNode
+from .paradox.nodes import Node, SymbolNode
+from .paradox.schema import find_decision_nodes, find_idea_nodes
 from .util.encoding import read_text
+from .util.line_numbers import line_starts, pos_to_line
 
 
 def focus_resource(focus_id: str, settings: Settings, focus_index: FocusIndex) -> str:
@@ -88,7 +90,7 @@ def event_resource(event_id: str, settings: Settings, event_index: EventIndex) -
 
 
 def decision_resource(decision_id: str, settings: Settings, decision_index: DecisionIndex) -> str:
-    """Return the raw `<decision_id> = { ... }` block."""
+    """Return the raw `<decision_id> = { ... }` block, anchored to the indexed definition."""
     rec = decision_index.resolve(decision_id)
     if rec is None:
         raise KeyError(f"Decision '{decision_id}' not found")
@@ -96,11 +98,14 @@ def decision_resource(decision_id: str, settings: Settings, decision_index: Deci
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
     text = read_text(abs_path)
-    return _extract_named_block(text, decision_id)
+    root = parse_string(text)
+    candidates = find_decision_nodes(root, decision_id)
+    node = _anchor(candidates, text, rec, kind="Decision", ident=decision_id)
+    return _slice_node(text, node)
 
 
 def idea_resource(idea_id: str, settings: Settings, idea_index: IdeaIndex) -> str:
-    """Return the raw `<idea_id> = { ... }` block."""
+    """Return the raw `<idea_id> = { ... }` block, anchored to the indexed definition."""
     rec = idea_index.resolve(idea_id)
     if rec is None:
         raise KeyError(f"Idea '{idea_id}' not found")
@@ -108,7 +113,10 @@ def idea_resource(idea_id: str, settings: Settings, idea_index: IdeaIndex) -> st
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
     text = read_text(abs_path)
-    return _extract_named_block(text, idea_id)
+    root = parse_string(text)
+    candidates = find_idea_nodes(root, idea_id)
+    node = _anchor(candidates, text, rec, kind="Idea", ident=idea_id)
+    return _slice_node(text, node)
 
 
 def _extract_block_by_key(text: str, *, key: str, value: str, container_kinds: set[str]) -> str:
@@ -141,30 +149,46 @@ def _extract_block_by_key(text: str, *, key: str, value: str, container_kinds: s
     return result
 
 
-def _extract_named_block(text: str, name: str) -> str:
-    """Find any `name = { ... }` block and return its source slice (depth-first)."""
-    root = parse_string(text)
+def _anchor(candidates: list[Node], text: str, rec: dict, *, kind: str, ident: str) -> Node:
+    """Pick the single node the index record refers to, or fail clearly.
 
-    def walk(nodes):
-        for node in nodes:
-            if (
-                node.name == name
-                and isinstance(node.value, list)
-                and node.name_token
-                and node.value_end_token
-            ):
-                start = _line_start(text, node.name_token.start)
-                return text[start : node.value_end_token.end]
-            if isinstance(node.value, list):
-                found = walk(node.value)
-                if found is not None:
-                    return found
-        return None
+    Anchors by the record's indexed line when available; otherwise a lone
+    hierarchy-valid match is accepted, but multiple matches are rejected as
+    ambiguous rather than silently returning the first one.
+    """
+    if not candidates:
+        raise KeyError(f"{kind} '{ident}' resolved by index but not located in file")
 
-    result = walk(root.children())
-    if result is None:
-        raise KeyError(f"Block '{name}' not located in file")
-    return result
+    line = rec.get("line")
+    if line is not None:
+        starts = line_starts(text)
+        on_line = [
+            n
+            for n in candidates
+            if n.name_token and pos_to_line(n.name_token.start, starts) == line
+        ]
+        if not on_line:
+            raise KeyError(
+                f"{kind} '{ident}' index points at line {line} but no matching definition sits "
+                "there; the index is stale — delete <mod_root>/.md-mcp-cache/v1/ and rerun "
+                "`md-mcp build-index`"
+            )
+        return on_line[0]
+
+    if len(candidates) > 1:
+        raise KeyError(
+            f"{kind} '{ident}' is ambiguous: {len(candidates)} definitions found and the index "
+            "has no line to disambiguate"
+        )
+    return candidates[0]
+
+
+def _slice_node(text: str, node: Node) -> str:
+    """Slice the exact source text for a definition node, comments and whitespace included."""
+    if node.name_token is None or node.value_end_token is None:
+        raise KeyError("Definition node has no position information (malformed parse)")
+    start = _line_start(text, node.name_token.start)
+    return text[start : node.value_end_token.end]
 
 
 def _resolve(relpath: str, settings: Settings) -> Optional[Path]:

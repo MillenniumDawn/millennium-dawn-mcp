@@ -12,7 +12,7 @@ Additional extractors (events, decisions, ideas, sprites) land in Milestone 2.
 
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, Iterator, List, Optional, Tuple
 
 from ..util.line_numbers import line_starts, pos_to_line
 from .nodes import Node, SymbolNode
@@ -306,8 +306,8 @@ _DECISION_CATEGORY_KEYWORDS = frozenset(
 )
 
 
-def extract_decision_records(root: Node, source: str | None = None) -> List[dict]:
-    """Return every decision definition: {id, category, line}.
+def _iter_decision_definitions(root: Node) -> Iterator[Tuple[Node, str]]:
+    """Yield `(node, category)` for every node satisfying the decision hierarchy.
 
     HOI4 decision files have the structure:
 
@@ -317,9 +317,6 @@ def extract_decision_records(root: Node, source: str | None = None) -> List[dict
             # plus optional category-level keywords (icon, picture, priority, ...)
         }
     """
-    starts = _starts(source)
-    records: List[dict] = []
-
     for top in root.children():
         if top.name is None or not isinstance(top.value, list):
             continue
@@ -330,19 +327,35 @@ def extract_decision_records(root: Node, source: str | None = None) -> List[dict
                 continue
             if not isinstance(child.value, list):
                 continue
-            records.append(
-                {
-                    "id": child.name,
-                    "category": category,
-                    "line": (
-                        pos_to_line(child.name_token.start, starts)
-                        if starts is not None and child.name_token
-                        else None
-                    ),
-                }
-            )
+            yield child, category
 
-    return records
+
+def extract_decision_records(root: Node, source: str | None = None) -> List[dict]:
+    """Return every decision definition: {id, category, line}."""
+    starts = _starts(source)
+    return [
+        {
+            "id": node.name,
+            "category": category,
+            "line": (
+                pos_to_line(node.name_token.start, starts)
+                if starts is not None and node.name_token
+                else None
+            ),
+        }
+        for node, category in _iter_decision_definitions(root)
+    ]
+
+
+def find_decision_nodes(root: Node, decision_id: str) -> List[Node]:
+    """Return every node in the AST satisfying the decision hierarchy for `decision_id`.
+
+    Mirrors `extract_decision_records`'s walk so resource handlers can anchor to the
+    same nodes the index was built from, instead of matching on name alone.
+    """
+    return [
+        node for node, _category in _iter_decision_definitions(root) if node.name == decision_id
+    ]
 
 
 # Idea slots are declared inside categories with these keywords as immediate children;
@@ -356,35 +369,24 @@ _IDEA_SLOT_KEYWORDS = frozenset(
 )
 
 
-def extract_idea_records(root: Node, source: str | None = None) -> List[dict]:
-    """Return every idea definition: {id, category, line}.
+def _iter_idea_definitions(root: Node) -> Iterator[Tuple[Node, str, Optional[str]]]:
+    """Yield `(node, category, slot)` for every node satisfying the idea hierarchy.
 
     Walks `ideas = { category = { idea_id = { ... } } }` structures. Skips
     category-level config (`law = yes`, `use_list_view = yes`) and slot-only nodes.
     A leaf is recognised as an idea when its value is a block (has children).
     """
-    starts = _starts(source)
-    records: List[dict] = []
-
     ideas_root = next((c for c in root.children() if c.name == "ideas"), None)
     if ideas_root is None:
-        return records
+        return
 
     for category in ideas_root.children():
         if category.name is None or not isinstance(category.value, list):
             continue
-        cat_name = category.name
-        _walk_idea_category(category, cat_name, records, starts)
-
-    return records
+        yield from _iter_idea_category(category, category.name)
 
 
-def _walk_idea_category(
-    category: Node,
-    cat_name: str,
-    out: List[dict],
-    starts: list[int] | None,
-) -> None:
+def _iter_idea_category(category: Node, cat_name: str) -> Iterator[Tuple[Node, str, Optional[str]]]:
     for child in category.children():
         if child.name in _IDEA_SLOT_KEYWORDS:
             continue
@@ -399,32 +401,37 @@ def _walk_idea_category(
                     continue
                 if not isinstance(grandchild.value, list):
                     continue
-                out.append(
-                    {
-                        "id": grandchild.name,
-                        "category": cat_name,
-                        "slot": child.name,
-                        "line": (
-                            pos_to_line(grandchild.name_token.start, starts)
-                            if starts is not None and grandchild.name_token
-                            else None
-                        ),
-                    }
-                )
+                yield grandchild, cat_name, child.name
             continue
 
-        out.append(
-            {
-                "id": child.name,
-                "category": cat_name,
-                "slot": None,
-                "line": (
-                    pos_to_line(child.name_token.start, starts)
-                    if starts is not None and child.name_token
-                    else None
-                ),
-            }
-        )
+        yield child, cat_name, None
+
+
+def extract_idea_records(root: Node, source: str | None = None) -> List[dict]:
+    """Return every idea definition: {id, category, slot, line}."""
+    starts = _starts(source)
+    return [
+        {
+            "id": node.name,
+            "category": category,
+            "slot": slot,
+            "line": (
+                pos_to_line(node.name_token.start, starts)
+                if starts is not None and node.name_token
+                else None
+            ),
+        }
+        for node, category, slot in _iter_idea_definitions(root)
+    ]
+
+
+def find_idea_nodes(root: Node, idea_id: str) -> List[Node]:
+    """Return every node in the AST satisfying the idea hierarchy for `idea_id`.
+
+    Mirrors `extract_idea_records`'s walk so resource handlers can anchor to the
+    same nodes the index was built from, instead of matching on name alone.
+    """
+    return [node for node, _category, _slot in _iter_idea_definitions(root) if node.name == idea_id]
 
 
 # Properties that, when present as a direct child, identify a block as an idea

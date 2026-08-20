@@ -458,8 +458,25 @@ _IDEA_PROPERTIES = frozenset(
 
 
 def _looks_like_slot_wrapper(node: Node) -> bool:
-    """True if `node` is a slot containing more idea blocks, not an idea itself."""
-    return all(c.name not in _IDEA_PROPERTIES for c in node.children())
+    """True if `node` is a slot containing more idea blocks, not an idea itself.
+
+    A slot wrapper holds further idea blocks and none of its own direct children
+    are idea properties. Two cases the old all()-only test got wrong:
+
+    An empty block (``X = {}``) made all() vacuously true and was skipped as a
+    slot, so the idea vanished from the index. An empty block is an idea.
+
+    An idea whose keys are all absent from `_IDEA_PROPERTIES` (scalar values, no
+    block-valued children) also passed all() and was treated as a slot, so its
+    scalar children were indexed as ideas and the idea itself disappeared. A slot
+    wrapper must have at least one block-valued child.
+    """
+    children = list(node.children())
+    if not children:
+        return False
+    if any(c.name in _IDEA_PROPERTIES for c in children):
+        return False
+    return any(isinstance(c.value, list) for c in children)
 
 
 # ---------------------------------------------------------------------------

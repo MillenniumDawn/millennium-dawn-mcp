@@ -92,7 +92,13 @@ def generate_event(
         parts.append(f"\t\tname = {opt_id}")
         parts.append(f'\t\tlog = "[GetDateText]: [This.GetName]: {opt_id} executed"')
         if opt.get("ai_chance") is not None:
-            parts.append(f"\t\tai_chance = {{ base = {int(opt['ai_chance'])} }}")
+            try:
+                base = int(opt["ai_chance"])
+            except (TypeError, ValueError) as e:
+                raise ValueError(
+                    f"Option {i} ai_chance is not an integer: {opt['ai_chance']!r}"
+                ) from e
+            parts.append(f"\t\tai_chance = {{ base = {base} }}")
         effects = opt.get("effects")
         if effects:
             parts.extend(_indent(effects, 2))

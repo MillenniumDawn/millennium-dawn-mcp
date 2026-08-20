@@ -43,8 +43,12 @@ def main() -> int:
     except Exception as e:
         payload = {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
-    with open(args.out, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, default=str)
+    try:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, default=str)
+    except OSError as e:
+        sys.stderr.write(f"Failed to write {args.out}: {e}\n")
+        return 2
     return 0 if payload.get("ok") else 1
 
 

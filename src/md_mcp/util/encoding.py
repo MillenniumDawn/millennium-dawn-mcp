@@ -22,5 +22,8 @@ def read_text(path: str | Path) -> str:
 
 
 def has_bom(path: str | Path) -> bool:
-    with open(path, "rb") as f:
-        return f.read(3) == UTF8_BOM
+    try:
+        with open(path, "rb") as f:
+            return f.read(3) == UTF8_BOM
+    except OSError:
+        return False

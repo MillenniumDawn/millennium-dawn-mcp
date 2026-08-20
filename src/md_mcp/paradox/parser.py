@@ -134,12 +134,15 @@ def _parse_node_value(
 
     if t == "number":
         v = next_token.value
-        if v.startswith("0x"):
-            num: int | float = int(v[2:], 16)
-        elif "." in v:
-            num = float(v)
-        else:
-            num = int(v)
+        try:
+            if v.startswith("0x"):
+                num: int | float = int(v[2:], 16)
+            elif "." in v:
+                num = float(v)
+            else:
+                num = int(v)
+        except ValueError:
+            tokens.throw(f"Invalid numeric literal: {v}", prev=True)
         return num, next_token, next_token
 
     if t in ("symbol", "unitnumber"):

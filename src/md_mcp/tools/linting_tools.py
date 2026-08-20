@@ -380,7 +380,8 @@ def lint_tool(
 
     relevant_set: Optional[set] = set(relevant) if relevant is not None else None
 
-    # Expand the validators request up front so bad explicit names fail fast.
+    # Expand the validators request up front; unknown names land as isolated
+    # ok:false entries instead of aborting the whole run.
     # `None` and `[]` differ intentionally: omission keeps style enforcement
     # for script scopes, while an explicit empty list disables all validators.
     if validators is None:
@@ -410,8 +411,9 @@ def lint_tool(
             runner = None
         else:
             if validators is None:
-                validator_names = ["style"]
-                if "style" not in available:
+                if "style" in available:
+                    validator_names = ["style"]
+                else:
                     validator_setup_entries.append(
                         {
                             "name": "validator:style",
@@ -427,14 +429,18 @@ def lint_tool(
                     elif v != "auto":
                         expanded.add(v)
                 unknown_validators = sorted(expanded - available)
-                if unknown_validators:
-                    return {
-                        "ok": False,
-                        "error": (
-                            f"Unknown validator(s): {unknown_validators}. "
-                            f"Valid: {sorted(available)} plus 'auto' and '*'"
-                        ),
-                    }
+                for v in unknown_validators:
+                    validator_setup_entries.append(
+                        {
+                            "name": f"validator:{v}",
+                            "ok": False,
+                            "error": (
+                                f"Unknown validator '{v}'. "
+                                f"Valid: {sorted(available)} plus 'auto' and '*'"
+                            ),
+                        }
+                    )
+                expanded -= set(unknown_validators)
                 if "auto" in validator_request:
                     expanded |= set(select_validators(relevant, available))
                 validator_names = sorted(expanded)
@@ -510,7 +516,7 @@ def lint_tool(
 
     per_check.extend(validator_setup_entries)
     validators_ran = False
-    if validator_names and runner is not None and not validator_setup_entries:
+    if validator_names and runner is not None:
         validators_ran = True
         v_entries, v_issues = run_validators_for_lint(
             runner,

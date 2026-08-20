@@ -133,3 +133,22 @@ def test_validate_all_strict_still_folds_aggregate_counts(fake_mod_root):
     result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root), strict=True)
     assert result["ok"] is True
     assert result["counts"] == {"error": 2, "warning": 0, "info": 0}
+
+
+def test_validate_all_strict_folds_per_validator_counts(fake_mod_root):
+    # With strict=True the per-validator breakdown must fold warnings into
+    # errors too, so the validators list still sums to the overall total.
+    _plant(fake_mod_root, "good", _GOOD)
+    _plant(fake_mod_root, "warnonly", _WARNING_ONLY)
+    result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root), strict=True)
+
+    good = next(v for v in result["validators"] if v["name"] == "good")
+    warnonly = next(v for v in result["validators"] if v["name"] == "warnonly")
+    assert good["counts"] == {"error": 2, "warning": 0, "info": 0}
+    assert warnonly["counts"] == {"error": 2, "warning": 0, "info": 0}
+
+    summed = {"error": 0, "warning": 0, "info": 0}
+    for entry in result["validators"]:
+        for key in summed:
+            summed[key] += entry["counts"].get(key, 0)
+    assert summed == result["counts"]

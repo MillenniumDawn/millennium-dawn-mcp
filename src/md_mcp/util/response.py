@@ -22,10 +22,37 @@ from typing import Any, Iterable, List, Sequence, Tuple
 BUDGET_BYTES = 100_000
 
 
+def coerce_int(value: Any, *, name: str, default: int) -> int:
+    """Coerce a pagination bound (`limit`/`offset`) to `int`.
+
+    `None` falls back to `default` (matches the argument being omitted); a
+    plain `int` (not `bool`) passes through with a single isinstance check;
+    numeric `str`/`float` coerce via `int(float(value))`. Anything else
+    raises `ValueError` naming `name` and the offending value.
+    """
+    if value is None:
+        return default
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    try:
+        return int(float(value))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must be an integer, got {value!r}") from exc
+
+
 def paginate(
-    items: Sequence[Any], offset: int = 0, limit: int = 200
+    items: Sequence[Any],
+    offset: int | float | str | None = 0,
+    limit: int | float | str | None = 200,
 ) -> Tuple[List[Any], bool, int]:
-    """Slice `items[offset : offset+limit]`. Returns (slice, truncated, total)."""
+    """Slice `items[offset : offset+limit]`. Returns (slice, truncated, total).
+
+    `offset`/`limit` accept `int`, numeric `str`/`float`, or `None` (falls
+    back to the default shown in the signature); anything else raises
+    `ValueError`.
+    """
+    offset = coerce_int(offset, name="offset", default=0)
+    limit = coerce_int(limit, name="limit", default=200)
     total = len(items)
     if offset < 0:
         offset = 0

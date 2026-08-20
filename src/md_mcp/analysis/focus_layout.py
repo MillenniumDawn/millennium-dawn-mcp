@@ -22,7 +22,7 @@ from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records
 from ..util.encoding import read_text
 from ..util.pathing import resolve_scope_file
-from ..util.response import enforce_budget, paginate
+from ..util.response import coerce_int, enforce_budget, paginate
 
 
 class _SupportsFilesForTag(Protocol):
@@ -39,19 +39,24 @@ def focus_layout(
     file: Optional[str] = None,
     vanilla_path: Optional[Path] = None,
     include_positions: bool = False,
-    limit: int = 300,
+    limit: int | float | str | None = 300,
 ) -> dict:
     """Resolve the focus grid for a tag or file.
 
     Returns collisions (two+ distinct focuses at the same resolved cell), chain
     errors (missing/cyclic `relative_position_id`, missing x/y), and the
     bounding box. `include_positions=True` adds the per-focus resolved
-    coordinates. `limit` caps each of the three lists independently. An id
+    coordinates. `limit` caps each of the three lists independently; it
+    accepts int, numeric str/float, or None (falls back to 300). An id
     defined in more than one scope file is reported once, under
     `duplicate_definitions`.
     """
     if not tag and not file:
         return {"ok": False, "error": "Pass tag= or file= (mod-relative focus file path)."}
+    try:
+        limit = coerce_int(limit, name="limit", default=300)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
 
     prefix = ""
     if file:

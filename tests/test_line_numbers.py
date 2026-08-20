@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from md_mcp.paradox import parse_string
 from md_mcp.paradox.schema import extract_focus_records, to_json_with_lines
+
+# pi-lens-ignore: reportMissingImports
 from md_mcp.util.line_numbers import line_starts, pos_to_line
 
 # ---------------------------------------------------------------------------

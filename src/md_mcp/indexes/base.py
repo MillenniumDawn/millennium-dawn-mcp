@@ -43,7 +43,7 @@ class FileSig:
 def file_signature(path: Path) -> FileSig | None:
     try:
         st = path.stat()
-    except FileNotFoundError:
+    except OSError:
         return None
     return FileSig(mtime_ns=st.st_mtime_ns, size=st.st_size)
 

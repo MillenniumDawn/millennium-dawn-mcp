@@ -24,6 +24,7 @@ import types
 from pathlib import Path
 from typing import List
 
+# pi-lens-ignore: reportMissingImports
 import pytest
 
 from md_mcp.analysis import diff_summary as diff_summary_mod
@@ -226,7 +227,7 @@ def test_deleted_file_is_classified_but_skipped_for_id_diff(git_repo: Path):
     assert rec["status"] == "D"
     assert rec["kind"] == "event"
     # Deletions skip ID reads entirely. Comparing against an empty HEAD would
-    # otherwise mis-claim every prior ID was removed.
+    # otherwise incorrectly claim every prior ID was removed.
     assert "added_ids" not in rec
     assert "removed_ids" not in rec
     assert "id_diff" not in rec
@@ -435,7 +436,7 @@ def test_filename_with_special_characters(git_repo: Path, weird: str):
 )
 def test_classify_routes_paths_correctly(git_repo: Path, rel_path: str, expected_kind: str):
     """Each prefix the classifier handles must map to the right kind.
-    A regression here would silently mis-classify every file of that kind."""
+    A regression here would silently misclassify every file of that kind."""
     # Create an empty file at the path so git tracks it.
     _write(git_repo, rel_path, "")
     _add_and_commit(git_repo, rel_path, message=f"add {rel_path}")

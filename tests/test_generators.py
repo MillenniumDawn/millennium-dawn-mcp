@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 
+# pi-lens-ignore: reportMissingImports
 import pytest
 
 from md_mcp.generators import (

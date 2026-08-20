@@ -31,7 +31,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
-from ..indexes import (
+from md_mcp.indexes import (
     DecisionIndex,
     EventIndex,
     FocusIndex,
@@ -39,12 +39,14 @@ from ..indexes import (
     IdeaIndex,
     LocalisationIndex,
 )
-from ..paradox import parse_string
-from ..paradox.nodes import Node, SymbolNode
-from ..util.encoding import read_text
-from ..util.line_numbers import line_starts, pos_to_line
-from ..util.pathing import resolve_scope_file
-from ..util.response import enforce_budget
+from md_mcp.paradox import parse_string
+from md_mcp.paradox.nodes import Node, SymbolNode
+from md_mcp.util.encoding import read_text
+
+# pi-lens-ignore: reportMissingImports
+from md_mcp.util.line_numbers import line_starts, pos_to_line
+from md_mcp.util.pathing import resolve_scope_file
+from md_mcp.util.response import enforce_budget
 
 _ALL_KINDS: tuple = ("focus", "event", "idea", "sprite", "loc", "decision")
 _MAX_FILES = 200
@@ -108,7 +110,8 @@ def check_refs(
     if files:
         scope_files = list(files)
     else:
-        assert tag is not None
+        if tag is None:
+            return {"ok": False, "error": "tag required"}
         scope_files = focus_index.files_for_tag(tag)
 
     files_truncated = len(scope_files) > _MAX_FILES

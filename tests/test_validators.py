@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+# pi-lens-ignore: reportMissingImports
 import pytest
 
 from md_mcp.validators import SLOW_VALIDATORS, ValidatorRunner, available_validators

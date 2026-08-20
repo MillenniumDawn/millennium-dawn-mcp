@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import time
 
+# pi-lens-ignore: reportMissingImports
 import pytest
 
 from md_mcp.indexes import (

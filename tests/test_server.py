@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 
+# pi-lens-ignore: reportMissingImports
 import pytest
 
 from md_mcp.config import Settings

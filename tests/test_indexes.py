@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# pi-lens-ignore: reportMissingImports
 import pytest
 
 from md_mcp.indexes import FocusIndex, LocalisationIndex

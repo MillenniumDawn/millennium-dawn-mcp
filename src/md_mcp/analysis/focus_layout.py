@@ -58,7 +58,8 @@ def focus_layout(
         candidate_files = [file]
         scope_desc = {"file": file}
     else:
-        assert tag is not None
+        if tag is None:
+            return {"ok": False, "error": "tag required"}
         if focus_index is None:
             return {"ok": False, "error": "tag= scope requires the focus index."}
         prefix = tag.upper() + "_"

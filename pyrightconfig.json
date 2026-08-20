@@ -1,0 +1,11 @@
+{
+  "typeCheckingMode": "basic",
+  "pythonVersion": "3.12",
+  "pythonPath": ".venv/bin/python",
+  "extraPaths": ["src", "/home/kmccormick/Documents/github-projects/millennium-dawn-mcp/src", ".venv/lib/python3.12/site-packages"],
+  "executionEnvironments": [{ "root": "src" }, { "root": "tests" }],
+  "venvPath": "/home/kmccormick/Documents/github-projects/millennium-dawn-mcp",
+  "venv": ".venv",
+  "reportMissingImports": false,
+  "reportMissingTypeStubs": false
+}

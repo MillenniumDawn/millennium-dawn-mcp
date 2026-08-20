@@ -32,7 +32,7 @@ It is a **sibling** of `Millennium-Dawn/`, `MD-VSCode-Utility-Tool/`, and
 
 ## Repo layout
 
-```
+```plaintext
 src/md_mcp/
 ├── server.py            FastMCP instance + tool/resource registration + CLI
 ├── config.py            Settings dataclass; mod-root / vanilla / cache discovery
@@ -247,12 +247,14 @@ The ISR focus_graph probe in the git history is a useful template.
 
 | Env var | Effect |
 | --- | --- |
+<!-- markdownlint-disable MD013 -->
 | `MD_MOD_ROOT` | Path to the `Millennium-Dawn/` checkout. Required when not auto-discovered. |
 | `HOI4_PATH` | Path to vanilla `Hearts of Iron IV/`. Optional; doubles cold-build time. |
 | `MD_MCP_CACHE_DIR` | Override `.md-mcp-cache/` location (use for read-only checkouts). |
 | `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process`. `in_process` is unsafe under `serve`; see rule 6. |
 | `MD_MCP_DEFAULT_LANG` | Default loc language for `resolve_loc` (default `en`). |
 | `MD_MCP_SERIAL_PARSE` | `1` forces serial parsing — auto-set by `md-mcp serve`. |
+<!-- markdownlint-enable MD013 -->
 
 Config-file equivalents in `~/.config/md-mcp/config.toml`. CLI flag > env >
 file > computed default.

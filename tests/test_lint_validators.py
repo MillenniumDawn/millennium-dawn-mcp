@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
+# pi-lens-ignore: reportMissingImports
 import pytest
 
 from md_mcp.tools.lint_validators import (

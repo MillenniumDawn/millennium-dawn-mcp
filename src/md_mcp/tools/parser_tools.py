@@ -13,11 +13,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..paradox import parse_string as _parse_string_impl
-from ..paradox.schema import to_json_with_lines
-from ..util.encoding import read_text
-from ..util.line_numbers import line_starts, pos_to_line
-from ..util.response import enforce_budget
+from md_mcp.paradox import parse_string as _parse_string_impl
+from md_mcp.paradox.schema import to_json_with_lines
+from md_mcp.util.encoding import read_text
+
+# pi-lens-ignore: reportMissingImports
+from md_mcp.util.line_numbers import line_starts, pos_to_line
+from md_mcp.util.response import enforce_budget
 
 _DEFAULT_MAX_BYTES = 500_000
 

@@ -69,6 +69,7 @@ def build_server(settings: Settings):
     Returns the FastMCP instance.
     """
     try:
+        # pi-lens-ignore: reportMissingImports
         from mcp.server.fastmcp import FastMCP
     except ImportError as e:  # pragma: no cover
         raise SystemExit(

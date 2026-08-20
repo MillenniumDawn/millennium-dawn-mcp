@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable
 
+# pi-lens-ignore: reportMissingImports
 import pytest
 
 from md_mcp.tools.linting_tools import (

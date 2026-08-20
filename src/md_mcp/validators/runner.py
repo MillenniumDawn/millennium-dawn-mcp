@@ -257,7 +257,7 @@ class ValidatorRunner:
                     "validator": info.name,
                     "error": "Validator timed out after 600s",
                 }
-            except Exception as e:
+            except (OSError, ValueError, subprocess.SubprocessError) as e:
                 return {"ok": False, "validator": info.name, "error": str(e)}
 
             # A validator that dies before writing the payload must surface as a

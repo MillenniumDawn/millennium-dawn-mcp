@@ -401,7 +401,7 @@ def lint_tool(
         try:
             runner = validator_runner or ValidatorRunner(mod_root)
             available = {v.name for v in runner.list()}
-        except Exception as e:
+        except (OSError, RuntimeError, ImportError) as e:
             failed_name = "validator:style" if validators is None else "validator:setup"
             validator_setup_entries.append(
                 {

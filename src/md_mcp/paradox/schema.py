@@ -14,8 +14,10 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from ..util.line_numbers import line_starts, pos_to_line
-from .nodes import Node, SymbolNode
+from md_mcp.paradox.nodes import Node, SymbolNode
+
+# pi-lens-ignore: reportMissingImports
+from md_mcp.util.line_numbers import line_starts, pos_to_line
 
 
 def _starts(source: str | None) -> list[int] | None:

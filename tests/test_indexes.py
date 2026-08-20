@@ -2,9 +2,30 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
-from md_mcp.indexes import FocusIndex, LocalisationIndex
+from md_mcp.indexes import FocusIndex, IdeaIndex, LocalisationIndex
+
+_DUP_IDEA = "ideas = {\n\tcountry = {\n\t\tTST_dup = { picture = generic_idea }\n\t}\n}\n"
+_DUP_IDEA_3WAY = "ideas = {\n\tcountry = {\n\t\tTST_dup3 = { picture = generic_idea }\n\t}\n}\n"
+_DUP_IDEA_SAME_FILE = (
+    "ideas = {\n"
+    "\tcountry = {\n"
+    "\t\tTST_dup_same_file = { picture = generic_idea }\n"
+    "\t\tTST_dup_same_file = { picture = generic_idea }\n"
+    "\t}\n"
+    "}\n"
+)
+_DUP_TWO_KEYS = (
+    "ideas = {\n"
+    "\tcountry = {\n"
+    "\t\tTST_dup_x = { picture = generic_idea }\n"
+    "\t\tTST_dup_y = { picture = generic_idea }\n"
+    "\t}\n"
+    "}\n"
+)
 
 
 def test_focus_index_builds_from_fixture(fake_mod_root, cache_dir):
@@ -83,6 +104,153 @@ def test_loc_index_fallback_to_english(fake_mod_root, cache_dir):
     assert r is not None
     assert r["value"] == "The Root Focus"
     assert r["lang"] == "en"
+
+
+def test_generic_index_duplicates_empty_by_default(fake_mod_root, cache_dir):
+    idx = IdeaIndex(fake_mod_root, cache_dir, include_vanilla=False)
+    idx.ensure_fresh()
+    assert idx.duplicates() == {}
+
+
+def test_generic_index_logs_duplicate_key(tmp_path, cache_dir, caplog):
+    root = tmp_path / "DupMod"
+    ideas_dir = root / "common" / "ideas"
+    ideas_dir.mkdir(parents=True)
+    (ideas_dir / "a_ideas.txt").write_text(_DUP_IDEA, encoding="utf-8")
+    (ideas_dir / "b_ideas.txt").write_text(_DUP_IDEA, encoding="utf-8")
+
+    idx = IdeaIndex(root, cache_dir, include_vanilla=False)
+    with caplog.at_level(logging.WARNING):
+        idx.ensure_fresh()
+
+    rec = idx.resolve("TST_dup")
+    assert rec is not None
+    files = {"common/ideas/a_ideas.txt", "common/ideas/b_ideas.txt"}
+    winner = rec["file"]
+    shadowed = next(iter(files - {winner}))
+
+    assert idx.duplicates() == {"TST_dup": [shadowed]}
+
+    dup_warnings = [r for r in caplog.records if "TST_dup" in r.getMessage()]
+    assert len(dup_warnings) == 1
+    assert shadowed in dup_warnings[0].getMessage()
+    assert winner in dup_warnings[0].getMessage()
+
+
+def test_generic_index_three_way_duplicate_last_write_wins(tmp_path, cache_dir, caplog):
+    root = tmp_path / "DupMod3"
+    ideas_dir = root / "common" / "ideas"
+    ideas_dir.mkdir(parents=True)
+    (ideas_dir / "a_ideas.txt").write_text(_DUP_IDEA_3WAY, encoding="utf-8")
+    (ideas_dir / "b_ideas.txt").write_text(_DUP_IDEA_3WAY, encoding="utf-8")
+    (ideas_dir / "c_ideas.txt").write_text(_DUP_IDEA_3WAY, encoding="utf-8")
+
+    idx = IdeaIndex(root, cache_dir, include_vanilla=False)
+    with caplog.at_level(logging.WARNING):
+        idx.ensure_fresh()
+
+    # Processing order isn't alphabetical (it comes from a set difference in
+    # compute_staleness), so derive the expected order from the index's own
+    # bookkeeping rather than assuming a file name wins.
+    scan_order = list(idx._by_file.keys())
+    rec = idx.resolve("TST_dup3")
+    assert rec is not None
+    assert scan_order[-1] == rec["file"]
+    assert idx.duplicates() == {"TST_dup3": scan_order[:-1]}
+
+    dup_warnings = [r for r in caplog.records if "TST_dup3" in r.getMessage()]
+    assert len(dup_warnings) == 1
+
+
+def test_generic_index_duplicate_within_single_file(tmp_path, cache_dir, caplog):
+    root = tmp_path / "DupModSameFile"
+    ideas_dir = root / "common" / "ideas"
+    ideas_dir.mkdir(parents=True)
+    (ideas_dir / "a_ideas.txt").write_text(_DUP_IDEA_SAME_FILE, encoding="utf-8")
+
+    idx = IdeaIndex(root, cache_dir, include_vanilla=False)
+    with caplog.at_level(logging.WARNING):
+        idx.ensure_fresh()
+
+    rec = idx.resolve("TST_dup_same_file")
+    assert rec is not None
+    assert rec["file"] == "common/ideas/a_ideas.txt"
+    assert idx.duplicates() == {"TST_dup_same_file": ["common/ideas/a_ideas.txt"]}
+
+    dup_warnings = [r for r in caplog.records if "TST_dup_same_file" in r.getMessage()]
+    assert len(dup_warnings) == 1
+
+
+def test_generic_index_duplicate_cleared_after_fix(tmp_path, cache_dir):
+    root = tmp_path / "DupModFix"
+    ideas_dir = root / "common" / "ideas"
+    ideas_dir.mkdir(parents=True)
+    a_file = ideas_dir / "a_ideas.txt"
+    a_file.write_text(_DUP_IDEA, encoding="utf-8")
+    (ideas_dir / "b_ideas.txt").write_text(_DUP_IDEA, encoding="utf-8")
+
+    idx = IdeaIndex(root, cache_dir, include_vanilla=False)
+    idx.ensure_fresh()
+    assert "TST_dup" in idx.duplicates()
+
+    a_file.write_text(
+        "ideas = {\n\tcountry = {\n\t\tTST_no_longer_dup = { picture = generic_idea }\n\t}\n}\n",
+        encoding="utf-8",
+    )
+    idx._stale_check.force_next()
+    idx.ensure_fresh()
+
+    assert "TST_dup" not in idx.duplicates()
+    assert idx.resolve("TST_dup") is not None  # b_ideas.txt still defines it
+
+
+def test_generic_index_duplicates_populated_on_cache_hit(tmp_path, cache_dir):
+    root = tmp_path / "DupModCache"
+    ideas_dir = root / "common" / "ideas"
+    ideas_dir.mkdir(parents=True)
+    (ideas_dir / "a_ideas.txt").write_text(_DUP_IDEA, encoding="utf-8")
+    (ideas_dir / "b_ideas.txt").write_text(_DUP_IDEA, encoding="utf-8")
+
+    idx1 = IdeaIndex(root, cache_dir, include_vanilla=False)
+    idx1.ensure_fresh()
+    assert "TST_dup" in idx1.duplicates()  # sanity: the fixture above does collide
+
+    # A brand-new instance over the same cache dir loads from the persisted
+    # cache (nothing stale, no reparse) rather than rebuilding from scratch.
+    # `_rebuild` still recomputes duplicates from the cached per-file records,
+    # so this must report the collision too, not silently return {}. (The
+    # winner itself isn't pinned here: unlike the cache-hit path, which walks
+    # files in on-disk manifest order, a from-scratch build's file order comes
+    # from a set difference in compute_staleness and isn't guaranteed to match.)
+    idx2 = IdeaIndex(root, cache_dir, include_vanilla=False)
+    dups2 = idx2.duplicates()
+    assert "TST_dup" in dups2
+    rec2 = idx2.resolve("TST_dup")
+    assert rec2 is not None
+    files = {"common/ideas/a_ideas.txt", "common/ideas/b_ideas.txt"}
+    assert dups2["TST_dup"] == [f for f in files if f != rec2["file"]]
+
+
+def test_generic_index_duplicates_no_cross_key_interference(tmp_path, cache_dir, caplog):
+    root = tmp_path / "DupModTwoKeys"
+    ideas_dir = root / "common" / "ideas"
+    ideas_dir.mkdir(parents=True)
+    (ideas_dir / "a_ideas.txt").write_text(_DUP_TWO_KEYS, encoding="utf-8")
+    (ideas_dir / "b_ideas.txt").write_text(_DUP_TWO_KEYS, encoding="utf-8")
+
+    idx = IdeaIndex(root, cache_dir, include_vanilla=False)
+    with caplog.at_level(logging.WARNING):
+        idx.ensure_fresh()
+
+    dups = idx.duplicates()
+    assert set(dups.keys()) == {"TST_dup_x", "TST_dup_y"}
+    assert len(dups["TST_dup_x"]) == 1
+    assert len(dups["TST_dup_y"]) == 1
+
+    x_warnings = [r for r in caplog.records if "TST_dup_x" in r.getMessage()]
+    y_warnings = [r for r in caplog.records if "TST_dup_y" in r.getMessage()]
+    assert len(x_warnings) == 1
+    assert len(y_warnings) == 1
 
 
 @pytest.mark.integration

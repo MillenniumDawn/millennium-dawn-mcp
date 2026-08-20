@@ -21,7 +21,12 @@ from .indexes import (
 )
 from .paradox import parse_string
 from .paradox.nodes import Node, SymbolNode
-from .paradox.schema import find_decision_nodes, find_idea_nodes
+from .paradox.schema import (
+    find_decision_nodes,
+    find_event_nodes,
+    find_idea_nodes,
+    find_sprite_nodes,
+)
 from .util.encoding import read_text
 from .util.line_numbers import line_starts, pos_to_line
 
@@ -50,7 +55,7 @@ def loc_resource(
 
 
 def sprite_resource(name: str, settings: Settings, gfx_index: GfxIndex) -> str:
-    """Return the raw `spriteType = { ... }` block for the named sprite."""
+    """Return the raw `spriteType = { ... }` block for the named sprite, anchored to the index."""
     rec = gfx_index.resolve(name)
     if rec is None:
         raise KeyError(f"Sprite '{name}' not found")
@@ -58,16 +63,14 @@ def sprite_resource(name: str, settings: Settings, gfx_index: GfxIndex) -> str:
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
     text = read_text(abs_path)
-    return _extract_block_by_key(
-        text,
-        key="name",
-        value=name,
-        container_kinds={"spriteType", "corneredTileSpriteType", "frameAnimatedSpriteType"},
-    )
+    root = parse_string(text)
+    candidates = find_sprite_nodes(root, name)
+    node = _anchor(candidates, text, rec, kind="Sprite", ident=name)
+    return _slice_node(text, node)
 
 
 def event_resource(event_id: str, settings: Settings, event_index: EventIndex) -> str:
-    """Return the raw event block for `<namespace>.<n>`."""
+    """Return the raw event block for `<namespace>.<n>`, anchored to the indexed definition."""
     rec = event_index.resolve(event_id)
     if rec is None:
         raise KeyError(f"Event '{event_id}' not found")
@@ -75,18 +78,10 @@ def event_resource(event_id: str, settings: Settings, event_index: EventIndex) -
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
     text = read_text(abs_path)
-    return _extract_block_by_key(
-        text,
-        key="id",
-        value=event_id,
-        container_kinds={
-            "country_event",
-            "news_event",
-            "state_event",
-            "unit_leader_event",
-            "operative_leader_event",
-        },
-    )
+    root = parse_string(text)
+    candidates = find_event_nodes(root, event_id)
+    node = _anchor(candidates, text, rec, kind="Event", ident=event_id)
+    return _slice_node(text, node)
 
 
 def decision_resource(decision_id: str, settings: Settings, decision_index: DecisionIndex) -> str:
@@ -117,36 +112,6 @@ def idea_resource(idea_id: str, settings: Settings, idea_index: IdeaIndex) -> st
     candidates = find_idea_nodes(root, idea_id)
     node = _anchor(candidates, text, rec, kind="Idea", ident=idea_id)
     return _slice_node(text, node)
-
-
-def _extract_block_by_key(text: str, *, key: str, value: str, container_kinds: set[str]) -> str:
-    """Walk the AST for any `container = { key = value ... }` and return its source slice."""
-    from .paradox.nodes import SymbolNode
-
-    root = parse_string(text)
-
-    def walk(nodes):
-        for node in nodes:
-            if node.name in container_kinds:
-                target = node.get(key)
-                if target is not None:
-                    v = target.value
-                    matches = (isinstance(v, SymbolNode) and v.name == value) or (
-                        isinstance(v, str) and v == value
-                    )
-                    if matches and node.name_token and node.value_end_token:
-                        start = _line_start(text, node.name_token.start)
-                        return text[start : node.value_end_token.end]
-            if isinstance(node.value, list):
-                found = walk(node.value)
-                if found is not None:
-                    return found
-        return None
-
-    result = walk(root.children())
-    if result is None:
-        raise KeyError(f"{key}={value} not located in file")
-    return result
 
 
 def _anchor(candidates: list[Node], text: str, rec: dict, *, kind: str, ident: str) -> Node:

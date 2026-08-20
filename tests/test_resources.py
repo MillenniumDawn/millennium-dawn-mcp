@@ -180,3 +180,26 @@ def test_decision_resource_exact_source_preserved_with_comment(tmp_path):
 
     expected = "\tTST_commented = {\n\t\tcost = 30 # important note\n\t}"
     assert result == expected
+
+
+def test_extract_focus_block_raises_on_malformed_node(monkeypatch):
+    """A matching focus whose parse produced no position tokens raises KeyError
+    naming the focus, rather than silently returning empty text (issue #53)."""
+    from md_mcp import resources
+    from md_mcp.paradox.nodes import Node, SymbolNode
+
+    id_node = Node(name="id", value=SymbolNode("my_focus"))
+    # A matching shared_focus block with no name_token / value_end_token, i.e.
+    # a malformed parse that carries no position information.
+    focus = Node(
+        name="shared_focus",
+        value=[id_node],
+        name_token=None,
+        value_end_token=None,
+    )
+    root = Node(value=[focus])
+
+    monkeypatch.setattr(resources, "parse_string", lambda _text: root)
+
+    with pytest.raises(KeyError, match="my_focus"):
+        resources._extract_focus_block("shared_focus = { id = my_focus }", "my_focus")

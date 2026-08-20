@@ -38,6 +38,23 @@ class Validator:
 """
 )
 
+_WARNING_ONLY = (
+    _ISSUE_CLASS
+    + """
+class Validator:
+    TITLE = "WarnOnly"
+
+    def __init__(self, mod_path, output_file=None, use_colors=True, staged_only=False, **kw):
+        self._issues = []
+
+    def run_all_validations(self):
+        self._issues = [
+            _Issue(severity="warning", category="fake", message="w1", file="events/a.txt", line=1),
+            _Issue(severity="warning", category="fake", message="w2", file="events/a.txt", line=2),
+        ]
+"""
+)
+
 _BROKEN = "this is not valid python (\n"
 
 
@@ -88,3 +105,31 @@ def test_validate_single_validator_propagates_failure(fake_mod_root):
     )
     assert result["ok"] is False
     assert "SyntaxError" in result["error"]
+
+
+def test_validate_single_validator_strict_folds_warnings_into_errors(fake_mod_root):
+    _plant(fake_mod_root, "warnonly", _WARNING_ONLY)
+    result = validate_tool(
+        _settings(fake_mod_root),
+        ValidatorRunner(fake_mod_root),
+        validator="warnonly",
+        strict=True,
+    )
+    assert result["ok"] is True
+    assert result["counts"] == {"error": 2, "warning": 0, "info": 0}
+
+
+def test_validate_single_validator_non_strict_counts_unchanged(fake_mod_root):
+    _plant(fake_mod_root, "warnonly", _WARNING_ONLY)
+    result = validate_tool(
+        _settings(fake_mod_root), ValidatorRunner(fake_mod_root), validator="warnonly"
+    )
+    assert result["ok"] is True
+    assert result["counts"] == {"error": 0, "warning": 2, "info": 0}
+
+
+def test_validate_all_strict_still_folds_aggregate_counts(fake_mod_root):
+    _plant(fake_mod_root, "warnonly", _WARNING_ONLY)
+    result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root), strict=True)
+    assert result["ok"] is True
+    assert result["counts"] == {"error": 2, "warning": 0, "info": 0}

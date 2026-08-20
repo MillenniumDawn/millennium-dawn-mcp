@@ -24,6 +24,13 @@ def validate_list_tool(settings: Settings) -> dict:
     }
 
 
+def _apply_strict(counts: dict) -> dict:
+    """Fold the warning count into error and zero it out, in place."""
+    counts["error"] = counts.get("error", 0) + counts.get("warning", 0)
+    counts["warning"] = 0
+    return counts
+
+
 def _filter_and_cap(
     issues: List[dict],
     *,
@@ -66,6 +73,8 @@ def validate_tool(
         result = runner.run(validator, staged_only=staged_only, files=files)
         if not result.get("ok"):
             return result
+        if strict and "counts" in result:
+            result["counts"] = _apply_strict(result["counts"])
         issues = result.get("issues", [])
         kept, truncated, total = _filter_and_cap(issues, severity_min=severity_min, limit=limit)
         result["issues_total_after_filter"] = total
@@ -101,8 +110,7 @@ def validate_tool(
                 overall[k] = overall.get(k, 0) + n
 
     if strict:
-        overall["error"] = overall.get("error", 0) + overall.get("warning", 0)
-        overall["warning"] = 0
+        overall = _apply_strict(overall)
 
     kept, truncated, total = _filter_and_cap(aggregated, severity_min=severity_min, limit=limit)
 

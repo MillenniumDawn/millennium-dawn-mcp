@@ -9,7 +9,8 @@ import pytest
 
 from md_mcp.config import Settings
 from md_mcp.indexes import DecisionIndex, IdeaIndex
-from md_mcp.resources import decision_resource, idea_resource
+from md_mcp.paradox.nodes import Node, SymbolNode
+from md_mcp.resources import _extract_focus_block, decision_resource, idea_resource
 
 
 def _settings(mod_root: Path, cache_dir: Path) -> Settings:
@@ -180,3 +181,16 @@ def test_decision_resource_exact_source_preserved_with_comment(tmp_path):
 
     expected = "\tTST_commented = {\n\t\tcost = 30 # important note\n\t}"
     assert result == expected
+
+
+def test_extract_focus_block_malformed_node_raises_with_focus_id(monkeypatch):
+    focus_id = "TST_malformed"
+    malformed_focus = Node(
+        name="focus",
+        value=[Node(name="id", value=SymbolNode(focus_id))],
+    )
+    root = Node(value=[Node(name="focus_tree", value=[malformed_focus])])
+    monkeypatch.setattr("md_mcp.resources.parse_string", lambda _text: root)
+
+    with pytest.raises(KeyError, match=rf"Focus '{focus_id}'.*malformed parse"):
+        _extract_focus_block("", focus_id)

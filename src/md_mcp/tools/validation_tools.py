@@ -111,6 +111,12 @@ def validate_tool(
 
     if strict:
         overall = _apply_strict(overall)
+        # Fold each per-validator breakdown too, so the validators list still
+        # sums to the strict overall total. Done after the overall summing
+        # above, and on a copy, so the raw counts feeding `overall` are left
+        # untouched.
+        for entry in per_validator:
+            entry["counts"] = _apply_strict(dict(entry["counts"]))
 
     kept, truncated, total = _filter_and_cap(aggregated, severity_min=severity_min, limit=limit)
 

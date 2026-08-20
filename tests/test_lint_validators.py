@@ -155,7 +155,7 @@ _BROAD_HISTORY = {
             _BROAD_COMMON | {"oob_units", "style"},
         ),
         ("common/characters/USA.txt", _BROAD_COMMON | {"characters", "style"}),
-        ("common/country_leader/USA.txt", _BROAD_COMMON | {"style"}),
+        ("common/country_leader/USA.txt", _BROAD_COMMON | {"mios", "style"}),
         ("common/modifiers/USA.txt", _BROAD_COMMON | {"style"}),
         ("common/opinion_modifiers/USA.txt", _BROAD_COMMON | {"style"}),
         ("common/dynamic_modifiers/USA.txt", _BROAD_COMMON | {"modifiers", "style"}),
@@ -178,6 +178,11 @@ _BROAD_HISTORY = {
             "common/units/inf.txt",
             _BROAD_COMMON | {"ai_equipment", "ai_navy", "modifiers", "oob_units", "style"},
         ),
+        (
+            "common/units/equipment/infantry.txt",
+            _BROAD_COMMON | {"ai_equipment", "ai_navy", "mios", "modifiers", "oob_units", "style"},
+        ),
+        ("common/equipment_groups/00_groups.txt", _BROAD_COMMON | {"mios", "style"}),
         ("history/units/USA_2000.txt", _BROAD_HISTORY | {"oob_units", "style"}),
         (
             "history/countries/USA.txt",

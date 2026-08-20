@@ -65,6 +65,10 @@ EXPECTED_REGISTRY = {
     "validate_events": (("common/", ".txt"), ("events/", ".txt"), ("history/", ".txt")),
     "validate_mios": (
         ("common/military_industrial_organization/organizations/", ".txt"),
+        ("common/military_industrial_organization/policies/", ".txt"),
+        ("common/country_leader/", ".txt"),
+        ("common/units/equipment/", ".txt"),
+        ("common/equipment_groups/", ".txt"),
         ("localisation/english/", ".yml"),
     ),
 }
@@ -133,7 +137,12 @@ EXPECTED_CI_FILTERS = {
     "history": ("history/**",),
     "interface": ("interface/**",),
     "localisation": ("localisation/**",),
-    "mios": ("common/military_industrial_organization/**",),
+    "mios": (
+        "common/military_industrial_organization/**",
+        "common/country_leader/**",
+        "common/units/equipment/**",
+        "common/equipment_groups/**",
+    ),
     "national-focus": ("common/national_focus/**",),
     "on-actions": ("common/on_actions/**",),
     "oob": (

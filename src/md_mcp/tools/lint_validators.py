@@ -167,6 +167,10 @@ VALIDATOR_AUTO_MAP: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
     ("common/special_projects/", ("history", "oob_units")),
     ("common/technologies/", ("history", "technologies")),
     ("common/military_industrial_organization/", ("mios",)),
+    # mios reads company traits and equipment stats for its bonus checks.
+    ("common/country_leader/", ("mios",)),
+    ("common/units/equipment/", ("mios",)),
+    ("common/equipment_groups/", ("mios",)),
     ("common/scientist_traits/", ("scientist_traits",)),
     ("common/factions/", ("factions",)),
     ("common/defines/MD_defines.lua", ("defines",)),

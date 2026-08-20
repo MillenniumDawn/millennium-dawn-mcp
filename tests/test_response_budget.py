@@ -126,6 +126,22 @@ def test_clip_strings():
     assert out[1]["snippet"] == "xy"
 
 
+def test_clip_strings_counts_utf8_bytes_not_chars():
+    # Each euro sign is three UTF-8 bytes. Clipping to 4 bytes keeps one euro
+    # sign (3 bytes) and drops the partial second one instead of emitting
+    # invalid UTF-8 or overshooting to 4 characters (12 bytes).
+    items = [{"snippet": "€€€"}]
+    out = clip_strings(items, "snippet", 4)
+    assert out[0]["snippet"] == "€"
+    assert len(out[0]["snippet"].encode("utf-8")) <= 4
+
+
+def test_clip_strings_leaves_short_multibyte_untouched():
+    items = [{"snippet": "€"}]
+    out = clip_strings(items, "snippet", 3)
+    assert out[0]["snippet"] == "€"
+
+
 def test_validate_filter_and_cap_severity():
     issues = [
         {"severity": "info", "msg": "i"},

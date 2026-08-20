@@ -49,6 +49,9 @@ def enforce_budget(
     `size_truncated=True` on the result. This is a safety net — tools should
     still apply their own paginate/detail defaults so they never reach here.
 
+    The caller's input dict is never mutated: when over budget, drops are applied
+    to a shallow copy that is returned.
+
     Guarantees: the returned dict always JSON-encodes to `<= budget` UTF-8
     bytes and is always JSON-serializable, even if `result` itself isn't or
     if dropping every heavy key still leaves it over budget.
@@ -58,6 +61,12 @@ def enforce_budget(
             return result
     except (TypeError, ValueError) as exc:
         return _unserializable_result(exc, budget)
+
+    # Over budget: work on a shallow copy so the caller's original dict is left
+    # unchanged. Drops only touch top-level keys, so a shallow copy is enough.
+    # The happy path above returned before this point, so the copy only happens
+    # in the over-budget case.
+    result = dict(result)
 
     for k in heavy_keys:
         if k not in result:
@@ -123,12 +132,22 @@ def _bounded_fallback(result: dict, budget: int) -> dict:
     }
 
 
-def clip_strings(items: Iterable[dict], key: str, max_chars: int) -> List[dict]:
-    """Return a copy of `items` with `item[key]` clipped to `max_chars`."""
+def clip_strings(items: Iterable[dict], key: str, max_bytes: int) -> List[dict]:
+    """Return a copy of `items` with `item[key]` clipped to `max_bytes` UTF-8 bytes.
+
+    Clipping is by UTF-8 byte length, matching the byte budget the rest of this
+    module works in (see `enforce_budget` and `BUDGET_BYTES`). Counting Unicode
+    characters instead let a clipped multibyte string stay up to four times its
+    intended byte size, so a tool budgeting with `clip_strings` overshot before
+    `enforce_budget` caught it and dropped whole keys. A clip that would fall in
+    the middle of a multi-byte code point drops that partial code point rather
+    than emitting invalid UTF-8.
+    """
     out: List[dict] = []
     for it in items:
         v = it.get(key)
-        if isinstance(v, str) and len(v) > max_chars:
-            it = {**it, key: v[:max_chars]}
+        if isinstance(v, str) and len(v.encode("utf-8")) > max_bytes:
+            clipped = v.encode("utf-8")[:max_bytes].decode("utf-8", "ignore")
+            it = {**it, key: clipped}
         out.append(it)
     return out

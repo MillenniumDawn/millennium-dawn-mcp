@@ -204,6 +204,78 @@ SPRITES_WITH_COMMENT = (
     "}\n"
 )
 
+EVENTS_WITH_IMPOSTOR_SANDWICH = """add_namespace = TST
+
+country_event = {
+\tid = TST.9
+\ttitle = TST.9.t_before
+\timmediate = {
+\t\tcountry_event = {
+\t\t\tid = TST.5
+\t\t\ttitle = impostor_before.t
+\t\t}
+\t}
+}
+
+country_event = {
+\tid = TST.5
+\ttitle = TST.5.t_real
+}
+
+country_event = {
+\tid = TST.9
+\ttitle = TST.9.t_after
+\timmediate = {
+\t\tcountry_event = {
+\t\t\tid = TST.5
+\t\t\ttitle = impostor_after.t
+\t\t}
+\t}
+}
+"""
+
+SPRITES_WITH_IMPOSTOR_SANDWICH = """spriteTypes = {
+\tspriteType = {
+\t\tname = "GFX_before"
+\t\ttexturefile = "gfx/interface/before.dds"
+\t\tsomeBlock = {
+\t\t\tspriteType = {
+\t\t\t\tname = "GFX_mid"
+\t\t\t\ttexturefile = "gfx/interface/impostor_before.dds"
+\t\t\t}
+\t\t}
+\t}
+
+\tspriteType = {
+\t\tname = "GFX_mid"
+\t\ttexturefile = "gfx/interface/real.dds"
+\t}
+
+\tspriteType = {
+\t\tname = "GFX_after"
+\t\ttexturefile = "gfx/interface/after.dds"
+\t\tsomeBlock = {
+\t\t\tspriteType = {
+\t\t\t\tname = "GFX_mid"
+\t\t\t\ttexturefile = "gfx/interface/impostor_after.dds"
+\t\t\t}
+\t\t}
+\t}
+}
+"""
+
+SPRITES_WITH_BARE_AND_QUOTED_NAMES = """spriteTypes = {
+\tspriteType = {
+\t\tname = "GFX_quoted"
+\t\ttexturefile = "gfx/interface/quoted.dds"
+\t}
+\tspriteType = {
+\t\tname = GFX_bare
+\t\ttexturefile = "gfx/interface/bare.dds"
+\t}
+}
+"""
+
 
 def test_decision_resource_returns_real_definition_not_nested_impostor(tmp_path):
     mod_root = _write_decisions(tmp_path, DECISIONS_WITH_IMPOSTOR)
@@ -347,6 +419,34 @@ def test_event_resource_exact_source_preserved_with_comment(tmp_path):
     assert result == expected
 
 
+def test_event_resource_impostor_excluded_from_candidates_without_line(tmp_path):
+    # Even when the index has no line to disambiguate with, the nested impostor must
+    # never be a candidate at all -- only the real top-level event is in scope.
+    mod_root = _write_events(tmp_path, EVENTS_WITH_IMPOSTOR)
+    settings = _settings(mod_root, tmp_path / ".cache")
+    real_index = EventIndex(mod_root, settings.cache_dir)
+    rec = real_index.resolve("TST.2")
+    assert rec is not None
+    fake_index = _FakeIndex({**rec, "line": None})
+
+    result = event_resource("TST.2", settings, cast(EventIndex, fake_index))
+
+    assert "title = TST.2.t" in result
+    assert "impostor.t" not in result
+
+
+def test_event_resource_anchors_middle_definition_sandwiched_by_impostors(tmp_path):
+    mod_root = _write_events(tmp_path, EVENTS_WITH_IMPOSTOR_SANDWICH)
+    settings = _settings(mod_root, tmp_path / ".cache")
+    index = EventIndex(mod_root, settings.cache_dir)
+
+    result = event_resource("TST.5", settings, index)
+
+    assert "title = TST.5.t_real" in result
+    assert "impostor_before" not in result
+    assert "impostor_after" not in result
+
+
 def test_sprite_resource_returns_real_definition_not_nested_impostor(tmp_path):
     mod_root = _write_sprites(tmp_path, SPRITES_WITH_IMPOSTOR)
     settings = _settings(mod_root, tmp_path / ".cache")
@@ -407,6 +507,54 @@ def test_sprite_resource_exact_source_preserved_with_comment(tmp_path):
         '\t\ttexturefile = "gfx/interface/real.dds" # important note\n\t}'
     )
     assert result == expected
+
+
+def test_sprite_resource_impostor_excluded_from_candidates_without_line(tmp_path):
+    # Same guard as events: with no line to disambiguate, the deeply nested impostor
+    # must never even be a candidate.
+    mod_root = _write_sprites(tmp_path, SPRITES_WITH_IMPOSTOR)
+    settings = _settings(mod_root, tmp_path / ".cache")
+    real_index = GfxIndex(mod_root, settings.cache_dir)
+    rec = real_index.resolve("GFX_real")
+    assert rec is not None
+    fake_index = _FakeIndex({**rec, "line": None})
+
+    result = sprite_resource("GFX_real", settings, cast(GfxIndex, fake_index))
+
+    assert "gfx/interface/real.dds" in result
+    assert "decoy.dds" not in result
+
+
+def test_sprite_resource_anchors_middle_definition_sandwiched_by_impostors(tmp_path):
+    # GfxIndex's fast regex scanner (indexes/gfx.py) isn't hierarchy-restricted the way
+    # find_sprite_nodes is, so it can key "last occurrence wins" off a nested impostor
+    # when one sits after the real definition too -- out of scope for this PR's fix.
+    # Force line=None so this exercises find_sprite_nodes' hierarchy restriction
+    # directly: the two nested impostors (before and after) must never be candidates.
+    mod_root = _write_sprites(tmp_path, SPRITES_WITH_IMPOSTOR_SANDWICH)
+    settings = _settings(mod_root, tmp_path / ".cache")
+    real_index = GfxIndex(mod_root, settings.cache_dir)
+    rec = real_index.resolve("GFX_mid")
+    assert rec is not None
+    fake_index = _FakeIndex({**rec, "line": None})
+
+    result = sprite_resource("GFX_mid", settings, cast(GfxIndex, fake_index))
+
+    assert "gfx/interface/real.dds" in result
+    assert "impostor_before.dds" not in result
+    assert "impostor_after.dds" not in result
+
+
+def test_sprite_resource_anchors_bare_and_quoted_names(tmp_path):
+    mod_root = _write_sprites(tmp_path, SPRITES_WITH_BARE_AND_QUOTED_NAMES)
+    settings = _settings(mod_root, tmp_path / ".cache")
+    index = GfxIndex(mod_root, settings.cache_dir)
+
+    quoted = sprite_resource("GFX_quoted", settings, index)
+    bare = sprite_resource("GFX_bare", settings, index)
+
+    assert "gfx/interface/quoted.dds" in quoted
+    assert "gfx/interface/bare.dds" in bare
 
 
 def test_extract_focus_block_malformed_node_raises_with_focus_id(monkeypatch):

@@ -49,6 +49,9 @@ def enforce_budget(
     `size_truncated=True` on the result. This is a safety net — tools should
     still apply their own paginate/detail defaults so they never reach here.
 
+    The caller's input dict is never mutated: when over budget, drops are applied
+    to a shallow copy that is returned.
+
     Guarantees: the returned dict always JSON-encodes to `<= budget` UTF-8
     bytes and is always JSON-serializable, even if `result` itself isn't or
     if dropping every heavy key still leaves it over budget.
@@ -58,6 +61,12 @@ def enforce_budget(
             return result
     except (TypeError, ValueError) as exc:
         return _unserializable_result(exc, budget)
+
+    # Over budget: work on a shallow copy so the caller's original dict is left
+    # unchanged. Drops only touch top-level keys, so a shallow copy is enough.
+    # The happy path above returned before this point, so the copy only happens
+    # in the over-budget case.
+    result = dict(result)
 
     for k in heavy_keys:
         if k not in result:

@@ -239,6 +239,28 @@ _EVENT_KINDS = frozenset(
 )
 
 
+def _iter_event_definitions(root: Node) -> Iterator[Tuple[Node, str]]:
+    """Yield `(node, id_str)` for every node satisfying the event hierarchy."""
+    for top in root.children():
+        if top.name in _EVENT_KINDS:
+            id_str = _get_id(top)
+            if id_str:
+                yield top, id_str
+
+
+def _file_namespaces(root: Node) -> List[str]:
+    """Return every `add_namespace = X` declaration at the top level of a file."""
+    namespaces: List[str] = []
+    for top in root.children():
+        if top.name == "add_namespace":
+            ns_val = top.value
+            if isinstance(ns_val, SymbolNode):
+                namespaces.append(ns_val.name)
+            elif isinstance(ns_val, str):
+                namespaces.append(ns_val)
+    return namespaces
+
+
 def extract_event_records(root: Node, source: str | None = None) -> List[dict]:
     """Return every event definition: {id, kind, namespace, file_namespaces, line}.
 
@@ -247,41 +269,30 @@ def extract_event_records(root: Node, source: str | None = None) -> List[dict]:
     helpful for cross-checking the validator's "namespace mismatch" rule.
     """
     starts = _starts(source)
-    file_namespaces: List[str] = []
-    records: List[dict] = []
+    namespaces = _file_namespaces(root)
+    return [
+        {
+            "id": id_str,
+            "kind": node.name,
+            "namespace": id_str.partition(".")[0],
+            "line": (
+                pos_to_line(node.name_token.start, starts)
+                if starts is not None and node.name_token
+                else None
+            ),
+            "file_namespaces": list(namespaces),
+        }
+        for node, id_str in _iter_event_definitions(root)
+    ]
 
-    for top in root.children():
-        if top.name == "add_namespace":
-            ns_val = top.value
-            if isinstance(ns_val, SymbolNode):
-                file_namespaces.append(ns_val.name)
-            elif isinstance(ns_val, str):
-                file_namespaces.append(ns_val)
-            continue
 
-        if top.name in _EVENT_KINDS:
-            id_str = _get_id(top)
-            if not id_str:
-                continue
-            ns, _, _ = id_str.partition(".")
-            records.append(
-                {
-                    "id": id_str,
-                    "kind": top.name,
-                    "namespace": ns,
-                    "line": (
-                        pos_to_line(top.name_token.start, starts)
-                        if starts is not None and top.name_token
-                        else None
-                    ),
-                }
-            )
+def find_event_nodes(root: Node, event_id: str) -> List[Node]:
+    """Return every node in the AST satisfying the event hierarchy for `event_id`.
 
-    # Attach file_namespaces post-hoc so each record carries the file context.
-    for r in records:
-        r["file_namespaces"] = list(file_namespaces)
-
-    return records
+    Mirrors `extract_event_records`'s walk so resource handlers can anchor to the
+    same nodes the index was built from, instead of matching on name alone.
+    """
+    return [node for node, id_str in _iter_event_definitions(root) if id_str == event_id]
 
 
 # Common keywords that appear inside a decision category but are NOT decisions
@@ -499,49 +510,60 @@ _SPRITE_KINDS = frozenset(
 )
 
 
-def extract_sprite_records(root: Node, source: str | None = None) -> List[dict]:
-    """Return every sprite definition: {name, kind, texturefile, line, parent_block}.
+def _iter_sprite_definitions(root: Node) -> Iterator[Tuple[Node, str, str]]:
+    """Yield `(node, name, parent)` for every node satisfying the sprite hierarchy.
 
     Walks any `spriteTypes = { ... }` (or `spriteTypes_<x>`) block and pulls
     `spriteType = { name = "GFX_x" texturefile = "..." }` style entries (plus the
     other sprite-kind variants enumerated above).
     """
-    starts = _starts(source)
-    records: List[dict] = []
     for top in root.children():
-        if top.name and top.name.lower().startswith("spritetypes"):
-            for sprite in top.children():
-                if sprite.name and sprite.name in _SPRITE_KINDS:
-                    rec = _sprite_record(sprite, top.name, starts)
-                    if rec:
-                        records.append(rec)
-    return records
+        if not (top.name and top.name.lower().startswith("spritetypes")):
+            continue
+        for sprite in top.children():
+            if sprite.name not in _SPRITE_KINDS:
+                continue
+            name_node = sprite.get("name")
+            if name_node is None:
+                continue
+            name_val = name_node.value
+            if isinstance(name_val, SymbolNode):
+                name = name_val.name
+            elif isinstance(name_val, str):
+                name = name_val
+            else:
+                continue
+            yield sprite, name, top.name
 
 
-def _sprite_record(node: Node, parent: str, starts: list[int] | None) -> dict | None:
-    name_node = node.get("name")
-    if name_node is None:
-        return None
-    name_val = name_node.value
-    if isinstance(name_val, SymbolNode):
-        name = name_val.name
-    elif isinstance(name_val, str):
-        name = name_val
-    else:
-        return None
+def extract_sprite_records(root: Node, source: str | None = None) -> List[dict]:
+    """Return every sprite definition: {name, kind, texturefile, line, parent}."""
+    starts = _starts(source)
+    return [
+        {
+            "name": name,
+            "kind": node.name,
+            "texturefile": _scalar(node.get("texturefile")),
+            "parent": parent,
+            "line": (
+                pos_to_line(node.name_token.start, starts)
+                if starts is not None and node.name_token
+                else None
+            ),
+        }
+        for node, name, parent in _iter_sprite_definitions(root)
+    ]
 
-    texture_val = _scalar(node.get("texturefile"))
-    return {
-        "name": name,
-        "kind": node.name,
-        "texturefile": texture_val,
-        "parent": parent,
-        "line": (
-            pos_to_line(node.name_token.start, starts)
-            if starts is not None and node.name_token
-            else None
-        ),
-    }
+
+def find_sprite_nodes(root: Node, name: str) -> List[Node]:
+    """Return every node in the AST satisfying the sprite hierarchy for `name`.
+
+    Mirrors `extract_sprite_records`'s walk so resource handlers can anchor to the
+    same nodes the index was built from, instead of matching on name alone.
+    """
+    return [
+        node for node, sprite_name, _parent in _iter_sprite_definitions(root) if sprite_name == name
+    ]
 
 
 def _scalar(node: Node | None) -> Any:

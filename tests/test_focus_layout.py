@@ -5,6 +5,8 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
+import pytest
+
 from md_mcp.analysis.focus_layout import focus_layout
 from md_mcp.indexes import FocusIndex
 
@@ -224,3 +226,78 @@ def test_missing_relative_still_reported_per_referrer(tmp_path):
 
     missing = sorted(e["focus"] for e in out["chain_errors"] if e["error"] == "missing_relative")
     assert missing == ["TST_k1", "TST_k2", "TST_k3"]
+
+
+@pytest.mark.parametrize("limit", [-5, 0])
+def test_nonpositive_limit_clamped_to_empty_pages(tmp_path, limit):
+    rel = _write_tree(tmp_path)
+    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=limit)
+    assert out["positions"] == []
+    assert out["positions_total"] == 4
+    assert out["positions_truncated"] is True
+    assert out["collisions"] == []
+    assert out["collisions_total"] == 1
+    assert out["collisions_truncated"] is True
+    assert out["chain_errors"] == []
+    assert out["chain_errors_total"] == 2
+    assert out["chain_errors_truncated"] is True
+
+
+def test_limit_at_total_not_truncated(tmp_path):
+    rel = _write_tree(tmp_path)
+    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=4)
+    assert len(out["positions"]) == 4
+    assert out["positions_truncated"] is False
+    assert out["positions_total"] == 4
+    assert out["collisions_total"] == 1
+    assert out["collisions_truncated"] is False
+    assert out["chain_errors_total"] == 2
+    assert out["chain_errors_truncated"] is False
+
+
+def test_limit_one_below_total_truncated(tmp_path):
+    rel = _write_tree(tmp_path)
+    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=3)
+    assert len(out["positions"]) == 3
+    assert out["positions_truncated"] is True
+
+
+def test_negative_limit_without_positions_still_clamps(tmp_path):
+    rel = _write_tree(tmp_path)
+    out = focus_layout(tmp_path, None, file=rel, include_positions=False, limit=-1)
+    assert "positions" not in out
+    assert "positions_total" not in out
+    assert "positions_truncated" not in out
+    assert out["collisions"] == []
+    assert out["collisions_total"] == 1
+    assert out["collisions_truncated"] is True
+    assert out["chain_errors"] == []
+    assert out["chain_errors_total"] == 2
+    assert out["chain_errors_truncated"] is True
+
+
+def test_negative_limit_empty_collisions_not_truncated(tmp_path):
+    body = "focus_tree = {\n    focus = { id = TST_only x = 1 y = 1 }\n}\n"
+    rel = _write_tree(tmp_path, body, name="TST_single.txt")
+    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=-1)
+    assert out["positions"] == []
+    assert out["positions_total"] == 1
+    assert out["positions_truncated"] is True
+    assert out["collisions"] == []
+    assert out["collisions_total"] == 0
+    assert out["collisions_truncated"] is False
+    assert out["chain_errors"] == []
+    assert out["chain_errors_total"] == 0
+    assert out["chain_errors_truncated"] is False
+
+
+def test_limit_above_total_not_truncated(tmp_path):
+    rel = _write_tree(tmp_path)
+    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=100)
+    assert len(out["positions"]) == 4
+    assert out["positions_total"] == 4
+    assert out["positions_truncated"] is False
+    assert len(out["collisions"]) == 1
+    assert out["collisions_truncated"] is False
+    assert len(out["chain_errors"]) == 2
+    assert out["chain_errors_truncated"] is False

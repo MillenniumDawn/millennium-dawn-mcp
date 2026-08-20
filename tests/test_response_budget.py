@@ -60,6 +60,40 @@ def test_paginate_empty_with_negative_limit():
     assert truncated is False
 
 
+def test_paginate_limit_numeric_string():
+    items = list(range(10))
+    sliced, truncated, total = paginate(items, offset=0, limit="3")
+    assert sliced == [0, 1, 2]
+    assert truncated is True
+    assert total == 10
+
+
+def test_paginate_limit_none_uses_default():
+    items = list(range(300))
+    sliced, truncated, total = paginate(items, offset=0, limit=None)
+    assert len(sliced) == 200
+    assert truncated is True
+    assert total == 300
+
+
+def test_paginate_limit_float_truncates():
+    items = list(range(10))
+    sliced, truncated, total = paginate(items, offset=0, limit=3.5)
+    assert sliced == [0, 1, 2]
+    assert truncated is True
+    assert total == 10
+
+
+def test_paginate_limit_uncoercible_raises_value_error():
+    with pytest.raises(ValueError, match="limit"):
+        paginate(list(range(5)), offset=0, limit="not-a-number")
+
+
+def test_paginate_limit_infinity_raises_value_error():
+    with pytest.raises(ValueError, match="limit"):
+        paginate(list(range(5)), offset=0, limit=float("inf"))
+
+
 def test_enforce_budget_pass_through_when_small():
     result = {"ok": True, "items": list(range(5))}
     out = enforce_budget(result, heavy_keys=("items",))

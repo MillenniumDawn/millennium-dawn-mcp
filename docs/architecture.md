@@ -47,7 +47,7 @@ The arrows are import direction. Lower modules don't know about higher ones.
 3. **Implementation may**:
    - Read the **indexes** (`focus_index.resolve("ISR_x")`). The first call
      `ensure_fresh()`s the index — stat all contributing files, reparse only
-     ones whose `(mtime, size)` moved, persist `<mod_root>/.md-mcp-cache/v1/`.
+     ones whose `(mtime, size)` moved, persist `<mod_root>/.md-mcp-cache/v<N>/`.
    - Read source text via `util.encoding.read_text` (BOM-aware) and feed it
      through `paradox.parse_string`.
    - For validators: hand off to `ValidatorRunner` which imports

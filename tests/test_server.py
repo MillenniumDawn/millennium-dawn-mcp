@@ -136,6 +136,9 @@ def test_call_find_focuses_with_prereq(server):
     result = asyncio.new_event_loop().run_until_complete(go())
     payload = json.loads(_text(result))
     assert payload["ok"] is True
+    assert payload["partial"] is False
+    assert payload["skipped_files"] == 0
+    assert payload["skipped_records"] == 0
     ids = {m["id"] for m in payload["matches"]}
     assert ids == {"TST_branch_a", "TST_branch_b"}
 

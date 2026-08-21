@@ -7,14 +7,15 @@ parsed record is fetched on-demand to keep cache size manageable.
 Cold path parses in a ProcessPoolExecutor so the parser can use all cores; warm
 path remains in-process (single-stat refresh + dict diff).
 
-Cache layout (JSON, under <cache_dir>/v1/focus.data.json):
+Cache layout (JSON, under <cache_dir>/v2/focus.data.json):
     {
         "files": {
             "<relative_path>": [
                 {"id": "ISR_idf_modernization", "line": 42, "kind": "focus_tree"},
                 ...
             ]
-        }
+        },
+        "parse_errors": {"<relative_path>": "parse failed: ..."}
     }
 """
 
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -40,28 +42,38 @@ from .base import (
 
 logger = logging.getLogger(__name__)
 
-FOCUS_CACHE_VERSION = 1
+FOCUS_CACHE_VERSION = 2
 FOCUS_SUBDIR = "common/national_focus"
 
 
-def _parse_focus_file(abs_path: str, relpath: str) -> Optional[List[dict]]:
+@dataclass(frozen=True)
+class FocusParseResult:
+    records: Optional[List[dict]]
+    error: Optional[str] = None
+
+
+def _error_message(prefix: str, exc: Exception) -> str:
+    return f"{prefix}: {exc}"[:200]
+
+
+def _parse_focus_file(abs_path: str, relpath: str) -> FocusParseResult:
     """Module-level parser fn so ProcessPoolExecutor can pickle/dispatch it."""
     try:
         text = read_text(abs_path)
-    except OSError as e:
-        logger.warning("focus index: cannot read %s: %s", abs_path, e)
-        return None
+    except OSError as exc:
+        logger.warning("focus index: cannot read %s: %s", abs_path, exc)
+        return FocusParseResult(None, _error_message("read failed", exc))
     if not is_focus_file_content(text):
-        return []
+        return FocusParseResult([])
     try:
         root = parse_string(text, error_prefix=f"In file {relpath}:\n")
-    except Exception as e:
-        logger.warning("focus index: parse failed for %s: %s", abs_path, e)
-        return None
-    records = extract_focus_records(root, source=text)
-    # Strip heavy fields from the cache; keep only what `resolve` needs in the index.
-    # The detailed projection is recomputed on resolve_focus to keep cache small.
-    return [{"id": r["id"], "line": r["line"], "kind": r["kind"]} for r in records]
+        records = extract_focus_records(root, source=text)
+    except Exception as exc:
+        logger.warning("focus index: parse failed for %s: %s", abs_path, exc)
+        return FocusParseResult(None, _error_message("parse failed", exc))
+    return FocusParseResult(
+        [{"id": r["id"], "line": r["line"], "kind": r["kind"]} for r in records]
+    )
 
 
 class FocusIndex:
@@ -72,6 +84,7 @@ class FocusIndex:
         * `list_files()` → [relative_path, ...]
         * `list_keys()` / `list_ids()` → [focus_id, ...]
         * `records_for_file(file)` → [{id, line, kind}, ...]
+        * `parse_errors()` → [{file, error}, ...]
         * `ensure_fresh()` → re-stat and re-parse any modified files
     """
 
@@ -84,6 +97,7 @@ class FocusIndex:
         # In-process state, populated on first ensure_fresh().
         self._by_file: Dict[str, List[dict]] = {}
         self._by_id: Dict[str, dict] = {}  # focus_id → {file, line, kind, id}
+        self._parse_errors: Dict[str, str] = {}
         self._loaded = False
 
     # ------------------------------------------------------------------
@@ -117,6 +131,13 @@ class FocusIndex:
     def records_for_file(self, relative_path: str) -> List[dict]:
         self.ensure_fresh()
         return self._by_file.get(relative_path, [])
+
+    def parse_errors(self) -> List[dict]:
+        self.ensure_fresh()
+        return [
+            {"file": relpath, "error": error}
+            for relpath, error in sorted(self._parse_errors.items())
+        ]
 
     def ensure_fresh(self) -> None:
         if self._loaded and not self._stale_check.should_check():
@@ -160,21 +181,30 @@ class FocusIndex:
 
         if self._loaded:
             cached_files: Dict[str, List[dict]] = self._by_file
+            cached_errors = self._parse_errors
         else:
             cached_data = self._cache.load_data() or {}
             cached_files = cached_data.get("files", {})
+            cached_errors = cached_data.get("parse_errors", {})
 
         new_by_file: Dict[str, List[dict]] = {}
+        new_parse_errors: Dict[str, str] = {}
         for relpath in staleness.unchanged:
-            if relpath in cached_files:
+            if relpath in cached_errors:
+                new_parse_errors[relpath] = cached_errors[relpath]
+            elif relpath in cached_files:
                 new_by_file[relpath] = cached_files[relpath]
 
         files_to_parse = staleness.stale + staleness.added
         if files_to_parse:
             results = self._parse_parallel(files_to_parse)
-            for relpath, records in zip(files_to_parse, results, strict=False):
-                if records is not None:
-                    new_by_file[relpath] = records
+            for relpath, parsed in zip(files_to_parse, results, strict=False):
+                if parsed is None:
+                    new_parse_errors[relpath] = "parser worker failed"
+                elif parsed.records is not None:
+                    new_by_file[relpath] = parsed.records
+                else:
+                    new_parse_errors[relpath] = parsed.error or "parse failed"
 
         new_by_id: Dict[str, dict] = {}
         for relpath, records in new_by_file.items():
@@ -183,12 +213,13 @@ class FocusIndex:
 
         self._by_file = new_by_file
         self._by_id = new_by_id
+        self._parse_errors = new_parse_errors
 
         if files_to_parse or staleness.removed or not manifest:
-            self._cache.save_data({"files": new_by_file})
+            self._cache.save_data({"files": new_by_file, "parse_errors": new_parse_errors})
             self._cache.save_manifest(current_sigs)
 
-    def _parse_parallel(self, relpaths: List[str]) -> List[Optional[List[dict]]]:
+    def _parse_parallel(self, relpaths: List[str]) -> List[Optional[FocusParseResult]]:
         import os
 
         jobs: List[tuple] = []
@@ -201,7 +232,12 @@ class FocusIndex:
 
         serial = os.environ.get("MD_MCP_SERIAL_PARSE") == "1" or len(jobs) < 4
         if serial:
-            return [_parse_focus_file(abs_path, rp) if abs_path else None for abs_path, rp in jobs]
+            return [
+                _parse_focus_file(abs_path, rp)
+                if abs_path
+                else FocusParseResult(None, "file not found")
+                for abs_path, rp in jobs
+            ]
 
         ctx = _safe_process_context()
         workers = min(_default_workers(), len(jobs))

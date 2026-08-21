@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from typing import List, Sequence
 
+from ..util.response import enforce_budget
+
 
 def generate_loc_stub(
     keys: Sequence[dict],
@@ -52,10 +54,13 @@ def generate_loc_stub(
     if bom_prefix:
         body = "﻿" + body
 
-    return {
-        "txt": body,
-        "bytes_to_write": body.encode("utf-8"),
-    }
+    return enforce_budget(
+        {
+            "txt": body,
+            "bytes_to_write": body.encode("utf-8"),
+        },
+        heavy_keys=("bytes_to_write", "txt"),
+    )
 
 
 def _escape(value: str) -> str:

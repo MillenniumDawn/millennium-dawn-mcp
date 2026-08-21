@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from ..util.response import enforce_budget
+
 
 def generate_focus(
     *,
@@ -114,7 +116,10 @@ def generate_focus(
         {"key": f"{id}_desc", "value": desc_default},
     ]
 
-    return {"txt": txt, "loc_yml_keys": loc_yml_keys}
+    return enforce_budget(
+        {"txt": txt, "loc_yml_keys": loc_yml_keys},
+        heavy_keys=("txt", "loc_yml_keys"),
+    )
 
 
 def _indent_lines(block: str, tabs: int) -> List[str]:

@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
-from ..util.response import enforce_budget
+from ..util.response import BUDGET_BYTES, enforce_budget
 from ..validators import SLOW_VALIDATORS, ValidatorRunner
 from .lint_validators import run_validators_for_lint, select_validators
 
@@ -45,6 +45,57 @@ _LOC_ENC_BAD_RE = re.compile(r"^(?P<file>.+?):\s+Missing UTF-8 BOM.*$")
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 _SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2}
+
+# Leave room for status fields and stderr within the response budget.
+_MAX_REVIEW_REPORT_BYTES = max(1, BUDGET_BYTES - 12_000)
+
+
+def _clip_utf8(text: str, max_bytes: int) -> tuple[str, int, int, bool]:
+    """Return text clipped at a UTF-8 boundary plus size metadata."""
+    raw = text.encode("utf-8")
+    total = len(raw)
+    if total <= max_bytes:
+        return text, total, total, False
+    clipped = raw[:max_bytes].decode("utf-8", "ignore")
+    return clipped, total, len(clipped.encode("utf-8")), True
+
+
+def _review_payload(
+    base: str,
+    *,
+    proc: Optional[subprocess.CompletedProcess] = None,
+    error: Optional[str] = None,
+) -> dict:
+    """Shape and guard a review report on both subprocess paths."""
+    if proc is None:
+        bounded_error, _, _, _ = _clip_utf8(str(error or ""), 2_000)
+        result = {
+            "ok": False,
+            "base": base,
+            "error": bounded_error,
+            "report": "",
+            "report_bytes": 0,
+            "report_returned_bytes": 0,
+            "report_truncated": False,
+            "exit_code": None,
+            "stderr": "",
+        }
+    else:
+        raw_report = proc.stdout or ""
+        report, report_bytes, returned_bytes, report_truncated = _clip_utf8(
+            raw_report, _MAX_REVIEW_REPORT_BYTES
+        )
+        result = {
+            "ok": True,
+            "base": base,
+            "report": report,
+            "report_bytes": report_bytes,
+            "report_returned_bytes": returned_bytes,
+            "report_truncated": report_truncated,
+            "exit_code": proc.returncode,
+            "stderr": proc.stderr[-2000:] if proc.stderr else "",
+        }
+    return enforce_budget(result, heavy_keys=("report", "stderr", "error"))
 
 
 def _failure_payload(
@@ -138,24 +189,17 @@ def lint_common_mistakes_tool(
 
 
 def review_branch_tool(mod_root: Path, base: str = "main") -> dict:
-    """Run `tools/analysis/review_branch.py` and return its raw text summary.
+    """Run `tools/analysis/review_branch.py` and return a bounded text summary.
 
     The script produces a human-readable digest (commits, file diffs, content
-    summary). We return it as a single text blob — the agent can quote it or extract
-    the parts it needs.
+    summary). The report is clipped by UTF-8 bytes, with its original and returned
+    sizes exposed so callers can request a narrower review when needed.
     """
     script = mod_root / "tools" / "analysis" / "review_branch.py"
     proc, err = _run_script(script, mod_root, [base])
     if proc is None:
-        return {"ok": False, "error": err}
-
-    return {
-        "ok": True,
-        "base": base,
-        "report": proc.stdout,
-        "exit_code": proc.returncode,
-        "stderr": proc.stderr[-2000:] if proc.stderr else "",
-    }
+        return _review_payload(base, error=err)
+    return _review_payload(base, proc=proc)
 
 
 def _run_script(

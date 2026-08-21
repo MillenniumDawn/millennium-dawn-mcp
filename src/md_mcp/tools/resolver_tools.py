@@ -22,6 +22,7 @@ from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records
 from ..util.encoding import read_text
 from ..util.pathing import resolve_scope_file
+from ..util.response import enforce_budget
 
 
 def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusIndex) -> dict:
@@ -71,22 +72,25 @@ def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusInde
             "warning": "Focus disappeared from file since index was built — rerun stale check",
         }
 
-    return {
-        "ok": True,
-        "id": focus_id,
-        "file": cached["file"],
-        "line": detail["line"] or cached["line"],
-        "kind": cached["kind"],
-        "parsed": {
-            "x": detail["x"],
-            "y": detail["y"],
-            "cost": detail["cost"],
-            "icon": detail["icon"],
-            "prerequisites": detail["prerequisites"],
-            "mutually_exclusive": detail["mutually_exclusive"],
-            "relative_position_id": detail["relative_position_id"],
+    return enforce_budget(
+        {
+            "ok": True,
+            "id": focus_id,
+            "file": cached["file"],
+            "line": detail["line"] or cached["line"],
+            "kind": cached["kind"],
+            "parsed": {
+                "x": detail["x"],
+                "y": detail["y"],
+                "cost": detail["cost"],
+                "icon": detail["icon"],
+                "prerequisites": detail["prerequisites"],
+                "mutually_exclusive": detail["mutually_exclusive"],
+                "relative_position_id": detail["relative_position_id"],
+            },
         },
-    }
+        heavy_keys=("parsed",),
+    )
 
 
 def resolve_loc_tool(
@@ -134,15 +138,18 @@ def resolve_event_tool(event_id: str, settings: Settings, event_index: EventInde
     rec = event_index.resolve(event_id)
     if rec is None:
         return {"ok": False, "id": event_id, "error": "Event not found"}
-    return {
-        "ok": True,
-        "id": rec["id"],
-        "kind": rec.get("kind"),
-        "namespace": rec.get("namespace"),
-        "file": rec["file"],
-        "line": rec["line"],
-        "file_namespaces": rec.get("file_namespaces", []),
-    }
+    return enforce_budget(
+        {
+            "ok": True,
+            "id": rec["id"],
+            "kind": rec.get("kind"),
+            "namespace": rec.get("namespace"),
+            "file": rec["file"],
+            "line": rec["line"],
+            "file_namespaces": rec.get("file_namespaces", []),
+        },
+        heavy_keys=("file_namespaces",),
+    )
 
 
 def resolve_decision_tool(

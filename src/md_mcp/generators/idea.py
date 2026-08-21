@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from ..util.response import enforce_budget
+
 
 def generate_idea(
     *,
@@ -94,13 +96,16 @@ def generate_idea(
 
     parts.append("\t\t}")
 
-    return {
-        "txt": "\n".join(parts),
-        "loc_yml_keys": [
-            {"key": id, "value": title or id.replace("_", " ").title()},
-            {"key": f"{id}_desc", "value": description or "TODO: idea description."},
-        ],
-    }
+    return enforce_budget(
+        {
+            "txt": "\n".join(parts),
+            "loc_yml_keys": [
+                {"key": id, "value": title or id.replace("_", " ").title()},
+                {"key": f"{id}_desc", "value": description or "TODO: idea description."},
+            ],
+        },
+        heavy_keys=("txt", "loc_yml_keys"),
+    )
 
 
 def _indent(block: str, tabs: int) -> List[str]:

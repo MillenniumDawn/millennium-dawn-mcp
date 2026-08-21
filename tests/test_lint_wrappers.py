@@ -9,9 +9,12 @@ then assert the parser produces the right structured issues.
 from __future__ import annotations
 
 import inspect
+import json
 from pathlib import Path
 
-from md_mcp.tools.linting_tools import lint_mod_encoding_tool
+from md_mcp.tools import linting_tools
+from md_mcp.tools.linting_tools import lint_mod_encoding_tool, review_branch_tool
+from md_mcp.util.response import BUDGET_BYTES
 
 
 def _make_script(root: Path, rel: str, body: str) -> Path:
@@ -36,6 +39,46 @@ def test_signatures_lock_api():
         params = inspect.signature(fn).parameters
         for p in required:
             assert p in params, f"{fn.__name__} missing param: {p}"
+
+
+# ---------------------------------------------------------------------------
+# review_branch
+# ---------------------------------------------------------------------------
+
+
+def test_review_branch_clips_report_by_utf8_bytes(tmp_path):
+    _make_script(
+        tmp_path,
+        "tools/analysis/review_branch.py",
+        'print("€" * 50_000)\n',
+    )
+
+    out = review_branch_tool(tmp_path, base="develop")
+
+    assert out["ok"] is True
+    assert out["base"] == "develop"
+    assert out["exit_code"] == 0
+    assert out["stderr"] == ""
+    assert out["report_truncated"] is True
+    assert out["report_bytes"] > out["report_returned_bytes"]
+    assert len(out["report"].encode("utf-8")) == out["report_returned_bytes"]
+    assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+
+
+def test_review_branch_failure_path_is_budget_guarded(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        linting_tools,
+        "_run_script",
+        lambda *args, **kwargs: (None, "x" * 200_000),
+    )
+
+    out = review_branch_tool(tmp_path, base="develop")
+
+    assert out["ok"] is False
+    assert out["base"] == "develop"
+    assert out["exit_code"] is None
+    assert out["stderr"] == ""
+    assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
 
 
 # ---------------------------------------------------------------------------

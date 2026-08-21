@@ -213,8 +213,10 @@ Two scripts in `Millennium-Dawn/tools/` aren't validator-shaped:
   structured issues (with severity hardcoded to `warning`), alongside the
   other `tools/linting/` scripts it dispatches.
 - `tools/analysis/review_branch.py` produces a freeform human-readable
-  report. The MCP tool returns the raw text as `report`; the agent extracts
-  what it needs.
+  report. The MCP tool returns it as a UTF-8-byte-bounded `report`, with
+  `report_bytes`, `report_returned_bytes`, and `report_truncated` metadata.
+  `ok`, `base`, `exit_code`, and `stderr` remain present on subprocess success
+  and failure paths.
 
 Both run via subprocess. They're independent of `ValidatorRunner`.
 

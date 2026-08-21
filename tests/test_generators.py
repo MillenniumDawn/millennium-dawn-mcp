@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 
 import pytest
 
@@ -24,6 +25,7 @@ from md_mcp.paradox.schema import (
     extract_idea_records,
     extract_sprite_records,
 )
+from md_mcp.util.response import BUDGET_BYTES
 
 
 def test_focus_round_trips_and_extracts_correctly():
@@ -94,6 +96,28 @@ def test_event_invalid_kind_rejected():
 def test_event_too_many_options_rejected():
     with pytest.raises(ValueError):
         generate_event(namespace="X", number=1, options=[{}] * 27)
+
+
+def test_event_invalid_ai_chance_rejected():
+    with pytest.raises(ValueError, match="ai_chance must be an integer"):
+        generate_event(namespace="X", number=1, options=[{"ai_chance": "bad"}])
+
+
+def test_simple_generators_bound_oversized_payloads():
+    huge = "x" * 120_000
+    results = [
+        generate_focus(id="TST_x", tag="TST", x=0, y=0, completion_reward=huge),
+        generate_event(namespace="TST", number=1, options=[{"effects": huge}]),
+        generate_decision(id="TST_dec", complete_effect=huge),
+        generate_idea(id="TST_idea", modifier=huge),
+        generate_gfx_entry(name=huge, texturefile="gfx/test.dds"),
+        generate_loc_stub([{"key": "K", "value": huge}]),
+    ]
+
+    for result in results:
+        assert result["size_truncated"] is True
+        assert result["txt_dropped"] > 0
+        assert len(json.dumps(result, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
 
 
 def test_decision_round_trips():

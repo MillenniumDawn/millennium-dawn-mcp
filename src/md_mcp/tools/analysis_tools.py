@@ -10,7 +10,7 @@ from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records
 from ..util.encoding import read_text
 from ..util.pathing import resolve_scope_file
-from ..util.response import enforce_budget
+from ..util.response import coerce_int, enforce_budget, paginate
 
 _MAX_PARTIAL_ERRORS = 20
 _MAX_MISSING_RECORD_IDS = 5
@@ -25,7 +25,8 @@ def find_focuses_tool(
     has_prereq: Optional[str] = None,
     mutex_with: Optional[str] = None,
     kind: Optional[str] = None,
-    limit: int = 200,
+    limit: int | float | str | None = 200,
+    offset: int | float | str | None = 0,
 ) -> dict:
     """Predicate search over the focus index.
 
@@ -36,10 +37,16 @@ def find_focuses_tool(
       * `mutex_with`  — focus lists this id in its `mutually_exclusive` block
       * `kind`        — restrict to `focus_tree`, `shared_focus`, or `joint_focus`
 
-    Returns up to `limit` matches with file, line, and kind. For deep-detail filters
-    (`has_prereq`, `mutex_with`), this re-parses the candidate files — sublinear in
-    practice because tag/kind filters prune first.
+    Returns a paginated match list with file, line, kind, and total/returned/truncated
+    metadata. For deep-detail filters (`has_prereq`, `mutex_with`), this re-parses
+    candidate files — sublinear in practice because tag/kind filters prune first.
     """
+    try:
+        limit = coerce_int(limit, name="limit", default=200)
+        offset = coerce_int(offset, name="offset", default=0)
+    except ValueError as exc:
+        return enforce_budget({"ok": False, "error": str(exc)})
+
     focus_index.ensure_fresh()
     index_errors = focus_index.parse_errors()
     matches: List[dict] = []
@@ -64,7 +71,8 @@ def find_focuses_tool(
         partial_errors.extend(deep_errors)
         skipped_files.update(deep_skipped_files)
 
-    for rec in candidates[:limit]:
+    match_page, truncated, total = paginate(candidates, offset=offset, limit=limit)
+    for rec in match_page:
         matches.append(
             {"id": rec["id"], "file": rec["file"], "line": rec["line"], "kind": rec["kind"]}
         )
@@ -79,9 +87,10 @@ def find_focuses_tool(
         "partial_errors_total": partial_errors_total,
         "partial_errors": partial_errors,
         "partial_errors_truncated": partial_errors_total > len(partial_errors),
-        "total": len(candidates),
+        "total": total,
+        "returned": len(matches),
         "count": len(matches),
-        "truncated": len(candidates) > limit,
+        "truncated": truncated,
         "matches": matches,
     }
     return enforce_budget(result, heavy_keys=("matches", "partial_errors"))

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from ..util.response import enforce_budget
+
 
 def generate_decision(
     *,
@@ -120,13 +122,16 @@ def generate_decision(
 
     parts.append("\t}")
 
-    return {
-        "txt": "\n".join(parts),
-        "loc_yml_keys": [
-            {"key": id, "value": title or id.replace("_", " ").title()},
-            {"key": f"{id}_desc", "value": description or "TODO: decision description."},
-        ],
-    }
+    return enforce_budget(
+        {
+            "txt": "\n".join(parts),
+            "loc_yml_keys": [
+                {"key": id, "value": title or id.replace("_", " ").title()},
+                {"key": f"{id}_desc", "value": description or "TODO: decision description."},
+            ],
+        },
+        heavy_keys=("txt", "loc_yml_keys"),
+    )
 
 
 def _indent(block: str, tabs: int) -> List[str]:

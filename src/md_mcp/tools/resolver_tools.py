@@ -7,7 +7,6 @@ the absence without exceptions.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional
 
 from ..config import Settings
@@ -22,6 +21,7 @@ from ..indexes import (
 from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records
 from ..util.encoding import read_text
+from ..util.pathing import resolve_scope_file
 
 
 def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusIndex) -> dict:
@@ -35,7 +35,7 @@ def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusInde
     if cached is None:
         return {"ok": False, "id": focus_id, "error": "Focus not found in mod or vanilla"}
 
-    abs_path = _resolve_file(cached["file"], settings)
+    abs_path = resolve_scope_file(cached["file"], settings.mod_root, settings.vanilla_path)
     if abs_path is None:
         return {
             "ok": True,
@@ -174,14 +174,3 @@ def resolve_idea_tool(idea_id: str, settings: Settings, idea_index: IdeaIndex) -
         "file": rec["file"],
         "line": rec["line"],
     }
-
-
-def _resolve_file(relative: str, settings: Settings) -> Optional[Path]:
-    p1 = settings.mod_root / relative
-    if p1.exists():
-        return p1
-    if settings.vanilla_path is not None:
-        p2 = settings.vanilla_path / relative
-        if p2.exists():
-            return p2
-    return None

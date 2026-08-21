@@ -135,7 +135,7 @@ def _anchor(candidates: list[Node], text: str, rec: dict, *, kind: str, ident: s
         if not on_line:
             raise KeyError(
                 f"{kind} '{ident}' index points at line {line} but no matching definition sits "
-                "there; the index is stale — delete <mod_root>/.md-mcp-cache/v1/ and rerun "
+                "there; the index is stale — delete <mod_root>/.md-mcp-cache/ and rerun "
                 "`md-mcp build-index`"
             )
         return on_line[0]

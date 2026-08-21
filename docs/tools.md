@@ -285,7 +285,14 @@ Predicate search over the focus index. Filters are AND-combined.
 - `kind` — `focus_tree`, `shared_focus`, `joint_focus`
 - `limit=200`
 
-Returns `{ok, count, truncated, matches: [{id, file, line, kind}]}`.
+Returns `{ok, partial, skipped_files, skipped_records, partial_errors_total,
+partial_errors, partial_errors_truncated, total, count, truncated,
+matches: [{id, file, line, kind}]}`.
+
+`partial=true` means the index or a deep reparse could not evaluate one or more
+files or indexed records. Valid matches are still returned. `partial_errors`
+contains at most 20 file and reason entries; `partial_errors_truncated` marks
+additional omitted details.
 
 ### `find_references(kind, target, limit?, offset?, snippet_chars?, files_only?) -> dict`
 

@@ -62,13 +62,34 @@ def test_focus_index_warm_path_is_noop(fake_mod_root, cache_dir):
 def test_focus_index_cache_persisted(fake_mod_root, cache_dir):
     fi = FocusIndex(fake_mod_root, cache_dir)
     fi.ensure_fresh()
-    assert (cache_dir / "v1" / "focus.manifest.json").exists()
-    assert (cache_dir / "v1" / "focus.data.json").exists()
+    assert (cache_dir / "v2" / "focus.manifest.json").exists()
+    assert (cache_dir / "v2" / "focus.data.json").exists()
 
     # Second instance reads cache + ensures freshness; no exception, matching ids.
     fi2 = FocusIndex(fake_mod_root, cache_dir)
     fi2.ensure_fresh()
     assert sorted(fi2.list_ids()) == sorted(fi.list_ids())
+
+
+def test_focus_index_reports_parse_errors_from_parallel_build(
+    fake_mod_root, cache_dir, monkeypatch
+):
+    monkeypatch.delenv("MD_MCP_SERIAL_PARSE", raising=False)
+    focus_dir = fake_mod_root / "common" / "national_focus"
+    for number in range(3):
+        (focus_dir / f"parallel_{number}.txt").write_text(
+            f"focus_tree = {{ focus = {{ id = TST_parallel_{number} }} }}", encoding="utf-8"
+        )
+    (focus_dir / "parallel_broken.txt").write_text(
+        "focus_tree = { focus = { id = TST_broken x = {{{", encoding="utf-8"
+    )
+
+    index = FocusIndex(fake_mod_root, cache_dir)
+    index.ensure_fresh()
+
+    errors = index.parse_errors()
+    assert errors[0]["file"] == "common/national_focus/parallel_broken.txt"
+    assert errors[0]["error"].startswith("parse failed:")
 
 
 def test_loc_index_extracts_keys_and_values(fake_mod_root, cache_dir):

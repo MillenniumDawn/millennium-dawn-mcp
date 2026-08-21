@@ -100,6 +100,19 @@ def test_lint_mod_encoding_no_files_skipped(tmp_path):
     assert out["issues"] == []
 
 
+def test_lint_mod_encoding_explicit_empty_files_skipped(tmp_path):
+    """files=[] is an empty scope, same as discovering nothing."""
+    _make_script(
+        tmp_path,
+        "tools/linting/validate_mod_encoding.py",
+        "import sys\nprint('should not run')\nsys.exit(1)\n",
+    )
+    out = lint_mod_encoding_tool(tmp_path, files=[])
+    assert out["ok"] is True
+    assert out["total"] == 0
+    assert out["skipped"] == "no .mod files found"
+
+
 # ---------------------------------------------------------------------------
 # Budget guard
 # ---------------------------------------------------------------------------

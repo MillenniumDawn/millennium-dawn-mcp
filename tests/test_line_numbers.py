@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from md_mcp.paradox import parse_string
 from md_mcp.paradox.schema import extract_focus_records, to_json_with_lines
-from md_mcp.util.line_numbers import line_starts, pos_to_line
+from md_mcp.util.line_numbers import line_and_column, line_starts, pos_to_line
 
 # ---------------------------------------------------------------------------
 # line_starts — shape
@@ -51,6 +51,15 @@ def test_line_starts_trailing_newline_with_content():
 def test_pos_to_line_at_zero_is_line_one():
     starts = line_starts("a\nb\nc")
     assert pos_to_line(0, starts) == 1
+
+
+def test_line_and_column_at_offsets():
+    starts = line_starts("ab\ncd\nef")
+    assert line_and_column(0, starts) == (1, 1)
+    assert line_and_column(2, starts) == (1, 3)
+    assert line_and_column(3, starts) == (2, 1)
+    assert line_and_column(4, starts) == (2, 2)
+    assert line_and_column(7, starts) == (3, 2)
 
 
 def test_pos_to_line_inside_first_line():

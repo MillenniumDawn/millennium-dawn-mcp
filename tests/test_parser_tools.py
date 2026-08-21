@@ -105,3 +105,9 @@ def test_parse_file_rejects_unsupported_extension(mod_root):
     out = parse_file_tool("notes.md", mod_root)
     assert out["ok"] is False
     assert "extension" in out["error"]
+
+
+def test_parse_file_rejects_empty_and_dot_paths(mod_root):
+    for hostile in ["", ".", "./"]:
+        out = parse_file_tool(hostile, mod_root)
+        assert out["ok"] is False, f"accepted {hostile!r}: {out}"

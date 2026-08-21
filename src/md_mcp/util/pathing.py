@@ -10,11 +10,16 @@ Resolution order (matches plan):
 from __future__ import annotations
 
 import os
-from pathlib import Path, PurePath
+from pathlib import Path
+from typing import Collection
 
 
 class ModRootNotFound(RuntimeError):
     pass
+
+
+class PathAccessError(ValueError):
+    """A user-supplied path escapes the allowed content roots or fails a file check."""
 
 
 def find_mod_root(explicit: str | Path | None = None, start: Path | None = None) -> Path:
@@ -67,19 +72,60 @@ def resolve_scope_file(relpath: str, mod_root: Path, vanilla_path: Path | None) 
     for root in (mod_root, vanilla_path):
         if root is None:
             continue
-        p = _contained(root, relpath)
+        p = contained(root, relpath)
         if p is not None and p.exists():
             return p
     return None
 
 
-def _contained(root: Path, relpath: str) -> Path | None:
-    """`root / relpath`, or None if it escapes `root` or isn't a usable path."""
-    if PurePath(relpath).is_absolute():
-        return None
+def contained(root: Path, path: str | Path) -> Path | None:
+    """`root / path` (absolute `path` passes through), or None if it escapes `root`.
+
+    Resolves symlinks and `..` before the containment check, so symlink and
+    traversal escapes are caught by the same test.
+    """
     try:
-        candidate = (root / relpath).resolve()
+        candidate = Path(path)
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        candidate = candidate.resolve()
         candidate.relative_to(root.resolve())
     except (ValueError, OSError, RuntimeError):
         return None
     return candidate
+
+
+def validate_user_path(
+    path: str | Path,
+    roots: Path | list[Path],
+    *,
+    extensions: Collection[str] | None = None,
+    require_file: bool = False,
+) -> Path:
+    """Resolve a user-supplied path against content roots, raising on escape.
+
+    Relative paths resolve against the first root; absolute paths are used as-is.
+    The resolved location must land inside at least one of `roots`. With
+    `require_file`, the target must be a regular file; with `extensions`, its
+    suffix must be in the allowlist.
+
+    Raises `PathAccessError` when any check fails.
+    """
+    root_list = [roots] if isinstance(roots, Path) else list(roots)
+    first = next(r for r in root_list if r is not None)
+    p = Path(path)
+    candidate = p if p.is_absolute() else first / p
+    resolved = candidate.resolve()
+
+    if not any(resolved.is_relative_to(root.resolve()) for root in root_list):
+        allowed = " or ".join(str(root) for root in root_list)
+        raise PathAccessError(f"{path!r} is outside the allowed content roots ({allowed})")
+
+    if require_file and not resolved.is_file():
+        raise PathAccessError(f"{resolved} is not a regular file")
+
+    if extensions is not None and resolved.suffix not in extensions:
+        allowed_ext = ", ".join(sorted(extensions))
+        raise PathAccessError(f"{resolved} has an unsupported extension (allowed: {allowed_ext})")
+
+    return resolved

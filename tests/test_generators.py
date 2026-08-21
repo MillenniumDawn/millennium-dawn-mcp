@@ -433,3 +433,12 @@ def test_generate_gfx_merge_rejects_path_escape(tmp_path):
     )
     assert r["ok"] is False
     assert "escapes mod root" in r["error"]
+
+
+def test_generate_gfx_merge_rejects_gfx_file_escape(tmp_path):
+    tex = tmp_path / "gfx"
+    tex.mkdir()
+    (tex / "a.dds").write_bytes(b"x")
+    r = generate_gfx_merge(tmp_path, texture_dir="gfx", gfx_file="../outside.gfx", prefix="GFX_")
+    assert r["ok"] is False
+    assert "gfx_file escapes mod root" in r["error"]

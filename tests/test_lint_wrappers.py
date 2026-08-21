@@ -86,16 +86,31 @@ def test_lint_mod_encoding_missing_script(tmp_path):
     assert "validate_mod_encoding.py" in out["error"]
 
 
-def test_lint_mod_encoding_no_files_error(tmp_path):
-    """No .mod files found → ok=False rather than running the script with empty args."""
+def test_lint_mod_encoding_no_files_skipped(tmp_path):
+    """No .mod files found → skipped rather than running the script with empty args."""
     _make_script(
         tmp_path,
         "tools/linting/validate_mod_encoding.py",
         "import sys\nsys.exit(0)\n",
     )
     out = lint_mod_encoding_tool(tmp_path)
-    assert out["ok"] is False
-    assert ".mod" in out["error"]
+    assert out["ok"] is True
+    assert out["total"] == 0
+    assert out["skipped"] == "no .mod files found"
+    assert out["issues"] == []
+
+
+def test_lint_mod_encoding_explicit_empty_files_skipped(tmp_path):
+    """files=[] is an empty scope, same as discovering nothing."""
+    _make_script(
+        tmp_path,
+        "tools/linting/validate_mod_encoding.py",
+        "import sys\nprint('should not run')\nsys.exit(1)\n",
+    )
+    out = lint_mod_encoding_tool(tmp_path, files=[])
+    assert out["ok"] is True
+    assert out["total"] == 0
+    assert out["skipped"] == "no .mod files found"
 
 
 # ---------------------------------------------------------------------------

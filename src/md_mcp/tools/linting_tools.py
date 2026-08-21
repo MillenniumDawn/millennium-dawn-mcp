@@ -244,10 +244,14 @@ def lint_mod_encoding_tool(
     script = mod_root / "tools" / "linting" / "validate_mod_encoding.py"
     if files is None:
         files = [str(p.relative_to(mod_root)) for p in mod_root.glob("*.mod") if p.is_file()]
-        if not files:
-            return {"ok": False, "error": "No .mod files found under mod root"}
     if not files:
-        return {"ok": False, "error": "lint_mod_encoding requires at least one .mod file"}
+        return {
+            "ok": True,
+            "total": 0,
+            "issues": [],
+            "exit_code": 0,
+            "skipped": "no .mod files found",
+        }
 
     checked = 0
 

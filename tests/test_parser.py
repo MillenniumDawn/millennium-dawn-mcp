@@ -84,6 +84,11 @@ def test_parse_error_mentions_exact_line_and_column():
         parse_string("a = 1\nb = {{{")
 
 
+def test_parse_error_uses_previous_position_for_invalid_name():
+    with pytest.raises(ParseError, match=r"at \(1, 1\)"):
+        parse_string("= 1")
+
+
 def test_round_trip_writer():
     src = "focus = { id = X x = 0 y = 0 }"
     root = parse_string(src)

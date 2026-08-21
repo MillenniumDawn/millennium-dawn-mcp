@@ -126,6 +126,17 @@ def test_call_parse_string_error(server):
     assert "error" in payload
 
 
+def test_call_parse_string_error_reports_line_column(server):
+    async def go():
+        return await server.call_tool("parse_string", {"text": "a = 1\nb = {{{"})
+
+    result = asyncio.new_event_loop().run_until_complete(go())
+    payload = json.loads(_text(result))
+    assert payload["ok"] is False
+    assert "error" in payload
+    assert "at (2, 6)" in payload["error"]
+
+
 def test_call_find_focuses_with_prereq(server):
     async def go():
         return await server.call_tool(

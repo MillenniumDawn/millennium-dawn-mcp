@@ -62,6 +62,11 @@ def test_line_and_column_at_offsets():
     assert line_and_column(7, starts) == (3, 2)
 
 
+def test_line_and_column_with_eof_position():
+    starts = line_starts("a\nb")
+    assert line_and_column(3, starts) == (2, 2)
+
+
 def test_pos_to_line_inside_first_line():
     starts = line_starts("ab\ncd")
     assert pos_to_line(1, starts) == 1

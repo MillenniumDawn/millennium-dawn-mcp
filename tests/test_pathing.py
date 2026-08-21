@@ -93,6 +93,16 @@ def test_resolve_scope_file_rejects_symlink_loop(tmp_path):
     assert resolve_scope_file("loop/file.txt", mod, None) is None
 
 
+def test_resolve_scope_file_accepts_absolute_path_inside_root(tmp_path):
+    # Widened alongside validate_user_path: absolute is fine when contained.
+    mod = tmp_path / "mod"
+    target = mod / "common" / "a.txt"
+    target.parent.mkdir(parents=True)
+    target.write_text("x", encoding="utf-8")
+    got = resolve_scope_file(str(target), mod, None)
+    assert got == target.resolve()
+
+
 def test_validate_user_path_resolves_relative_against_first_root(tmp_path):
     mod = tmp_path / "mod"
     vanilla = tmp_path / "vanilla"
@@ -150,6 +160,26 @@ def test_validate_user_path_require_file_and_extensions(tmp_path):
         validate_user_path("interface", [mod], require_file=True)
     with pytest.raises(PathAccessError, match="unsupported extension"):
         validate_user_path("interface/notes.md", [mod], extensions={".txt", ".gfx"})
+
+
+def test_validate_user_path_accepts_single_root(tmp_path):
+    mod = tmp_path / "mod"
+    target = mod / "a.txt"
+    mod.mkdir()
+    target.write_text("x", encoding="utf-8")
+    assert validate_user_path("a.txt", mod) == target.resolve()
+
+
+def test_validate_user_path_relative_escape_into_second_root_is_accepted(tmp_path):
+    # parse_file semantics: relative paths resolve against the first root only,
+    # but the result is accepted if it lands inside any root.
+    mod = tmp_path / "mod"
+    vanilla = tmp_path / "vanilla"
+    target = vanilla / "common" / "v.txt"
+    target.parent.mkdir(parents=True)
+    target.write_text("v", encoding="utf-8")
+    mod.mkdir()
+    assert validate_user_path("../vanilla/common/v.txt", [mod, vanilla]) == target.resolve()
 
 
 def test_malformed_config_file_fails_loudly(tmp_path, monkeypatch):

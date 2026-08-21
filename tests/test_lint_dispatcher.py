@@ -569,3 +569,16 @@ def test_lint_skips_mod_encoding_without_mod_files(tmp_path):
     me = next(c for c in out["checks"] if c["name"] == "mod_encoding")
     assert me["skipped"] == "no files in scope"
     assert me["total"] == 0
+
+
+def test_lint_all_mode_skips_mod_encoding_without_mod_files(tmp_path):
+    """mode=all on a tree with no .mod files -> mod_encoding is skipped, not failed."""
+    _seed_all_scripts(tmp_path, {})
+
+    out = lint_tool(tmp_path, mode="all", validators=[], checks=["mod_encoding"])
+    assert out["ok"] is True
+    assert out["failed_checks"] == []
+    me = next(c for c in out["checks"] if c["name"] == "mod_encoding")
+    assert me["ok"] is True
+    assert me["skipped"] == "no .mod files found"
+    assert me["total"] == 0

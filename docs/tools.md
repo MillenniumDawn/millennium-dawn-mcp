@@ -245,7 +245,10 @@ result.
 
 When a check's filtered file list is empty (e.g. `mod_encoding` in
 `mode="changed"` with no modified `.mod` files), the dispatcher skips that
-check entirely and reports it with `skipped: "no files in scope"`.
+check entirely and reports it with `skipped: "no files in scope"`. The same
+applies to `mode="all"` when nothing matches at all. `mod_encoding` with no
+`.mod` files anywhere under the mod root reports
+`skipped: "no .mod files found"` rather than failing as a setup error.
 
 **Tip:** start with `lint(counts_only=True)` to see which checks fired, then
 re-call with `checks=["<one>"]` to get the full issue list for just that check.

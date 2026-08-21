@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 from ..util.encoding import read_text
+from ..util.pathing import PathAccessError, validate_user_path
 from ..util.response import enforce_budget, paginate
 
 IMAGE_EXTENSIONS = {".dds", ".png", ".tga"}
@@ -106,7 +107,6 @@ def generate_gfx_merge(
         gfx_path = _resolve_under_mod(root, gfx_file, label="gfx_file")
     except ValueError as e:
         return {"ok": False, "error": str(e), **extra}
-
     if not tex_root.is_dir():
         return {"ok": False, "error": f"texture_dir is not a directory: {texture_dir}", **extra}
 
@@ -326,11 +326,10 @@ def _scan_entries(
 
 
 def _resolve_under_mod(mod_root: Path, rel: str, *, label: str) -> Path:
-    raw = Path(rel)
-    p = raw.resolve() if raw.is_absolute() else (mod_root / raw).resolve()
-    if not p.is_relative_to(mod_root):
-        raise ValueError(f"{label} escapes mod root: {rel}")
-    return p
+    try:
+        return validate_user_path(rel, [mod_root])
+    except PathAccessError:
+        raise ValueError(f"{label} escapes mod root: {rel}") from None
 
 
 def _match_brace(text: str, open_idx: int) -> int:

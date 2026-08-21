@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import List, Optional
 
 from ..config import Settings
@@ -10,6 +9,7 @@ from ..indexes import FocusIndex
 from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records
 from ..util.encoding import read_text
+from ..util.pathing import resolve_scope_file
 
 
 def find_focuses_tool(
@@ -86,7 +86,7 @@ def _filter_deep(
 
     keep: List[dict] = []
     for relpath, group in by_file.items():
-        abs_path = _resolve(relpath, settings)
+        abs_path = resolve_scope_file(relpath, settings.mod_root, settings.vanilla_path)
         if abs_path is None:
             continue
         try:
@@ -108,14 +108,3 @@ def _filter_deep(
                 continue
             keep.append(c)
     return keep
-
-
-def _resolve(relpath: str, settings: Settings) -> Optional[Path]:
-    p = settings.mod_root / relpath
-    if p.exists():
-        return p
-    if settings.vanilla_path is not None:
-        p = settings.vanilla_path / relpath
-        if p.exists():
-            return p
-    return None

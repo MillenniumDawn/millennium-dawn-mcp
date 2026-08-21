@@ -7,8 +7,10 @@ import pytest
 from md_mcp import config
 from md_mcp.util.pathing import (
     ModRootNotFound,
+    PathAccessError,
     find_mod_root,
     resolve_scope_file,
+    validate_user_path,
 )
 
 
@@ -89,6 +91,65 @@ def test_resolve_scope_file_rejects_symlink_loop(tmp_path):
     mod.mkdir()
     (mod / "loop").symlink_to("loop", target_is_directory=True)
     assert resolve_scope_file("loop/file.txt", mod, None) is None
+
+
+def test_validate_user_path_resolves_relative_against_first_root(tmp_path):
+    mod = tmp_path / "mod"
+    vanilla = tmp_path / "vanilla"
+    target = mod / "common" / "a.txt"
+    target.parent.mkdir(parents=True)
+    target.write_text("m", encoding="utf-8")
+    vanilla.mkdir()
+    got = validate_user_path("common/a.txt", [mod, vanilla])
+    assert got == target.resolve()
+
+
+def test_validate_user_path_accepts_absolute_inside_any_root(tmp_path):
+    mod = tmp_path / "mod"
+    vanilla = tmp_path / "vanilla"
+    target = vanilla / "common" / "v.txt"
+    target.parent.mkdir(parents=True)
+    target.write_text("v", encoding="utf-8")
+    mod.mkdir()
+    assert validate_user_path(str(target), [mod, vanilla]) == target.resolve()
+
+
+def test_validate_user_path_rejects_escape_from_all_roots(tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+    mod = tmp_path / "mod"
+    vanilla = tmp_path / "vanilla"
+    mod.mkdir()
+    vanilla.mkdir()
+    with pytest.raises(PathAccessError, match="outside the allowed content roots"):
+        validate_user_path(str(outside), [mod, vanilla])
+    with pytest.raises(PathAccessError, match="outside the allowed content roots"):
+        validate_user_path("../outside.txt", [mod, vanilla])
+
+
+def test_validate_user_path_rejects_symlink_escape(tmp_path):
+    mod = tmp_path / "mod"
+    link = mod / "link.txt"
+    mod.mkdir()
+    link.symlink_to(tmp_path / "outside.txt")
+    with pytest.raises(PathAccessError):
+        validate_user_path("link.txt", [mod])
+
+
+def test_validate_user_path_require_file_and_extensions(tmp_path):
+    mod = tmp_path / "mod"
+    (mod / "interface").mkdir(parents=True)
+    gfx = mod / "interface" / "icons.gfx"
+    gfx.write_text("x", encoding="utf-8")
+    (mod / "interface" / "notes.md").write_text("x", encoding="utf-8")
+
+    got = validate_user_path("interface/icons.gfx", [mod], extensions={".txt", ".gfx"})
+    assert got == gfx.resolve()
+
+    with pytest.raises(PathAccessError, match="not a regular file"):
+        validate_user_path("interface", [mod], require_file=True)
+    with pytest.raises(PathAccessError, match="unsupported extension"):
+        validate_user_path("interface/notes.md", [mod], extensions={".txt", ".gfx"})
 
 
 def test_malformed_config_file_fails_loudly(tmp_path, monkeypatch):

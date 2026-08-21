@@ -20,14 +20,11 @@ from ..paradox import parse_string as _parse_string_impl
 from ..paradox.schema import to_json_with_lines
 from ..util.encoding import read_text
 from ..util.line_numbers import line_starts, pos_to_line
+from ..util.pathing import PathAccessError, validate_user_path
 from ..util.response import enforce_budget
 
 _DEFAULT_MAX_BYTES = 500_000
 _ALLOWED_EXTENSIONS = frozenset({".txt", ".gfx"})
-
-
-class _PathAccessError(Exception):
-    """`path` falls outside the allowed content roots, or isn't a parseable file."""
 
 
 def parse_file_tool(
@@ -53,7 +50,7 @@ def parse_file_tool(
     """
     try:
         resolved = _resolve_path(path, mod_root, vanilla_path)
-    except _PathAccessError as e:
+    except PathAccessError as e:
         return {"ok": False, "error": str(e)}
 
     try:
@@ -122,27 +119,9 @@ def parse_string_tool(text: str) -> dict:
 def _resolve_path(path: str, mod_root: Path, vanilla_path: Path | None) -> Path:
     """Resolve `path` to a regular `.txt`/`.gfx` file under `mod_root` or `vanilla_path`.
 
-    Resolves symlinks and `..` before checking containment, so a symlink or traversal
-    that escapes both roots is caught by the same check. Raises `_PathAccessError` for
-    anything outside the roots, a non-regular file, or an unsupported extension.
+    Delegates to the shared containment check in `util.pathing`; raises
+    `PathAccessError` for anything outside the roots, a non-regular file, or an
+    unsupported extension.
     """
-    p = Path(path)
-    candidate = p if p.is_absolute() else mod_root / p
-    resolved = candidate.resolve()
-
-    roots = [mod_root.resolve()]
-    if vanilla_path is not None:
-        roots.append(vanilla_path.resolve())
-
-    if not any(resolved.is_relative_to(root) for root in roots):
-        allowed = " or ".join(str(root) for root in roots)
-        raise _PathAccessError(f"{path!r} is outside the allowed content roots ({allowed})")
-
-    if not resolved.is_file():
-        raise _PathAccessError(f"{resolved} is not a regular file")
-
-    if resolved.suffix not in _ALLOWED_EXTENSIONS:
-        allowed_ext = ", ".join(sorted(_ALLOWED_EXTENSIONS))
-        raise _PathAccessError(f"{resolved} has an unsupported extension (allowed: {allowed_ext})")
-
-    return resolved
+    roots = [mod_root] if vanilla_path is None else [mod_root, vanilla_path]
+    return validate_user_path(path, roots, extensions=_ALLOWED_EXTENSIONS, require_file=True)

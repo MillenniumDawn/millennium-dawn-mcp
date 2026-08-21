@@ -7,7 +7,6 @@ extracting verbatim, or feeding back into Edit/Write.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional
 
 from .config import Settings
@@ -29,6 +28,7 @@ from .paradox.schema import (
 )
 from .util.encoding import read_text
 from .util.line_numbers import line_starts, pos_to_line
+from .util.pathing import resolve_scope_file
 
 
 def focus_resource(focus_id: str, settings: Settings, focus_index: FocusIndex) -> str:
@@ -36,7 +36,7 @@ def focus_resource(focus_id: str, settings: Settings, focus_index: FocusIndex) -
     cached = focus_index.resolve(focus_id)
     if cached is None:
         raise KeyError(f"Focus '{focus_id}' not found")
-    abs_path = _resolve(cached["file"], settings)
+    abs_path = resolve_scope_file(cached["file"], settings.mod_root, settings.vanilla_path)
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {cached['file']}")
 
@@ -59,7 +59,7 @@ def sprite_resource(name: str, settings: Settings, gfx_index: GfxIndex) -> str:
     rec = gfx_index.resolve(name)
     if rec is None:
         raise KeyError(f"Sprite '{name}' not found")
-    abs_path = _resolve(rec["file"], settings)
+    abs_path = resolve_scope_file(rec["file"], settings.mod_root, settings.vanilla_path)
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
     text = read_text(abs_path)
@@ -74,7 +74,7 @@ def event_resource(event_id: str, settings: Settings, event_index: EventIndex) -
     rec = event_index.resolve(event_id)
     if rec is None:
         raise KeyError(f"Event '{event_id}' not found")
-    abs_path = _resolve(rec["file"], settings)
+    abs_path = resolve_scope_file(rec["file"], settings.mod_root, settings.vanilla_path)
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
     text = read_text(abs_path)
@@ -89,7 +89,7 @@ def decision_resource(decision_id: str, settings: Settings, decision_index: Deci
     rec = decision_index.resolve(decision_id)
     if rec is None:
         raise KeyError(f"Decision '{decision_id}' not found")
-    abs_path = _resolve(rec["file"], settings)
+    abs_path = resolve_scope_file(rec["file"], settings.mod_root, settings.vanilla_path)
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
     text = read_text(abs_path)
@@ -104,7 +104,7 @@ def idea_resource(idea_id: str, settings: Settings, idea_index: IdeaIndex) -> st
     rec = idea_index.resolve(idea_id)
     if rec is None:
         raise KeyError(f"Idea '{idea_id}' not found")
-    abs_path = _resolve(rec["file"], settings)
+    abs_path = resolve_scope_file(rec["file"], settings.mod_root, settings.vanilla_path)
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
     text = read_text(abs_path)
@@ -154,17 +154,6 @@ def _slice_node(text: str, node: Node) -> str:
         raise KeyError("Definition node has no position information (malformed parse)")
     start = _line_start(text, node.name_token.start)
     return text[start : node.value_end_token.end]
-
-
-def _resolve(relpath: str, settings: Settings) -> Optional[Path]:
-    p = settings.mod_root / relpath
-    if p.exists():
-        return p
-    if settings.vanilla_path is not None:
-        p = settings.vanilla_path / relpath
-        if p.exists():
-            return p
-    return None
 
 
 def _extract_focus_block(text: str, focus_id: str) -> str:

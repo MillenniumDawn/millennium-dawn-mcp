@@ -53,15 +53,18 @@ def generate_gfx_entry(
 
     Returns: `{txt: str}` ready to slot inside an existing `spriteTypes = { }` block.
     """
-    return {
-        "txt": _render_entry(
-            name,
-            texturefile,
-            kind=kind,
-            frames=frames,
-            legacy_lazy_load=legacy_lazy_load,
-        )
-    }
+    return enforce_budget(
+        {
+            "txt": _render_entry(
+                name,
+                texturefile,
+                kind=kind,
+                frames=frames,
+                legacy_lazy_load=legacy_lazy_load,
+            )
+        },
+        heavy_keys=("txt",),
+    )
 
 
 def generate_gfx_merge(

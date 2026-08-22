@@ -6,10 +6,13 @@ must not report success while individual validators failed.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from md_mcp.config import Settings
-from md_mcp.tools.validation_tools import validate_tool
+from md_mcp.tools import validation_tools
+from md_mcp.tools.validation_tools import validate_list_tool, validate_tool
+from md_mcp.util.response import BUDGET_BYTES
 from md_mcp.validators import ValidatorRunner
 
 _ISSUE_CLASS = """
@@ -64,6 +67,41 @@ def _plant(mod_root: Path, name: str, source: str) -> None:
 
 def _settings(mod_root: Path) -> Settings:
     return Settings(mod_root=mod_root, vanilla_path=None, cache_dir=mod_root / ".md-mcp-cache")
+
+
+def test_validate_list_paginates_and_normalizes_bounds(fake_mod_root):
+    for name in ("first", "second", "third"):
+        _plant(fake_mod_root, name, _GOOD)
+
+    result = validate_list_tool(_settings(fake_mod_root), limit="1.9", offset=1.9)
+
+    assert result["total"] == 3
+    assert result["returned"] == 1
+    assert result["truncated"] is True
+    assert result["validators"] == [
+        {"name": "second", "title": "Good", "module": "validate_second"}
+    ]
+
+
+def test_validate_list_budget_guard_drops_oversized_validator_page(fake_mod_root, monkeypatch):
+    class _Info:
+        def __init__(self, name):
+            self.name = name
+            self.title = "x" * 100
+            self.module_name = f"validate_{name}"
+
+    infos = [_Info(f"validator_{i}") for i in range(2_000)]
+    monkeypatch.setattr(validation_tools, "available_validators", lambda _: infos)
+
+    result = validate_list_tool(_settings(fake_mod_root), limit=2_000)
+
+    assert result["ok"] is True
+    assert result["total"] == 2_000
+    assert result["returned"] == 2_000
+    assert result["truncated"] is False
+    assert result["size_truncated"] is True
+    assert "validators" not in result
+    assert len(json.dumps(result).encode("utf-8")) <= BUDGET_BYTES
 
 
 def test_validate_all_ok_when_every_validator_ok(fake_mod_root):

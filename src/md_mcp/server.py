@@ -147,9 +147,10 @@ def build_server(settings: Settings):
         has_prereq: Optional[str] = None,
         mutex_with: Optional[str] = None,
         kind: Optional[str] = None,
-        limit: int = 200,
+        limit: int | float | str | None = 200,
+        offset: int | float | str | None = 0,
     ) -> dict:
-        """Search the focus index: by tag prefix, prereq, mutex partner, or kind. Returns id+file+line."""
+        """Search the focus index by tag, prereq, mutex partner, or kind. Returns a paginated id+file+line list."""
         return find_focuses_tool(
             settings,
             focus_index,
@@ -158,6 +159,7 @@ def build_server(settings: Settings):
             mutex_with=mutex_with,
             kind=kind,
             limit=limit,
+            offset=offset,
         )
 
     @mcp.tool(name="find_references")
@@ -227,9 +229,12 @@ def build_server(settings: Settings):
         )
 
     @mcp.tool()
-    def validate_list() -> dict:
-        """List available validators (name, title) for use with `validate`."""
-        return validate_list_tool(settings)
+    def validate_list(
+        limit: int | float | str | None = 200,
+        offset: int | float | str | None = 0,
+    ) -> dict:
+        """List available validators (name, title) for use with `validate`, paginated by limit/offset."""
+        return validate_list_tool(settings, limit=limit, offset=offset)
 
     @mcp.tool()
     def lint(
@@ -256,7 +261,7 @@ def build_server(settings: Settings):
 
     @mcp.tool()
     def review_branch(base: str = "main") -> dict:
-        """Run review_branch.py: structured diff summary of the current branch vs `base`."""
+        """Run review_branch.py: UTF-8-byte-bounded diff summary of the current branch vs `base`."""
         return review_branch_tool(settings.mod_root, base=base)
 
     # ---------- generators (M3) — return file content as strings ----------
@@ -552,9 +557,13 @@ def build_server(settings: Settings):
         )
 
     @mcp.tool(name="check_encoding")
-    def _check_encoding(files: Optional[list] = None) -> dict:
-        """Verify BOM rules: .txt files must have no BOM, localisation/*.yml must have BOM."""
-        return check_encoding(settings.mod_root, files=files)
+    def _check_encoding(
+        files: Optional[list] = None,
+        limit: int | float | str | None = 200,
+        offset: int | float | str | None = 0,
+    ) -> dict:
+        """Verify BOM rules: .txt files must have no BOM, localisation/*.yml must have BOM. Violations are paginated by limit/offset."""
+        return check_encoding(settings.mod_root, files=files, limit=limit, offset=offset)
 
     # ---------- resources ----------
 

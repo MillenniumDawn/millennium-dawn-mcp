@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from ..util.response import enforce_budget
+
 
 def generate_event(
     *,
@@ -92,7 +94,11 @@ def generate_event(
         parts.append(f"\t\tname = {opt_id}")
         parts.append(f'\t\tlog = "[GetDateText]: [This.GetName]: {opt_id} executed"')
         if opt.get("ai_chance") is not None:
-            parts.append(f"\t\tai_chance = {{ base = {int(opt['ai_chance'])} }}")
+            try:
+                ai_chance = int(opt["ai_chance"])
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f"options[{i}].ai_chance must be an integer") from exc
+            parts.append(f"\t\tai_chance = {{ base = {ai_chance} }}")
         effects = opt.get("effects")
         if effects:
             parts.extend(_indent(effects, 2))
@@ -104,11 +110,14 @@ def generate_event(
         parts.pop()
     parts.append("}")
 
-    return {
-        "txt": "\n".join(parts),
-        "namespace_directive": f"add_namespace = {namespace}",
-        "loc_yml_keys": loc_keys,
-    }
+    return enforce_budget(
+        {
+            "txt": "\n".join(parts),
+            "namespace_directive": f"add_namespace = {namespace}",
+            "loc_yml_keys": loc_keys,
+        },
+        heavy_keys=("txt", "loc_yml_keys"),
+    )
 
 
 def _indent(block: str, tabs: int) -> List[str]:

@@ -137,13 +137,21 @@ Run one validator or the full fast suite.
 
 Returns `{ok, validators, counts: {error, warning, info}, issues, issues_total_after_filter, truncated}`.
 
-### `validate_list() -> dict`
+### `validate_list(limit?, offset?) -> dict`
 
-Enumerate available validators with their titles.
+Enumerate available validators with their titles. `limit` (default 200) and
+`offset` (default 0) page the list and accept numeric strings/floats like the
+other paginated tools. Negative limits yield empty pages; negative offsets
+clamp to zero.
+
+Returns `{ok, total, returned, truncated, validators}`.
 
 ```json
 {
   "ok": true,
+  "total": 42,
+  "returned": 20,
+  "truncated": true,
   "validators": [
     {"name": "localisation", "title": "Localisation Validator", "module": "validate_localisation"},
     {"name": "focus_id",     "title": "Focus ID Uniqueness", "module": "validate_focus_id"},
@@ -255,11 +263,14 @@ re-call with `checks=["<one>"]` to get the full issue list for just that check.
 
 ### `review_branch(base?: str) -> dict`
 
-Run `tools/analysis/review_branch.py` against `base` (default `main`).
-Returns the script's full text report as `report`. The agent can quote
-or extract sections.
+Run `tools/analysis/review_branch.py` against `base` (default `main`). The
+human-readable `report` is clipped at a UTF-8 byte boundary below the response
+budget. `report_bytes` is the original size, `report_returned_bytes` is the
+emitted size, and `report_truncated` reports whether clipping occurred. The
+response preserves `ok`, `base`, `exit_code`, and `stderr` on both subprocess
+success and failure paths.
 
-### `check_encoding(files?: list) -> dict`
+### `check_encoding(files?, limit?, offset?) -> dict`
 
 Verify BOM rules per `general-rules.md`:
 
@@ -269,13 +280,16 @@ Verify BOM rules per `general-rules.md`:
 Pass `files` for a targeted scan; without it, walks the standard subdirs
 (`common/`, `events/`, `history/`, `interface/`, `localisation/`).
 
-Returns `{ok, checked, violations: [{file, expected, actual}], counts}`.
+Returns `{ok, checked, total, returned, truncated, violations: [{file,
+expected, actual}], counts}`.
+`limit` (default 200) and `offset` (default 0) paginate violations while
+`checked` and `counts.violations` remain full-scan totals.
 
 ---
 
 ## Analysis
 
-### `find_focuses(tag?, has_prereq?, mutex_with?, kind?, limit?) -> dict`
+### `find_focuses(tag?, has_prereq?, mutex_with?, kind?, limit?, offset?) -> dict`
 
 Predicate search over the focus index. Filters are AND-combined.
 
@@ -283,10 +297,11 @@ Predicate search over the focus index. Filters are AND-combined.
 - `has_prereq` — focus lists this id in any prerequisite group
 - `mutex_with` — focus lists this id in its `mutually_exclusive`
 - `kind` — `focus_tree`, `shared_focus`, `joint_focus`
-- `limit=200`
+- `limit=200`, `offset=0` — paginate the match list. Numeric strings and
+  floats are normalized; negative values clamp to an empty/first page.
 
 Returns `{ok, partial, skipped_files, skipped_records, partial_errors_total,
-partial_errors, partial_errors_truncated, total, count, truncated,
+partial_errors, partial_errors_truncated, total, returned, count, truncated,
 matches: [{id, file, line, kind}]}`.
 
 `partial=true` means the index or a deep reparse could not evaluate one or more
@@ -404,7 +419,9 @@ Invalid bases and Git failures return `{ok: false, error, error_msg?}`.
 
 All generators return `{"txt": "...", ...}` containing the paradox-script
 text. The agent uses Edit/Write to place the content; the server never writes
-to mod files.
+to mod files. Caller-supplied script and localisation content is guarded by
+`enforce_budget`; an oversized response sets `size_truncated` and reports
+dropped keys instead of exceeding the MCP response cap.
 
 ### `generate_focus(id, tag, x, y, ...) -> dict`
 

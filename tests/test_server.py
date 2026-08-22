@@ -141,7 +141,7 @@ def test_call_find_focuses_with_prereq(server):
     async def go():
         return await server.call_tool(
             "find_focuses",
-            {"has_prereq": "TST_root", "limit": 10},
+            {"has_prereq": "TST_root", "limit": "1", "offset": 1},
         )
 
     result = asyncio.new_event_loop().run_until_complete(go())
@@ -150,8 +150,49 @@ def test_call_find_focuses_with_prereq(server):
     assert payload["partial"] is False
     assert payload["skipped_files"] == 0
     assert payload["skipped_records"] == 0
-    ids = {m["id"] for m in payload["matches"]}
-    assert ids == {"TST_branch_a", "TST_branch_b"}
+    assert payload["total"] == 2
+    assert payload["returned"] == 1
+    assert payload["truncated"] is False
+    assert [m["id"] for m in payload["matches"]] == ["TST_branch_b"]
+
+
+def test_call_validate_list_with_pagination(server, fake_mod_root):
+    validator = fake_mod_root / "tools" / "validation" / "validate_alpha.py"
+    validator.write_text('TITLE = "Alpha"\n', encoding="utf-8")
+
+    async def go():
+        return await server.call_tool("validate_list", {"limit": "1", "offset": 0})
+
+    result = asyncio.new_event_loop().run_until_complete(go())
+    payload = json.loads(_text(result))
+    assert payload["ok"] is True
+    assert payload["total"] == 1
+    assert payload["returned"] == 1
+    assert payload["validators"] == [
+        {"name": "alpha", "title": "Alpha", "module": "validate_alpha"}
+    ]
+
+
+def test_call_check_encoding_with_pagination(server, fake_mod_root):
+    txt = fake_mod_root / "common" / "national_focus" / "test.txt"
+    txt.write_bytes(b"\xef\xbb\xbf" + txt.read_bytes())
+
+    async def go():
+        return await server.call_tool(
+            "check_encoding",
+            {
+                "files": ["common/national_focus/test.txt"],
+                "limit": "1",
+                "offset": 0,
+            },
+        )
+
+    result = asyncio.new_event_loop().run_until_complete(go())
+    payload = json.loads(_text(result))
+    assert payload["ok"] is True
+    assert payload["total"] == 1
+    assert payload["returned"] == 1
+    assert payload["truncated"] is False
 
 
 def test_call_generate_gfx_merge(server, fake_mod_root):

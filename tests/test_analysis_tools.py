@@ -48,6 +48,44 @@ def test_focus_index_persists_parse_errors(fake_mod_root, cache_dir):
     assert reloaded.parse_errors() == errors
 
 
+def test_find_focuses_paginates_with_offset(fake_mod_root, cache_dir):
+    out = analysis_tools.find_focuses_tool(
+        _settings(fake_mod_root, cache_dir),
+        FocusIndex(fake_mod_root, cache_dir),
+        has_prereq="TST_root",
+        limit="1",
+        offset=1.9,
+    )
+
+    assert out["total"] == 2
+    assert out["returned"] == 1
+    assert out["count"] == 1
+    assert out["truncated"] is False
+    assert [match["id"] for match in out["matches"]] == ["TST_branch_b"]
+
+
+def test_find_focuses_budget_guard_drops_oversized_matches(fake_mod_root, cache_dir, monkeypatch):
+    records = [
+        {"id": f"TST_{i}", "file": "common/focuses.txt", "line": i, "kind": "focus_tree"}
+        for i in range(2_000)
+    ]
+    monkeypatch.setattr(
+        analysis_tools,
+        "_all_records",
+        lambda _: ((record["id"], record) for record in records),
+    )
+
+    out = analysis_tools.find_focuses_tool(
+        _settings(fake_mod_root, cache_dir), FocusIndex(fake_mod_root, cache_dir), limit=2_000
+    )
+
+    assert out["total"] == 2_000
+    assert out["returned"] == 2_000
+    assert out["size_truncated"] is True
+    assert "matches" not in out
+    assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+
+
 def test_find_focuses_reports_index_parse_failures(fake_mod_root, cache_dir):
     broken = fake_mod_root / "common" / "national_focus" / "broken.txt"
     broken.write_text("focus_tree = { focus = { id = TST_broken x = {{{", encoding="utf-8")

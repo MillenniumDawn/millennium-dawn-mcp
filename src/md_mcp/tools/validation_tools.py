@@ -1,7 +1,7 @@
 """Validation MCP tools.
 
 * `validate(validator?, staged_only?, files?, severity_min?, limit?)` — run one or all validators
-* `validate_list()` — enumerate available validators
+* `validate_list(limit?, offset?)` — enumerate available validators
 """
 
 from __future__ import annotations
@@ -9,19 +9,38 @@ from __future__ import annotations
 from typing import List, Optional
 
 from ..config import Settings
-from ..util.response import enforce_budget
+from ..util.response import coerce_int, enforce_budget, paginate
 from ..validators import SLOW_VALIDATORS, ValidatorRunner, available_validators
 
 _SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2}
 
 
-def validate_list_tool(settings: Settings) -> dict:
-    """List every validator known to this mod checkout."""
+def validate_list_tool(
+    settings: Settings,
+    *,
+    limit: int | float | str | None = 200,
+    offset: int | float | str | None = 0,
+) -> dict:
+    """List validators known to this mod checkout, with a bounded page."""
+    try:
+        limit = coerce_int(limit, name="limit", default=200)
+        offset = coerce_int(offset, name="offset", default=0)
+    except ValueError as exc:
+        return enforce_budget({"ok": False, "error": str(exc)})
+
     infos = available_validators(settings.mod_root)
-    return {
-        "ok": True,
-        "validators": [{"name": v.name, "title": v.title, "module": v.module_name} for v in infos],
-    }
+    all_validators = [{"name": v.name, "title": v.title, "module": v.module_name} for v in infos]
+    validators, truncated, total = paginate(all_validators, offset=offset, limit=limit)
+    return enforce_budget(
+        {
+            "ok": True,
+            "total": total,
+            "returned": len(validators),
+            "truncated": truncated,
+            "validators": validators,
+        },
+        heavy_keys=("validators",),
+    )
 
 
 def _apply_strict(counts: dict) -> dict:

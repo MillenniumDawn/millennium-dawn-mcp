@@ -53,8 +53,9 @@ def cache_dir(tmp_path: Path) -> Path:
 def real_mod_root() -> Path:
     """Real Millennium-Dawn checkout; skips test if MD_MOD_ROOT isn't set or doesn't exist."""
     env = os.environ.get("MD_MOD_ROOT")
-    if not env:
+    if env is None:
         pytest.skip("MD_MOD_ROOT not set")
+    assert env is not None
     p = Path(env)
     if not (p / "descriptor.mod").exists():
         pytest.skip(f"MD_MOD_ROOT={p} does not look like a mod checkout")

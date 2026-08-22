@@ -60,3 +60,7 @@ files = ["src", "tests"]
 check_untyped_defs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["pytest", "pytest.*", "yaml", "mcp", "mcp.*"]
+ignore_missing_imports = true

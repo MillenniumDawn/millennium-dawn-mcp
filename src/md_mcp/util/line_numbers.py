@@ -8,6 +8,18 @@ from __future__ import annotations
 import bisect
 
 
+def line_and_column(pos: int, starts: list[int]) -> tuple[int, int]:
+    """Translate a byte offset to a 1-based ``(line, column)`` tuple.
+
+    ``starts`` must be from :func:`line_starts`; out-of-range ``pos`` (``>=
+    len(text)``) maps to the final line.
+    """
+    line = pos_to_line(pos, starts)
+    line_start = starts[line - 1]
+    column = (pos - line_start) + 1
+    return line, column
+
+
 def line_starts(text: str) -> list[int]:
     """Cumulative offset of each line start. ``line_starts(text)[0] == 0``.
 

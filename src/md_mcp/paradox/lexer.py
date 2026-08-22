@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from typing import List, NoReturn, Optional
 
+from ..util.line_numbers import line_and_column, line_starts
 from .nodes import Token
 
 # Order matches the priority sort in `hoiparser.ts`: lower priority value first.
@@ -49,7 +50,7 @@ class Tokenizer:
     Comments are silently consumed.
     """
 
-    __slots__ = ("_error_prefix", "_input", "_line_ends", "_pending", "_pos", "_prev_pos")
+    __slots__ = ("_error_prefix", "_input", "_line_starts", "_pending", "_pos", "_prev_pos")
 
     def __init__(self, input_text: str, error_prefix: str = ""):
         self._input = input_text
@@ -58,12 +59,8 @@ class Tokenizer:
         self._pending: Optional[Token] = None
         self._error_prefix = error_prefix
 
-        # Precompute cumulative line-end offsets for error reporting.
-        self._line_ends: List[int] = []
-        running = 0
-        for line in input_text.split("\n"):
-            running += len(line) + 1
-            self._line_ends.append(running)
+        # Precompute line starts for error reporting.
+        self._line_starts = line_starts(input_text)
 
     def _advance(self) -> Token:
         """Consume the next non-comment token from the input."""
@@ -99,13 +96,7 @@ class Tokenizer:
 
     def _raise(self, message: str, prev: bool = False) -> NoReturn:
         pos = self._prev_pos if prev else self._pos
-        line_idx = next((i for i, end in enumerate(self._line_ends) if end > pos), -1)
-        if line_idx == -1:
-            line = len(self._line_ends)
-            column = 1
-        else:
-            line = line_idx + 1
-            column = (pos - (self._line_ends[line_idx - 1] if line_idx > 0 else 0)) + 1
+        line, column = line_and_column(pos, self._line_starts)
 
         snippet = (self._input + "(EOF)")[pos : min(pos + 30, len(self._input) + 5)]
         raise LexError(self._error_prefix + message, line, column, snippet)

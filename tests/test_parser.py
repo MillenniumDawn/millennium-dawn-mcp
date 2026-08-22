@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from md_mcp.paradox import node_to_str, parse_string
+import pytest
+
+from md_mcp.paradox import ParseError, node_to_str, parse_string
 from md_mcp.paradox.nodes import SymbolNode
 
 
@@ -75,6 +77,16 @@ def test_comment_is_skipped():
     [a] = root.children()
     assert a.name == "a"
     assert a.value == 1
+
+
+def test_parse_error_mentions_exact_line_and_column():
+    with pytest.raises(ParseError, match=r"at \(2, 6\)"):
+        parse_string("a = 1\nb = {{{")
+
+
+def test_parse_error_uses_previous_position_for_invalid_name():
+    with pytest.raises(ParseError, match=r"at \(1, 1\)"):
+        parse_string("= 1")
 
 
 def test_round_trip_writer():

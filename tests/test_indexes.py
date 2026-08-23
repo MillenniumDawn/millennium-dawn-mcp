@@ -170,14 +170,13 @@ def test_generic_index_three_way_duplicate_last_write_wins(tmp_path, cache_dir, 
     with caplog.at_level(logging.WARNING):
         idx.ensure_fresh()
 
-    # Processing order isn't alphabetical (it comes from a set difference in
-    # compute_staleness), so derive the expected order from the index's own
-    # bookkeeping rather than assuming a file name wins.
-    scan_order = list(idx._by_file.keys())
+    # Canonical relpath order makes c_ideas.txt win.
     rec = idx.resolve("TST_dup3")
     assert rec is not None
-    assert scan_order[-1] == rec["file"]
-    assert idx.duplicates() == {"TST_dup3": scan_order[:-1]}
+    assert rec["file"] == "common/ideas/c_ideas.txt"
+    assert idx.duplicates() == {
+        "TST_dup3": ["common/ideas/a_ideas.txt", "common/ideas/b_ideas.txt"]
+    }
 
     dup_warnings = [r for r in caplog.records if "TST_dup3" in r.getMessage()]
     assert len(dup_warnings) == 1
@@ -238,18 +237,17 @@ def test_generic_index_duplicates_populated_on_cache_hit(tmp_path, cache_dir):
 
     # A brand-new instance over the same cache dir loads from the persisted
     # cache (nothing stale, no reparse) rather than rebuilding from scratch.
-    # `_rebuild` still recomputes duplicates from the cached per-file records,
-    # so this must report the collision too, not silently return {}. (The
-    # winner itself isn't pinned here: unlike the cache-hit path, which walks
-    # files in on-disk manifest order, a from-scratch build's file order comes
-    # from a set difference in compute_staleness and isn't guaranteed to match.)
+    # Canonical relpath order makes b_ideas.txt win both times.
     idx2 = IdeaIndex(root, cache_dir, include_vanilla=False)
     dups2 = idx2.duplicates()
     assert "TST_dup" in dups2
     rec2 = idx2.resolve("TST_dup")
     assert rec2 is not None
-    files = {"common/ideas/a_ideas.txt", "common/ideas/b_ideas.txt"}
-    assert dups2["TST_dup"] == [f for f in files if f != rec2["file"]]
+    assert rec2["file"] == "common/ideas/b_ideas.txt"
+    assert dups2["TST_dup"] == ["common/ideas/a_ideas.txt"]
+    rec1 = idx1.resolve("TST_dup")
+    assert rec1 is not None
+    assert rec2["file"] == rec1["file"]  # cache hit matches cold build
 
 
 def test_generic_index_duplicates_no_cross_key_interference(tmp_path, cache_dir, caplog):
@@ -272,6 +270,33 @@ def test_generic_index_duplicates_no_cross_key_interference(tmp_path, cache_dir,
     y_warnings = [r for r in caplog.records if "TST_dup_y" in r.getMessage()]
     assert len(x_warnings) == 1
     assert len(y_warnings) == 1
+
+
+def test_duplicate_winner_is_deterministic_across_cold_builds_and_cache_hits(tmp_path):
+    root = tmp_path / "DupModDet"
+    ideas_dir = root / "common" / "ideas"
+    ideas_dir.mkdir(parents=True)
+    (ideas_dir / "a_ideas.txt").write_text(_DUP_IDEA, encoding="utf-8")
+    (ideas_dir / "b_ideas.txt").write_text(_DUP_IDEA, encoding="utf-8")
+
+    cache1 = tmp_path / "cache1"
+    idx1 = IdeaIndex(root, cache1, include_vanilla=False)
+    idx1.ensure_fresh()
+    winner1 = idx1.resolve("TST_dup")
+    assert winner1 is not None
+    assert winner1["file"] == "common/ideas/b_ideas.txt"
+
+    cache2 = tmp_path / "cache2"
+    idx2 = IdeaIndex(root, cache2, include_vanilla=False)
+    idx2.ensure_fresh()
+    winner2 = idx2.resolve("TST_dup")
+    assert winner2 is not None
+    assert winner2["file"] == winner1["file"]
+
+    idx3 = IdeaIndex(root, cache1, include_vanilla=False)
+    winner3 = idx3.resolve("TST_dup")
+    assert winner3 is not None
+    assert winner3["file"] == winner1["file"]
 
 
 @pytest.mark.integration

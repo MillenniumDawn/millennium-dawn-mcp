@@ -123,7 +123,9 @@ def _scan_sprite_blocks(text: str) -> List[dict]:
 
     # Collect the `{` positions of real spriteTypes* container blocks.
     sprite_container_opens: set[int] = {
-        m.end() - 1 for m in _SPRITE_TYPES_OPEN_RE.finditer(text) if m.end() - 1 in open_pos_set
+        m.end() - 1
+        for m in _SPRITE_TYPES_OPEN_RE.finditer(text)
+        if m.end() - 1 in open_pos_set and parent_open.get(m.end() - 1, -1) == -1
     }
 
     records: List[dict] = []

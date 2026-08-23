@@ -44,3 +44,20 @@ def test_scanner_indexes_real_texture_not_impostor_after():
     recs = _scan_sprite_blocks(SANDWICH)
     mid = next(r for r in recs if r["name"] == "GFX_mid")
     assert mid["texturefile"] == "gfx/interface/real.dds"
+
+
+NESTED_CONTAINER = (
+    "spriteTypes = {\n"
+    '\tspriteType = {\n\t\tname = "GFX_real"\n\t}\n'
+    "\totherBlock = {\n"
+    "\t\tspriteTypes = {\n"
+    '\t\t\tspriteType = {\n\t\t\t\tname = "GFX_fake"\n\t\t\t}\n'
+    "\t\t}\n"
+    "\t}\n"
+    "}\n"
+)
+
+
+def test_scanner_excludes_nested_sprite_types_containers():
+    recs = _scan_sprite_blocks(NESTED_CONTAINER)
+    assert [r["name"] for r in recs] == ["GFX_real"]

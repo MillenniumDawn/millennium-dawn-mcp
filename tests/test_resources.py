@@ -118,7 +118,7 @@ DECISIONS_WITH_DUPES = """TST_category = {
 """
 
 DECISIONS_WITH_COMMENT = (
-    "TST_category = {\n" "\tTST_commented = {\n" "\t\tcost = 30 # important note\n" "\t}\n" "}\n"
+    "TST_category = {\n\tTST_commented = {\n\t\tcost = 30 # important note\n\t}\n}\n"
 )
 
 EVENTS_WITH_IMPOSTOR = """add_namespace = TST
@@ -526,9 +526,6 @@ def test_sprite_resource_impostor_excluded_from_candidates_without_line(tmp_path
 
 
 def test_sprite_resource_anchors_middle_definition_sandwiched_by_impostors(tmp_path):
-    # GfxIndex's fast regex scanner (indexes/gfx.py) isn't hierarchy-restricted the way
-    # find_sprite_nodes is, so it can key "last occurrence wins" off a nested impostor
-    # when one sits after the real definition too -- out of scope for this PR's fix.
     # Force line=None so this exercises find_sprite_nodes' hierarchy restriction
     # directly: the two nested impostors (before and after) must never be candidates.
     mod_root = _write_sprites(tmp_path, SPRITES_WITH_IMPOSTOR_SANDWICH)
@@ -539,6 +536,18 @@ def test_sprite_resource_anchors_middle_definition_sandwiched_by_impostors(tmp_p
     fake_index = _FakeIndex({**rec, "line": None})
 
     result = sprite_resource("GFX_mid", settings, cast(GfxIndex, fake_index))
+
+    assert "gfx/interface/real.dds" in result
+    assert "impostor_before.dds" not in result
+    assert "impostor_after.dds" not in result
+
+
+def test_sprite_resource_nested_impostor_after_real_resolved_by_index_line(tmp_path):
+    mod_root = _write_sprites(tmp_path, SPRITES_WITH_IMPOSTOR_SANDWICH)
+    settings = _settings(mod_root, tmp_path / ".cache")
+    index = GfxIndex(mod_root, settings.cache_dir)
+
+    result = sprite_resource("GFX_mid", settings, index)
 
     assert "gfx/interface/real.dds" in result
     assert "impostor_before.dds" not in result

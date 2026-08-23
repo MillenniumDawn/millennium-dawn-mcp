@@ -29,7 +29,10 @@ def validate_list_tool(
         return enforce_budget({"ok": False, "error": str(exc)})
 
     infos = available_validators(settings.mod_root)
-    all_validators = [{"name": v.name, "title": v.title, "module": v.module_name} for v in infos]
+    all_validators = [
+        {"name": v.name, "title": v.title, "title_source": v.title_source, "module": v.module_name}
+        for v in infos
+    ]
     validators, truncated, total = paginate(all_validators, offset=offset, limit=limit)
     return enforce_budget(
         {

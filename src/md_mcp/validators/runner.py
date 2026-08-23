@@ -18,6 +18,7 @@ for `isolated`.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import importlib
 import importlib.util
@@ -25,6 +26,7 @@ import io
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -36,6 +38,10 @@ from .attribution import IssueAttributor
 
 logger = logging.getLogger(__name__)
 
+_TITLE_RE = re.compile(
+    r"""^TITLE(?:\s*:\s*str)?\s*=\s*(?P<literal>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*(?:#.*)?$"""
+)
+
 
 @dataclass(frozen=True)
 class ValidatorInfo:
@@ -43,6 +49,7 @@ class ValidatorInfo:
     module_name: str  # `validate_localisation`
     title: str  # display title from the validator class
     path: Path  # absolute path to the validator script
+    title_source: str = "derived"  # "scraped" if TITLE was read from source, else "derived"
 
 
 def available_validators(mod_root: Path) -> List[ValidatorInfo]:
@@ -62,19 +69,29 @@ def available_validators(mod_root: Path) -> List[ValidatorInfo]:
             continue
         short = stem[len("validate_") :]  # `localisation`
 
-        # Pull TITLE without executing the module: regex scrape is cheaper than import-on-list.
+        # Pull TITLE without executing the validator module.
         title = short.replace("_", " ").title()
+        title_source = "derived"
         try:
             content = p.read_text(encoding="utf-8")
             for line in content.splitlines():
-                line = line.strip()
-                if line.startswith("TITLE = "):
-                    title = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    break
+                match = _TITLE_RE.match(line.strip())
+                if not match:
+                    continue
+                try:
+                    title = ast.literal_eval(match.group("literal"))
+                except (SyntaxError, ValueError):
+                    continue
+                title_source = "scraped"
+                break
         except OSError:
             pass
 
-        results.append(ValidatorInfo(name=short, module_name=stem, title=title, path=p))
+        results.append(
+            ValidatorInfo(
+                name=short, module_name=stem, title=title, path=p, title_source=title_source
+            )
+        )
 
     return results
 

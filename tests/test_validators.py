@@ -131,6 +131,51 @@ def test_available_validators_empty_for_fake_mod(fake_mod_root):
 
 
 # ---------------------------------------------------------------------------
+# TITLE scraping
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param('TITLE = "Double Quoted"\n', "Double Quoted", id="double-quoted"),
+        pytest.param("TITLE = 'Single Quoted'\n", "Single Quoted", id="single-quoted"),
+        pytest.param('TITLE: str = "Annotated"\n', "Annotated", id="annotated"),
+        pytest.param(
+            'TITLE = "Trailing comment"  # display name\n',
+            "Trailing comment",
+            id="trailing-comment",
+        ),
+        pytest.param('TITLE = "Escaped \\"quote\\""\n', 'Escaped "quote"', id="escaped"),
+    ],
+)
+def test_title_scraped_from_quoted_literal(fake_mod_root, source, expected):
+    _plant(fake_mod_root, "literal", source)
+    (info,) = available_validators(fake_mod_root)
+    assert info.title == expected
+    assert info.title_source == "scraped"
+
+
+def test_title_derived_for_computed_expression(fake_mod_root):
+    _plant(fake_mod_root, "my_check", 'TITLE = "Prefix" + suffix\n')
+    (info,) = available_validators(fake_mod_root)
+    assert info.title == "My Check"
+    assert info.title_source == "derived"
+
+
+def test_title_derived_when_file_read_fails(fake_mod_root, monkeypatch):
+    _plant(fake_mod_root, "unread", 'TITLE = "Fine"\n')
+
+    def raise_oserror(*_args, **_kwargs):
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(Path, "read_text", raise_oserror)
+    (info,) = available_validators(fake_mod_root)
+    assert info.title == "Unread"
+    assert info.title_source == "derived"
+
+
+# ---------------------------------------------------------------------------
 # isolated mode — the default; runs each validator in a clean child process
 # ---------------------------------------------------------------------------
 
@@ -204,8 +249,10 @@ def test_in_process_mode_still_available(fake_mod_root):
 def test_validator_list_against_real_mod(real_mod_root):
     infos = available_validators(real_mod_root)
     names = {v.name for v in infos}
+    derived_names = [v.name for v in infos if v.title_source != "scraped"]
     # At least the headline validators we wrap exist.
     assert {"localisation", "ideas", "events", "decisions", "variables"} <= names
+    assert not derived_names, f"Validators with derived titles: {derived_names}"
 
 
 @pytest.mark.integration

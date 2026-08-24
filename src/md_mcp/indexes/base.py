@@ -40,7 +40,12 @@ class FileSig:
 
     @classmethod
     def from_json(cls, data: list) -> "FileSig":
-        return cls(mtime_ns=int(data[0]), size=int(data[1]))
+        try:
+            mtime_ns = int(data[0])
+            size = int(data[1])
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"corrupt manifest signature: {data!r}") from e
+        return cls(mtime_ns=mtime_ns, size=size)
 
 
 def file_signature(path: Path) -> FileSig | None:
@@ -102,9 +107,11 @@ class IndexCache:
             return None
         try:
             raw = json.loads(self.manifest_path.read_text("utf-8"))
-        except (OSError, json.JSONDecodeError):
+            # from_json's int() can raise ValueError on a corrupt-but-valid-JSON
+            # manifest; treat that as no cache so it rebuilds instead of crashing.
+            return {path: FileSig.from_json(sig) for path, sig in raw.items()}
+        except (OSError, ValueError):
             return None
-        return {path: FileSig.from_json(sig) for path, sig in raw.items()}
 
     def save_manifest(self, sigs: Dict[str, FileSig]) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -342,6 +349,8 @@ class GenericTxtIndex:
         """
         fn = type(self).parser_fn
         if fn is None:
+            # Legit abstract-method guard, not a scaffolded stub.
+            # pi-lens-ignore: no-raise-not-implemented
             raise NotImplementedError(
                 f"{type(self).__name__} must set `parser_fn` to a module-level function"
             )

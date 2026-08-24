@@ -23,13 +23,15 @@ Reference kinds and where they're harvested:
 Not checked (no index exists yet): country flags, variables, scripted effect
 names. Reported in `not_checked` so absence of findings isn't mistaken for
 coverage. If the vanilla install isn't configured, ids defined in vanilla
-(ideas especially) will show as unresolved — `vanilla_indexed` flags this.
+(ideas especially) will show as unresolved — `vanilla_indexed` flags this;
+passing `vanilla_sprites` (the committed manifest) resolves vanilla-only sprite
+ids without an install, surfaced via `vanilla_manifest`.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Set
 
 from ..indexes import (
     DecisionIndex,
@@ -83,6 +85,7 @@ def check_refs(
     files: Optional[List[str]] = None,
     kinds: Optional[Sequence[str]] = None,
     vanilla_path: Optional[Path] = None,
+    vanilla_sprites: Optional[FrozenSet[str]] = None,
     lang: str = "en",
     limit: int = 200,
     offset: int = 0,
@@ -108,6 +111,8 @@ def check_refs(
     if files:
         scope_files = list(files)
     else:
+        # tag is guaranteed set here: `not tag and not files` returned above.
+        # pi-lens-ignore: python-assert-production
         assert tag is not None
         scope_files = focus_index.files_for_tag(tag)
 
@@ -125,6 +130,8 @@ def check_refs(
             parse_errors.append({"file": relpath, "error": "not found"})
             continue
         try:
+            # abs_path is constrained to mod_root/vanilla by resolve_scope_file.
+            # pi-lens-ignore: python-path-traversal
             text = read_text(abs_path)
             root = parse_string(text)
         except Exception as e:
@@ -147,6 +154,7 @@ def check_refs(
                     }
                 )
 
+    vanilla_sprites_set = vanilla_sprites or frozenset()
     resolvers: Dict[str, Callable[[str], bool]] = {
         "focus": lambda r: focus_index.resolve(r) is not None,
         "event": lambda r: event_index.resolve(r) is not None,
@@ -155,6 +163,9 @@ def check_refs(
             gfx_index.resolve(r) is not None
             or gfx_index.resolve(f"GFX_{r}") is not None
             or gfx_index.resolve(f"GFX_idea_{r}") is not None
+            or r in vanilla_sprites_set
+            or f"GFX_{r}" in vanilla_sprites_set
+            or f"GFX_idea_{r}" in vanilla_sprites_set
         ),
         "loc": lambda r: loc_index.resolve(r, lang) is not None,
         "decision": lambda r: decision_index.resolve(r) is not None,
@@ -207,6 +218,7 @@ def check_refs(
         "kinds_checked": selected,
         "not_checked": ["country_flags", "variables", "scripted_effects"],
         "vanilla_indexed": vanilla_path is not None,
+        "vanilla_manifest": vanilla_sprites is not None,
         "counts": {
             k: {
                 "checked": len(checked[k]),

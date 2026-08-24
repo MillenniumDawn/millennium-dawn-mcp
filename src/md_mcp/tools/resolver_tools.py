@@ -7,7 +7,7 @@ the absence without exceptions.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import FrozenSet, Optional
 
 from ..config import Settings
 from ..indexes import (
@@ -48,6 +48,8 @@ def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusInde
         }
 
     try:
+        # abs_path is constrained to mod_root/vanilla by resolve_scope_file.
+        # pi-lens-ignore: python-path-traversal
         text = read_text(abs_path)
         root = parse_string(text, error_prefix=f"In file {cached['file']}:\n")
         records = extract_focus_records(root, source=text)
@@ -118,9 +120,29 @@ def resolve_loc_tool(
     }
 
 
-def resolve_sprite_tool(name: str, settings: Settings, gfx_index: GfxIndex) -> dict:
-    """Get a sprite's .gfx file and texture path."""
+def resolve_sprite_tool(
+    name: str,
+    settings: Settings,
+    gfx_index: GfxIndex,
+    vanilla_sprites: Optional[FrozenSet[str]] = None,
+) -> dict:
+    """Get a sprite's .gfx file and texture path.
+
+    When the sprite isn't in the indexed mod/vanilla but `vanilla_sprites` is
+    given (the committed manifest, used when no `HOI4_PATH` is configured),
+    fall back to manifest membership so vanilla-only sprites still resolve. The
+    manifest carries names only, so that result has no file/line/texturefile.
+    """
     rec = gfx_index.resolve(name)
+    if rec is None and vanilla_sprites is not None and name in vanilla_sprites:
+        return {
+            "ok": True,
+            "name": name,
+            "source": "vanilla_manifest",
+            "texturefile": None,
+            "file": None,
+            "line": None,
+        }
     if rec is None:
         return {"ok": False, "name": name, "error": "Sprite not found in mod or vanilla"}
     return {

@@ -19,8 +19,3 @@ def read_text(path: str | Path) -> str:
     if raw.startswith(UTF8_BOM):
         raw = raw[len(UTF8_BOM) :]
     return raw.decode("utf-8", errors="replace")
-
-
-def has_bom(path: str | Path) -> bool:
-    with open(path, "rb") as f:
-        return f.read(3) == UTF8_BOM

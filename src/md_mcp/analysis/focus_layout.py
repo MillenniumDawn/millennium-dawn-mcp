@@ -28,6 +28,8 @@ from ..util.response import coerce_int, enforce_budget, paginate
 class _SupportsFilesForTag(Protocol):
     """The only slice of FocusIndex a tag-scoped layout needs."""
 
+    # Protocol method declaration — `...` is the abstract body, not a stub.
+    # pi-lens-ignore: no-ellipsis-body
     def files_for_tag(self, tag: str) -> List[str]: ...
 
 
@@ -63,6 +65,8 @@ def focus_layout(
         candidate_files = [file]
         scope_desc = {"file": file}
     else:
+        # tag is guaranteed set here: `not tag and not file` returned above.
+        # pi-lens-ignore: python-assert-production
         assert tag is not None
         if focus_index is None:
             return {"ok": False, "error": "tag= scope requires the focus index."}
@@ -84,6 +88,8 @@ def focus_layout(
             parse_errors.append({"file": relpath, "error": "not found"})
             continue
         try:
+            # abs_path is constrained to mod_root/vanilla by resolve_scope_file.
+            # pi-lens-ignore: python-path-traversal
             text = read_text(abs_path)
             root = parse_string(text)
         except Exception as e:

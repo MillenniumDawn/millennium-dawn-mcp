@@ -394,6 +394,8 @@ def _iter_idea_definitions(root: Node) -> Iterator[Tuple[Node, str, Optional[str
     for category in ideas_root.children():
         if category.name is None or not isinstance(category.value, list):
             continue
+        # _iter_idea_category is a generator, so this yield-from is valid.
+        # pi-lens-ignore: no-yield-from-non-iterable
         yield from _iter_idea_category(category, category.name)
 
 

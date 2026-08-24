@@ -20,6 +20,7 @@ from .analysis.focus_layout import focus_layout
 from .analysis.manifest import list_country_content
 from .analysis.ref_audit import check_refs
 from .analysis.refs import find_references
+from .analysis.vanilla_manifest import load_sprite_manifest
 from .config import Settings, load
 from .generators import (
     generate_decision,
@@ -85,6 +86,12 @@ def build_server(settings: Settings):
     idea_index = IdeaIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
     validator_runner = ValidatorRunner(settings.mod_root, mode=settings.validator_mode)
 
+    # Without an HOI4 install the indexes are mod-only; fall back to the mod's
+    # committed vanilla_sprites manifest so vanilla-only sprites still resolve.
+    vanilla_sprites = (
+        None if settings.vanilla_path is not None else load_sprite_manifest(settings.mod_root)
+    )
+
     # ---------- resolvers ----------
 
     @mcp.tool()
@@ -99,8 +106,8 @@ def build_server(settings: Settings):
 
     @mcp.tool()
     def resolve_sprite(name: str) -> dict:
-        """Get a GFX sprite's .gfx file, line, and texture path by name."""
-        return resolve_sprite_tool(name, settings, gfx_index)
+        """Get a GFX sprite's .gfx file, line, and texture path by name. Falls back to the committed vanilla sprites manifest when no HOI4 install is configured."""
+        return resolve_sprite_tool(name, settings, gfx_index, vanilla_sprites)
 
     @mcp.tool()
     def resolve_event(event_id: str) -> dict:
@@ -516,6 +523,7 @@ def build_server(settings: Settings):
             files=files,
             kinds=kinds,
             vanilla_path=settings.vanilla_path,
+            vanilla_sprites=vanilla_sprites,
             lang=settings.default_lang,
             limit=limit,
             offset=offset,
@@ -623,10 +631,16 @@ def main() -> None:  # pragma: no cover — entry point
     settings = load(getattr(args, "mod_root", None))
 
     if args.cmd == "doctor":
+        # Intentional CLI output, not debug leftovers.
+        # pi-lens-ignore: python-print-statement
         print(f"mod_root:       {settings.mod_root}")
+        # pi-lens-ignore: python-print-statement
         print(f"vanilla_path:   {settings.vanilla_path or '(not detected)'}")
+        # pi-lens-ignore: python-print-statement
         print(f"cache_dir:      {settings.cache_dir}")
+        # pi-lens-ignore: python-print-statement
         print(f"validator_mode: {settings.validator_mode}")
+        # pi-lens-ignore: python-print-statement
         print(f"default_lang:   {settings.default_lang}")
         sys.exit(0)
 
@@ -636,6 +650,8 @@ def main() -> None:  # pragma: no cover — entry point
             idx.ensure_fresh()
             keys = idx.list_keys()
             file_count = len(getattr(idx, "_by_file", {}))
+            # Intentional CLI output, not debug leftovers.
+            # pi-lens-ignore: python-print-statement
             print(f"{cls.__name__:20s}  {len(keys):7d} keys  {file_count:4d} files")
         sys.exit(0)
 

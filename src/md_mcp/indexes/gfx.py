@@ -50,6 +50,7 @@ _LINE_COUNT_PER_FILE = 50_000  # cap on lines we compute per match (perf safety 
 
 
 _BRACE_TOKEN_RE = re.compile(r'"(?:\\.|[^"\\])*"|#[^\n]*|[{}]')
+_SPRITE_TYPES_OPEN_RE = re.compile(r"\bspriteTypes\w*\s*=\s*\{", re.IGNORECASE)
 
 
 def _build_line_offsets(text: str) -> List[int]:
@@ -101,10 +102,13 @@ def _scan_sprite_blocks(text: str) -> List[dict]:
     brace_events.sort()
 
     # Map open-brace position → matching close-brace position via single linear pass.
+    # Also track each open-brace's immediate parent for the hierarchy filter below.
     match_close: Dict[int, int] = {}
+    parent_open: Dict[int, int] = {}
     stack: List[int] = []
     for pos, delta in brace_events:
         if delta == 1:
+            parent_open[pos] = stack[-1] if stack else -1
             stack.append(pos)
         else:
             if not stack:
@@ -114,6 +118,16 @@ def _scan_sprite_blocks(text: str) -> List[dict]:
     if stack:
         raise ValueError("unbalanced braces (unclosed `{`)")
 
+    # Real-brace positions (skipping strings/comments) for membership tests.
+    open_pos_set: set[int] = set(open_positions)
+
+    # Collect the `{` positions of real spriteTypes* container blocks.
+    sprite_container_opens: set[int] = {
+        m.end() - 1
+        for m in _SPRITE_TYPES_OPEN_RE.finditer(text)
+        if m.end() - 1 in open_pos_set and parent_open.get(m.end() - 1, -1) == -1
+    }
+
     records: List[dict] = []
     for m in _SPRITE_OPEN_RE.finditer(text):
         kind = m.group(1)
@@ -122,6 +136,10 @@ def _scan_sprite_blocks(text: str) -> List[dict]:
         if close_brace is None:
             # The sprite opener's `{` isn't in our brace map — implies it was inside
             # a string/comment. Skip.
+            continue
+        # Only index sprites that are direct children of a spriteTypes* block,
+        # matching the hierarchy enforced by find_sprite_nodes / extract_sprite_records.
+        if parent_open.get(open_brace, -1) not in sprite_container_opens:
             continue
         body = text[open_brace + 1 : close_brace]
         name_m = _NAME_RE.search(body) or _NAME_BARE_RE.search(body)

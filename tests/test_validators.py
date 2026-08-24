@@ -281,3 +281,25 @@ def test_unknown_validator_returns_error(real_mod_root):
     result = runner.run("does_not_exist")
     assert result["ok"] is False
     assert "Unknown validator" in result["error"]
+
+
+def test_shim_write_failure_returns_1(monkeypatch):
+    """A failed result-write surfaces as a nonzero exit, not a silent crash."""
+    import builtins
+    import sys
+
+    from md_mcp.validators import _shim
+
+    monkeypatch.setattr(
+        sys, "argv", ["_shim", "--mod-root", "/x", "--module", "stub", "--out", "/out.json"]
+    )
+    monkeypatch.setattr(_shim, "_collect", lambda *a, **k: {"ok": True, "issues": []})
+    real_open = builtins.open
+
+    def _raising_open(path, *a, **k):
+        if str(path) == "/out.json":
+            raise OSError("denied")
+        return real_open(path, *a, **k)
+
+    monkeypatch.setattr(builtins, "open", _raising_open)
+    assert _shim.main() == 1

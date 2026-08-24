@@ -43,8 +43,13 @@ def main() -> int:
     except Exception as e:
         payload = {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
-    with open(args.out, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, default=str)
+    # A write failure must surface as a validator failure (nonzero exit), not a
+    # silent crash; the parent treats a missing payload as "no result".
+    try:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, default=str)
+    except OSError:
+        return 1
     return 0 if payload.get("ok") else 1
 
 

@@ -111,6 +111,8 @@ def check_refs(
     if files:
         scope_files = list(files)
     else:
+        # tag is guaranteed set here: `not tag and not files` returned above.
+        # pi-lens-ignore: python-assert-production
         assert tag is not None
         scope_files = focus_index.files_for_tag(tag)
 

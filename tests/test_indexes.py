@@ -7,6 +7,7 @@ import logging
 import pytest
 
 from md_mcp.indexes import FocusIndex, IdeaIndex, LocalisationIndex
+from md_mcp.indexes.base import FileSig, IndexCache
 
 _DUP_IDEA = "ideas = {\n\tcountry = {\n\t\tTST_dup = { picture = generic_idea }\n\t}\n}\n"
 _DUP_IDEA_3WAY = "ideas = {\n\tcountry = {\n\t\tTST_dup3 = { picture = generic_idea }\n\t}\n}\n"
@@ -312,3 +313,25 @@ def test_loc_index_against_real_mod(real_mod_root, cache_dir):
     li = LocalisationIndex(real_mod_root, cache_dir)
     li.ensure_fresh()
     assert "TT_IF_THEY_ACCEPT" in li.list_keys("en")
+
+
+def test_manifest_corrupt_sig_rebuilds_instead_of_raising(tmp_path):
+    """A valid-JSON manifest with non-integer sigs must load as None (rebuild), not raise."""
+    cache = IndexCache(tmp_path, "focus", 2)
+    cache.dir.mkdir(parents=True)
+    cache.manifest_path.write_text(
+        '{"common/national_focus/A.txt": ["not-an-int", 5]}', encoding="utf-8"
+    )
+    assert cache.load_manifest() is None
+
+
+def test_manifest_loads_valid_sigs(tmp_path):
+    cache = IndexCache(tmp_path, "focus", 2)
+    cache.dir.mkdir(parents=True)
+    cache.manifest_path.write_text('{"A.txt": [123, 5]}', encoding="utf-8")
+    assert cache.load_manifest() == {"A.txt": FileSig(mtime_ns=123, size=5)}
+
+
+def test_manifest_missing_returns_none(tmp_path):
+    cache = IndexCache(tmp_path, "focus", 2)
+    assert cache.load_manifest() is None

@@ -133,12 +133,17 @@ def _parse_node_value(
         return _unescape_string(next_token.value), next_token, next_token
 
     if t == "number":
+        # The lexer only emits "number" tokens for strings matching its number
+        # regex, so these int()/float() conversions cannot fail.
         v = next_token.value
         if v.startswith("0x"):
+            # pi-lens-ignore: unchecked-throwing-call-python
             num: int | float = int(v[2:], 16)
         elif "." in v:
+            # pi-lens-ignore: unchecked-throwing-call-python
             num = float(v)
         else:
+            # pi-lens-ignore: unchecked-throwing-call-python
             num = int(v)
         return num, next_token, next_token
 

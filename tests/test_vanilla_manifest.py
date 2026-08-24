@@ -1,0 +1,49 @@
+"""Tests for the vanilla manifests fallback (issue #23)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from md_mcp.analysis.vanilla_manifest import load_manifest, load_sprite_manifest
+
+
+def test_load_manifest_skips_comments_and_blank_lines(tmp_path: Path) -> None:
+    root = tmp_path / "Mod"
+    (root / "tools" / "validation").mkdir(parents=True)
+    (root / "tools" / "validation" / "vanilla_sprites.txt").write_text(
+        "# Vanilla Hearts of Iron IV GFX sprite names\n"
+        "#\n"
+        "# Regenerate after a HOI4 version bump\n"
+        "\n"
+        "GFX_foo\n"
+        "GFX_bar\n"
+        "GFX_baz\n",
+        encoding="utf-8",
+    )
+    assert load_sprite_manifest(root) == frozenset({"GFX_foo", "GFX_bar", "GFX_baz"})
+
+
+def test_load_manifest_strips_whitespace(tmp_path: Path) -> None:
+    root = tmp_path / "Mod"
+    (root / "tools" / "validation").mkdir(parents=True)
+    (root / "tools" / "validation" / "vanilla_sprites.txt").write_text(
+        "  GFX_padded  \n", encoding="utf-8"
+    )
+    assert load_sprite_manifest(root) == frozenset({"GFX_padded"})
+
+
+def test_load_manifest_missing_returns_none(tmp_path: Path) -> None:
+    root = tmp_path / "Mod"
+    (root / "tools" / "validation").mkdir(parents=True)
+    assert load_sprite_manifest(root) is None
+
+
+def test_load_manifest_generalises_to_other_manifests(tmp_path: Path) -> None:
+    root = tmp_path / "Mod"
+    (root / "tools" / "validation").mkdir(parents=True)
+    (root / "tools" / "validation" / "vanilla_paths.txt").write_text(
+        "common/abilities/CHI_abilities.txt\n", encoding="utf-8"
+    )
+    assert load_manifest(root, "vanilla_paths.txt") == frozenset(
+        {"common/abilities/CHI_abilities.txt"}
+    )

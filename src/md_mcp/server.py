@@ -20,6 +20,7 @@ from .analysis.focus_layout import focus_layout
 from .analysis.manifest import list_country_content
 from .analysis.ref_audit import check_refs
 from .analysis.refs import find_references
+from .analysis.vanilla_manifest import load_sprite_manifest
 from .config import Settings, load
 from .generators import (
     generate_decision,
@@ -85,6 +86,12 @@ def build_server(settings: Settings):
     idea_index = IdeaIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
     validator_runner = ValidatorRunner(settings.mod_root, mode=settings.validator_mode)
 
+    # Without an HOI4 install the indexes are mod-only; fall back to the mod's
+    # committed vanilla_sprites manifest so vanilla-only sprites still resolve.
+    vanilla_sprites = (
+        None if settings.vanilla_path is not None else load_sprite_manifest(settings.mod_root)
+    )
+
     # ---------- resolvers ----------
 
     @mcp.tool()
@@ -99,8 +106,8 @@ def build_server(settings: Settings):
 
     @mcp.tool()
     def resolve_sprite(name: str) -> dict:
-        """Get a GFX sprite's .gfx file, line, and texture path by name."""
-        return resolve_sprite_tool(name, settings, gfx_index)
+        """Get a GFX sprite's .gfx file, line, and texture path by name. Falls back to the committed vanilla sprites manifest when no HOI4 install is configured."""
+        return resolve_sprite_tool(name, settings, gfx_index, vanilla_sprites)
 
     @mcp.tool()
     def resolve_event(event_id: str) -> dict:
@@ -516,6 +523,7 @@ def build_server(settings: Settings):
             files=files,
             kinds=kinds,
             vanilla_path=settings.vanilla_path,
+            vanilla_sprites=vanilla_sprites,
             lang=settings.default_lang,
             limit=limit,
             offset=offset,

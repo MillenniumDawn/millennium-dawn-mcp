@@ -190,7 +190,36 @@ def test_vanilla_flag_surfaced(audit_mod):
         **_indexes(root, cache),
     )
     assert out["vanilla_indexed"] is False
+    assert out["vanilla_manifest"] is False
     assert "scripted_effects" in out["not_checked"]
+
+
+def test_sprite_ref_resolved_from_manifest(audit_mod):
+    """A vanilla-only sprite (not in the mod's gfx index) resolves via the manifest."""
+    root, cache = audit_mod
+    manifest = frozenset({"GFX_vanilla_only_sprite"})
+    out = check_refs(
+        root,
+        files=["common/national_focus/TST_audit.txt"],
+        kinds=["sprite"],
+        counts_only=True,
+        vanilla_sprites=manifest,
+        **_indexes(root, cache),
+    )
+    assert out["vanilla_manifest"] is True
+    assert out["counts"]["sprite"]["unresolved"] == 1  # GFX_missing_sprite stays unresolved
+
+
+def test_sprite_manifest_flag_absent_without_manifest(audit_mod):
+    root, cache = audit_mod
+    out = check_refs(
+        root,
+        files=["common/national_focus/TST_audit.txt"],
+        kinds=["sprite"],
+        counts_only=True,
+        **_indexes(root, cache),
+    )
+    assert out["vanilla_manifest"] is False
 
 
 def test_scope_file_resolved_from_vanilla(fake_mod_root, cache_dir, tmp_path):

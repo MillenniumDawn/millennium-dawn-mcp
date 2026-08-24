@@ -48,7 +48,10 @@ language. Returns `{value, file, line, lang}`.
 
 Look up a sprite by name (e.g. `GFX_focus_generic_military`). Returns
 `{name, kind, texturefile, file, line}`. `kind` is `spriteType`,
-`corneredTileSpriteType`, etc.
+`corneredTileSpriteType`, etc. With no `HOI4_PATH` configured, a vanilla-only
+sprite missing from the mod's `.gfx` index falls back to the committed
+`tools/validation/vanilla_sprites.txt` manifest, returning `{name, source:
+"vanilla_manifest"}` (names only — no file/line/texturefile).
 
 ### `resolve_event(event_id: str) -> dict`
 
@@ -370,11 +373,13 @@ validators can't be scoped to a file, and `resolve_*` is one id per call.
   it in full, guarded only by `enforce_budget`.
 - `not_checked` lists what no index covers yet (country flags, variables,
   scripted effects); `vanilla_indexed: false` warns that vanilla-defined ids
-  will show as unresolved when `HOI4_PATH` isn't configured.
+  (ideas especially) will show as unresolved when `HOI4_PATH` isn't
+  configured. `vanilla_manifest: true` means vanilla-only sprite ids were
+  resolved from the committed `vanilla_sprites.txt` manifest instead.
 
 Returns `{ok, scope, files_scanned, kinds_checked, not_checked,
-vanilla_indexed, counts: {kind: {checked, unresolved}}, total_unresolved,
-returned, truncated, unresolved: [...]}`.
+vanilla_indexed, vanilla_manifest, counts: {kind: {checked, unresolved}},
+total_unresolved, returned, truncated, unresolved: [...]}`.
 
 ### `focus_layout(tag?, file?, include_positions?, limit?) -> dict`
 

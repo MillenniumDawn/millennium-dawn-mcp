@@ -169,7 +169,7 @@ def test_call_validate_list_with_pagination(server, fake_mod_root):
     assert payload["total"] == 1
     assert payload["returned"] == 1
     assert payload["validators"] == [
-        {"name": "alpha", "title": "Alpha", "module": "validate_alpha"}
+        {"name": "alpha", "title": "Alpha", "title_source": "scraped", "module": "validate_alpha"}
     ]
 
 

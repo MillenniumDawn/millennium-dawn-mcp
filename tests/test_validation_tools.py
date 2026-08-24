@@ -79,7 +79,7 @@ def test_validate_list_paginates_and_normalizes_bounds(fake_mod_root):
     assert result["returned"] == 1
     assert result["truncated"] is True
     assert result["validators"] == [
-        {"name": "second", "title": "Good", "module": "validate_second"}
+        {"name": "second", "title": "Good", "title_source": "scraped", "module": "validate_second"}
     ]
 
 
@@ -88,6 +88,7 @@ def test_validate_list_budget_guard_drops_oversized_validator_page(fake_mod_root
         def __init__(self, name):
             self.name = name
             self.title = "x" * 100
+            self.title_source = "derived"
             self.module_name = f"validate_{name}"
 
     infos = [_Info(f"validator_{i}") for i in range(2_000)]

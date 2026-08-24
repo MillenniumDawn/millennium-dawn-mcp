@@ -139,10 +139,12 @@ Returns `{ok, validators, counts: {error, warning, info}, issues, issues_total_a
 
 ### `validate_list(limit?, offset?) -> dict`
 
-Enumerate available validators with their titles. `limit` (default 200) and
-`offset` (default 0) page the list and accept numeric strings/floats like the
-other paginated tools. Negative limits yield empty pages; negative offsets
-clamp to zero.
+Enumerate available validators with their titles. Each entry includes
+`title_source`: `scraped` means the title came from a static quoted `TITLE`
+assignment, while `derived` means it fell back to the validator filename.
+`limit` (default 200) and `offset` (default 0) page the list and accept numeric
+strings/floats like the other paginated tools. Negative limits yield empty
+pages; negative offsets clamp to zero.
 
 Returns `{ok, total, returned, truncated, validators}`.
 
@@ -153,8 +155,8 @@ Returns `{ok, total, returned, truncated, validators}`.
   "returned": 20,
   "truncated": true,
   "validators": [
-    {"name": "localisation", "title": "Localisation Validator", "module": "validate_localisation"},
-    {"name": "focus_id",     "title": "Focus ID Uniqueness", "module": "validate_focus_id"},
+    {"name": "localisation", "title": "Localisation Validator", "title_source": "scraped", "module": "validate_localisation"},
+    {"name": "focus_id", "title": "Focus Id", "title_source": "derived", "module": "validate_focus_id"},
     ...
   ]
 }

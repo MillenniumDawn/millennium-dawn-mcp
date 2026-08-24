@@ -170,6 +170,16 @@ The rest are targets to hold by hand, not assertions:
 Treat regressions as bugs. If a feature legitimately needs more time, add a
 new test rather than relaxing the existing budget.
 
+## Registering in a mod repo
+
+To expose the tools to an agent working inside a Millennium-Dawn checkout, drop
+a project-scope `.mcp.json` there (see the README's "Register with Claude Code"
+for the shape and the `md` naming note — Millennium-Dawn pre-approves
+`mcp__md__*` tools, so use that name). The server auto-discovers the mod from
+`cwd`, so no env block is needed. Note `.mcp.json` is gitignored in
+Millennium-Dawn, so the file is local-only and isn't shared with teammates via
+git.
+
 ## Live MCP probing
 
 For end-to-end checks against a real mod, spin a stdio client in-process:

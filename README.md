@@ -62,24 +62,44 @@ claude mcp add md-mcp --scope user -- md-mcp serve \
     --mod-root /path/to/Millennium-Dawn
 ```
 
-Project scope (commit a `.mcp.json` to the mod repo so teammates pick it up):
+Project scope: drop a `.mcp.json` in the mod repo so every agent session there
+picks it up automatically:
 
 ```json
 {
   "mcpServers": {
-    "md-mcp": {
+    "md": {
       "command": "md-mcp",
-      "args": ["serve"],
-      "env": { "MD_MOD_ROOT": "${workspaceFolder}" }
+      "args": ["serve"]
     }
   }
 }
 ```
 
-Confirm it's healthy:
+Notes:
+
+- **Name the server `md`** if the mod repo already pre-approves tools as
+  `mcp__md__*` (Millennium-Dawn's `.claude/settings.local.json` does). Using a
+  different name silently bypasses those permissions.
+- **Don't set `MD_MOD_ROOT` from a `"/path"` env string.** The server
+  auto-discovers the mod by walking up from `cwd` (the project root), so it
+  works with no env block at all. If you do want to pin the path, set
+  `MD_MOD_ROOT` in the environment the client launches with, or use
+  `~/.config/md-mcp/config.toml`.
+- **`${workspaceFolder}` is a VS Code macro, not an env var.** Claude Code
+  does not expand it — a `.mcp.json` using it reports "Missing environment
+  variables: workspaceFolder" and the server starts with `MD_MOD_ROOT` unset.
+  It belongs in a VS Code `.vscode/mcp.json` if you use that editor, not in
+  the Claude project file.
+- **`.mcp.json` is gitignored in Millennium-Dawn**, so the project file there
+  is local-only. It won't be committed or shared with teammates via git; they
+  need to create their own (or use the user-scope registration above).
+
+Confirm it's healthy (run from the mod repo root so the project scope loads):
 
 ```bash
 claude mcp list
+# md: md-mcp serve - ✔ Connected
 ```
 
 ---
@@ -106,7 +126,7 @@ Full env-var reference:
 | `MD_MOD_ROOT` | Path to the `Millennium-Dawn/` checkout. |
 | `HOI4_PATH` | Path to the vanilla `Hearts of Iron IV/` install (optional). |
 | `MD_MCP_CACHE_DIR` | Override the cache location (use this for read-only checkouts). |
-| `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process` (faster, but deadlocks the server). |
+| `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process` (faster, but deadlocks the server; `serve` forces `isolated` regardless). |
 | `MD_MCP_DEFAULT_LANG` | Default loc language for `resolve_loc` (defaults to `en`). |
 
 Example `~/.config/md-mcp/config.toml`:

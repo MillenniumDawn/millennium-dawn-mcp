@@ -55,3 +55,21 @@ jobs:
           cache-dependency-path: pyproject.toml
       - run: pip install -e '.[dev]'
       - run: pytest -q -n auto
+
+  coverage:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e '.[dev]'
+      - run: coverage run --source=src -m pytest -q
+      - run: coverage report
+      - run: coverage xml
+      - run: diff-cover coverage.xml --compare-branch=origin/main --fail-under=85

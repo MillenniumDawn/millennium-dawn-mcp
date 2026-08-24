@@ -14,8 +14,8 @@ pre-commit install
 
 `pip install -e .` exposes the `md-mcp` console script and lets you edit
 `src/md_mcp/` without reinstalling. The `[dev]` extras pull `pytest`,
-`pytest-xdist`, `ruff`, `mypy`, and `pre-commit`. The wrapped validators are
-stdlib-only; no extra deps needed for validator work.
+`pytest-xdist`, `coverage`, `diff-cover`, `ruff`, `mypy`, and `pre-commit`.
+The wrapped validators are stdlib-only; no extra deps needed for validator work.
 
 A fresh git worktree has no `.venv`. `uv run pytest` (or `mypy`) then falls
 back to whatever the ambient interpreter provides. On a machine with a stale
@@ -36,6 +36,16 @@ pytest -q                            # unit suite, sub-second, no checkout neede
 pytest -q -n auto                    # parallelised
 pytest -m integration                # requires MD_MOD_ROOT (real mod)
 pytest tests/test_focus_graph.py -v  # focused
+```
+
+To check coverage for the current branch, run the unit suite under coverage and
+compare changed lines with the default branch:
+
+```bash
+coverage run --source=src -m pytest -q
+coverage report
+coverage xml
+diff-cover coverage.xml --compare-branch=origin/main --fail-under=85
 ```
 
 Markers are defined in [`pyproject.toml`](../pyproject.toml)

@@ -20,6 +20,8 @@ dependencies = [
 dev = [
   "pytest>=7.0",
   "pytest-xdist>=3.0",
+  "coverage>=7.0",
+  "diff-cover>=9.0",
   "ruff==0.8.6",
   "mypy>=1.14",
   "types-PyYAML",

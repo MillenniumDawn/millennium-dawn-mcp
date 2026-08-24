@@ -72,6 +72,45 @@ def test_focus_index_cache_persisted(fake_mod_root, cache_dir):
     assert sorted(fi2.list_ids()) == sorted(fi.list_ids())
 
 
+def test_load_manifest_round_trips(cache_dir):
+    cache = IndexCache(cache_dir, "focus", 2)
+    cache.save_manifest({"a.txt": FileSig(mtime_ns=7, size=3)})
+    assert cache.load_manifest() == {"a.txt": FileSig(mtime_ns=7, size=3)}
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"a.txt": null}',
+        '{"a.txt": []}',
+        '{"a.txt": [1]}',
+        '{"a.txt": ["x", 1]}',
+        '{"a.txt": [null, 1]}',
+        '["a.txt"]',
+        '"a.txt"',
+        "not json at all",
+    ],
+)
+def test_load_manifest_rejects_malformed(cache_dir, payload):
+    cache = IndexCache(cache_dir, "focus", 2)
+    cache.dir.mkdir(parents=True)
+    cache.manifest_path.write_text(payload, encoding="utf-8")
+    assert cache.load_manifest() is None
+
+
+def test_focus_index_rebuilds_on_shape_corrupt_manifest(fake_mod_root, cache_dir):
+    fi = FocusIndex(fake_mod_root, cache_dir)
+    fi.ensure_fresh()
+    ids = sorted(fi.list_ids())
+
+    manifest = cache_dir / "v2" / "focus.manifest.json"
+    manifest.write_text('{"common/national_focus/test.txt": null}', encoding="utf-8")
+
+    fi2 = FocusIndex(fake_mod_root, cache_dir)
+    fi2.ensure_fresh()
+    assert sorted(fi2.list_ids()) == ids
+
+
 def test_focus_index_reports_parse_errors_from_parallel_build(
     fake_mod_root, cache_dir, monkeypatch
 ):

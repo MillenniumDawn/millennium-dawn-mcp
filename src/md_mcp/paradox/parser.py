@@ -136,6 +136,7 @@ def _parse_node_value(
         # The lexer only emits "number" tokens for strings matching its number
         # regex, so these int()/float() conversions cannot fail.
         v = next_token.value
+        # Every branch is guaranteed parseable by the lexer's `number` regex.
         if v.startswith("0x"):
             # pi-lens-ignore: unchecked-throwing-call-python
             num: int | float = int(v[2:], 16)

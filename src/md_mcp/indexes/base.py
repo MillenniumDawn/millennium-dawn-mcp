@@ -43,7 +43,7 @@ class FileSig:
         try:
             mtime_ns = int(data[0])
             size = int(data[1])
-        except (TypeError, ValueError) as e:
+        except (TypeError, ValueError, IndexError) as e:
             raise ValueError(f"corrupt manifest signature: {data!r}") from e
         return cls(mtime_ns=mtime_ns, size=size)
 
@@ -107,10 +107,9 @@ class IndexCache:
             return None
         try:
             raw = json.loads(self.manifest_path.read_text("utf-8"))
-            # from_json's int() can raise ValueError on a corrupt-but-valid-JSON
-            # manifest; treat that as no cache so it rebuilds instead of crashing.
+            # from_json stays inside the try so a wrong-shape manifest rebuilds, not raises.
             return {path: FileSig.from_json(sig) for path, sig in raw.items()}
-        except (OSError, ValueError):
+        except (OSError, AttributeError, TypeError, ValueError, IndexError):
             return None
 
     def save_manifest(self, sigs: Dict[str, FileSig]) -> None:

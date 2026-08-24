@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from md_mcp.analysis.vanilla_manifest import load_manifest, load_sprite_manifest
 
 
@@ -47,3 +49,10 @@ def test_load_manifest_generalises_to_other_manifests(tmp_path: Path) -> None:
     assert load_manifest(root, "vanilla_paths.txt") == frozenset(
         {"common/abilities/CHI_abilities.txt"}
     )
+
+
+def test_load_manifest_rejects_unknown_filename(tmp_path: Path) -> None:
+    root = tmp_path / "Mod"
+    (root / "tools" / "validation").mkdir(parents=True)
+    with pytest.raises(ValueError):
+        load_manifest(root, "../../../etc/passwd")

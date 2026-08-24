@@ -15,6 +15,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import FrozenSet, Optional
 
+# Fixed manifest files the mod repo commits, as constant relpaths. The loader
+# only ever builds a path by joining one of these constants, never the caller's
+# `filename` itself, so no caller-controlled input can escape the validation dir.
+_MANIFEST_FILES = {
+    "vanilla_defines.txt": ("tools", "validation", "vanilla_defines.txt"),
+    "vanilla_gui_files.txt": ("tools", "validation", "vanilla_gui_files.txt"),
+    "vanilla_paths.txt": ("tools", "validation", "vanilla_paths.txt"),
+    "vanilla_sprites.txt": ("tools", "validation", "vanilla_sprites.txt"),
+}
+
 
 def load_manifest(mod_root: Path, filename: str) -> Optional[FrozenSet[str]]:
     """Return the manifest entries as a set, or None if the manifest is absent.
@@ -23,7 +33,10 @@ def load_manifest(mod_root: Path, filename: str) -> Optional[FrozenSet[str]]:
     stripped. Absence is reported as None (not an empty set) so callers can
     distinguish "no manifest" from "empty manifest".
     """
-    path = mod_root / "tools" / "validation" / filename
+    relpath = _MANIFEST_FILES.get(filename)
+    if relpath is None:
+        raise ValueError(f"unknown vanilla manifest {filename!r}")
+    path = mod_root.joinpath(*relpath)
     if not path.is_file():
         return None
     entries: set[str] = set()

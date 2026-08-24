@@ -74,7 +74,7 @@ def compute_staleness(manifest: Dict[str, FileSig], current: Dict[str, FileSig])
         else:
             unchanged.append(path)
 
-    for path in current.keys() - manifest.keys():
+    for path in sorted(current.keys() - manifest.keys()):
         added.append(path)
 
     return Staleness(stale=stale, removed=removed, added=added, unchanged=unchanged)
@@ -301,9 +301,9 @@ class GenericTxtIndex:
                 if recs is not None:
                     new_by_file[relpath] = recs
 
-        # Last-write-wins: iteration order over new_by_file (dict insertion order,
-        # i.e. unchanged files then newly parsed ones) decides which record survives
-        # a duplicated key. A later record silently shadows an earlier one.
+        # Last-write-wins in canonical relpath order, regardless of how files were
+        # discovered, loaded from the manifest, or reparsed.
+        new_by_file = dict(sorted(new_by_file.items()))
         new_by_key: Dict[str, dict] = {}
         new_duplicates: Dict[str, List[str]] = {}
         for relpath, recs in new_by_file.items():

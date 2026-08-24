@@ -48,6 +48,8 @@ def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusInde
         }
 
     try:
+        # abs_path is constrained to mod_root/vanilla by resolve_scope_file.
+        # pi-lens-ignore: python-path-traversal
         text = read_text(abs_path)
         root = parse_string(text, error_prefix=f"In file {cached['file']}:\n")
         records = extract_focus_records(root, source=text)

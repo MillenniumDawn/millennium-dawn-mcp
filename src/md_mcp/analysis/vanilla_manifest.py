@@ -41,7 +41,10 @@ def load_manifest(mod_root: Path, filename: str) -> Optional[FrozenSet[str]]:
         return None
     entries: set[str] = set()
     try:
-        with open(path, "r", encoding="utf-8") as fh:
+        # utf-8-sig strips a UTF-8 BOM so a BOM'd first comment line isn't
+        # misread as an entry. The path is constants-only via _MANIFEST_FILES.
+        # pi-lens-ignore: python-path-traversal
+        with open(path, "r", encoding="utf-8-sig") as fh:
             for raw in fh:
                 line = raw.strip()
                 if not line or line.startswith("#"):

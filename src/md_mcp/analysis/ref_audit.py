@@ -128,6 +128,8 @@ def check_refs(
             parse_errors.append({"file": relpath, "error": "not found"})
             continue
         try:
+            # abs_path is constrained to mod_root/vanilla by resolve_scope_file.
+            # pi-lens-ignore: python-path-traversal
             text = read_text(abs_path)
             root = parse_string(text)
         except Exception as e:

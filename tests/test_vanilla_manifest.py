@@ -34,6 +34,16 @@ def test_load_manifest_strips_whitespace(tmp_path: Path) -> None:
     assert load_sprite_manifest(root) == frozenset({"GFX_padded"})
 
 
+def test_load_manifest_tolerates_utf8_bom(tmp_path: Path) -> None:
+    """A BOM on the first comment line must not be mistaken for an entry."""
+    root = tmp_path / "Mod"
+    (root / "tools" / "validation").mkdir(parents=True)
+    (root / "tools" / "validation" / "vanilla_sprites.txt").write_text(
+        "\ufeff# header comment\nGFX_real\n", encoding="utf-8"
+    )
+    assert load_sprite_manifest(root) == frozenset({"GFX_real"})
+
+
 def test_load_manifest_missing_returns_none(tmp_path: Path) -> None:
     root = tmp_path / "Mod"
     (root / "tools" / "validation").mkdir(parents=True)

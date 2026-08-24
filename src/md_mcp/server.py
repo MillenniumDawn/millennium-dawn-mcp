@@ -631,10 +631,16 @@ def main() -> None:  # pragma: no cover — entry point
     settings = load(getattr(args, "mod_root", None))
 
     if args.cmd == "doctor":
+        # Intentional CLI output, not debug leftovers.
+        # pi-lens-ignore: python-print-statement
         print(f"mod_root:       {settings.mod_root}")
+        # pi-lens-ignore: python-print-statement
         print(f"vanilla_path:   {settings.vanilla_path or '(not detected)'}")
+        # pi-lens-ignore: python-print-statement
         print(f"cache_dir:      {settings.cache_dir}")
+        # pi-lens-ignore: python-print-statement
         print(f"validator_mode: {settings.validator_mode}")
+        # pi-lens-ignore: python-print-statement
         print(f"default_lang:   {settings.default_lang}")
         sys.exit(0)
 
@@ -644,6 +650,8 @@ def main() -> None:  # pragma: no cover — entry point
             idx.ensure_fresh()
             keys = idx.list_keys()
             file_count = len(getattr(idx, "_by_file", {}))
+            # Intentional CLI output, not debug leftovers.
+            # pi-lens-ignore: python-print-statement
             print(f"{cls.__name__:20s}  {len(keys):7d} keys  {file_count:4d} files")
         sys.exit(0)
 

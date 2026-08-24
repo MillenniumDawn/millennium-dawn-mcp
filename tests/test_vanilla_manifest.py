@@ -56,3 +56,31 @@ def test_load_manifest_rejects_unknown_filename(tmp_path: Path) -> None:
     (root / "tools" / "validation").mkdir(parents=True)
     with pytest.raises(ValueError):
         load_manifest(root, "../../../etc/passwd")
+
+
+def test_load_manifest_empty_returns_empty_set(tmp_path: Path) -> None:
+    """A comment-only manifest is present but empty — must be an empty set, not None."""
+    root = tmp_path / "Mod"
+    (root / "tools" / "validation").mkdir(parents=True)
+    (root / "tools" / "validation" / "vanilla_sprites.txt").write_text(
+        "# no entries yet\n", encoding="utf-8"
+    )
+    assert load_sprite_manifest(root) == frozenset()
+
+
+def test_load_manifest_unreadable_returns_none(tmp_path: Path, monkeypatch) -> None:
+    """A read error surfaces as "no manifest" so callers can degrade gracefully."""
+    root = tmp_path / "Mod"
+    (root / "tools" / "validation").mkdir(parents=True)
+    (root / "tools" / "validation" / "vanilla_sprites.txt").write_text("GFX_x\n", encoding="utf-8")
+    import builtins
+
+    real_open = builtins.open
+
+    def _raising_open(path, *args, **kwargs):
+        if str(path).endswith("vanilla_sprites.txt"):
+            raise OSError("denied")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", _raising_open)
+    assert load_sprite_manifest(root) is None

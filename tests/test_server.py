@@ -106,6 +106,37 @@ def test_call_resolve_loc(server):
     assert payload["value"] == "The Root Focus"
 
 
+def test_call_resolve_sprite_manifest_fallback(fake_mod_root, cache_dir):
+    """Full wiring: no HOI4 install + a committed manifest resolves a vanilla-only sprite."""
+    (fake_mod_root / "tools" / "validation" / "vanilla_sprites.txt").write_text(
+        "GFX_vanilla_only\n", encoding="utf-8"
+    )
+    srv = build_server(_settings(fake_mod_root, cache_dir))
+
+    async def go():
+        return await srv.call_tool("resolve_sprite", {"name": "GFX_vanilla_only"})
+
+    payload = json.loads(_text(asyncio.new_event_loop().run_until_complete(go())))
+    assert payload["ok"] is True
+    assert payload["source"] == "vanilla_manifest"
+
+
+def test_call_resolve_sprite_index_wins_over_manifest(fake_mod_root, cache_dir):
+    """An indexed sprite resolves from the .gfx index even when the manifest also lists it."""
+    (fake_mod_root / "tools" / "validation" / "vanilla_sprites.txt").write_text(
+        "GFX_test_sprite_one\n", encoding="utf-8"
+    )
+    srv = build_server(_settings(fake_mod_root, cache_dir))
+
+    async def go():
+        return await srv.call_tool("resolve_sprite", {"name": "GFX_test_sprite_one"})
+
+    payload = json.loads(_text(asyncio.new_event_loop().run_until_complete(go())))
+    assert payload["ok"] is True
+    assert payload.get("source") != "vanilla_manifest"
+    assert payload["file"] is not None
+
+
 def test_call_parse_string(server):
     async def go():
         return await server.call_tool("parse_string", {"text": "a = 1"})

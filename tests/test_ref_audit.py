@@ -194,20 +194,78 @@ def test_vanilla_flag_surfaced(audit_mod):
     assert "scripted_effects" in out["not_checked"]
 
 
-def test_sprite_ref_resolved_from_manifest(audit_mod):
-    """A vanilla-only sprite (not in the mod's gfx index) resolves via the manifest."""
-    root, cache = audit_mod
-    manifest = frozenset({"GFX_vanilla_only_sprite"})
+_MANIFEST_FOCUS = """focus_tree = {
+    focus = {
+        id = TST_manifest_root
+        x = 1
+        y = 0
+        icon = GFX_vanilla_only_sprite
+        completion_reward = { country_event = Testns.1 }
+    }
+}
+"""
+
+
+def _write_manifest_focus(root: Path) -> None:
+    (root / "common" / "national_focus" / "TST_manifest_sprite.txt").write_text(
+        _MANIFEST_FOCUS, encoding="utf-8"
+    )
+
+
+def test_sprite_ref_resolved_from_manifest(fake_mod_root, cache_dir):
+    """A vanilla-only sprite referenced in scope resolves via the manifest, not as unresolved."""
+    _write_manifest_focus(fake_mod_root)
     out = check_refs(
-        root,
-        files=["common/national_focus/TST_audit.txt"],
+        fake_mod_root,
+        files=["common/national_focus/TST_manifest_sprite.txt"],
         kinds=["sprite"],
         counts_only=True,
-        vanilla_sprites=manifest,
-        **_indexes(root, cache),
+        vanilla_sprites=frozenset({"GFX_vanilla_only_sprite"}),
+        **_indexes(fake_mod_root, cache_dir),
     )
     assert out["vanilla_manifest"] is True
-    assert out["counts"]["sprite"]["unresolved"] == 1  # GFX_missing_sprite stays unresolved
+    assert out["counts"]["sprite"]["unresolved"] == 0
+
+
+def test_sprite_ref_unresolved_without_manifest(fake_mod_root, cache_dir):
+    """The same vanilla-only sprite is flagged unresolved when no manifest is given."""
+    _write_manifest_focus(fake_mod_root)
+    out = check_refs(
+        fake_mod_root,
+        files=["common/national_focus/TST_manifest_sprite.txt"],
+        kinds=["sprite"],
+        counts_only=True,
+        **_indexes(fake_mod_root, cache_dir),
+    )
+    assert out["vanilla_manifest"] is False
+    assert out["counts"]["sprite"]["unresolved"] == 1
+
+
+def test_sprite_ref_resolved_via_gfx_prefix_manifest(fake_mod_root, cache_dir):
+    """A bare sprite id resolves when the manifest holds the GFX_<id> form (HOI4 prefix rule)."""
+    (fake_mod_root / "common" / "national_focus" / "TST_bare_sprite.txt").write_text(
+        """focus_tree = {
+    focus = {
+        id = TST_bare_root
+        x = 1
+        y = 0
+        icon = vanilla_icon_bare
+        completion_reward = { country_event = Testns.1 }
+    }
+}
+""",
+        encoding="utf-8",
+    )
+    out = check_refs(
+        fake_mod_root,
+        files=["common/national_focus/TST_bare_sprite.txt"],
+        kinds=["sprite"],
+        counts_only=True,
+        vanilla_sprites=frozenset({"GFX_vanilla_icon_bare"}),
+        **_indexes(fake_mod_root, cache_dir),
+    )
+    assert out["vanilla_manifest"] is True
+    assert out["counts"]["sprite"]["unresolved"] == 0
 
 
 def test_sprite_manifest_flag_absent_without_manifest(audit_mod):

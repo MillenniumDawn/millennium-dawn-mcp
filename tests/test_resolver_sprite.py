@@ -17,9 +17,14 @@ def _settings(root: Path, cache: Path) -> Settings:
 
 
 def test_indexed_sprite_wins_over_manifest(fake_mod_root, cache_dir) -> None:
+    """A sprite in the .gfx index resolves from there even when the manifest also lists it."""
     idx = GfxIndex(fake_mod_root, cache_dir, None)
-    out = resolve_sprite_tool("GFX_test_sprite_one", _settings(fake_mod_root, cache_dir), idx)
+    vanilla_sprites = frozenset({"GFX_test_sprite_one"})
+    out = resolve_sprite_tool(
+        "GFX_test_sprite_one", _settings(fake_mod_root, cache_dir), idx, vanilla_sprites
+    )
     assert out["ok"] is True
+    assert out.get("source") != "vanilla_manifest"
     assert out["file"] is not None  # from the real .gfx index, not the manifest
 
 

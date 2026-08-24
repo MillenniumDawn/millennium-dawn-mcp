@@ -8,3 +8,7 @@ build/
 dist/
 .venv/
 .DS_Store
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/

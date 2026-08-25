@@ -4,17 +4,14 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from ..analysis.scope import iter_scope_files
 from ..config import Settings
 from ..indexes import FocusIndex
-from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records
-from ..util.encoding import read_text
-from ..util.pathing import resolve_scope_file
 from ..util.response import coerce_int, enforce_budget, paginate
 
 _MAX_PARTIAL_ERRORS = 20
 _MAX_MISSING_RECORD_IDS = 5
-_MAX_ERROR_CHARS = 200
 
 
 def find_focuses_tool(
@@ -119,20 +116,12 @@ def _filter_deep(
     errors: List[dict] = []
     skipped_files: set[str] = set()
     skipped_records = 0
-    for relpath, group in by_file.items():
-        abs_path = resolve_scope_file(relpath, settings.mod_root, settings.vanilla_path)
-        if abs_path is None:
-            errors.append({"file": relpath, "error": "not found"})
-            skipped_files.add(relpath)
-            continue
-        try:
-            text = read_text(abs_path)
-            root = parse_string(text)
-        except Exception as exc:
-            errors.append({"file": relpath, "error": str(exc)[:_MAX_ERROR_CHARS]})
-            skipped_files.add(relpath)
-            continue
-        details = {r["id"]: r for r in extract_focus_records(root, source=text)}
+    for parsed in iter_scope_files(
+        by_file, settings.mod_root, settings.vanilla_path, errors, skipped_files
+    ):
+        relpath = parsed.relpath
+        group = by_file[relpath]
+        details = {r["id"]: r for r in extract_focus_records(parsed.root, source=parsed.text)}
         missing_ids = [c["id"] for c in group if c["id"] not in details]
         if missing_ids:
             skipped_records += len(missing_ids)

@@ -18,11 +18,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional, Protocol, Set, Tuple
 
-from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records
-from ..util.encoding import read_text
-from ..util.pathing import resolve_scope_file
 from ..util.response import coerce_int, enforce_budget, paginate
+from .scope import iter_scope_files
 
 
 class _SupportsFilesForTag(Protocol):
@@ -82,20 +80,9 @@ def focus_layout(
     seen_in_scope: Set[str] = set()
     duplicate_files: Dict[str, List[str]] = {}
     parse_errors: List[dict] = []
-    for relpath in candidate_files:
-        abs_path = resolve_scope_file(relpath, mod_root, vanilla_path)
-        if abs_path is None:
-            parse_errors.append({"file": relpath, "error": "not found"})
-            continue
-        try:
-            # abs_path is constrained to mod_root/vanilla by resolve_scope_file.
-            # pi-lens-ignore: python-path-traversal
-            text = read_text(abs_path)
-            root = parse_string(text)
-        except Exception as e:
-            parse_errors.append({"file": relpath, "error": str(e)[:200]})
-            continue
-        for rec in extract_focus_records(root, source=text):
+    for parsed in iter_scope_files(candidate_files, mod_root, vanilla_path, parse_errors):
+        relpath = parsed.relpath
+        for rec in extract_focus_records(parsed.root, source=parsed.text):
             rec["file"] = relpath
             kept = all_records.setdefault(rec["id"], rec)
             if kept is not rec:

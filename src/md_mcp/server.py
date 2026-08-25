@@ -11,7 +11,8 @@ import logging
 import os
 import sys
 from dataclasses import replace
-from typing import Optional
+from functools import partial
+from typing import Callable, Optional
 
 from .analysis.diff_summary import diff_summary
 from .analysis.encoding import check_encoding
@@ -62,6 +63,17 @@ from .tools.validation_tools import validate_list_tool, validate_tool
 from .validators import ValidatorRunner
 
 logger = logging.getLogger("md_mcp")
+
+
+class _NamedPartial(partial):
+    __name__: str
+
+
+def _bind_tool(function: Callable[..., dict], *args: object) -> Callable[..., dict]:
+    """Bind server-owned state while retaining the name FastMCP needs for its argument model."""
+    bound = _NamedPartial(function, *args)
+    bound.__name__ = function.__name__
+    return bound
 
 
 def build_server(settings: Settings):
@@ -148,26 +160,10 @@ def build_server(settings: Settings):
 
     # ---------- analysis ----------
 
-    @mcp.tool()
-    def find_focuses(
-        tag: Optional[str] = None,
-        has_prereq: Optional[str] = None,
-        mutex_with: Optional[str] = None,
-        kind: Optional[str] = None,
-        limit: int | float | str | None = 200,
-        offset: int | float | str | None = 0,
-    ) -> dict:
-        """Search the focus index by tag, prereq, mutex partner, or kind. Returns a paginated id+file+line list."""
-        return find_focuses_tool(
-            settings,
-            focus_index,
-            tag=tag,
-            has_prereq=has_prereq,
-            mutex_with=mutex_with,
-            kind=kind,
-            limit=limit,
-            offset=offset,
-        )
+    mcp.tool(
+        name="find_focuses",
+        description="Search the focus index by tag, prereq, mutex partner, or kind. Returns a paginated id+file+line list.",
+    )(_bind_tool(find_focuses_tool, settings, focus_index))
 
     @mcp.tool(name="find_references")
     def _find_references(
@@ -273,207 +269,34 @@ def build_server(settings: Settings):
 
     # ---------- generators (M3) — return file content as strings ----------
 
-    @mcp.tool(name="generate_focus")
-    def _gen_focus(
-        id: str,
-        tag: str,
-        x: int,
-        y: int,
-        cost: float = 10,
-        icon: Optional[str] = None,
-        relative_position_id: Optional[str] = None,
-        prerequisites: Optional[list] = None,
-        mutually_exclusive: Optional[list] = None,
-        search_filters: Optional[list] = None,
-        available: Optional[str] = None,
-        completion_reward: Optional[str] = None,
-        ai_base: int = 1,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-    ) -> dict:
-        """Scaffold a `focus = { ... }` block. Returns {txt, loc_yml_keys} — agent writes via Edit."""
-        return generate_focus(
-            id=id,
-            tag=tag,
-            x=x,
-            y=y,
-            cost=cost,
-            icon=icon,
-            relative_position_id=relative_position_id,
-            prerequisites=prerequisites,
-            mutually_exclusive=mutually_exclusive,
-            search_filters=search_filters,
-            available=available,
-            completion_reward=completion_reward,
-            ai_base=ai_base,
-            title=title,
-            description=description,
-        )
-
-    @mcp.tool(name="generate_event")
-    def _gen_event(
-        namespace: str,
-        number: int,
-        kind: str = "country_event",
-        is_triggered_only: bool = True,
-        fire_only_once: bool = False,
-        picture: Optional[str] = None,
-        trigger: Optional[str] = None,
-        immediate: Optional[str] = None,
-        options: Optional[list] = None,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-    ) -> dict:
-        """Scaffold a country/news/state event block. Returns {txt, namespace_directive, loc_yml_keys}."""
-        return generate_event(
-            namespace=namespace,
-            number=number,
-            kind=kind,
-            is_triggered_only=is_triggered_only,
-            fire_only_once=fire_only_once,
-            picture=picture,
-            trigger=trigger,
-            immediate=immediate,
-            options=options,
-            title=title,
-            description=description,
-        )
-
-    @mcp.tool(name="generate_decision")
-    def _gen_decision(
-        id: str,
-        tag: Optional[str] = None,
-        icon: Optional[str] = None,
-        cost: int = 25,
-        days_remove: Optional[int] = None,
-        days_re_enable: Optional[int] = None,
-        allowed: Optional[str] = None,
-        visible: Optional[str] = None,
-        available: Optional[str] = None,
-        complete_effect: Optional[str] = None,
-        remove_effect: Optional[str] = None,
-        cancel_trigger: Optional[str] = None,
-        state_target: bool = False,
-        target_root_trigger: Optional[str] = None,
-        target_trigger: Optional[str] = None,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-    ) -> dict:
-        """Scaffold a decision block. Goes inside an existing `<category> = { ... }`."""
-        return generate_decision(
-            id=id,
-            tag=tag,
-            icon=icon,
-            cost=cost,
-            days_remove=days_remove,
-            days_re_enable=days_re_enable,
-            allowed=allowed,
-            visible=visible,
-            available=available,
-            complete_effect=complete_effect,
-            remove_effect=remove_effect,
-            cancel_trigger=cancel_trigger,
-            state_target=state_target,
-            target_root_trigger=target_root_trigger,
-            target_trigger=target_trigger,
-            title=title,
-            description=description,
-        )
-
-    @mcp.tool(name="generate_idea")
-    def _gen_idea(
-        id: str,
-        tag: Optional[str] = None,
-        picture: Optional[str] = None,
-        modifier: Optional[str] = None,
-        research_bonus: Optional[str] = None,
-        equipment_bonus: Optional[str] = None,
-        targeted_modifier: Optional[str] = None,
-        allowed: Optional[str] = None,
-        available: Optional[str] = None,
-        cancel: Optional[str] = None,
-        cost: Optional[int] = None,
-        removal_cost: int = -1,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-    ) -> dict:
-        """Scaffold an idea block. Goes inside `ideas = { <category> = { ... } }`."""
-        return generate_idea(
-            id=id,
-            tag=tag,
-            picture=picture,
-            modifier=modifier,
-            research_bonus=research_bonus,
-            equipment_bonus=equipment_bonus,
-            targeted_modifier=targeted_modifier,
-            allowed=allowed,
-            available=available,
-            cancel=cancel,
-            cost=cost,
-            removal_cost=removal_cost,
-            title=title,
-            description=description,
-        )
-
-    @mcp.tool(name="generate_gfx_entry")
-    def _gen_gfx(
-        name: str,
-        texturefile: str,
-        kind: str = "spriteType",
-        frames: Optional[int] = None,
-        legacy_lazy_load: bool = False,
-    ) -> dict:
-        """Scaffold a `spriteType = { name = ... texturefile = ... }` entry. Goes inside `spriteTypes = { }`."""
-        return generate_gfx_entry(
-            name=name,
-            texturefile=texturefile,
-            kind=kind,
-            frames=frames,
-            legacy_lazy_load=legacy_lazy_load,
-        )
-
-    @mcp.tool(name="generate_gfx_merge")
-    def _gen_gfx_merge(
-        texture_dir: str,
-        gfx_file: str,
-        prefix: str,
-        kind: str = "spriteType",
-        frames: Optional[int] = None,
-        legacy_lazy_load: bool = False,
-        protected: Optional[list] = None,
-        limit: int = 100,
-        offset: int = 0,
-        include_file: bool = False,
-    ) -> dict:
-        """Merge a texture dir into a .gfx file. Returns {txt} of new entries plus new/changed/orphaned; never writes. prefix must match the target file ("" for goals.gfx, "GFX_" for MD_eventpictures.gfx); limit/offset page the names and txt together; include_file adds the full merged file."""
-        return generate_gfx_merge(
-            settings.mod_root,
-            texture_dir=texture_dir,
-            gfx_file=gfx_file,
-            prefix=prefix,
-            kind=kind,
-            frames=frames,
-            legacy_lazy_load=legacy_lazy_load,
-            protected=protected,
-            limit=limit,
-            offset=offset,
-            include_file=include_file,
-        )
-
-    @mcp.tool(name="generate_loc_stub")
-    def _gen_loc(
-        keys: list,
-        lang: str = "l_english",
-        include_header: bool = True,
-        bom_prefix: bool = False,
-    ) -> dict:
-        """Build a localisation YAML stub from [{key, value}, ...]. Use bom_prefix=True for new files."""
-        return generate_loc_stub(
-            keys,
-            lang=lang,
-            include_header=include_header,
-            bom_prefix=bom_prefix,
-        )
+    mcp.tool(
+        name="generate_focus",
+        description="Scaffold a `focus = { ... }` block. Returns {txt, loc_yml_keys}; agent writes via Edit.",
+    )(generate_focus)
+    mcp.tool(
+        name="generate_event",
+        description="Scaffold a country/news/state event block. Returns {txt, namespace_directive, loc_yml_keys}.",
+    )(generate_event)
+    mcp.tool(
+        name="generate_decision",
+        description="Scaffold a decision block. Goes inside an existing `<category> = { ... }`.",
+    )(generate_decision)
+    mcp.tool(
+        name="generate_idea",
+        description="Scaffold an idea block. Goes inside `ideas = { <category> = { ... } }`.",
+    )(generate_idea)
+    mcp.tool(
+        name="generate_gfx_entry",
+        description="Scaffold a `spriteType = { name = ... texturefile = ... }` entry. Goes inside `spriteTypes = { }`.",
+    )(generate_gfx_entry)
+    mcp.tool(
+        name="generate_gfx_merge",
+        description="Merge a texture dir into a .gfx file. Returns new entries plus new/changed/orphaned; never writes. prefix must match the target file; limit/offset page the names and txt together; include_file adds the full merged file.",
+    )(_bind_tool(generate_gfx_merge, settings.mod_root))
+    mcp.tool(
+        name="generate_loc_stub",
+        description="Build a localisation YAML stub from [{key, value}, ...]. Use bom_prefix=True for new files.",
+    )(generate_loc_stub)
 
     # ---------- M3 analysis ----------
 

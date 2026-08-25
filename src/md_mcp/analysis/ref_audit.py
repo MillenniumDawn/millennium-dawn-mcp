@@ -41,12 +41,10 @@ from ..indexes import (
     IdeaIndex,
     LocalisationIndex,
 )
-from ..paradox import parse_string
 from ..paradox.nodes import Node, SymbolNode
-from ..util.encoding import read_text
 from ..util.line_numbers import line_starts, pos_to_line
-from ..util.pathing import resolve_scope_file
 from ..util.response import enforce_budget
+from .scope import iter_scope_files
 
 _ALL_KINDS: tuple = ("focus", "event", "idea", "sprite", "loc", "decision")
 _MAX_FILES = 200
@@ -124,21 +122,9 @@ def check_refs(
     parse_errors: List[dict] = []
     focus_defs: List[dict] = []  # focus ids defined in scope, for loc coverage
 
-    for relpath in scope_files:
-        abs_path = resolve_scope_file(relpath, mod_root, vanilla_path)
-        if abs_path is None:
-            parse_errors.append({"file": relpath, "error": "not found"})
-            continue
-        try:
-            # abs_path is constrained to mod_root/vanilla by resolve_scope_file.
-            # pi-lens-ignore: python-path-traversal
-            text = read_text(abs_path)
-            root = parse_string(text)
-        except Exception as e:
-            parse_errors.append({"file": relpath, "error": str(e)[:200]})
-            continue
-        starts = line_starts(text)
-        _walk(root, relpath, starts, selected_set, refs, focus_defs, referrer=None)
+    for parsed in iter_scope_files(scope_files, mod_root, vanilla_path, parse_errors):
+        starts = line_starts(parsed.text)
+        _walk(parsed.root, parsed.relpath, starts, selected_set, refs, focus_defs, referrer=None)
 
     if "loc" in selected_set:
         for fd in focus_defs:

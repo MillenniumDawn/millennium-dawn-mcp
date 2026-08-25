@@ -42,29 +42,7 @@ def to_json(node: Node) -> dict:
         * {"kind": "symbol", "name": "..."}
         * {"kind": "block", "children": [Node, ...]}
     """
-    return {
-        "name": node.name,
-        "operator": node.operator,
-        "value": _value_to_json(node.value),
-        "value_attachment": node.value_attachment.name if node.value_attachment else None,
-        "line": _token_line(node.name_token.start) if node.name_token else None,
-    }
-
-
-def _value_to_json(value: Any) -> Any:
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    if isinstance(value, SymbolNode):
-        return {"kind": "symbol", "name": value.name}
-    if isinstance(value, list):
-        return {"kind": "block", "children": [to_json(c) for c in value]}
-    raise TypeError(f"Unrepresentable value of type {type(value).__name__}")
-
-
-# Line numbers are computed on demand in to_json; we don't have the source text here,
-# so callers wanting accurate lines must supply them externally. Default to None.
-def _token_line(_start: int) -> Optional[int]:
-    return None
+    return _node_to_json(node, None)
 
 
 def to_json_with_lines(node: Node, source: str) -> dict:
@@ -72,27 +50,29 @@ def to_json_with_lines(node: Node, source: str) -> dict:
 
     Used by parse_file/parse_string MCP tools so the agent can navigate directly.
     """
-    starts = line_starts(source)
-    return _to_json_with_lines(node, starts)
+    return _node_to_json(node, line_starts(source))
 
 
-def _to_json_with_lines(node: Node, starts: list[int]) -> dict:
+def _node_to_json(node: Node, starts: Optional[list[int]]) -> dict:
+    """Serialise one node. `starts=None` means no source text, so every `line` is null."""
     return {
         "name": node.name,
         "operator": node.operator,
-        "value": _value_to_json_with_lines(node.value, starts),
+        "value": _value_to_json(node.value, starts),
         "value_attachment": node.value_attachment.name if node.value_attachment else None,
-        "line": pos_to_line(node.name_token.start, starts) if node.name_token else None,
+        "line": (
+            pos_to_line(node.name_token.start, starts) if node.name_token and starts else None
+        ),
     }
 
 
-def _value_to_json_with_lines(value: Any, starts: list[int]) -> Any:
+def _value_to_json(value: Any, starts: Optional[list[int]]) -> Any:
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, SymbolNode):
         return {"kind": "symbol", "name": value.name}
     if isinstance(value, list):
-        return {"kind": "block", "children": [_to_json_with_lines(c, starts) for c in value]}
+        return {"kind": "block", "children": [_node_to_json(c, starts) for c in value]}
     raise TypeError(f"Unrepresentable value of type {type(value).__name__}")
 
 

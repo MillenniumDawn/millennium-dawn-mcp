@@ -24,9 +24,7 @@ Cache layout (JSON, under <cache_dir>/v1/loc.data.json):
 from __future__ import annotations
 
 import logging
-import os
 import re
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -34,11 +32,10 @@ from ..util.encoding import read_text
 from .base import (
     IndexCache,
     StaleCheck,
-    _default_workers,
-    _parser_dispatch,
-    _safe_process_context,
-    compute_staleness,
-    signatures_for,
+    collect_files,
+    parse_files,
+    prepare_rebuild,
+    roots_for,
 )
 
 logger = logging.getLogger(__name__)
@@ -132,54 +129,30 @@ class LocalisationIndex:
     # ------------------------------------------------------------------
 
     def _roots(self) -> List[Path]:
-        roots = [self.mod_root]
-        if self.vanilla_path is not None:
-            roots.append(self.vanilla_path)
-        return roots
-
-    def _resolve_root(self, relative: str) -> Optional[Path]:
-        for base in self._roots():
-            candidate = base / relative
-            if candidate.exists():
-                return base
-        return None
+        return roots_for(self.mod_root, self.vanilla_path)
 
     def _collect_files(self) -> List[Path]:
-        results: List[Path] = []
-        for base in self._roots():
-            loc_dir = base / LOC_SUBDIR
-            if not loc_dir.is_dir():
-                continue
-            for p in loc_dir.rglob("*.yml"):
-                if _FILENAME_LANG_RE.search(p.name):
-                    results.append(p)
-        return results
+        return collect_files(
+            self._roots(), LOC_SUBDIR, "*.yml", lambda p: bool(_FILENAME_LANG_RE.search(p.name))
+        )
 
     def _rebuild_incremental(self) -> None:
-        files = self._collect_files()
-        current_sigs = signatures_for(files, self._roots())
-        manifest = self._cache.load_manifest() or {}
-        staleness = compute_staleness(manifest, current_sigs)
-
-        # Fast path: nothing changed on disk AND we already have in-process state.
-        if self._loaded and not staleness.stale and not staleness.added and not staleness.removed:
+        state = prepare_rebuild(
+            self._cache,
+            self._collect_files(),
+            self._roots(),
+            self._loaded,
+            files=self._by_file,
+        )
+        if state is None:
             return
+        plan = state.plan
 
-        if self._loaded:
-            cached_files: Dict[str, dict] = self._by_file
-        else:
-            cached_data = self._cache.load_data() or {}
-            cached_files = cached_data.get("files", {})
+        new_by_file: Dict[str, dict] = state.reused_files()
 
-        new_by_file: Dict[str, dict] = {}
-        for relpath in staleness.unchanged:
-            if relpath in cached_files:
-                new_by_file[relpath] = cached_files[relpath]
-
-        files_to_parse = staleness.stale + staleness.added
-        if files_to_parse:
-            results = self._parse_parallel(files_to_parse)
-            for relpath, parsed in zip(files_to_parse, results, strict=False):
+        if plan.to_parse:
+            results = self._parse_parallel(plan.to_parse)
+            for relpath, parsed in zip(plan.to_parse, results, strict=False):
                 if parsed is not None:
                     new_by_file[relpath] = parsed
 
@@ -200,33 +173,16 @@ class LocalisationIndex:
         self._by_file = new_by_file
         self._by_lang = new_by_lang
 
-        if files_to_parse or staleness.removed or not manifest:
+        if plan.should_save:
             self._cache.save_data({"files": new_by_file})
-            self._cache.save_manifest(current_sigs)
+            self._cache.save_manifest(plan.current_sigs)
 
     def _parse_parallel(self, relpaths: List[str]) -> List[Optional[dict]]:
         """Dispatch loc parsing to a process pool.
 
-        Biggest win is on the english tier (~500 files).
+        Biggest win is on the english tier (~500 files), hence the larger chunksize.
         """
-        jobs: List[tuple] = []
-        for rp in relpaths:
-            base = self._resolve_root(rp)
-            if base is None:
-                jobs.append(("", rp))
-            else:
-                jobs.append((str(base / rp), rp))
-
-        serial = os.environ.get("MD_MCP_SERIAL_PARSE") == "1" or len(jobs) < 4
-        if serial:
-            return [_parse_loc_worker(abs_path, rp) if abs_path else None for abs_path, rp in jobs]
-
-        ctx = _safe_process_context()
-        workers = min(_default_workers(), len(jobs))
-        with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as pool:
-            return list(
-                pool.map(_parser_dispatch, [(_parse_loc_worker, *job) for job in jobs], chunksize=8)
-            )
+        return parse_files(_parse_loc_worker, self._roots(), relpaths, chunksize=8)
 
 
 def _parse_loc_worker(abs_path: str, relpath: str) -> Optional[dict]:

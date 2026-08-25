@@ -165,6 +165,141 @@ def signatures_for(paths: Iterable[Path], roots: Path | list[Path]) -> Dict[str,
     return sigs
 
 
+def roots_for(mod_root: Path, vanilla_path: Optional[Path]) -> List[Path]:
+    """Content roots in resolution order: mod first, vanilla second when configured."""
+    return [mod_root] if vanilla_path is None else [mod_root, vanilla_path]
+
+
+def resolve_root(roots: Iterable[Path], relpath: str) -> Optional[Path]:
+    """Return the first root that actually holds `relpath`, or None."""
+    for base in roots:
+        if (base / relpath).exists():
+            return base
+    return None
+
+
+def collect_files(
+    roots: Iterable[Path],
+    subdir: str,
+    pattern: str,
+    predicate: Optional[Callable[[Path], bool]] = None,
+) -> List[Path]:
+    """Walk `subdir` under each root for `pattern`, optionally narrowed by `predicate`."""
+    results: List[Path] = []
+    for base in roots:
+        d = base / subdir
+        if not d.is_dir():
+            continue
+        for p in d.rglob(pattern):
+            if p.is_file() and (predicate is None or predicate(p)):
+                results.append(p)
+    return results
+
+
+@dataclass
+class RebuildPlan:
+    """The work a rebuild has to do, once the manifest has been diffed against disk."""
+
+    manifest: Dict[str, FileSig]
+    current_sigs: Dict[str, FileSig]
+    staleness: Staleness
+    to_parse: List[str]
+
+    @property
+    def should_save(self) -> bool:
+        return bool(self.to_parse or self.staleness.removed or not self.manifest)
+
+
+@dataclass
+class RebuildState:
+    """A rebuild plan with current or persisted index data ready for reuse."""
+
+    plan: RebuildPlan
+    data: dict
+
+    def reused_files(self) -> dict:
+        cached_files = self.data.get("files", {})
+        return {
+            relpath: cached_files[relpath]
+            for relpath in self.plan.staleness.unchanged
+            if relpath in cached_files
+        }
+
+
+def prepare_rebuild(
+    cache: IndexCache,
+    paths: List[Path],
+    roots: List[Path],
+    loaded: bool,
+    **in_memory: Any,
+) -> Optional[RebuildState]:
+    """Plan a rebuild and load reusable data, or return None when the index is current."""
+    plan = plan_rebuild(cache, paths, roots, loaded)
+    if plan is None:
+        return None
+    data = in_memory if loaded else cache.load_data() or {}
+    return RebuildState(plan, data)
+
+
+def plan_rebuild(
+    cache: IndexCache, files: List[Path], roots: List[Path], loaded: bool
+) -> Optional[RebuildPlan]:
+    """Diff the current files against the manifest.
+
+    Returns None on the fast path — nothing moved on disk and in-process state is
+    already populated, so the caller can leave its maps alone. A missing or
+    unreadable manifest reads as empty, which forces a full rebuild and rewrite.
+    """
+    current_sigs = signatures_for(files, roots)
+    manifest = cache.load_manifest() or {}
+    staleness = compute_staleness(manifest, current_sigs)
+
+    if loaded and not staleness.stale and not staleness.added and not staleness.removed:
+        return None
+
+    return RebuildPlan(
+        manifest=manifest,
+        current_sigs=current_sigs,
+        staleness=staleness,
+        to_parse=staleness.stale + staleness.added,
+    )
+
+
+def parse_files(
+    parser_fn: Callable[[str, str], Any],
+    roots: List[Path],
+    relpaths: List[str],
+    *,
+    missing: Any = None,
+    chunksize: int = 4,
+) -> List[Any]:
+    """Resolve each relpath to an absolute path and run `parser_fn` over the batch.
+
+    Falls back to serial execution under two conditions: (a) fewer than four files
+    (warm-path edits — pool overhead would dominate), or (b) `MD_MCP_SERIAL_PARSE=1`
+    is set, which `md-mcp serve` does because forking under stdio deadlocks.
+
+    Results stay aligned with `relpaths`. On the serial path, a file that resolves
+    under no root yields `missing`; pooled parsers retain their existing handling.
+    """
+    jobs: List[Tuple[str, str]] = []
+    for rp in relpaths:
+        base = resolve_root(roots, rp)
+        jobs.append((str(base / rp), rp) if base is not None else ("", rp))
+
+    if os.environ.get("MD_MCP_SERIAL_PARSE") == "1" or len(jobs) < 4:
+        return [parser_fn(abs_path, rp) if abs_path else missing for abs_path, rp in jobs]
+
+    # Use fork on macOS/Linux where it's available — vastly cheaper startup than
+    # spawn, which re-imports the package per worker (multi-second on cold start).
+    ctx = _safe_process_context()
+    workers = min(_default_workers(), len(jobs))
+    with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as pool:
+        return list(
+            pool.map(_parser_dispatch, [(parser_fn, *job) for job in jobs], chunksize=chunksize)
+        )
+
+
 class GenericTxtIndex:
     """Shared scaffolding for paradox-script indexes that walk a single subdir for `.txt`.
 
@@ -258,35 +393,14 @@ class GenericTxtIndex:
     # ---------- internals ----------
 
     def _roots(self) -> List["Path"]:
-        roots = [self.mod_root]
-        if self.vanilla_path is not None:
-            roots.append(self.vanilla_path)
-        return roots
-
-    def _resolve_root(self, relpath: str) -> "Optional[Path]":
-        for base in self._roots():
-            if (base / relpath).exists():
-                return base
-        return None
+        return roots_for(self.mod_root, self.vanilla_path)
 
     def _collect_files(self) -> List["Path"]:
-        results: List["Path"] = []
-        for base in self._roots():
-            d = base / self.subdir
-            if not d.is_dir():
-                continue
-            for p in d.rglob(self.pattern):
-                if p.is_file():
-                    results.append(p)
-        return results
+        return collect_files(self._roots(), self.subdir, self.pattern)
 
     def _rebuild(self) -> None:
-        files = self._collect_files()
-        current_sigs = signatures_for(files, self._roots())
-        manifest = self._cache.load_manifest() or {}
-        staleness = compute_staleness(manifest, current_sigs)
-
-        if self._loaded and not staleness.stale and not staleness.added and not staleness.removed:
+        plan = plan_rebuild(self._cache, self._collect_files(), self._roots(), self._loaded)
+        if plan is None:
             return
 
         if self._loaded:
@@ -296,15 +410,13 @@ class GenericTxtIndex:
             cached_files = cached_data.get("files", {})
 
         new_by_file: Dict[str, List[dict]] = {}
-        for relpath in staleness.unchanged:
+        for relpath in plan.staleness.unchanged:
             if relpath in cached_files:
                 new_by_file[relpath] = cached_files[relpath]
 
-        to_parse = staleness.stale + staleness.added
-
-        if to_parse:
-            results = self._parse_parallel(to_parse)
-            for relpath, recs in zip(to_parse, results, strict=False):
+        if plan.to_parse:
+            results = self._parse_parallel(plan.to_parse)
+            for relpath, recs in zip(plan.to_parse, results, strict=False):
                 if recs is not None:
                     new_by_file[relpath] = recs
 
@@ -336,17 +448,11 @@ class GenericTxtIndex:
         self._by_key = new_by_key
         self._duplicates = new_duplicates
 
-        if to_parse or staleness.removed or not manifest:
+        if plan.should_save:
             self._cache.save_data({"files": new_by_file})
-            self._cache.save_manifest(current_sigs)
+            self._cache.save_manifest(plan.current_sigs)
 
     def _parse_parallel(self, relpaths: List[str]) -> List["Optional[List[dict]]"]:
-        """Resolve each relpath to its absolute path and dispatch the parser fn in a process pool.
-
-        Falls back to serial execution under two conditions: (a) a single file is
-        being processed (warm-path edits — pool overhead would dominate), or
-        (b) `MD_MCP_SERIAL_PARSE=1` is set (useful for debugging / coverage).
-        """
         fn = type(self).parser_fn
         if fn is None:
             # Legit abstract-method guard, not a scaffolded stub.
@@ -354,26 +460,7 @@ class GenericTxtIndex:
             raise NotImplementedError(
                 f"{type(self).__name__} must set `parser_fn` to a module-level function"
             )
-
-        # Build (abs_path, relpath) jobs once.
-        jobs: List[Tuple[str, str]] = []
-        for rp in relpaths:
-            base = self._resolve_root(rp)
-            if base is None:
-                jobs.append(("", rp))  # marker so we keep alignment
-            else:
-                jobs.append((str(base / rp), rp))
-
-        serial = os.environ.get("MD_MCP_SERIAL_PARSE") == "1" or len(jobs) < 4
-        if serial:
-            return [fn(abs_path, rp) if abs_path else None for abs_path, rp in jobs]
-
-        # Use fork on macOS/Linux where it's available — vastly cheaper startup than
-        # spawn, which re-imports the package per worker (multi-second on cold start).
-        ctx = _safe_process_context()
-        workers = min(_default_workers(), len(jobs))
-        with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as pool:
-            return list(pool.map(_parser_dispatch, [(fn, *job) for job in jobs], chunksize=4))
+        return parse_files(fn, self._roots(), relpaths)
 
 
 def _safe_process_context():

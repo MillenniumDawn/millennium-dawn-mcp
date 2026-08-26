@@ -72,10 +72,19 @@ def test_focus_index_cache_persisted(fake_mod_root, cache_dir):
     assert sorted(fi2.list_ids()) == sorted(fi.list_ids())
 
 
-def test_load_manifest_round_trips(cache_dir):
+@pytest.mark.parametrize(
+    "sig",
+    [
+        FileSig(mtime_ns=7, size=3),
+        FileSig(mtime_ns=0, size=0),
+        FileSig(mtime_ns=-1, size=5),
+        FileSig(mtime_ns=5, size=-1),
+    ],
+)
+def test_load_manifest_round_trips(cache_dir, sig):
     cache = IndexCache(cache_dir, "focus", 2)
-    cache.save_manifest({"a.txt": FileSig(mtime_ns=7, size=3)})
-    assert cache.load_manifest() == {"a.txt": FileSig(mtime_ns=7, size=3)}
+    cache.save_manifest({"a.txt": sig})
+    assert cache.load_manifest() == {"a.txt": sig}
 
 
 @pytest.mark.parametrize(
@@ -138,6 +147,36 @@ def test_load_manifest_unreadable_returns_none(cache_dir, monkeypatch):
 
     monkeypatch.setattr(builtins, "open", _raising_open)
     assert cache.load_manifest() is None
+
+
+def test_load_data_round_trips(cache_dir):
+    cache = IndexCache(cache_dir, "focus", 2)
+    payload = {"files": {"a.txt": [{"id": "x"}]}}
+    cache.save_data(payload)
+    assert cache.load_data() == payload
+
+
+def test_load_data_unreadable_returns_none(cache_dir, monkeypatch):
+    cache = IndexCache(cache_dir, "focus", 2)
+    cache.save_data({"files": {}})
+    import builtins
+
+    real_open = builtins.open
+
+    def _raising_open(path, *args, **kwargs):
+        if str(path).endswith("focus.data.json"):
+            raise OSError("denied")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", _raising_open)
+    assert cache.load_data() is None
+
+
+def test_load_data_rejects_malformed(cache_dir):
+    cache = IndexCache(cache_dir, "focus", 2)
+    cache.dir.mkdir(parents=True)
+    cache.data_path.write_text("not json at all", encoding="utf-8")
+    assert cache.load_data() is None
 
 
 def test_focus_index_reports_parse_errors_from_parallel_build(

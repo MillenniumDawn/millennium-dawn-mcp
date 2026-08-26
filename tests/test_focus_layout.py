@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import inspect
+import json
 from pathlib import Path
 
 import pytest
 
 from md_mcp.analysis.focus_layout import focus_layout
 from md_mcp.indexes import FocusIndex
+from md_mcp.util.response import BUDGET_BYTES
 
 _TREE = """focus_tree = {
     id = TST_tree
@@ -339,3 +341,27 @@ def test_limit_above_total_not_truncated(tmp_path):
     assert out["collisions_truncated"] is False
     assert len(out["chain_errors"]) == 2
     assert out["chain_errors_truncated"] is False
+
+
+def test_enforce_budget_drops_positions_when_over(tmp_path):
+    unique = "\n".join(f"    focus = {{ id = TST_f{i:04d} x = {i} y = 0 }}" for i in range(2500))
+    stacked = "\n".join(
+        f"    focus = {{ id = TST_c{i:02d}{s} x = {i} y = 1 }}"
+        for i in range(10)
+        for s in ("a", "b")
+    )
+    body = f"focus_tree = {{\n{unique}\n{stacked}\n}}\n"
+    rel = _write_tree(tmp_path, body, name="TST_budget.txt")
+
+    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=10000)
+
+    assert out.get("size_truncated") is True
+    assert "positions" not in out
+    assert out["positions_total"] == 2520
+    assert out["positions_dropped"] == 2520
+    assert "collisions" in out
+    assert "collisions_dropped" not in out
+    assert out["collisions_total"] == 10
+    assert "chain_errors" in out
+    assert "chain_errors_dropped" not in out
+    assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES

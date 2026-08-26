@@ -46,6 +46,8 @@ def main() -> int:
     # A write failure must surface as a validator failure (nonzero exit), not a
     # silent crash; the parent treats a missing payload as "no result".
     try:
+        # args.out is the parent-chosen payload path, not caller-controlled input.
+        # pi-lens-ignore: python-path-traversal
         with open(args.out, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, default=str)
     except OSError:

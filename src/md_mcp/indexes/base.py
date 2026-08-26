@@ -43,7 +43,7 @@ class FileSig:
         try:
             mtime_ns = int(data[0])
             size = int(data[1])
-        except (TypeError, ValueError, IndexError) as e:
+        except (TypeError, ValueError, IndexError, KeyError) as e:
             raise ValueError(f"corrupt manifest signature: {data!r}") from e
         return cls(mtime_ns=mtime_ns, size=size)
 

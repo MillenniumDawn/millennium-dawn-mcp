@@ -86,8 +86,12 @@ def test_load_manifest_round_trips(cache_dir):
         '{"a.txt": [1]}',
         '{"a.txt": ["x", 1]}',
         '{"a.txt": [null, 1]}',
+        '{"a.txt": {"mtime_ns": 1, "size": 2}}',
+        '{"a.txt": 12}',
+        '{"good.txt": [1, 2], "bad.txt": null}',
         '["a.txt"]',
         '"a.txt"',
+        "null",
         "not json at all",
     ],
 )
@@ -102,9 +106,15 @@ def test_focus_index_rebuilds_on_shape_corrupt_manifest(fake_mod_root, cache_dir
     fi = FocusIndex(fake_mod_root, cache_dir)
     fi.ensure_fresh()
     ids = sorted(fi.list_ids())
+    assert ids
 
     manifest = cache_dir / "v2" / "focus.manifest.json"
-    manifest.write_text('{"common/national_focus/test.txt": null}', encoding="utf-8")
+    data = cache_dir / "v2" / "focus.data.json"
+    manifest.write_text(
+        '{"common/national_focus/test.txt": {"mtime_ns": 1, "size": 2}}',
+        encoding="utf-8",
+    )
+    data.write_text('{"files": {}}', encoding="utf-8")
 
     fi2 = FocusIndex(fake_mod_root, cache_dir)
     fi2.ensure_fresh()

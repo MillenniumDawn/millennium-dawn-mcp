@@ -43,6 +43,19 @@ def test_line_starts_trailing_newline_with_content():
     assert line_starts("a\nb\n") == [0, 2, 4]
 
 
+def test_line_starts_crlf_keeps_cr_on_the_line():
+    assert line_starts("a\r\nb") == [0, 3]
+
+
+def test_line_starts_non_ascii_uses_str_indices():
+    text = "é\nx"
+    starts = line_starts(text)
+    assert starts == [0, 2]
+    assert pos_to_line(0, starts) == 1
+    assert pos_to_line(1, starts) == 1
+    assert pos_to_line(2, starts) == 2
+
+
 # ---------------------------------------------------------------------------
 # pos_to_line — boundaries (the bug magnet)
 # ---------------------------------------------------------------------------
@@ -92,6 +105,17 @@ def test_pos_to_line_beyond_end_is_last_line():
     starts = line_starts("a\nb")
     assert pos_to_line(3, starts) == 2  # len("a\nb") == 3, one past end
     assert pos_to_line(99, starts) == 2
+
+
+def test_pos_to_line_negative_clamps_to_first_line():
+    starts = line_starts("a\nb")
+    assert pos_to_line(-1, starts) == 1
+    assert pos_to_line(-99, starts) == 1
+
+
+def test_line_and_column_negative_clamps_to_one_one():
+    starts = line_starts("a\nb")
+    assert line_and_column(-1, starts) == (1, 1)
 
 
 def test_pos_to_line_monotonic():

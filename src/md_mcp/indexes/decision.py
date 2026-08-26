@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import Optional
 
 from ..paradox import parse_string
 from ..paradox.schema import extract_decision_records
@@ -13,7 +13,7 @@ from .base import GenericTxtIndex
 logger = logging.getLogger(__name__)
 
 
-def _parse_decision_file(abs_path: str, relpath: str) -> Optional[List[dict]]:
+def _parse_decision_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
     try:
         text = read_text(abs_path)
     except OSError as e:

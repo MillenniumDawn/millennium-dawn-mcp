@@ -26,7 +26,7 @@ import re
 import subprocess
 from pathlib import Path
 from subprocess import TimeoutExpired
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Optional, Sequence, Union
 
 from typing_extensions import TypeIs
 
@@ -99,7 +99,7 @@ def diff_summary(
     mod_root: Path,
     base: str = "main",
     *,
-    kinds: Optional[List[str]] = None,
+    kinds: Optional[list[str]] = None,
     with_ids: bool = True,
     limit: int = 200,
 ) -> dict:
@@ -127,8 +127,8 @@ def diff_summary(
     # distinguishable.
     kinds_set = set(kinds) if kinds is not None else None
     limit = max(0, limit)
-    by_kind: Dict[str, List[dict]] = {}
-    file_records: List[dict] = []
+    by_kind: dict[str, list[dict]] = {}
+    file_records: list[dict] = []
 
     if not isinstance(diff_records, list):
         return {"ok": False, "error": "git diff returned invalid output"}
@@ -143,7 +143,7 @@ def diff_summary(
         kind = _classify(classify_path)
         if kinds_set is not None and kind not in kinds_set:
             continue
-        record: Dict[str, Any] = {
+        record: dict[str, Any] = {
             "path": new_path,
             "status": status,
             "kind": kind,
@@ -156,7 +156,7 @@ def diff_summary(
             record["path"] = new_path
 
         if with_ids and kind in ("focus", "event", "decision", "idea") and status != "D":
-            id_block: Dict[str, Any] = {}
+            id_block: dict[str, Any] = {}
             base_err: Optional[str] = None
             head_err: Optional[str] = None
             head_text: str = ""
@@ -288,7 +288,7 @@ def _git_diff_files(mod_root: Path, base: str) -> Any:
     return _parse_name_status_z(proc.stdout)
 
 
-def _parse_name_status_z(raw: str) -> List[Dict[str, str]]:
+def _parse_name_status_z(raw: str) -> list[dict[str, str]]:
     """Parse `git diff --name-status -z` output into rename-aware records.
 
     With `-z`, every record is NUL-terminated. For a non-rename (M/A/D/T) the
@@ -300,7 +300,7 @@ def _parse_name_status_z(raw: str) -> List[Dict[str, str]]:
     if not raw:
         return []
     parts = raw.split("\x00")
-    records: List[Dict[str, str]] = []
+    records: list[dict[str, str]] = []
     i = 0
     while i < len(parts):
         chunk = parts[i]
@@ -375,7 +375,7 @@ def _read_at(mod_root: Path, rev: str, path: str) -> Union[str, _GitReadError]:
     return text
 
 
-def _diff_ids(base_text: str, head_text: str, kind: str) -> Tuple[List[str], List[str]]:
+def _diff_ids(base_text: str, head_text: str, kind: str) -> tuple[list[str], list[str]]:
     """Return (added_ids, removed_ids) for the given content kind."""
     base_ids = set(_extract_ids(base_text, kind)) if base_text else set()
     head_ids = set(_extract_ids(head_text, kind)) if head_text else set()
@@ -384,7 +384,7 @@ def _diff_ids(base_text: str, head_text: str, kind: str) -> Tuple[List[str], Lis
     return added, removed
 
 
-def _extract_ids(text: str, kind: str) -> List[str]:
+def _extract_ids(text: str, kind: str) -> list[str]:
     try:
         root = parse_string(text)
     except Exception as exc:

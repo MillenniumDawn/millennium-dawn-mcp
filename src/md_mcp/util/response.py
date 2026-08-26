@@ -17,7 +17,7 @@ with headroom for the protocol envelope.
 from __future__ import annotations
 
 import json
-from typing import Any, Iterable, List, Sequence, Tuple
+from typing import Any, Iterable, Sequence
 
 BUDGET_BYTES = 100_000
 
@@ -44,7 +44,7 @@ def paginate(
     items: Sequence[Any],
     offset: int | float | str | None = 0,
     limit: int | float | str | None = 200,
-) -> Tuple[List[Any], bool, int]:
+) -> tuple[list[Any], bool, int]:
     """Slice `items[offset : offset+limit]`. Returns (slice, truncated, total).
 
     `offset`/`limit` accept `int`, numeric `str`/`float`, or `None` (falls
@@ -159,7 +159,7 @@ def _bounded_fallback(result: dict, budget: int) -> dict:
     }
 
 
-def clip_strings(items: Iterable[dict], key: str, max_bytes: int) -> List[dict]:
+def clip_strings(items: Iterable[dict], key: str, max_bytes: int) -> list[dict]:
     """Return a copy of `items` with `item[key]` clipped to `max_bytes` UTF-8 bytes.
 
     Clipping is by UTF-8 byte length, matching the byte budget the rest of this
@@ -170,7 +170,7 @@ def clip_strings(items: Iterable[dict], key: str, max_bytes: int) -> List[dict]:
     the middle of a multi-byte code point drops that partial code point rather
     than emitting invalid UTF-8.
     """
-    out: List[dict] = []
+    out: list[dict] = []
     for it in items:
         v = it.get(key)
         if isinstance(v, str) and len(v.encode("utf-8")) > max_bytes:

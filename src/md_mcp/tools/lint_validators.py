@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import Optional, Sequence
 
 from ..validators import SLOW_VALIDATORS, ValidatorRunner
 from ..validators.attribution import IssueAttributor
@@ -47,7 +47,7 @@ UNATTRIBUTED_SAMPLE = 5
 # Deliberately absent: variables, set_variables, cosmetic_tags (global
 # cross-reference scans, meaningless per-file) and the SLOW_VALIDATORS.
 # All stay reachable by explicit name; the fast globals also run under "*".
-VALIDATOR_AUTO_MAP: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+VALIDATOR_AUTO_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "common/",
         (
@@ -191,9 +191,9 @@ VALIDATOR_AUTO_MAP: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
 )
 
 
-def _scan_prefixes() -> Dict[str, Tuple[str, ...]]:
+def _scan_prefixes() -> dict[str, tuple[str, ...]]:
     """Invert VALIDATOR_AUTO_MAP: validator -> the directories it scans."""
-    out: Dict[str, Set[str]] = {}
+    out: dict[str, set[str]] = {}
     for prefix, vals in VALIDATOR_AUTO_MAP:
         for v in vals:
             out.setdefault(v, set()).add(prefix)
@@ -202,11 +202,11 @@ def _scan_prefixes() -> Dict[str, Tuple[str, ...]]:
     return {k: tuple(sorted(v)) for k, v in out.items()}
 
 
-SCAN_PREFIXES: Dict[str, Tuple[str, ...]] = _scan_prefixes()
+SCAN_PREFIXES: dict[str, tuple[str, ...]] = _scan_prefixes()
 
 
-def _validators_for_path(path: str) -> Set[str]:
-    names: Set[str] = set()
+def _validators_for_path(path: str) -> set[str]:
+    names: set[str] = set()
     for prefix, vals in VALIDATOR_AUTO_MAP:
         if path.startswith(prefix):
             names.update(vals)
@@ -219,7 +219,7 @@ def _validators_for_path(path: str) -> Set[str]:
     return names
 
 
-def select_validators(relevant: Optional[List[str]], available: Set[str]) -> List[str]:
+def select_validators(relevant: Optional[list[str]], available: set[str]) -> list[str]:
     """Resolve `validators=["auto"]` to concrete names for the given file scope.
 
     `relevant=None` (mode=all) degrades to every fast validator. An empty
@@ -227,7 +227,7 @@ def select_validators(relevant: Optional[List[str]], available: Set[str]) -> Lis
     """
     if relevant is None:
         return sorted(available - SLOW_VALIDATORS)
-    wanted: Set[str] = set()
+    wanted: set[str] = set()
     for f in relevant:
         wanted |= _validators_for_path(f)
     return sorted(wanted & available)
@@ -240,7 +240,7 @@ def run_validators_for_lint(
     staged_only: bool,
     relevant_set: Optional[set],
     mod_root: Optional[Path] = None,
-) -> Tuple[List[dict], List[dict]]:
+) -> tuple[list[dict], list[dict]]:
     """Run validators and normalise output into the lint dispatcher's shape.
 
     Returns (check_entries, issues). Check entries are named `validator:<name>`
@@ -257,8 +257,8 @@ def run_validators_for_lint(
     wanted = {os.path.normpath(f) for f in relevant_set} if relevant_set is not None else None
     attributor = IssueAttributor(mod_root) if mod_root is not None else None
 
-    check_entries: List[dict] = []
-    issues_out: List[dict] = []
+    check_entries: list[dict] = []
+    issues_out: list[dict] = []
     for name in names:
         label = f"validator:{name}"
         try:
@@ -272,8 +272,8 @@ def run_validators_for_lint(
 
         raw = result.get("issues", []) or []
         prefixes = SCAN_PREFIXES.get(name, ())
-        on_scope: List[dict] = []
-        unattributed: List[dict] = []
+        on_scope: list[dict] = []
+        unattributed: list[dict] = []
         if wanted is not None:
             for i in raw:
                 resolved = _resolve(i, attributor, prefixes)

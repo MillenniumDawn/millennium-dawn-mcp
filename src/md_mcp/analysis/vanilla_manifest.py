@@ -13,7 +13,7 @@ added without duplicating the parse.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import FrozenSet, Optional
+from typing import Optional
 
 # Fixed manifest files the mod repo commits, as constant relpaths. The loader
 # only ever builds a path by joining one of these constants, never the caller's
@@ -26,7 +26,7 @@ _MANIFEST_FILES = {
 }
 
 
-def load_manifest(mod_root: Path, filename: str) -> Optional[FrozenSet[str]]:
+def load_manifest(mod_root: Path, filename: str) -> Optional[frozenset[str]]:
     """Return the manifest entries as a set, or None if the manifest is absent.
 
     Comment lines (leading `#`) and blank lines are skipped; entries are
@@ -55,6 +55,6 @@ def load_manifest(mod_root: Path, filename: str) -> Optional[FrozenSet[str]]:
     return frozenset(entries)
 
 
-def load_sprite_manifest(mod_root: Path) -> Optional[FrozenSet[str]]:
+def load_sprite_manifest(mod_root: Path) -> Optional[frozenset[str]]:
     """Load `vanilla_sprites.txt`, or None when it is missing/unreadable."""
     return load_manifest(mod_root, "vanilla_sprites.txt")

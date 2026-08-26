@@ -8,7 +8,7 @@ to the events file if missing.
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Optional
 
 from ..util.response import enforce_budget
 
@@ -23,7 +23,7 @@ def generate_event(
     picture: Optional[str] = None,
     trigger: Optional[str] = None,
     immediate: Optional[str] = None,
-    options: Optional[List[dict]] = None,
+    options: Optional[list[dict]] = None,
     title: Optional[str] = None,
     description: Optional[str] = None,
 ) -> dict:
@@ -55,7 +55,7 @@ def generate_event(
     eid = f"{namespace}.{number}"
     options = options or [{}]
 
-    parts: List[str] = [f"{kind} = {{"]
+    parts: list[str] = [f"{kind} = {{"]
     parts.append(f"\tid = {eid}")
     parts.append(f"\ttitle = {eid}.t")
     parts.append(f"\tdesc = {eid}.d")
@@ -81,7 +81,7 @@ def generate_event(
         parts.append("")
 
     option_letters = "abcdefghijklmnopqrstuvwxyz"
-    loc_keys: List[dict] = [
+    loc_keys: list[dict] = [
         {"key": f"{eid}.t", "value": title or f"Event: {namespace} {number}"},
         {"key": f"{eid}.d", "value": description or "TODO: event description."},
     ]
@@ -120,6 +120,6 @@ def generate_event(
     )
 
 
-def _indent(block: str, tabs: int) -> List[str]:
+def _indent(block: str, tabs: int) -> list[str]:
     pad = "\t" * tabs
     return [pad + line if line.strip() else line for line in block.rstrip("\n").splitlines()]

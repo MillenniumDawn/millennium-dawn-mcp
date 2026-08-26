@@ -11,7 +11,7 @@ The output is structured to satisfy `check_common_mistakes.py`:
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Optional
 
 from ..util.response import enforce_budget
 
@@ -57,7 +57,7 @@ def generate_decision(
       target_trigger      — `target_trigger = { FROM = { ... } }` (per-target filter)
       title, description  — loc values for `ID` / `ID_desc`
     """
-    parts: List[str] = [f"\t{id} = {{"]
+    parts: list[str] = [f"\t{id} = {{"]
     parts.append(f"\t\ticon = {icon or 'generic_decision'}")
     parts.append("")
 
@@ -134,6 +134,6 @@ def generate_decision(
     )
 
 
-def _indent(block: str, tabs: int) -> List[str]:
+def _indent(block: str, tabs: int) -> list[str]:
     pad = "\t" * tabs
     return [pad + line if line.strip() else line for line in block.rstrip("\n").splitlines()]

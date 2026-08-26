@@ -33,7 +33,7 @@ small and load-bearing for review.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Optional, Sequence
 
 from ..indexes import FocusIndex
 from ..paradox import parse_string
@@ -75,8 +75,8 @@ def focus_graph(
 
     # Always parse fully internally — we need the prereq/mutex links for the
     # graph algorithms regardless of which detail tier the caller asked for.
-    full_nodes: List[dict] = []
-    by_id: Dict[str, dict] = {}
+    full_nodes: list[dict] = []
+    by_id: dict[str, dict] = {}
 
     for relpath in candidate_files:
         abs_path = resolve_scope_file(relpath, mod_root, vanilla_path)
@@ -96,8 +96,8 @@ def focus_graph(
             by_id[rec["id"]] = entry
 
     # Edges + dangling — always computed; cheap relative to the parse.
-    all_edges: List[dict] = []
-    dangling: List[dict] = []
+    all_edges: list[dict] = []
+    dangling: list[dict] = []
     for n in full_nodes:
         for group in n["prerequisites"]:
             for prereq in group:
@@ -109,7 +109,7 @@ def focus_graph(
 
     roots = sorted([n["id"] for n in full_nodes if not n["prerequisites"]])
 
-    prereq_succ: Dict[str, List[str]] = {n["id"]: [] for n in full_nodes}
+    prereq_succ: dict[str, list[str]] = {n["id"]: [] for n in full_nodes}
     for e in all_edges:
         if e["kind"] == "prereq" and e["from"] in prereq_succ:
             prereq_succ[e["from"]].append(e["to"])
@@ -198,13 +198,13 @@ def _read_cost(c) -> tuple[float, bool]:
 
 
 def _path_entry(
-    requested: str, real: Optional[str], by_id: Dict[str, dict], cycle_ids: set
+    requested: str, real: Optional[str], by_id: dict[str, dict], cycle_ids: set
 ) -> dict:
     """Resolve one focus's cheapest completion set and timing estimate."""
     if real is None:
         return {"focus": requested, "found": False}
 
-    memo: Dict[str, tuple] = {}
+    memo: dict[str, tuple] = {}
     dangling: set = set()
 
     def cost_of(fid: str) -> float:
@@ -238,7 +238,7 @@ def _path_entry(
     chosen, total_cost = solved
 
     # Completion order: prereq depth within the chosen set, ties by id.
-    depth: Dict[str, int] = {}
+    depth: dict[str, int] = {}
 
     def depth_of(fid: str, visiting: frozenset) -> int:
         if fid in depth:
@@ -275,11 +275,11 @@ def _path_entry(
     return entry
 
 
-def _find_cycles(graph: Dict[str, List[str]]) -> List[List[str]]:
+def _find_cycles(graph: dict[str, list[str]]) -> list[list[str]]:
     """Tarjan-style cycle enumeration over a small DAG. Returns one cycle per SCC."""
-    cycles: List[List[str]] = []
-    color: Dict[str, int] = {n: 0 for n in graph}
-    stack: List[str] = []
+    cycles: list[list[str]] = []
+    color: dict[str, int] = {n: 0 for n in graph}
+    stack: list[str] = []
 
     def dfs(node: str) -> None:
         color[node] = 1

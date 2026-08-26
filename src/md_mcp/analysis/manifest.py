@@ -24,7 +24,7 @@ from __future__ import annotations
 import contextlib
 import re
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Optional, Sequence
 
 from ..indexes import (
     DecisionIndex,
@@ -73,11 +73,11 @@ def list_country_content(
     prefix = tag_upper + "_"
     wanted_full = _resolve_include(include)
 
-    focuses: List[str] = _focuses(focus_index, prefix)
-    decisions: List[str] = _ids_with_prefix(decision_index, prefix)
-    ideas: List[str] = _ids_with_prefix(idea_index, prefix)
+    focuses: list[str] = _focuses(focus_index, prefix)
+    decisions: list[str] = _ids_with_prefix(decision_index, prefix)
+    ideas: list[str] = _ids_with_prefix(idea_index, prefix)
     events, event_files = _events(event_index, tag_upper, prefix)
-    loc_files: List[str] = _loc_files(loc_index, tag_upper)
+    loc_files: list[str] = _loc_files(loc_index, tag_upper)
     mio_files = _scan_files(
         mod_root,
         "common/military_industrial_organization/organizations",
@@ -88,7 +88,7 @@ def list_country_content(
     oob_files = _scan_files(mod_root, "history/units", ("*.txt",), prefix=tag_upper)
     namelist_files = _scan_files(mod_root, "common/names", ("*.txt",), prefix=tag_upper)
 
-    raw: dict[str, List[str]] = {
+    raw: dict[str, list[str]] = {
         "focuses": sorted(focuses),
         "events": sorted(events),
         "event_files": sorted(event_files),
@@ -133,14 +133,14 @@ def _resolve_include(include: Optional[Sequence[str]]) -> set[str]:
     return {c for c in include if c in _ALL_CATEGORIES}
 
 
-def _focuses(focus_index: Optional[FocusIndex], prefix: str) -> List[str]:
+def _focuses(focus_index: Optional[FocusIndex], prefix: str) -> list[str]:
     if focus_index is None:
         return []
     focus_index.ensure_fresh()
     return [fid for fid in focus_index.list_keys() if fid.upper().startswith(prefix)]
 
 
-def _ids_with_prefix(index, prefix: str) -> List[str]:
+def _ids_with_prefix(index, prefix: str) -> list[str]:
     if index is None:
         return []
     index.ensure_fresh()
@@ -149,12 +149,12 @@ def _ids_with_prefix(index, prefix: str) -> List[str]:
 
 def _events(
     event_index: Optional[EventIndex], tag_upper: str, prefix: str
-) -> tuple[List[str], List[str]]:
+) -> tuple[list[str], list[str]]:
     if event_index is None:
         return [], []
     event_index.ensure_fresh()
-    events: List[str] = []
-    files: List[str] = []
+    events: list[str] = []
+    files: list[str] = []
     seen_files: set[str] = set()
     for eid in event_index.list_keys():
         rec = event_index.resolve(eid)
@@ -170,7 +170,7 @@ def _events(
     return events, files
 
 
-def _loc_files(loc_index: Optional[LocalisationIndex], tag_upper: str) -> List[str]:
+def _loc_files(loc_index: Optional[LocalisationIndex], tag_upper: str) -> list[str]:
     if loc_index is None:
         return []
     loc_index.ensure_fresh()
@@ -178,8 +178,8 @@ def _loc_files(loc_index: Optional[LocalisationIndex], tag_upper: str) -> List[s
     return [f for f in loc_index._by_file if pattern.search(f)]
 
 
-def _scan_files(mod_root: Path, subdir: str, patterns: tuple, *, prefix: str) -> List[str]:
-    out: List[str] = []
+def _scan_files(mod_root: Path, subdir: str, patterns: tuple, *, prefix: str) -> list[str]:
+    out: list[str] = []
     d = mod_root / subdir
     if not d.is_dir():
         return out

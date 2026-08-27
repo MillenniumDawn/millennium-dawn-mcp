@@ -321,7 +321,6 @@ class GenericTxtIndex:
         * `cache_name: str`     — file basename under `<cache_dir>/v<ver>/`
         * `subdir: str`         — path under each root, e.g. `events`
         * `pattern: str`        — glob like `*.txt`
-        * `content_prefilter`   — cheap substring test before parsing
         * `parser_fn`           — *module-level* function
                                   `(abs_path: str, relpath: str) -> Optional[list[dict]]`
                                   (must be picklable for ProcessPoolExecutor)
@@ -337,7 +336,6 @@ class GenericTxtIndex:
     cache_name: str = ""
     subdir: str = ""
     pattern: str = "*.txt"
-    content_prefilter: tuple = ()
     primary_key: str = "id"
 
     def __init__(

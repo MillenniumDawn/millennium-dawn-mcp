@@ -22,7 +22,6 @@ import subprocess
 import textwrap
 import types
 from pathlib import Path
-from typing import List
 
 import pytest
 
@@ -843,7 +842,7 @@ def test_read_at_reports_git_not_found(monkeypatch: pytest.MonkeyPatch):
 def test_read_at_strips_bom_and_one_trailing_newline(monkeypatch: pytest.MonkeyPatch):
     from md_mcp.analysis.diff_summary import _read_at
 
-    seen: List[List[str]] = []
+    seen: list[list[str]] = []
 
     class _StubSubprocess:
         TimeoutExpired = subprocess.TimeoutExpired
@@ -867,7 +866,7 @@ def test_read_at_strips_bom_and_one_trailing_newline(monkeypatch: pytest.MonkeyP
 
 def test_git_diff_places_base_after_end_of_options(monkeypatch: pytest.MonkeyPatch):
     """The user-controlled revision must be an operand, never a git option."""
-    seen: List[List[str]] = []
+    seen: list[list[str]] = []
 
     class _StubSubprocess:
         TimeoutExpired = subprocess.TimeoutExpired

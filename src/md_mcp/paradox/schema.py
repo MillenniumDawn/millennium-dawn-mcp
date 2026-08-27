@@ -12,7 +12,7 @@ Additional extractors (events, decisions, ideas, sprites) land in Milestone 2.
 
 from __future__ import annotations
 
-from typing import Any, Iterator, List, Optional, Tuple
+from typing import Any, Iterator, Optional
 
 from ..util.line_numbers import line_starts, pos_to_line
 from .nodes import Node, SymbolNode
@@ -86,7 +86,7 @@ def is_focus_file_content(text: str) -> bool:
     return "focus_tree" in text or "shared_focus" in text or "joint_focus" in text
 
 
-def extract_focus_ids(root: Node) -> List[str]:
+def extract_focus_ids(root: Node) -> list[str]:
     """Return every focus ID defined in a parsed focus file.
 
     Handles all three forms:
@@ -94,7 +94,7 @@ def extract_focus_ids(root: Node) -> List[str]:
         shared_focus = { id = X ... }
         joint_focus = { id = X ... }
     """
-    ids: List[str] = []
+    ids: list[str] = []
 
     for top in root.children():
         if top.name == "focus_tree":
@@ -111,7 +111,7 @@ def extract_focus_ids(root: Node) -> List[str]:
     return ids
 
 
-def extract_focus_records(root: Node, source: str | None = None) -> List[dict]:
+def extract_focus_records(root: Node, source: str | None = None) -> list[dict]:
     """Return every focus with its location and parsed metadata.
 
     Each record has: `id`, `line` (1-based, or None if source not supplied), `kind`
@@ -119,7 +119,7 @@ def extract_focus_records(root: Node, source: str | None = None) -> List[dict]:
     `prerequisites: list[list[str]]`, `mutually_exclusive: list[str]`.
     """
     starts = _starts(source)
-    records: List[dict] = []
+    records: list[dict] = []
 
     for top in root.children():
         if top.name == "focus_tree":
@@ -145,9 +145,9 @@ def _focus_record(node: Node, kind: str, starts: list[int] | None) -> dict | Non
     if not fid:
         return None
 
-    prereqs: List[List[str]] = []
+    prereqs: list[list[str]] = []
     for p in node.get_all("prerequisite"):
-        group: List[str] = []
+        group: list[str] = []
         for child in p.children():
             if child.name == "focus" and isinstance(child.value, SymbolNode):
                 group.append(child.value.name)
@@ -155,7 +155,7 @@ def _focus_record(node: Node, kind: str, starts: list[int] | None) -> dict | Non
             prereqs.append(group)
 
     mutex_node = node.get("mutually_exclusive")
-    mutex: List[str] = []
+    mutex: list[str] = []
     if mutex_node:
         for child in mutex_node.children():
             if child.name == "focus" and isinstance(child.value, SymbolNode):
@@ -219,7 +219,7 @@ _EVENT_KINDS = frozenset(
 )
 
 
-def _iter_event_definitions(root: Node) -> Iterator[Tuple[Node, str]]:
+def _iter_event_definitions(root: Node) -> Iterator[tuple[Node, str]]:
     """Yield `(node, id_str)` for every node satisfying the event hierarchy."""
     for top in root.children():
         if top.name in _EVENT_KINDS:
@@ -228,9 +228,9 @@ def _iter_event_definitions(root: Node) -> Iterator[Tuple[Node, str]]:
                 yield top, id_str
 
 
-def _file_namespaces(root: Node) -> List[str]:
+def _file_namespaces(root: Node) -> list[str]:
     """Return every `add_namespace = X` declaration at the top level of a file."""
-    namespaces: List[str] = []
+    namespaces: list[str] = []
     for top in root.children():
         if top.name == "add_namespace":
             ns_val = top.value
@@ -241,7 +241,7 @@ def _file_namespaces(root: Node) -> List[str]:
     return namespaces
 
 
-def extract_event_records(root: Node, source: str | None = None) -> List[dict]:
+def extract_event_records(root: Node, source: str | None = None) -> list[dict]:
     """Return every event definition: {id, kind, namespace, file_namespaces, line}.
 
     `namespace` is parsed from the event id (`Afghanistan.3` → `Afghanistan`).
@@ -266,7 +266,7 @@ def extract_event_records(root: Node, source: str | None = None) -> List[dict]:
     ]
 
 
-def find_event_nodes(root: Node, event_id: str) -> List[Node]:
+def find_event_nodes(root: Node, event_id: str) -> list[Node]:
     """Return every node in the AST satisfying the event hierarchy for `event_id`.
 
     Mirrors `extract_event_records`'s walk so resource handlers can anchor to the
@@ -297,7 +297,7 @@ _DECISION_CATEGORY_KEYWORDS = frozenset(
 )
 
 
-def _iter_decision_definitions(root: Node) -> Iterator[Tuple[Node, str]]:
+def _iter_decision_definitions(root: Node) -> Iterator[tuple[Node, str]]:
     """Yield `(node, category)` for every node satisfying the decision hierarchy.
 
     HOI4 decision files have the structure:
@@ -321,7 +321,7 @@ def _iter_decision_definitions(root: Node) -> Iterator[Tuple[Node, str]]:
             yield child, category
 
 
-def extract_decision_records(root: Node, source: str | None = None) -> List[dict]:
+def extract_decision_records(root: Node, source: str | None = None) -> list[dict]:
     """Return every decision definition: {id, category, line}."""
     starts = _starts(source)
     return [
@@ -338,7 +338,7 @@ def extract_decision_records(root: Node, source: str | None = None) -> List[dict
     ]
 
 
-def find_decision_nodes(root: Node, decision_id: str) -> List[Node]:
+def find_decision_nodes(root: Node, decision_id: str) -> list[Node]:
     """Return every node in the AST satisfying the decision hierarchy for `decision_id`.
 
     Mirrors `extract_decision_records`'s walk so resource handlers can anchor to the
@@ -360,7 +360,7 @@ _IDEA_SLOT_KEYWORDS = frozenset(
 )
 
 
-def _iter_idea_definitions(root: Node) -> Iterator[Tuple[Node, str, Optional[str]]]:
+def _iter_idea_definitions(root: Node) -> Iterator[tuple[Node, str, Optional[str]]]:
     """Yield `(node, category, slot)` for every node satisfying the idea hierarchy.
 
     Walks `ideas = { category = { idea_id = { ... } } }` structures. Skips
@@ -379,7 +379,7 @@ def _iter_idea_definitions(root: Node) -> Iterator[Tuple[Node, str, Optional[str
         yield from _iter_idea_category(category, category.name)
 
 
-def _iter_idea_category(category: Node, cat_name: str) -> Iterator[Tuple[Node, str, Optional[str]]]:
+def _iter_idea_category(category: Node, cat_name: str) -> Iterator[tuple[Node, str, Optional[str]]]:
     for child in category.children():
         if child.name in _IDEA_SLOT_KEYWORDS:
             continue
@@ -400,7 +400,7 @@ def _iter_idea_category(category: Node, cat_name: str) -> Iterator[Tuple[Node, s
         yield child, cat_name, None
 
 
-def extract_idea_records(root: Node, source: str | None = None) -> List[dict]:
+def extract_idea_records(root: Node, source: str | None = None) -> list[dict]:
     """Return every idea definition: {id, category, slot, line}."""
     starts = _starts(source)
     return [
@@ -418,7 +418,7 @@ def extract_idea_records(root: Node, source: str | None = None) -> List[dict]:
     ]
 
 
-def find_idea_nodes(root: Node, idea_id: str) -> List[Node]:
+def find_idea_nodes(root: Node, idea_id: str) -> list[Node]:
     """Return every node in the AST satisfying the idea hierarchy for `idea_id`.
 
     Mirrors `extract_idea_records`'s walk so resource handlers can anchor to the
@@ -492,7 +492,7 @@ _SPRITE_KINDS = frozenset(
 )
 
 
-def _iter_sprite_definitions(root: Node) -> Iterator[Tuple[Node, str, str]]:
+def _iter_sprite_definitions(root: Node) -> Iterator[tuple[Node, str, str]]:
     """Yield `(node, name, parent)` for every node satisfying the sprite hierarchy.
 
     Walks any `spriteTypes = { ... }` (or `spriteTypes_<x>`) block and pulls
@@ -518,7 +518,7 @@ def _iter_sprite_definitions(root: Node) -> Iterator[Tuple[Node, str, str]]:
             yield sprite, name, top.name
 
 
-def extract_sprite_records(root: Node, source: str | None = None) -> List[dict]:
+def extract_sprite_records(root: Node, source: str | None = None) -> list[dict]:
     """Return every sprite definition: {name, kind, texturefile, line, parent}."""
     starts = _starts(source)
     return [
@@ -537,7 +537,7 @@ def extract_sprite_records(root: Node, source: str | None = None) -> List[dict]:
     ]
 
 
-def find_sprite_nodes(root: Node, name: str) -> List[Node]:
+def find_sprite_nodes(root: Node, name: str) -> list[Node]:
     """Return every node in the AST satisfying the sprite hierarchy for `name`.
 
     Mirrors `extract_sprite_records`'s walk so resource handlers can anchor to the

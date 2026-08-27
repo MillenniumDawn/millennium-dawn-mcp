@@ -14,7 +14,7 @@ place the text into the right file; loc keys are designed to be appended to
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Optional
 
 from ..util.response import enforce_budget
 
@@ -28,9 +28,9 @@ def generate_focus(
     cost: float = 10,
     icon: Optional[str] = None,
     relative_position_id: Optional[str] = None,
-    prerequisites: Optional[List[List[str]]] = None,
-    mutually_exclusive: Optional[List[str]] = None,
-    search_filters: Optional[List[str]] = None,
+    prerequisites: Optional[list[list[str]]] = None,
+    mutually_exclusive: Optional[list[str]] = None,
+    search_filters: Optional[list[str]] = None,
     available: Optional[str] = None,
     completion_reward: Optional[str] = None,
     ai_base: int = 1,
@@ -59,7 +59,7 @@ def generate_focus(
       ai_base               — `ai_will_do.base` weight (1 = default)
       title, description    — loc values; default to placeholder strings
     """
-    parts: List[str] = ["\tfocus = {"]
+    parts: list[str] = ["\tfocus = {"]
     parts.append(f"\t\tid = {id}")
     parts.append(f"\t\ticon = GFX_{icon or 'placeholder_focus'}")
     parts.append("")
@@ -122,7 +122,7 @@ def generate_focus(
     )
 
 
-def _indent_lines(block: str, tabs: int) -> List[str]:
+def _indent_lines(block: str, tabs: int) -> list[str]:
     pad = "\t" * tabs
     return [pad + line if line.strip() else line for line in block.rstrip("\n").splitlines()]
 

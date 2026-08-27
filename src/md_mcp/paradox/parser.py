@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import List, Tuple
 
 from .lexer import LexError, Tokenizer
 from .nodes import Node, SymbolNode, Token
@@ -126,7 +125,7 @@ def _parse_node(tokens: Tokenizer) -> Node:
 
 def _parse_node_value(
     tokens: Tokenizer,
-) -> Tuple[str | int | float | SymbolNode | List | None, Token, Token]:
+) -> tuple[str | int | float | SymbolNode | list | None, Token, Token]:
     next_token = tokens.next()
     t = next_token.type
     if t == "string":
@@ -162,8 +161,8 @@ def _parse_node_value(
     raise AssertionError("unreachable")  # pragma: no cover
 
 
-def _parse_block_content(tokens: Tokenizer) -> List[Node]:
-    nodes: List[Node] = []
+def _parse_block_content(tokens: Tokenizer) -> list[Node]:
+    nodes: list[Node] = []
     while True:
         peek = tokens.peek()
         if peek.type == "eof" or peek.value == "}":

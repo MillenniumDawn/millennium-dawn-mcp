@@ -7,7 +7,7 @@ the absence without exceptions.
 
 from __future__ import annotations
 
-from typing import FrozenSet, Optional
+from typing import Optional
 
 from ..config import Settings
 from ..indexes import (
@@ -124,7 +124,7 @@ def resolve_sprite_tool(
     name: str,
     settings: Settings,
     gfx_index: GfxIndex,
-    vanilla_sprites: Optional[FrozenSet[str]] = None,
+    vanilla_sprites: Optional[frozenset[str]] = None,
 ) -> dict:
     """Get a sprite's .gfx file and texture path.
 

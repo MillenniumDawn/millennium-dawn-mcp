@@ -16,7 +16,7 @@ Ignored in v1: dynamic `offset = { ... }` blocks (trigger-conditional shifts).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional, Protocol, Set, Tuple
+from typing import Optional, Protocol
 
 from ..paradox.schema import extract_focus_records
 from ..util.response import coerce_int, enforce_budget, paginate
@@ -28,7 +28,7 @@ class _SupportsFilesForTag(Protocol):
 
     # Protocol method declaration — `...` is the abstract body, not a stub.
     # pi-lens-ignore: no-ellipsis-body
-    def files_for_tag(self, tag: str) -> List[str]: ...
+    def files_for_tag(self, tag: str) -> list[str]: ...
 
 
 def focus_layout(
@@ -75,11 +75,11 @@ def focus_layout(
     # Parse every candidate file fully. `all_records` is the resolution set
     # (relative refs may target focuses outside the requested scope);
     # `scope_ids` is what we report on.
-    all_records: Dict[str, dict] = {}
-    scope_ids: List[str] = []
-    seen_in_scope: Set[str] = set()
-    duplicate_files: Dict[str, List[str]] = {}
-    parse_errors: List[dict] = []
+    all_records: dict[str, dict] = {}
+    scope_ids: list[str] = []
+    seen_in_scope: set[str] = set()
+    duplicate_files: dict[str, list[str]] = {}
+    parse_errors: list[dict] = []
     for parsed in iter_scope_files(candidate_files, mod_root, vanilla_path, parse_errors):
         relpath = parsed.relpath
         for rec in extract_focus_records(parsed.root, source=parsed.text):
@@ -94,13 +94,13 @@ def focus_layout(
                 seen_in_scope.add(rec["id"])
                 scope_ids.append(rec["id"])
 
-    resolved: Dict[str, Tuple[int, int]] = {}
-    chain_errors: List[dict] = []
+    resolved: dict[str, tuple[int, int]] = {}
+    chain_errors: list[dict] = []
     # Focuses already reported as unresolvable. Without this a broken parent is
     # re-reported once per descendant that walks through it.
-    failed: Set[str] = set()
+    failed: set[str] = set()
 
-    def _abs_pos(fid: str, visiting: tuple) -> Optional[Tuple[int, int]]:
+    def _abs_pos(fid: str, visiting: tuple) -> Optional[tuple[int, int]]:
         if fid in resolved:
             return resolved[fid]
         if fid in failed:
@@ -140,7 +140,7 @@ def focus_layout(
         _abs_pos(fid, ())
 
     # Collisions among scope focuses that resolved.
-    by_cell: Dict[Tuple[int, int], List[str]] = {}
+    by_cell: dict[tuple[int, int], list[str]] = {}
     for fid in scope_ids:
         pos = resolved.get(fid)
         if pos is not None:

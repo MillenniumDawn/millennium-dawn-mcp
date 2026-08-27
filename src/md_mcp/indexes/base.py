@@ -25,7 +25,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Iterable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -60,17 +60,17 @@ def file_signature(path: Path) -> FileSig | None:
 
 @dataclass
 class Staleness:
-    stale: List[str]  # known files whose mtime/size moved
-    removed: List[str]  # known files now missing
-    added: List[str]  # new files not in the manifest
-    unchanged: List[str]  # safe to reuse
+    stale: list[str]  # known files whose mtime/size moved
+    removed: list[str]  # known files now missing
+    added: list[str]  # new files not in the manifest
+    unchanged: list[str]  # safe to reuse
 
 
-def compute_staleness(manifest: Dict[str, FileSig], current: Dict[str, FileSig]) -> Staleness:
-    stale: List[str] = []
-    removed: List[str] = []
-    unchanged: List[str] = []
-    added: List[str] = []
+def compute_staleness(manifest: dict[str, FileSig], current: dict[str, FileSig]) -> Staleness:
+    stale: list[str] = []
+    removed: list[str] = []
+    unchanged: list[str] = []
+    added: list[str] = []
 
     for path, sig in manifest.items():
         cur = current.get(path)
@@ -113,7 +113,7 @@ class IndexCache:
 
     # ----- manifest ---------------------------------------------------------
 
-    def load_manifest(self) -> Dict[str, FileSig] | None:
+    def load_manifest(self) -> dict[str, FileSig] | None:
         if not self.manifest_path.exists():
             return None
         try:
@@ -127,7 +127,7 @@ class IndexCache:
         except (OSError, AttributeError, TypeError, ValueError, IndexError):
             return None
 
-    def save_manifest(self, sigs: Dict[str, FileSig]) -> None:
+    def save_manifest(self, sigs: dict[str, FileSig]) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
         payload = {path: sig.to_json() for path, sig in sigs.items()}
         _atomic_write_text(self.manifest_path, json.dumps(payload))
@@ -150,7 +150,7 @@ class IndexCache:
         _atomic_write_text(self.data_path, json.dumps(payload))
 
 
-def signatures_for(paths: Iterable[Path], roots: Path | list[Path]) -> Dict[str, FileSig]:
+def signatures_for(paths: Iterable[Path], roots: Path | list[Path]) -> dict[str, FileSig]:
     """Build a {relative_path: signature} map. Missing files are skipped.
 
     `roots` may be a single root or a list. The first matching root is used for
@@ -159,7 +159,7 @@ def signatures_for(paths: Iterable[Path], roots: Path | list[Path]) -> Dict[str,
     base directory the absolute file lives under.
     """
     root_list = [roots] if isinstance(roots, Path) else roots
-    sigs: Dict[str, FileSig] = {}
+    sigs: dict[str, FileSig] = {}
     for p in paths:
         sig = file_signature(p)
         if sig is None:
@@ -178,7 +178,7 @@ def signatures_for(paths: Iterable[Path], roots: Path | list[Path]) -> Dict[str,
     return sigs
 
 
-def roots_for(mod_root: Path, vanilla_path: Optional[Path]) -> List[Path]:
+def roots_for(mod_root: Path, vanilla_path: Optional[Path]) -> list[Path]:
     """Content roots in resolution order: mod first, vanilla second when configured."""
     return [mod_root] if vanilla_path is None else [mod_root, vanilla_path]
 
@@ -196,9 +196,9 @@ def collect_files(
     subdir: str,
     pattern: str,
     predicate: Optional[Callable[[Path], bool]] = None,
-) -> List[Path]:
+) -> list[Path]:
     """Walk `subdir` under each root for `pattern`, optionally narrowed by `predicate`."""
-    results: List[Path] = []
+    results: list[Path] = []
     for base in roots:
         d = base / subdir
         if not d.is_dir():
@@ -213,10 +213,10 @@ def collect_files(
 class RebuildPlan:
     """The work a rebuild has to do, once the manifest has been diffed against disk."""
 
-    manifest: Dict[str, FileSig]
-    current_sigs: Dict[str, FileSig]
+    manifest: dict[str, FileSig]
+    current_sigs: dict[str, FileSig]
     staleness: Staleness
-    to_parse: List[str]
+    to_parse: list[str]
 
     @property
     def should_save(self) -> bool:
@@ -241,8 +241,8 @@ class RebuildState:
 
 def prepare_rebuild(
     cache: IndexCache,
-    paths: List[Path],
-    roots: List[Path],
+    paths: list[Path],
+    roots: list[Path],
     loaded: bool,
     **in_memory: Any,
 ) -> Optional[RebuildState]:
@@ -255,7 +255,7 @@ def prepare_rebuild(
 
 
 def plan_rebuild(
-    cache: IndexCache, files: List[Path], roots: List[Path], loaded: bool
+    cache: IndexCache, files: list[Path], roots: list[Path], loaded: bool
 ) -> Optional[RebuildPlan]:
     """Diff the current files against the manifest.
 
@@ -280,12 +280,12 @@ def plan_rebuild(
 
 def parse_files(
     parser_fn: Callable[[str, str], Any],
-    roots: List[Path],
-    relpaths: List[str],
+    roots: list[Path],
+    relpaths: list[str],
     *,
     missing: Any = None,
     chunksize: int = 4,
-) -> List[Any]:
+) -> list[Any]:
     """Resolve each relpath to an absolute path and run `parser_fn` over the batch.
 
     Falls back to serial execution under two conditions: (a) fewer than four files
@@ -295,7 +295,7 @@ def parse_files(
     Results stay aligned with `relpaths`. On the serial path, a file that resolves
     under no root yields `missing`; pooled parsers retain their existing handling.
     """
-    jobs: List[Tuple[str, str]] = []
+    jobs: list[tuple[str, str]] = []
     for rp in relpaths:
         base = resolve_root(roots, rp)
         jobs.append((str(base / rp), rp) if base is not None else ("", rp))
@@ -323,7 +323,7 @@ class GenericTxtIndex:
         * `pattern: str`        — glob like `*.txt`
         * `content_prefilter`   — cheap substring test before parsing
         * `parser_fn`           — *module-level* function
-                                  `(abs_path: str, relpath: str) -> Optional[List[dict]]`
+                                  `(abs_path: str, relpath: str) -> Optional[list[dict]]`
                                   (must be picklable for ProcessPoolExecutor)
         * `primary_key`         — record field used for the reverse map
 
@@ -355,9 +355,9 @@ class GenericTxtIndex:
         self._cache = IndexCache(cache_dir, self.cache_name, self.cache_version)
         self._stale_check = StaleCheck()
 
-        self._by_file: Dict[str, List[dict]] = {}
-        self._by_key: Dict[str, dict] = {}
-        self._duplicates: Dict[str, List[str]] = {}
+        self._by_file: dict[str, list[dict]] = {}
+        self._by_key: dict[str, dict] = {}
+        self._duplicates: dict[str, list[str]] = {}
         self._loaded = False
 
     # ---------- public API ----------
@@ -366,19 +366,19 @@ class GenericTxtIndex:
         self.ensure_fresh()
         return self._by_key.get(key)
 
-    def list_keys(self) -> List[str]:
+    def list_keys(self) -> list[str]:
         self.ensure_fresh()
         return sorted(self._by_key.keys())
 
-    def list_files(self) -> List[str]:
+    def list_files(self) -> list[str]:
         self.ensure_fresh()
         return sorted(self._by_file.keys())
 
-    def records_for_file(self, relpath: str) -> List[dict]:
+    def records_for_file(self, relpath: str) -> list[dict]:
         self.ensure_fresh()
         return self._by_file.get(relpath, [])
 
-    def duplicates(self) -> Dict[str, List[str]]:
+    def duplicates(self) -> dict[str, list[str]]:
         """Return {key: [shadowed files]} recorded by the last rebuild.
 
         `_rebuild` recomputes this on every call, including a fresh instance's
@@ -399,16 +399,16 @@ class GenericTxtIndex:
     # ---------- subclass hooks ----------
 
     # Set by subclasses to a *module-level* function (picklable). Signature:
-    #   parser_fn(abs_path: str, relpath: str) -> Optional[List[dict]]
+    #   parser_fn(abs_path: str, relpath: str) -> Optional[list[dict]]
     # Returning None means "could not parse"; returning [] means "no records found".
-    parser_fn: Optional[Callable[[str, str], "Optional[List[dict]]"]] = None
+    parser_fn: Optional[Callable[[str, str], "Optional[list[dict]]"]] = None
 
     # ---------- internals ----------
 
-    def _roots(self) -> List["Path"]:
+    def _roots(self) -> list["Path"]:
         return roots_for(self.mod_root, self.vanilla_path)
 
-    def _collect_files(self) -> List["Path"]:
+    def _collect_files(self) -> list["Path"]:
         return collect_files(self._roots(), self.subdir, self.pattern)
 
     def _rebuild(self) -> None:
@@ -422,7 +422,7 @@ class GenericTxtIndex:
             cached_data = self._cache.load_data() or {}
             cached_files = cached_data.get("files", {})
 
-        new_by_file: Dict[str, List[dict]] = {}
+        new_by_file: dict[str, list[dict]] = {}
         for relpath in plan.staleness.unchanged:
             if relpath in cached_files:
                 new_by_file[relpath] = cached_files[relpath]
@@ -436,8 +436,8 @@ class GenericTxtIndex:
         # Last-write-wins in canonical relpath order, regardless of how files were
         # discovered, loaded from the manifest, or reparsed.
         new_by_file = dict(sorted(new_by_file.items()))
-        new_by_key: Dict[str, dict] = {}
-        new_duplicates: Dict[str, List[str]] = {}
+        new_by_key: dict[str, dict] = {}
+        new_duplicates: dict[str, list[str]] = {}
         for relpath, recs in new_by_file.items():
             for rec in recs:
                 k = rec.get(self.primary_key)
@@ -465,7 +465,7 @@ class GenericTxtIndex:
             self._cache.save_data({"files": new_by_file})
             self._cache.save_manifest(plan.current_sigs)
 
-    def _parse_parallel(self, relpaths: List[str]) -> List["Optional[List[dict]]"]:
+    def _parse_parallel(self, relpaths: list[str]) -> list["Optional[list[dict]]"]:
         fn = type(self).parser_fn
         if fn is None:
             # Legit abstract-method guard, not a scaffolded stub.
@@ -500,7 +500,7 @@ def _default_workers() -> int:
     return max(2, min(8, n - 1))
 
 
-def _parser_dispatch(args: Tuple[Callable, str, str]) -> Any:
+def _parser_dispatch(args: tuple[Callable, str, str]) -> Any:
     """Top-level helper so the process pool can pickle the call site.
 
     `args` is `(parser_fn, abs_path, relpath)`. We can't pass a bound method through

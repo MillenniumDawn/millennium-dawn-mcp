@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records, is_focus_file_content
@@ -46,7 +46,7 @@ FOCUS_SUBDIR = "common/national_focus"
 
 @dataclass(frozen=True)
 class FocusParseResult:
-    records: Optional[List[dict]]
+    records: Optional[list[dict]]
     error: Optional[str] = None
 
 
@@ -93,9 +93,9 @@ class FocusIndex:
         self._stale_check = StaleCheck()
 
         # In-process state, populated on first ensure_fresh().
-        self._by_file: Dict[str, List[dict]] = {}
-        self._by_id: Dict[str, dict] = {}  # focus_id → {file, line, kind, id}
-        self._parse_errors: Dict[str, str] = {}
+        self._by_file: dict[str, list[dict]] = {}
+        self._by_id: dict[str, dict] = {}  # focus_id → {file, line, kind, id}
+        self._parse_errors: dict[str, str] = {}
         self._loaded = False
 
     # ------------------------------------------------------------------
@@ -106,11 +106,11 @@ class FocusIndex:
         self.ensure_fresh()
         return self._by_id.get(focus_id)
 
-    def list_files(self) -> List[str]:
+    def list_files(self) -> list[str]:
         self.ensure_fresh()
         return sorted(self._by_file.keys())
 
-    def list_keys(self) -> List[str]:
+    def list_keys(self) -> list[str]:
         """Return every focus ID. Named `list_keys` to match the GenericTxtIndex interface."""
         self.ensure_fresh()
         return sorted(self._by_id.keys())
@@ -118,7 +118,7 @@ class FocusIndex:
     # Backwards-compatible alias for callers that pre-date the M2 harmonisation.
     list_ids = list_keys
 
-    def files_for_tag(self, tag: str) -> List[str]:
+    def files_for_tag(self, tag: str) -> list[str]:
         """Sorted set of files defining a focus whose id starts with `<TAG>_`."""
         self.ensure_fresh()
         prefix = tag.upper() + "_"
@@ -126,11 +126,11 @@ class FocusIndex:
             {r["file"] for fid, r in self._by_id.items() if fid.upper().startswith(prefix)}
         )
 
-    def records_for_file(self, relative_path: str) -> List[dict]:
+    def records_for_file(self, relative_path: str) -> list[dict]:
         self.ensure_fresh()
         return self._by_file.get(relative_path, [])
 
-    def parse_errors(self) -> List[dict]:
+    def parse_errors(self) -> list[dict]:
         self.ensure_fresh()
         return [
             {"file": relpath, "error": error}
@@ -147,10 +147,10 @@ class FocusIndex:
     # internals
     # ------------------------------------------------------------------
 
-    def _collect_files(self) -> List[Path]:
+    def _collect_files(self) -> list[Path]:
         return collect_files(self._roots(), FOCUS_SUBDIR, "*.txt")
 
-    def _roots(self) -> List[Path]:
+    def _roots(self) -> list[Path]:
         return roots_for(self.mod_root, self.vanilla_path)
 
     def _rebuild_incremental(self) -> None:
@@ -167,8 +167,8 @@ class FocusIndex:
         plan = state.plan
 
         cached_errors = state.data.get("parse_errors", {})
-        new_by_file: Dict[str, List[dict]] = state.reused_files()
-        new_parse_errors: Dict[str, str] = {
+        new_by_file: dict[str, list[dict]] = state.reused_files()
+        new_parse_errors: dict[str, str] = {
             relpath: cached_errors[relpath]
             for relpath in plan.staleness.unchanged
             if relpath in cached_errors
@@ -186,7 +186,7 @@ class FocusIndex:
                 else:
                     new_parse_errors[relpath] = parsed.error or "parse failed"
 
-        new_by_id: Dict[str, dict] = {}
+        new_by_id: dict[str, dict] = {}
         for relpath, records in new_by_file.items():
             for rec in records:
                 new_by_id[rec["id"]] = {**rec, "file": relpath}
@@ -199,7 +199,7 @@ class FocusIndex:
             self._cache.save_data({"files": new_by_file, "parse_errors": new_parse_errors})
             self._cache.save_manifest(plan.current_sigs)
 
-    def _parse_parallel(self, relpaths: List[str]) -> List[Optional[FocusParseResult]]:
+    def _parse_parallel(self, relpaths: list[str]) -> list[Optional[FocusParseResult]]:
         return parse_files(
             _parse_focus_file,
             self._roots(),

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, List, Optional, Set
+from typing import Iterable, Iterator, Optional
 
 from ..paradox import parse_string
 from ..paradox.nodes import Node
@@ -32,8 +32,8 @@ def iter_scope_files(
     relpaths: Iterable[str],
     mod_root: Path,
     vanilla_path: Optional[Path],
-    errors: List[dict],
-    failed_files: Optional[Set[str]] = None,
+    errors: list[dict],
+    failed_files: Optional[set[str]] = None,
 ) -> Iterator[ScopeFile]:
     """Yield parsed scope files, recording mod-then-vanilla resolution errors in order."""
     for relpath in relpaths:
@@ -53,7 +53,7 @@ def iter_scope_files(
 
 
 def _record_error(
-    errors: List[dict], failed_files: Optional[Set[str]], relpath: str, message: str
+    errors: list[dict], failed_files: Optional[set[str]], relpath: str, message: str
 ) -> None:
     errors.append({"file": relpath, "error": message})
     if failed_files is not None:

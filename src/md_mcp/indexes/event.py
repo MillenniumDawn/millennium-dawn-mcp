@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import Optional
 
 from ..paradox import parse_string
 from ..paradox.schema import extract_event_records
@@ -22,7 +22,7 @@ _EVENT_TOKENS = (
 )
 
 
-def _parse_event_file(abs_path: str, relpath: str) -> Optional[List[dict]]:
+def _parse_event_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
     """Top-level so ProcessPoolExecutor can pickle and dispatch this."""
     try:
         text = read_text(abs_path)

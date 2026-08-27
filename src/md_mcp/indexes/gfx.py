@@ -17,7 +17,7 @@ from __future__ import annotations
 import bisect
 import logging
 import re
-from typing import Dict, List, Optional
+from typing import Optional
 
 from ..paradox import parse_string
 from ..paradox.schema import extract_sprite_records
@@ -53,7 +53,7 @@ _BRACE_TOKEN_RE = re.compile(r'"(?:\\.|[^"\\])*"|#[^\n]*|[{}]')
 _SPRITE_TYPES_OPEN_RE = re.compile(r"\bspriteTypes\w*\s*=\s*\{", re.IGNORECASE)
 
 
-def _build_line_offsets(text: str) -> List[int]:
+def _build_line_offsets(text: str) -> list[int]:
     """Precompute cumulative byte offset of each line start. O(n) once, O(log n) lookups."""
     offsets = [0]
     for i, c in enumerate(text):
@@ -62,13 +62,13 @@ def _build_line_offsets(text: str) -> List[int]:
     return offsets
 
 
-def _line_at(line_offsets: List[int], pos: int) -> int:
+def _line_at(line_offsets: list[int], pos: int) -> int:
     """Binary search line index for the given position. 1-based line number."""
     # bisect_right gives the insertion point; line index is that - 1, 1-based becomes that.
     return bisect.bisect_right(line_offsets, pos)
 
 
-def _scan_sprite_blocks(text: str) -> List[dict]:
+def _scan_sprite_blocks(text: str) -> list[dict]:
     """Brace-balanced scan: for each `<kind> = { ... }` block, extract name + texturefile.
 
     Performance approach:
@@ -83,8 +83,8 @@ def _scan_sprite_blocks(text: str) -> List[dict]:
     line_offsets = _build_line_offsets(text)
 
     # Find brace positions (skipping strings and comments).
-    open_positions: List[int] = []
-    close_positions: List[int] = []
+    open_positions: list[int] = []
+    close_positions: list[int] = []
     for m in _BRACE_TOKEN_RE.finditer(text):
         tok = m.group(0)
         if tok == "{":
@@ -94,7 +94,7 @@ def _scan_sprite_blocks(text: str) -> List[dict]:
 
     # Build a sorted list of (pos, kind) — kind is +1 for open, -1 for close.
     # Then for each sprite-open position, find the matching close by walking forward.
-    brace_events: List[tuple] = []
+    brace_events: list[tuple] = []
     for p in open_positions:
         brace_events.append((p, 1))
     for p in close_positions:
@@ -103,9 +103,9 @@ def _scan_sprite_blocks(text: str) -> List[dict]:
 
     # Map open-brace position → matching close-brace position via single linear pass.
     # Also track each open-brace's immediate parent for the hierarchy filter below.
-    match_close: Dict[int, int] = {}
-    parent_open: Dict[int, int] = {}
-    stack: List[int] = []
+    match_close: dict[int, int] = {}
+    parent_open: dict[int, int] = {}
+    stack: list[int] = []
     for pos, delta in brace_events:
         if delta == 1:
             parent_open[pos] = stack[-1] if stack else -1
@@ -128,7 +128,7 @@ def _scan_sprite_blocks(text: str) -> List[dict]:
         if m.end() - 1 in open_pos_set and parent_open.get(m.end() - 1, -1) == -1
     }
 
-    records: List[dict] = []
+    records: list[dict] = []
     for m in _SPRITE_OPEN_RE.finditer(text):
         kind = m.group(1)
         open_brace = m.end() - 1
@@ -160,7 +160,7 @@ def _scan_sprite_blocks(text: str) -> List[dict]:
     return records
 
 
-def _parse_gfx_file(abs_path: str, relpath: str) -> Optional[List[dict]]:
+def _parse_gfx_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
     try:
         text = read_text(abs_path)
     except OSError as e:

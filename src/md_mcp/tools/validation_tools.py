@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Optional
 
 from ..config import Settings
 from ..util.response import coerce_int, enforce_budget, paginate
@@ -54,11 +54,11 @@ def _apply_strict(counts: dict) -> dict:
 
 
 def _filter_and_cap(
-    issues: List[dict],
+    issues: list[dict],
     *,
     severity_min: str,
     limit: int,
-) -> tuple[List[dict], bool, int]:
+) -> tuple[list[dict], bool, int]:
     """Apply severity floor + cap. Returns (kept, truncated, total_after_filter)."""
     floor = _SEVERITY_RANK.get(severity_min, 0)
     filtered = [i for i in issues if _SEVERITY_RANK.get(i.get("severity", "info"), 0) >= floor]
@@ -74,7 +74,7 @@ def validate_tool(
     *,
     validator: Optional[str] = None,
     staged_only: bool = False,
-    files: Optional[List[str]] = None,
+    files: Optional[list[str]] = None,
     strict: bool = False,
     severity_min: str = "info",
     limit: int = 500,
@@ -111,8 +111,8 @@ def validate_tool(
     infos = available_validators(settings.mod_root)
     targets = [v for v in infos if v.name not in SLOW_VALIDATORS]
 
-    aggregated: List[dict] = []
-    per_validator: List[dict] = []
+    aggregated: list[dict] = []
+    per_validator: list[dict] = []
     overall = {"error": 0, "warning": 0, "info": 0}
 
     for v in targets:

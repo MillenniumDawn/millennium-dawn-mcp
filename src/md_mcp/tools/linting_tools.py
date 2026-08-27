@@ -26,7 +26,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 from ..util.response import BUDGET_BYTES, enforce_budget
 from ..validators import SLOW_VALIDATORS, ValidatorRunner
@@ -142,7 +142,7 @@ def lint_common_mistakes_tool(
     mod_root: Path,
     *,
     mode: str = "staged",
-    files: Optional[List[str]] = None,
+    files: Optional[list[str]] = None,
 ) -> dict:
     """Run `tools/linting/check_common_mistakes.py` and return structured issues.
 
@@ -205,7 +205,7 @@ def review_branch_tool(mod_root: Path, base: str = "main") -> dict:
 def _run_script(
     script: Path,
     mod_root: Path,
-    args: List[str],
+    args: list[str],
     *,
     timeout: int = 120,
 ) -> "tuple[Optional[subprocess.CompletedProcess], Optional[str]]":
@@ -230,13 +230,13 @@ def _run_script(
 def _run_parsed_script(
     script: Path,
     mod_root: Path,
-    args: List[str],
+    args: list[str],
     collect: Callable[[str], Optional[dict]],
     *,
     timeout: int = 120,
     combined: bool = True,
     limit: Optional[int] = 200,
-    extra: Optional[Callable[[subprocess.CompletedProcess, List[dict]], dict]] = None,
+    extra: Optional[Callable[[subprocess.CompletedProcess, list[dict]], dict]] = None,
 ) -> dict:
     """Run a script, parse its output, and shape its issue response."""
     proc, err = _run_script(script, mod_root, args, timeout=timeout)
@@ -244,7 +244,7 @@ def _run_parsed_script(
         return {"ok": False, "error": err}
 
     output = (proc.stdout or "") + "\n" + (proc.stderr or "") if combined else proc.stdout or ""
-    issues: List[dict] = []
+    issues: list[dict] = []
     for raw in output.splitlines():
         line = _ANSI_RE.sub("", raw).rstrip() if combined else raw.strip()
         if not line.strip():
@@ -278,7 +278,7 @@ def _run_parsed_script(
 def lint_mod_encoding_tool(
     mod_root: Path,
     *,
-    files: Optional[List[str]] = None,
+    files: Optional[list[str]] = None,
     limit: int = 200,
 ) -> dict:
     """Run `tools/linting/validate_mod_encoding.py` against `.mod` files.
@@ -327,7 +327,7 @@ def lint_mod_encoding_tool(
 def lint_loc_encoding_tool(
     mod_root: Path,
     *,
-    files: Optional[List[str]] = None,
+    files: Optional[list[str]] = None,
     limit: int = 200,
 ) -> dict:
     """Run `tools/linting/validate_localization_encoding.py` (English loc YAML BOM check).
@@ -337,7 +337,7 @@ def lint_loc_encoding_tool(
     Edit/Write to add BOMs.
     """
     script = mod_root / "tools" / "linting" / "validate_localization_encoding.py"
-    args: List[str] = list(files) if files else []
+    args: list[str] = list(files) if files else []
 
     def collect(line: str) -> Optional[dict]:
         m = _LOC_ENC_BAD_RE.match(line)
@@ -369,7 +369,7 @@ def lint_tool(
     mod_root: Path,
     *,
     mode: str = "changed",
-    files: Optional[List[str]] = None,
+    files: Optional[list[str]] = None,
     checks: Optional[Sequence[str]] = None,
     validators: Optional[Sequence[str]] = None,
     severity_min: str = "info",
@@ -418,7 +418,7 @@ def lint_tool(
     #   relevant=None means "no filter — let each script do its native --mode all"
     #   relevant=[]   means "user has nothing in scope — every check no-ops"
     if files is not None:
-        relevant: Optional[List[str]] = [_norm_scope_path(f) for f in files]
+        relevant: Optional[list[str]] = [_norm_scope_path(f) for f in files]
     elif mode == "all":
         relevant = None
     elif mode == "changed":
@@ -440,8 +440,8 @@ def lint_tool(
         validator_request = ["style"] if style_in_scope else []
     else:
         validator_request = list(validators)
-    validator_names: List[str] = []
-    validator_setup_entries: List[dict] = []
+    validator_names: list[str] = []
+    validator_setup_entries: list[dict] = []
     runner: Optional[ValidatorRunner] = None
     if validator_request:
         try:
@@ -494,8 +494,8 @@ def lint_tool(
                 validator_names = sorted(expanded)
 
     if relevant is not None:
-        mod_files: Optional[List[str]] = [f for f in relevant if f.endswith(".mod")]
-        loc_files: Optional[List[str]] = [
+        mod_files: Optional[list[str]] = [f for f in relevant if f.endswith(".mod")]
+        loc_files: Optional[list[str]] = [
             f for f in relevant if f.startswith("localisation/english/") and f.endswith(".yml")
         ]
     else:
@@ -512,12 +512,12 @@ def lint_tool(
             "skipped": "no files in scope",
         }
 
-    def _maybe(files_list: Optional[List[str]], runner: Callable[[], dict]) -> dict:
+    def _maybe(files_list: Optional[list[str]], runner: Callable[[], dict]) -> dict:
         if files_list is not None and not files_list:
             return _skipped()
         return runner()
 
-    runners: Dict[str, Callable[[], dict]] = {
+    runners: dict[str, Callable[[], dict]] = {
         "common_mistakes": lambda: _maybe(
             relevant,
             lambda: lint_common_mistakes_tool(
@@ -534,8 +534,8 @@ def lint_tool(
         ),
     }
 
-    per_check: List[dict] = []
-    all_issues: List[dict] = []
+    per_check: list[dict] = []
+    all_issues: list[dict] = []
     overall = {"error": 0, "warning": 0, "info": 0}
 
     for name in selected:
@@ -602,7 +602,7 @@ def lint_tool(
     return enforce_budget(summary, heavy_keys=("issues",))
 
 
-def _staged_files(mod_root: Path) -> List[str]:
+def _staged_files(mod_root: Path) -> list[str]:
     """Files in the git index (staged for commit)."""
     try:
         proc = subprocess.run(
@@ -628,7 +628,7 @@ def _norm_scope_path(path: str) -> str:
     return path
 
 
-def _changed_files(mod_root: Path) -> List[str]:
+def _changed_files(mod_root: Path) -> list[str]:
     """Every file `git status` reports — staged, unstaged, and untracked.
 
     Parses `git status --porcelain -z` (NUL-terminated, so paths with spaces or
@@ -655,7 +655,7 @@ def _changed_files(mod_root: Path) -> List[str]:
     if proc.returncode != 0:
         return []
 
-    files: List[str] = []
+    files: list[str] = []
     seen: set = set()
     entries = iter(proc.stdout.split("\0"))
     for raw in entries:

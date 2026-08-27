@@ -28,7 +28,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Dict, FrozenSet, List, Optional, Sequence, Tuple
+from typing import Optional, Sequence
 
 # Extensions the validator suite reports on. Bounds the message scrape so prose
 # like "1.13.*" or "ALG.2001" can't be mistaken for a filename.
@@ -52,8 +52,8 @@ class IssueAttributor:
 
     def __init__(self, mod_root: Path):
         self.mod_root = Path(mod_root)
-        self._index: Optional[Dict[str, List[str]]] = None
-        self._path_set: Optional[FrozenSet[str]] = None
+        self._index: Optional[dict[str, list[str]]] = None
+        self._path_set: Optional[frozenset[str]] = None
 
     def resolve(self, issue: dict, scan_prefixes: Sequence[str] = ()) -> Optional[str]:
         """Return the mod-relative path this issue belongs to, or None."""
@@ -89,14 +89,14 @@ class IssueAttributor:
         matches = [c for c in candidates if c == partial or c.endswith("/" + partial)]
         return matches[0] if len(matches) == 1 else None
 
-    def _index_by_basename(self) -> Dict[str, List[str]]:
+    def _index_by_basename(self) -> dict[str, list[str]]:
         if self._index is None:
             self._index = {}
             for p in self._paths():
                 self._index.setdefault(os.path.basename(p), []).append(p)
         return self._index
 
-    def _paths(self) -> FrozenSet[str]:
+    def _paths(self) -> frozenset[str]:
         """Every mod-relative file path. Built once, then O(1) membership."""
         if self._path_set is None:
             self._path_set = frozenset(_list_mod_files(self.mod_root))
@@ -110,7 +110,7 @@ def _normalise(value: str) -> str:
     return value
 
 
-def _list_mod_files(mod_root: Path) -> Tuple[str, ...]:
+def _list_mod_files(mod_root: Path) -> tuple[str, ...]:
     """Every mod-relative file path. `git ls-files` when possible, else a walk."""
     try:
         proc = subprocess.run(
@@ -131,7 +131,7 @@ def _list_mod_files(mod_root: Path) -> Tuple[str, ...]:
     except (OSError, subprocess.SubprocessError):
         pass
 
-    out: List[str] = []
+    out: list[str] = []
     for root_name in _WALK_ROOTS:
         root = mod_root / root_name
         if not root.is_dir():

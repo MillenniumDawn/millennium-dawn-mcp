@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Optional
 
 from ..analysis.scope import iter_scope_files
 from ..config import Settings
@@ -46,10 +46,10 @@ def find_focuses_tool(
 
     focus_index.ensure_fresh()
     index_errors = focus_index.parse_errors()
-    matches: List[dict] = []
+    matches: list[dict] = []
 
     # Cheap filters first.
-    candidates: List[dict] = []
+    candidates: list[dict] = []
     for fid, rec in _all_records(focus_index):
         if tag is not None and not fid.lower().startswith(tag.lower() + "_"):
             continue
@@ -100,20 +100,20 @@ def _all_records(focus_index: FocusIndex):
 
 
 def _filter_deep(
-    candidates: List[dict],
+    candidates: list[dict],
     settings: Settings,
     has_prereq: Optional[str],
     mutex_with: Optional[str],
-) -> tuple[List[dict], List[dict], set[str], int]:
+) -> tuple[list[dict], list[dict], set[str], int]:
     if not candidates:
         return [], [], set(), 0
 
-    by_file: dict[str, List[dict]] = {}
+    by_file: dict[str, list[dict]] = {}
     for c in candidates:
         by_file.setdefault(c["file"], []).append(c)
 
-    keep: List[dict] = []
-    errors: List[dict] = []
+    keep: list[dict] = []
+    errors: list[dict] = []
     skipped_files: set[str] = set()
     skipped_records = 0
     for parsed in iter_scope_files(

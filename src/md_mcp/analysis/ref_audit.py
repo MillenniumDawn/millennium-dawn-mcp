@@ -31,7 +31,7 @@ ids without an install, surfaced via `vanilla_manifest`.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Set
+from typing import Any, Callable, Optional, Sequence
 
 from ..indexes import (
     DecisionIndex,
@@ -80,10 +80,10 @@ def check_refs(
     loc_index: LocalisationIndex,
     decision_index: DecisionIndex,
     tag: Optional[str] = None,
-    files: Optional[List[str]] = None,
+    files: Optional[list[str]] = None,
     kinds: Optional[Sequence[str]] = None,
     vanilla_path: Optional[Path] = None,
-    vanilla_sprites: Optional[FrozenSet[str]] = None,
+    vanilla_sprites: Optional[frozenset[str]] = None,
     lang: str = "en",
     limit: int = 200,
     offset: int = 0,
@@ -118,9 +118,9 @@ def check_refs(
     scope_files = scope_files[:_MAX_FILES]
 
     # Collect raw references: (kind, ref, via, file, line, referrer).
-    refs: List[dict] = []
-    parse_errors: List[dict] = []
-    focus_defs: List[dict] = []  # focus ids defined in scope, for loc coverage
+    refs: list[dict] = []
+    parse_errors: list[dict] = []
+    focus_defs: list[dict] = []  # focus ids defined in scope, for loc coverage
 
     for parsed in iter_scope_files(scope_files, mod_root, vanilla_path, parse_errors):
         starts = line_starts(parsed.text)
@@ -141,7 +141,7 @@ def check_refs(
                 )
 
     vanilla_sprites_set = vanilla_sprites or frozenset()
-    resolvers: Dict[str, Callable[[str], bool]] = {
+    resolvers: dict[str, Callable[[str], bool]] = {
         "focus": lambda r: focus_index.resolve(r) is not None,
         "event": lambda r: event_index.resolve(r) is not None,
         "idea": lambda r: idea_index.resolve(r) is not None,
@@ -156,7 +156,7 @@ def check_refs(
         "loc": lambda r: loc_index.resolve(r, lang) is not None,
         "decision": lambda r: decision_index.resolve(r) is not None,
     }
-    index_by_kind: Dict[str, Any] = {
+    index_by_kind: dict[str, Any] = {
         "focus": focus_index,
         "event": event_index,
         "idea": idea_index,
@@ -167,9 +167,9 @@ def check_refs(
     for k in selected_set:
         index_by_kind[k].ensure_fresh()
 
-    checked: Dict[str, Set[str]] = {k: set() for k in selected}
-    unresolved_by_key: Dict[tuple, dict] = {}
-    resolved_cache: Dict[tuple, bool] = {}
+    checked: dict[str, set[str]] = {k: set() for k in selected}
+    unresolved_by_key: dict[tuple, dict] = {}
+    resolved_cache: dict[tuple, bool] = {}
 
     for r in refs:
         kind, ref = r["kind"], r["ref"]
@@ -228,9 +228,9 @@ def _walk(
     node: Node,
     relpath: str,
     starts: list[int],
-    kinds: Set[str],
-    refs: List[dict],
-    focus_defs: List[dict],
+    kinds: set[str],
+    refs: list[dict],
+    focus_defs: list[dict],
     referrer: Optional[str],
 ) -> None:
     for child in node.children():

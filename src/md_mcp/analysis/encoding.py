@@ -11,7 +11,7 @@ expected state. Returns `{ok, violations: [...], counts}`.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 from ..util.response import coerce_int, enforce_budget, paginate
 
@@ -33,7 +33,7 @@ _YML_DIRS = [
 def check_encoding(
     mod_root: Path,
     *,
-    files: Optional[List[str]] = None,
+    files: Optional[list[str]] = None,
     limit: int | float | str | None = 200,
     offset: int | float | str | None = 0,
 ) -> dict:
@@ -53,7 +53,7 @@ def check_encoding(
     except ValueError as exc:
         return enforce_budget({"ok": False, "error": str(exc)})
 
-    targets: List[Path] = []
+    targets: list[Path] = []
     if files:
         for f in files:
             p = (mod_root / f) if not Path(f).is_absolute() else Path(f)
@@ -69,7 +69,7 @@ def check_encoding(
             if d.is_dir():
                 targets.extend(p for p in d.rglob("*.yml") if p.is_file())
 
-    violations: List[dict] = []
+    violations: list[dict] = []
     for path in targets:
         try:
             with open(path, "rb") as fh:

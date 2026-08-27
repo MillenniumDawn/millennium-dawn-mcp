@@ -41,10 +41,12 @@ class FileSig:
     @classmethod
     def from_json(cls, data: list) -> "FileSig":
         try:
-            mtime_ns = int(data[0])
-            size = int(data[1])
-        except (TypeError, ValueError) as e:
+            mtime_ns, size = data[0], data[1]
+        except (TypeError, IndexError, KeyError) as e:
             raise ValueError(f"corrupt manifest signature: {data!r}") from e
+        # bool is an int subclass; JSON true must not become mtime 1.
+        if type(mtime_ns) is not int or type(size) is not int:
+            raise ValueError(f"corrupt manifest signature: {data!r}")
         return cls(mtime_ns=mtime_ns, size=size)
 
 
@@ -85,6 +87,15 @@ def compute_staleness(manifest: dict[str, FileSig], current: dict[str, FileSig])
     return Staleness(stale=stale, removed=removed, added=added, unchanged=unchanged)
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    tmp = path.with_suffix(".json.tmp")
+    # IndexCache files are always under cache_dir.
+    # pi-lens-ignore: python-path-traversal
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    os.replace(tmp, path)
+
+
 class IndexCache:
     """Versioned on-disk cache backing a single index.
 
@@ -106,19 +117,20 @@ class IndexCache:
         if not self.manifest_path.exists():
             return None
         try:
-            raw = json.loads(self.manifest_path.read_text("utf-8"))
-            # from_json's int() can raise ValueError on a corrupt-but-valid-JSON
-            # manifest; treat that as no cache so it rebuilds instead of crashing.
+            # manifest_path is under cache_dir, not caller input.
+            # pi-lens-ignore: python-path-traversal
+            with open(self.manifest_path, encoding="utf-8") as fh:
+                text = fh.read()
+            raw = json.loads(text)
+            # from_json stays inside the try so a wrong-shape manifest rebuilds, not raises.
             return {path: FileSig.from_json(sig) for path, sig in raw.items()}
-        except (OSError, ValueError):
+        except (OSError, AttributeError, TypeError, ValueError, IndexError):
             return None
 
     def save_manifest(self, sigs: dict[str, FileSig]) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
         payload = {path: sig.to_json() for path, sig in sigs.items()}
-        tmp = self.manifest_path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload), "utf-8")
-        os.replace(tmp, self.manifest_path)
+        _atomic_write_text(self.manifest_path, json.dumps(payload))
 
     # ----- data -------------------------------------------------------------
 
@@ -126,15 +138,16 @@ class IndexCache:
         if not self.data_path.exists():
             return None
         try:
-            return json.loads(self.data_path.read_text("utf-8"))
+            # data_path is under cache_dir, not caller input.
+            # pi-lens-ignore: python-path-traversal
+            with open(self.data_path, encoding="utf-8") as fh:
+                return json.loads(fh.read())
         except (OSError, json.JSONDecodeError):
             return None
 
     def save_data(self, payload: dict) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
-        tmp = self.data_path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload), "utf-8")
-        os.replace(tmp, self.data_path)
+        _atomic_write_text(self.data_path, json.dumps(payload))
 
 
 def signatures_for(paths: Iterable[Path], roots: Path | list[Path]) -> dict[str, FileSig]:

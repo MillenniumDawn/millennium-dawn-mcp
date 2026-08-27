@@ -171,7 +171,7 @@ The Python AST diverges from the TS port in one place: `Node.children` is a
 Earlier code wrote `for c in node.children:` and crashed with
 `'method' object is not iterable`. Always call it: `node.children()`.
 
-Similarly, `Token.start` is a **byte offset**, not a line number. To translate,
+Similarly, `Token.start` is a Python **str index**, not a line number. To translate,
 use `line_starts(text)` + `pos_to_line(pos, line_starts)` from
 [`util/line_numbers.py`](./src/md_mcp/util/line_numbers.py).
 

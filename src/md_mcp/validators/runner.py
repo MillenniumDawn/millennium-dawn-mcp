@@ -19,6 +19,7 @@ for `isolated`.
 from __future__ import annotations
 
 import ast
+import builtins
 import contextlib
 import importlib
 import importlib.util
@@ -32,7 +33,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 from .attribution import IssueAttributor
 
@@ -52,7 +53,7 @@ class ValidatorInfo:
     title_source: str = "derived"  # "scraped" if TITLE was read from source, else "derived"
 
 
-def available_validators(mod_root: Path) -> List[ValidatorInfo]:
+def available_validators(mod_root: Path) -> list[ValidatorInfo]:
     """Enumerate every `validate_*.py` under `<mod_root>/tools/validation/`.
 
     Returns sorted by short name. Excludes the orchestrator and shared modules.
@@ -62,7 +63,7 @@ def available_validators(mod_root: Path) -> List[ValidatorInfo]:
         return []
 
     skip = {"validator_common", "run_all_validators"}
-    results: List[ValidatorInfo] = []
+    results: list[ValidatorInfo] = []
     for p in sorted(val_dir.glob("validate_*.py")):
         stem = p.stem  # `validate_localisation`
         if stem in skip:
@@ -106,8 +107,8 @@ class ValidatorRunner:
     def __init__(self, mod_root: Path, mode: str = "isolated"):
         self.mod_root = mod_root
         self.mode = "isolated" if mode == "subprocess" else mode
-        self._infos: Optional[Dict[str, ValidatorInfo]] = None
-        self._modules: Dict[str, object] = {}
+        self._infos: Optional[dict[str, ValidatorInfo]] = None
+        self._modules: dict[str, object] = {}
         self._sys_path_inserted = False
         self._attributor_cache: Optional[IssueAttributor] = None
 
@@ -118,7 +119,7 @@ class ValidatorRunner:
             self._attributor_cache = IssueAttributor(self.mod_root)
         return self._attributor_cache
 
-    def list(self) -> List[ValidatorInfo]:
+    def list(self) -> builtins.list[ValidatorInfo]:
         self._infos = self._infos or {v.name: v for v in available_validators(self.mod_root)}
         return list(self._infos.values())
 
@@ -131,7 +132,7 @@ class ValidatorRunner:
         name: str,
         *,
         staged_only: bool = False,
-        files: Optional[List[str]] = None,
+        files: Optional[builtins.list[str]] = None,
     ) -> dict:
         """Run a single validator. Returns {ok, validator, title, issues, counts}.
 
@@ -178,7 +179,7 @@ class ValidatorRunner:
         info: ValidatorInfo,
         *,
         staged_only: bool,
-        files: Optional[List[str]],
+        files: Optional[builtins.list[str]],
     ) -> dict:
         try:
             module = self._load_module(info)
@@ -244,7 +245,7 @@ class ValidatorRunner:
         info: ValidatorInfo,
         *,
         staged_only: bool,
-        files: Optional[List[str]],
+        files: Optional[builtins.list[str]],
     ) -> dict:
         cmd = [
             sys.executable,
@@ -299,8 +300,8 @@ class ValidatorRunner:
 
 
 def _filter_by_files(
-    issues: List[dict], files: Optional[List[str]], attributor: IssueAttributor
-) -> Tuple[List[dict], int]:
+    issues: list[dict], files: Optional[list[str]], attributor: IssueAttributor
+) -> tuple[list[dict], int]:
     """Post-filter issues to a file scope.
 
     `Issue.file` isn't uniform (mod-relative, bare basename, "", "unknown"), so
@@ -310,7 +311,7 @@ def _filter_by_files(
     if not files:
         return issues, 0
     wanted = {os.path.normpath(f) for f in files}
-    kept: List[dict] = []
+    kept: list[dict] = []
     unattributed = 0
     for i in issues:
         resolved = attributor.resolve(i)
@@ -321,7 +322,7 @@ def _filter_by_files(
     return kept, unattributed
 
 
-def _summarise(info: ValidatorInfo, issues: List[dict], *, unattributed: int = 0) -> dict:
+def _summarise(info: ValidatorInfo, issues: list[dict], *, unattributed: int = 0) -> dict:
     counts = {"error": 0, "warning": 0, "info": 0}
     for i in issues:
         sev = i.get("severity", "info")

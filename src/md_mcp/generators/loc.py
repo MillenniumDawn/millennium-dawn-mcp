@@ -15,7 +15,7 @@ BOM byte sequence at the very start (use `bom_prefix=True`).
 
 from __future__ import annotations
 
-from typing import List, Sequence
+from typing import Sequence
 
 from ..util.response import enforce_budget
 
@@ -42,7 +42,7 @@ def generate_loc_stub(
       `bytes_to_write` is provided so the agent can write the file with the BOM
       bytes intact, even if its Write tool defaults to text mode.
     """
-    parts: List[str] = []
+    parts: list[str] = []
     if include_header:
         parts.append(f"{lang}:")
     for entry in keys:

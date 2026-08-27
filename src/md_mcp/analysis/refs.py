@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +232,7 @@ def find_references(
 
     roots = [mod_root] + ([vanilla_path] if include_vanilla and vanilla_path else [])
 
-    matches: List[dict] = []
+    matches: list[dict] = []
     file_hits: dict[str, int] = {}
     # Hard scan cap — protects against pathological short loc-key matches that
     # have hundreds of thousands of hits across the whole mod.

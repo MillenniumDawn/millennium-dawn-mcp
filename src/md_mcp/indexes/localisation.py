@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 from ..util.encoding import read_text
 from .base import (
@@ -44,7 +44,7 @@ LOC_CACHE_VERSION = 1
 LOC_SUBDIR = "localisation"
 
 # ISO code → file suffix
-LANG_ISO_TO_SUFFIX: Dict[str, str] = {
+LANG_ISO_TO_SUFFIX: dict[str, str] = {
     "en": "l_english",
     "pt-br": "l_braz_por",
     "de": "l_german",
@@ -84,9 +84,9 @@ class LocalisationIndex:
         self._stale_check = StaleCheck()
 
         # langSuffix → key → {value, file, line}
-        self._by_lang: Dict[str, Dict[str, dict]] = {}
+        self._by_lang: dict[str, dict[str, dict]] = {}
         # relpath → {lang, keys: [...]}
-        self._by_file: Dict[str, dict] = {}
+        self._by_file: dict[str, dict] = {}
         self._loaded = False
 
     # ------------------------------------------------------------------
@@ -110,7 +110,7 @@ class LocalisationIndex:
 
         return None
 
-    def list_keys(self, lang: str = "en") -> List[str]:
+    def list_keys(self, lang: str = "en") -> list[str]:
         """Return every loc key for a language. Default English; pass `lang` ISO code for others."""
         self.ensure_fresh()
         suffix = LANG_ISO_TO_SUFFIX.get(lang.lower())
@@ -128,10 +128,10 @@ class LocalisationIndex:
     # internals
     # ------------------------------------------------------------------
 
-    def _roots(self) -> List[Path]:
+    def _roots(self) -> list[Path]:
         return roots_for(self.mod_root, self.vanilla_path)
 
-    def _collect_files(self) -> List[Path]:
+    def _collect_files(self) -> list[Path]:
         return collect_files(
             self._roots(), LOC_SUBDIR, "*.yml", lambda p: bool(_FILENAME_LANG_RE.search(p.name))
         )
@@ -148,7 +148,7 @@ class LocalisationIndex:
             return
         plan = state.plan
 
-        new_by_file: Dict[str, dict] = state.reused_files()
+        new_by_file: dict[str, dict] = state.reused_files()
 
         if plan.to_parse:
             results = self._parse_parallel(plan.to_parse)
@@ -156,7 +156,7 @@ class LocalisationIndex:
                 if parsed is not None:
                     new_by_file[relpath] = parsed
 
-        new_by_lang: Dict[str, Dict[str, dict]] = {}
+        new_by_lang: dict[str, dict[str, dict]] = {}
         for relpath, payload in new_by_file.items():
             lang = payload.get("lang")
             if not lang:
@@ -177,7 +177,7 @@ class LocalisationIndex:
             self._cache.save_data({"files": new_by_file})
             self._cache.save_manifest(plan.current_sigs)
 
-    def _parse_parallel(self, relpaths: List[str]) -> List[Optional[dict]]:
+    def _parse_parallel(self, relpaths: list[str]) -> list[Optional[dict]]:
         """Dispatch loc parsing to a process pool.
 
         Biggest win is on the english tier (~500 files), hence the larger chunksize.
@@ -206,7 +206,7 @@ def _parse_loc_file(text: str, relpath: str) -> dict:
     m = _FILENAME_LANG_RE.search(relpath)
     fallback_lang = m.group(1).lower() if m else None
 
-    keys: List[dict] = []
+    keys: list[dict] = []
     for lineno, raw_line in enumerate(text.splitlines(), start=1):
         # Strip BOM-leading whitespace artefacts from line 1
         line = raw_line.lstrip("﻿")

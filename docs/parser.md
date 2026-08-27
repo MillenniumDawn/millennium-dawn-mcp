@@ -74,8 +74,9 @@ so that `539.productivity_state_var` parses as one symbol (the regex starts
 with optional `\d+\.`), not as the number `539` followed by an invalid
 `.productivity_state_var`.
 
-`Token.start` and `Token.end` are **byte offsets** into the source string,
-not line/column. To translate to line numbers, use `line_starts(text)` +
+`Token.start` and `Token.end` are Python `str` indices into the source
+(code points, not UTF-8 bytes; they coincide for ASCII), not line/column.
+To translate to line numbers, use `line_starts(text)` +
 `pos_to_line(pos, line_starts)` from `src/md_mcp/util/line_numbers.py`.
 We learned this the hard way — early code
 treated `Token.start` as a line number and produced subtly wrong line
@@ -167,7 +168,7 @@ for c in node.children():
 This diverges from the TS implementation where `children` is computed lazily.
 The Python AST exposes it as a method to avoid hidden allocation.
 
-### `Token.start` is a byte offset
+### `Token.start` is a source offset
 
 ```python
 from md_mcp.util.line_numbers import line_starts, pos_to_line

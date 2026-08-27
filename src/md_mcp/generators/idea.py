@@ -8,7 +8,7 @@ wrapper (e.g. `designer = yes`) — the caller picks the placement.
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Optional
 
 from ..util.response import enforce_budget
 
@@ -48,7 +48,7 @@ def generate_idea(
       removal_cost         — `removal_cost = N` (default -1 = unremovable)
       title, description   — loc values for `ID` / `ID_desc`
     """
-    parts: List[str] = [f"\t\t{id} = {{"]
+    parts: list[str] = [f"\t\t{id} = {{"]
     parts.append(f"\t\t\tpicture = {picture or 'generic_idea'}")
 
     if allowed or tag:
@@ -108,6 +108,6 @@ def generate_idea(
     )
 
 
-def _indent(block: str, tabs: int) -> List[str]:
+def _indent(block: str, tabs: int) -> list[str]:
     pad = "\t" * tabs
     return [pad + line if line.strip() else line for line in block.rstrip("\n").splitlines()]

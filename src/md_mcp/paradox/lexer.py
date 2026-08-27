@@ -8,7 +8,7 @@ which anchors at `pos` and returns None if the pattern doesn't match there.
 from __future__ import annotations
 
 import re
-from typing import List, NoReturn, Optional
+from typing import NoReturn, Optional
 
 from ..util.line_numbers import line_and_column, line_starts
 from .nodes import Token
@@ -20,7 +20,7 @@ from .nodes import Token
 # `2.Square_Frame` parse as single symbols (the `(?:\d+\.)?` prefix lets a symbol
 # start with `<int>.`), not as `539` followed by an invalid `.productivity_state_var`
 # token.
-_TOKEN_TYPES: List[tuple[str, str]] = [
+_TOKEN_TYPES: list[tuple[str, str]] = [
     ("comment", r"#.*(?:[\r\n]|$)"),
     ("operator", r"[={}<>;,]|>=|<=|!="),
     ("string", r'"(?:\\"|\\\\|[^"])*"'),

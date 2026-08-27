@@ -72,6 +72,113 @@ def test_focus_index_cache_persisted(fake_mod_root, cache_dir):
     assert sorted(fi2.list_ids()) == sorted(fi.list_ids())
 
 
+@pytest.mark.parametrize(
+    "sig",
+    [
+        FileSig(mtime_ns=7, size=3),
+        FileSig(mtime_ns=0, size=0),
+        FileSig(mtime_ns=-1, size=5),
+        FileSig(mtime_ns=5, size=-1),
+    ],
+)
+def test_load_manifest_round_trips(cache_dir, sig):
+    cache = IndexCache(cache_dir, "focus", 2)
+    cache.save_manifest({"a.txt": sig})
+    assert cache.load_manifest() == {"a.txt": sig}
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"a.txt": null}',
+        '{"a.txt": []}',
+        '{"a.txt": [1]}',
+        '{"a.txt": ["x", 1]}',
+        '{"a.txt": [null, 1]}',
+        '{"a.txt": {"mtime_ns": 1, "size": 2}}',
+        '{"a.txt": 12}',
+        '{"a.txt": [true, 1]}',
+        '{"a.txt": [1, false]}',
+        '{"a.txt": [1.5, 5]}',
+        '{"good.txt": [1, 2], "bad.txt": null}',
+        '["a.txt"]',
+        '"a.txt"',
+        "null",
+        "not json at all",
+    ],
+)
+def test_load_manifest_rejects_malformed(cache_dir, payload):
+    cache = IndexCache(cache_dir, "focus", 2)
+    cache.dir.mkdir(parents=True)
+    cache.manifest_path.write_text(payload, encoding="utf-8")
+    assert cache.load_manifest() is None
+
+
+def test_focus_index_rebuilds_on_shape_corrupt_manifest(fake_mod_root, cache_dir):
+    fi = FocusIndex(fake_mod_root, cache_dir)
+    fi.ensure_fresh()
+    ids = sorted(fi.list_ids())
+    assert ids
+
+    manifest = cache_dir / "v2" / "focus.manifest.json"
+    data = cache_dir / "v2" / "focus.data.json"
+    manifest.write_text(
+        '{"common/national_focus/test.txt": {"mtime_ns": 1, "size": 2}}',
+        encoding="utf-8",
+    )
+    data.write_text('{"files": {}}', encoding="utf-8")
+
+    fi2 = FocusIndex(fake_mod_root, cache_dir)
+    fi2.ensure_fresh()
+    assert sorted(fi2.list_ids()) == ids
+
+
+def test_load_manifest_unreadable_returns_none(cache_dir, monkeypatch):
+    cache = IndexCache(cache_dir, "focus", 2)
+    cache.save_manifest({"a.txt": FileSig(mtime_ns=7, size=3)})
+    import builtins
+
+    real_open = builtins.open
+
+    def _raising_open(path, *args, **kwargs):
+        if str(path).endswith("focus.manifest.json"):
+            raise OSError("denied")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", _raising_open)
+    assert cache.load_manifest() is None
+
+
+def test_load_data_round_trips(cache_dir):
+    cache = IndexCache(cache_dir, "focus", 2)
+    payload = {"files": {"a.txt": [{"id": "x"}]}}
+    cache.save_data(payload)
+    assert cache.load_data() == payload
+
+
+def test_load_data_unreadable_returns_none(cache_dir, monkeypatch):
+    cache = IndexCache(cache_dir, "focus", 2)
+    cache.save_data({"files": {}})
+    import builtins
+
+    real_open = builtins.open
+
+    def _raising_open(path, *args, **kwargs):
+        if str(path).endswith("focus.data.json"):
+            raise OSError("denied")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", _raising_open)
+    assert cache.load_data() is None
+
+
+def test_load_data_rejects_malformed(cache_dir):
+    cache = IndexCache(cache_dir, "focus", 2)
+    cache.dir.mkdir(parents=True)
+    cache.data_path.write_text("not json at all", encoding="utf-8")
+    assert cache.load_data() is None
+
+
 def test_focus_index_reports_parse_errors_from_parallel_build(
     fake_mod_root, cache_dir, monkeypatch
 ):
@@ -207,6 +314,7 @@ def test_generic_index_duplicate_cleared_after_fix(tmp_path, cache_dir):
     ideas_dir = root / "common" / "ideas"
     ideas_dir.mkdir(parents=True)
     a_file = ideas_dir / "a_ideas.txt"
+    # pi-lens-ignore: python-path-traversal
     a_file.write_text(_DUP_IDEA, encoding="utf-8")
     (ideas_dir / "b_ideas.txt").write_text(_DUP_IDEA, encoding="utf-8")
 
@@ -214,6 +322,7 @@ def test_generic_index_duplicate_cleared_after_fix(tmp_path, cache_dir):
     idx.ensure_fresh()
     assert "TST_dup" in idx.duplicates()
 
+    # pi-lens-ignore: python-path-traversal
     a_file.write_text(
         "ideas = {\n\tcountry = {\n\t\tTST_no_longer_dup = { picture = generic_idea }\n\t}\n}\n",
         encoding="utf-8",
@@ -313,23 +422,6 @@ def test_loc_index_against_real_mod(real_mod_root, cache_dir):
     li = LocalisationIndex(real_mod_root, cache_dir)
     li.ensure_fresh()
     assert "TT_IF_THEY_ACCEPT" in li.list_keys("en")
-
-
-def test_manifest_corrupt_sig_rebuilds_instead_of_raising(tmp_path):
-    """A valid-JSON manifest with non-integer sigs must load as None (rebuild), not raise."""
-    cache = IndexCache(tmp_path, "focus", 2)
-    cache.dir.mkdir(parents=True)
-    cache.manifest_path.write_text(
-        '{"common/national_focus/A.txt": ["not-an-int", 5]}', encoding="utf-8"
-    )
-    assert cache.load_manifest() is None
-
-
-def test_manifest_loads_valid_sigs(tmp_path):
-    cache = IndexCache(tmp_path, "focus", 2)
-    cache.dir.mkdir(parents=True)
-    cache.manifest_path.write_text('{"A.txt": [123, 5]}', encoding="utf-8")
-    assert cache.load_manifest() == {"A.txt": FileSig(mtime_ns=123, size=5)}
 
 
 def test_manifest_missing_returns_none(tmp_path):

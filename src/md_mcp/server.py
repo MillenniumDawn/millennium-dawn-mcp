@@ -49,6 +49,7 @@ from .resources import (
     sprite_resource,
 )
 from .tools.analysis_tools import find_focuses_tool
+from .tools.equipment_variant_tools import EquipmentVariantChecker, check_equipment_variant_tool
 from .tools.linting_tools import lint_tool, review_branch_tool
 from .tools.parser_tools import parse_file_tool, parse_string_tool
 from .tools.resolver_tools import (
@@ -97,6 +98,7 @@ def build_server(settings: Settings):
     decision_index = DecisionIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
     idea_index = IdeaIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
     validator_runner = ValidatorRunner(settings.mod_root, mode=settings.validator_mode)
+    equipment_variant_checker = EquipmentVariantChecker(settings.mod_root)
 
     # Without an HOI4 install the indexes are mod-only; fall back to the mod's
     # committed vanilla_sprites manifest so vanilla-only sprites still resolve.
@@ -207,6 +209,11 @@ def build_server(settings: Settings):
         )
 
     # ---------- validation ----------
+
+    mcp.tool(
+        name="check_equipment_variant",
+        description="Check one create_equipment_variant block against current hull slots and module categories. limit/offset page compatibility issues.",
+    )(_bind_tool(check_equipment_variant_tool, equipment_variant_checker))
 
     @mcp.tool()
     def validate(

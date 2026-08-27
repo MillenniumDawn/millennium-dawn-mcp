@@ -1,13 +1,13 @@
 """Schema projections — extract typed information from a parsed AST.
 
-The TS `schema.ts` exposes a full `convertNodeToJson(node, schemaDef)` system. For
-Milestone 1, we only need:
+The TS `schema.ts` exposes a full `convertNodeToJson(node, schemaDef)` system. This
+module covers the subset the MCP server needs:
 
   * `to_json(node)` — convert any Node to a JSON-serialisable dict (used by `parse_file`
     and `parse_string` MCP tools)
   * `extract_focus_ids(root)` — port of `extractFocusIds` from `previewdef/focustree/schema.ts`
-
-Additional extractors (events, decisions, ideas, sprites) land in Milestone 2.
+  * Extractors for events, decisions, ideas, and sprites, plus the `EVENT_KINDS` /
+    `SPRITE_KINDS` container-kind lists that `indexes/` reuses to stay in sync.
 """
 
 from __future__ import annotations
@@ -214,15 +214,21 @@ def _get_id(node: Node) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-_EVENT_KINDS = frozenset(
-    {"country_event", "news_event", "state_event", "unit_leader_event", "operative_leader_event"}
+# Canonical list of event container kinds — indexes/event.py reuses this for its
+# text prefilter so a new kind only needs to be added here.
+EVENT_KINDS = (
+    "country_event",
+    "news_event",
+    "state_event",
+    "unit_leader_event",
+    "operative_leader_event",
 )
 
 
 def _iter_event_definitions(root: Node) -> Iterator[tuple[Node, str]]:
     """Yield `(node, id_str)` for every node satisfying the event hierarchy."""
     for top in root.children():
-        if top.name in _EVENT_KINDS:
+        if top.name in EVENT_KINDS:
             id_str = _get_id(top)
             if id_str:
                 yield top, id_str
@@ -477,18 +483,18 @@ def _looks_like_slot_wrapper(node: Node) -> bool:
 # ---------------------------------------------------------------------------
 
 
-_SPRITE_KINDS = frozenset(
-    {
-        "spriteType",
-        "corneredTileSpriteType",
-        "frameAnimatedSpriteType",
-        "maskedShieldType",
-        "progressbartype",
-        "barChartType",
-        "PieChartType",
-        "LineChartType",
-        "scrollingSprite",
-    }
+# Canonical list of sprite container kinds — indexes/gfx.py reuses this to build
+# its regex scanner, so order must stay deterministic (a plain tuple, not a set).
+SPRITE_KINDS = (
+    "spriteType",
+    "corneredTileSpriteType",
+    "frameAnimatedSpriteType",
+    "maskedShieldType",
+    "progressbartype",
+    "barChartType",
+    "PieChartType",
+    "LineChartType",
+    "scrollingSprite",
 )
 
 
@@ -503,7 +509,7 @@ def _iter_sprite_definitions(root: Node) -> Iterator[tuple[Node, str, str]]:
         if not (top.name and top.name.lower().startswith("spritetypes")):
             continue
         for sprite in top.children():
-            if sprite.name not in _SPRITE_KINDS:
+            if sprite.name not in SPRITE_KINDS:
                 continue
             name_node = sprite.get("name")
             if name_node is None:

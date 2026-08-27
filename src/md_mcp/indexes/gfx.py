@@ -20,28 +20,16 @@ import re
 from typing import Optional
 
 from ..paradox import parse_string
-from ..paradox.schema import extract_sprite_records
+from ..paradox.schema import SPRITE_KINDS, extract_sprite_records
 from ..util.encoding import read_text
 from .base import GenericTxtIndex
 
 logger = logging.getLogger(__name__)
 
-_SPRITE_KINDS = (
-    "spriteType",
-    "corneredTileSpriteType",
-    "frameAnimatedSpriteType",
-    "maskedShieldType",
-    "progressbartype",
-    "barChartType",
-    "PieChartType",
-    "LineChartType",
-    "scrollingSprite",
-)
-
 # Match `<kind> = {`. Case-sensitive because HOI4 itself is case-sensitive on identifiers
 # (per general-rules.md). Field-name regexes stay case-insensitive — `name` and
 # `texturefile` are *property* keys inside a sprite block and the engine is lenient there.
-_SPRITE_OPEN_RE = re.compile(r"\b(" + "|".join(_SPRITE_KINDS) + r")\s*=\s*\{")
+_SPRITE_OPEN_RE = re.compile(r"\b(" + "|".join(SPRITE_KINDS) + r")\s*=\s*\{")
 _NAME_RE = re.compile(r'\bname\s*=\s*"([^"\\]*(?:\\.[^"\\]*)*)"', re.IGNORECASE)
 _NAME_BARE_RE = re.compile(r"\bname\s*=\s*([A-Za-z_][\w.]*)", re.IGNORECASE)
 _TEXTUREFILE_RE = re.compile(r'\btexturefile\s*=\s*"([^"]+)"', re.IGNORECASE)

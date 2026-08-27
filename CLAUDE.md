@@ -15,9 +15,10 @@ live under [`docs/`](./docs/).
 `Millennium-Dawn/tools/` validators and ports the `MD-VSCode-Utility-Tool`
 paradox-script parser. It exposes:
 
-- **27 tools** (`resolve_*`, `find_*`, `parse_*`, `validate*`, `generate_*`,
-  `focus_graph`, `check_refs`, `focus_layout`, `diff_summary`,
-  `check_encoding`, `lint`, `review_branch`, `list_country_content`)
+- **28 tools** (`resolve_*`, `find_*`, `parse_*`, `validate*`, `generate_*`,
+  `check_equipment_variant`, `focus_graph`, `check_refs`, `focus_layout`,
+  `diff_summary`, `check_encoding`, `lint`, `review_branch`,
+  `list_country_content`)
 - **6 resources** under the `md://` URI scheme (`md://focus/{id}` etc.)
 
 It is **read-only** by design. Generators return content as strings; the agent

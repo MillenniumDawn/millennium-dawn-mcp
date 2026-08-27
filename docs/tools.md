@@ -1,6 +1,6 @@
 # Tool & Resource Reference
 
-27 tools and 6 resources, grouped by purpose. Output shapes show the
+28 tools and 6 resources, grouped by purpose. Output shapes show the
 **default** behaviour — most tools have detail-tier or `limit` knobs.
 
 All tools return either `{"ok": True, ...}` or `{"ok": False, "error": "..."}`.
@@ -122,6 +122,20 @@ where `value` is `null | str | num | {symbol: str} | [Node, ...]` (block) — se
 ---
 
 ## Validation
+
+### `check_equipment_variant(text: str, limit?: int, offset?: int) -> dict`
+
+Check one `create_equipment_variant = { ... }` block against the current mod's
+hull-slot and module-category rules. The text may include enclosing effect
+scopes but must contain exactly one variant with a scalar `type` and a `modules`
+block. `limit` (default 100) and `offset` paginate compatibility issues.
+
+The upstream compatibility helper intentionally skips equipment types without
+indexed module slots, so a clean result only means no slot/module issue was
+found for a checkable type.
+
+Returns `{ok, valid, issues_total, returned, truncated, issues}`. Each issue is
+`{line, severity: "error", kind, message, hull}`.
 
 ### `validate(validator?, staged_only?, files?, strict?, severity_min?, limit?, counts_only?) -> dict`
 

@@ -10,9 +10,7 @@ from typing import Optional
 
 from ..config import Settings
 from ..util.response import coerce_int, enforce_budget, paginate
-from ..validators import SLOW_VALIDATORS, ValidatorRunner, available_validators
-
-_SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2}
+from ..validators import SEVERITY_RANK, SLOW_VALIDATORS, ValidatorRunner, available_validators
 
 
 def validate_list_tool(
@@ -60,8 +58,8 @@ def _filter_and_cap(
     limit: int,
 ) -> tuple[list[dict], bool, int]:
     """Apply severity floor + cap. Returns (kept, truncated, total_after_filter)."""
-    floor = _SEVERITY_RANK.get(severity_min, 0)
-    filtered = [i for i in issues if _SEVERITY_RANK.get(i.get("severity", "info"), 0) >= floor]
+    floor = SEVERITY_RANK.get(severity_min, 0)
+    filtered = [i for i in issues if SEVERITY_RANK.get(i.get("severity", "info"), 0) >= floor]
     total = len(filtered)
     if limit >= 0 and total > limit:
         return filtered[:limit], True, total

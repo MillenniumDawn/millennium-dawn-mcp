@@ -55,6 +55,7 @@ EXPECTED_TOOLS = {
     "find_references",
     "list_country_content",
     # M2 validation
+    "check_equipment_variant",
     "validate",
     "validate_list",
     "lint",
@@ -202,6 +203,44 @@ def test_call_validate_list_with_pagination(server, fake_mod_root):
     assert payload["validators"] == [
         {"name": "alpha", "title": "Alpha", "title_source": "scraped", "module": "validate_alpha"}
     ]
+
+
+def test_call_check_equipment_variant(server, fake_mod_root):
+    validation = fake_mod_root / "tools" / "validation"
+    (validation / "equipment_module_slots.py").write_text(
+        """
+class Finding:
+    line = 4
+    kind = "unknown_slot"
+    message = "unused"
+    hull = "test_hull"
+
+
+def build_equipment_index(units_dir):
+    return object()
+
+
+def check_created_variants(content, index):
+    return []
+""",
+        encoding="utf-8",
+    )
+    equipment = fake_mod_root / "common" / "units" / "equipment"
+    equipment.mkdir(parents=True)
+    (equipment / "hulls.txt").write_text("test_hull = {}\n", encoding="utf-8")
+
+    async def go():
+        return await server.call_tool(
+            "check_equipment_variant",
+            {
+                "text": "create_equipment_variant = { type = test_hull modules = {} }",
+            },
+        )
+
+    payload = json.loads(_text(asyncio.new_event_loop().run_until_complete(go())))
+    assert payload["ok"] is True
+    assert payload["valid"] is True
+    assert payload["issues"] == []
 
 
 def test_call_check_encoding_with_pagination(server, fake_mod_root):

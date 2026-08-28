@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from md_mcp.paradox import parse_string
 from md_mcp.paradox.schema import (
+    extract_decision_records,
     extract_event_records,
     extract_focus_ids,
     extract_focus_records,
+    extract_idea_records,
     extract_sprite_records,
     is_focus_file_content,
     to_json_with_lines,
@@ -66,8 +68,11 @@ def test_extract_focus_records_includes_metadata():
 
     assert by_id["S"]["kind"] == "shared_focus"
 
-    # All records should have line numbers when source is supplied.
-    assert all(r["line"] is not None and r["line"] > 0 for r in records)
+    # Line numbers are hand-counted from SAMPLE: A's `focus = {` is line 4,
+    # B's is line 10, S's `shared_focus = {` is line 20.
+    assert by_id["A"]["line"] == 4
+    assert by_id["B"]["line"] == 10
+    assert by_id["S"]["line"] == 20
 
 
 def test_to_json_with_lines_emits_line_numbers():
@@ -76,7 +81,8 @@ def test_to_json_with_lines_emits_line_numbers():
     # First top-level child is focus_tree.
     focus_tree = j["value"]["children"][0]
     assert focus_tree["name"] == "focus_tree"
-    assert focus_tree["line"] is not None and focus_tree["line"] > 0
+    # SAMPLE's `focus_tree = {` is line 2 (line 1 is the leading blank line).
+    assert focus_tree["line"] == 2
 
 
 EVENTS_SAMPLE = """add_namespace = TST
@@ -115,7 +121,10 @@ def test_extract_event_records_pins_kind_namespace_and_line():
     assert by_id["TST.2"]["kind"] == "news_event"
     assert by_id["TST.3"]["kind"] == "state_event"
     assert by_id["TST.1"]["namespace"] == "TST"
-    assert all(r["line"] is not None and r["line"] > 0 for r in records)
+    # Line numbers are hand-counted from EVENTS_SAMPLE: each `*_event = {` line.
+    assert by_id["TST.1"]["line"] == 3
+    assert by_id["TST.2"]["line"] == 8
+    assert by_id["TST.3"]["line"] == 15
 
 
 def test_extract_event_records_skips_event_without_id():
@@ -181,7 +190,10 @@ def test_extract_sprite_records_pins_kind_parent_and_line():
     assert by_name["GFX_a"]["kind"] == "spriteType"
     assert by_name["GFX_a"]["parent"] == "spriteTypes"
     assert by_name["GFX_b"]["kind"] == "corneredTileSpriteType"
-    assert all(r["line"] is not None and r["line"] > 0 for r in records)
+    # Line numbers are hand-counted from SPRITES_SAMPLE: each `spriteType = {` line.
+    assert by_name["GFX_a"]["line"] == 6
+    assert by_name["GFX_b"]["line"] == 10
+    assert by_name["GFX_d"]["line"] == 28
 
 
 def test_extract_sprite_records_skips_non_sprite_child():
@@ -216,3 +228,55 @@ def test_extract_sprite_records_matches_spritetypes_prefix_case_insensitively():
     by_name = {r["name"]: r for r in records}
 
     assert by_name["GFX_d"]["parent"] == "SpriteTypes_extra"
+
+
+DECISIONS_SAMPLE = """some_category = {
+\ticon = GFX_decision_category
+
+\tTST_first_decision = {
+\t\tcost = 10
+\t}
+
+\tTST_second_decision = {
+\t\tcost = 20
+\t}
+}
+"""
+
+
+def test_extract_decision_records_pins_category_and_line():
+    root = parse_string(DECISIONS_SAMPLE)
+    records = extract_decision_records(root, source=DECISIONS_SAMPLE)
+    by_id = {r["id"]: r for r in records}
+
+    assert by_id["TST_first_decision"]["category"] == "some_category"
+    assert by_id["TST_second_decision"]["category"] == "some_category"
+    # Line numbers are hand-counted from DECISIONS_SAMPLE: each decision's `= {` line.
+    assert by_id["TST_first_decision"]["line"] == 4
+    assert by_id["TST_second_decision"]["line"] == 8
+
+
+IDEAS_SAMPLE = """ideas = {
+\tcountry = {
+\t\tTST_first_idea = {
+\t\t\tpicture = generic_foo
+\t\t}
+
+\t\tTST_second_idea = {
+\t\t\tpicture = generic_bar
+\t\t}
+\t}
+}
+"""
+
+
+def test_extract_idea_records_pins_category_slot_and_line():
+    root = parse_string(IDEAS_SAMPLE)
+    records = extract_idea_records(root, source=IDEAS_SAMPLE)
+    by_id = {r["id"]: r for r in records}
+
+    assert by_id["TST_first_idea"]["category"] == "country"
+    assert by_id["TST_first_idea"]["slot"] is None
+    # Line numbers are hand-counted from IDEAS_SAMPLE: each idea's `= {` line.
+    assert by_id["TST_first_idea"]["line"] == 3
+    assert by_id["TST_second_idea"]["line"] == 7

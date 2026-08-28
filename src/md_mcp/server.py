@@ -50,6 +50,7 @@ from .resources import (
 )
 from .tools.analysis_tools import find_focuses_tool
 from .tools.equipment_variant_tools import EquipmentVariantChecker, check_equipment_variant_tool
+from .tools.lint_fixers import fix_lint_tool
 from .tools.linting_tools import lint_tool, review_branch_tool
 from .tools.parser_tools import parse_file_tool, parse_string_tool
 from .tools.resolver_tools import (
@@ -273,6 +274,15 @@ def build_server(settings: Settings):
     def review_branch(base: str = "main") -> dict:
         """Run review_branch.py: UTF-8-byte-bounded diff summary of the current branch vs `base`."""
         return review_branch_tool(settings.mod_root, base=base)
+
+    @mcp.tool()
+    def fix_lint(
+        fixer: str,
+        path: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> dict:
+        """Apply an upstream lint fixer in-memory: fixer=styling|loc_yaml|line_endings|log_ids; give content= or mod-relative path= (path required for log_ids; loc_yaml=.yml only, styling=.txt only). Returns {txt, changed, fixes, summary, warnings}; txt omitted when unchanged, clipped with txt_truncated=true when oversized — never write clipped txt back. loc_yaml reports had_bom; preserve it when writing .yml."""
+        return fix_lint_tool(settings.mod_root, fixer=fixer, path=path, content=content)
 
     # ---------- generators (M3) — return file content as strings ----------
 

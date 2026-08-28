@@ -60,6 +60,7 @@ EXPECTED_TOOLS = {
     "validate_list",
     "lint",
     "review_branch",
+    "fix_lint",
     # M3 generators
     "generate_focus",
     "generate_event",

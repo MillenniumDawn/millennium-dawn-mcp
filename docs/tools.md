@@ -1,6 +1,6 @@
 # Tool & Resource Reference
 
-28 tools and 6 resources, grouped by purpose. Output shapes show the
+29 tools and 6 resources, grouped by purpose. Output shapes show the
 **default** behaviour — most tools have detail-tier or `limit` knobs.
 
 All tools return either `{"ok": True, ...}` or `{"ok": False, "error": "..."}`.
@@ -303,6 +303,32 @@ Returns `{ok, checked, total, returned, truncated, violations: [{file,
 expected, actual}], counts}`.
 `limit` (default 200) and `offset` (default 0) paginate violations while
 `checked` and `counts.violations` remain full-scan totals.
+
+### `fix_lint(fixer, path?, content?) -> dict`
+
+Apply an upstream lint fixer **in-memory** and return the fixed text. The
+`Millennium-Dawn/tools/linting/fix_*.py` scripts only run in pre-commit, so
+hook-less edits bypass them; this tool closes that gap without breaking the
+read-only rule — the caller writes the returned `txt` back via Edit/Write.
+
+- `fixer`: `styling` (tab indent, `===`→`---` in comments, spacing) /
+  `loc_yaml` (tabs, smart quotes, `key:0 "v"`, `key:"v"`, indent,
+  unescaped quotes) / `line_endings` (CRLF→LF) / `log_ids` (mismatched
+  focus/decision log ids).
+- `content`: text to fix — no file access at all. `path`: mod-relative
+  source when `content` is omitted; always required for `log_ids` (scope is
+  path-based). `loc_yaml` accepts `.yml` only (its tab→space rewrite
+  corrupts `.txt`) and `styling` accepts `.txt` only.
+
+Returns `{ok, fixer, file, source, changed, fixes, summary, warnings, txt,
+txt_bytes, txt_returned_bytes, txt_truncated}` plus `had_bom` when the source
+had a UTF-8 BOM (preserve it when writing `.yml`). `txt` is omitted when
+nothing changed, and clipped like `review_branch` when oversized — never write
+clipped content back; edit the file directly instead. `summary` holds per-type
+counts from upstream's own detectors (`loc_yaml`'s `missing_close_quote`, for
+example, is detected but not auto-rewritten, so `fixes` can exceed actual
+changes). Invalid UTF-8 input is rejected with a byte offset rather than fixed
+around.
 
 ---
 

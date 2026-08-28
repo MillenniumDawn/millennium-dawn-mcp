@@ -12,7 +12,7 @@ diffs stay visible to the user.
 - Wraps the validators in `Millennium-Dawn/tools/validation/` (auto-discovered,
   26 at last count).
 - Ports the paradox parser from `MD-VSCode-Utility-Tool/src/hoiformat/`.
-- 28 tools and 6 `md://` resources.
+- 29 tools and 6 `md://` resources.
 
 For agents working on the server itself: see [`CLAUDE.md`](./CLAUDE.md).
 
@@ -155,7 +155,7 @@ hand for setup / cache priming.
 
 ## Tool & resource catalogue
 
-28 tools, 6 resources. Full reference in [`docs/tools.md`](./docs/tools.md).
+29 tools, 6 resources. Full reference in [`docs/tools.md`](./docs/tools.md).
 
 ### Resolvers — "where is X defined?"
 
@@ -173,7 +173,8 @@ hand for setup / cache priming.
 or all), `validate_list`, `lint` (the whole linting suite on changed files,
 including the style and brace validator for applicable script scopes;
 `validators=["auto"]` selects all domain-matched validators),
-`review_branch`, `check_encoding`.
+`review_branch`, `check_encoding`, `fix_lint` (applies the upstream lint
+fixers in-memory and returns the fixed text for the agent to write).
 
 ### Analysis
 

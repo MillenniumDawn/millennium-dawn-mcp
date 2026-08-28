@@ -265,6 +265,31 @@ def test_line_endings_unchanged_omits_txt(tmp_path):
     assert "txt" not in out
 
 
+def test_line_endings_needs_no_upstream_modules(tmp_path):
+    """line_endings is byte-level; it must work on a bare mod root."""
+    out = fix_lint_tool(tmp_path, fixer="line_endings", content="a\r\nb\n")
+    assert out["ok"] is True
+    assert out["txt"] == "a\nb\n"
+
+
+def test_line_endings_bom_from_path(tmp_path):
+    f = tmp_path / "x.yml"
+    f.write_bytes(b"\xef\xbb\xbfK: v\r\n")
+    out = fix_lint_tool(tmp_path, fixer="line_endings", path="x.yml")
+    assert out["ok"] is True
+    assert out["had_bom"] is True
+    assert out["txt"] == "K: v\n"
+
+
+def test_line_endings_non_utf8_reports_manual_path(tmp_path):
+    """The fix applies but can't be returned as text — say so instead of crashing."""
+    f = tmp_path / "bad.bin"
+    f.write_bytes(b"a\xff\r\nb\r\n")
+    out = fix_lint_tool(tmp_path, fixer="line_endings", path="bad.bin")
+    assert out["ok"] is False
+    assert "fix_line_endings.py manually" in out["error"]
+
+
 # ---------------------------------------------------------------------------
 # log_ids scoping and span rewrite
 # ---------------------------------------------------------------------------
@@ -325,6 +350,40 @@ def test_log_ids_no_mismatch_omits_txt(tmp_path):
     assert "txt" not in out
 
 
+def test_log_ids_rewrites_multiple_spans_on_one_line(tmp_path):
+    """Spans apply rightmost-first, so a short-then-long rewrite pair on one
+    line must not shift the later span (leftmost-first corrupts the line)."""
+    _plant_upstream(tmp_path)
+    (tmp_path / LINTING / "check_common_mistakes.py").write_text(
+        "def _find_focus_log_mismatches(lines):\n"
+        "    line = lines[0]\n"
+        "    a = line.find('AA')\n"
+        "    b = line.find('BB')\n"
+        "    return [(0, a, a + 2, 'AAA', 'AA'), (0, b, b + 2, 'Z', 'BB')]\n"
+        "\n"
+        "def _find_decision_log_mismatches(lines):\n"
+        "    return []\n",
+        encoding="utf-8",
+    )
+    out = fix_lint_tool(
+        tmp_path,
+        fixer="log_ids",
+        path="common/national_focus/x.txt",
+        content="AA and BB\n",
+    )
+    assert out["ok"] is True
+    assert out["fixes"] == 2
+    assert out["txt"] == "AAA and Z\n"
+
+
+def test_missing_upstream_modules_reports_gracefully(tmp_path):
+    """A mod root without tools/linting degrades to ok:false, not an exception."""
+    out = fix_lint_tool(tmp_path, fixer="styling", content="a b\n")
+    assert out["ok"] is False
+    assert "tools" in out["error"]
+    assert str(tmp_path) in out["error"]
+
+
 # ---------------------------------------------------------------------------
 # Module cache: a new mod_root must get a fresh import
 # ---------------------------------------------------------------------------
@@ -368,6 +427,18 @@ def test_oversized_unchanged_content_is_budget_safe(tmp_path):
     assert out["changed"] is False
     assert "txt" not in out
     assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+
+
+def test_styling_warnings_capped_like_upstream(tmp_path):
+    """Upstream displays at most 50 unfixable issues plus an 'and N more' line;
+    an unbounded warnings list could crowd the fixed text out of the budget."""
+    _plant_upstream(tmp_path)
+    content = "".join(f'a{i} = "odd b{i}\n' for i in range(80))
+    out = fix_lint_tool(tmp_path, fixer="styling", content=content)
+    assert out["ok"] is True
+    assert len(out["warnings"]) == 51
+    assert out["warnings"][49].startswith("line 50:")
+    assert out["warnings"][50] == "... and 30 more"
 
 
 # ---------------------------------------------------------------------------

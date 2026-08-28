@@ -46,30 +46,52 @@ _UPSTREAM_MODULES: tuple[str, ...] = (
     "check_common_mistakes",
 )
 
+# Per-fixer import sets: line_endings needs nothing upstream, and a broken
+# check_common_mistakes shouldn't take styling down with it.
+_UPSTREAM_IMPORTS: dict[str, tuple[str, ...]] = {
+    "styling": ("shared_utils", "fix_styling"),
+    "loc_yaml": ("fix_loc_yaml",),
+    "log_ids": ("check_common_mistakes",),
+    "line_endings": (),
+}
+
 _loaded_mod_root: Optional[Path] = None
-_loaded_modules: Optional[dict[str, ModuleType]] = None
+_loaded_modules: dict[str, ModuleType] = {}
+_inserted_dirs: list[str] = []
 
 
-def _load_fixer_modules(mod_root: Path) -> dict[str, ModuleType]:
-    """Import the upstream fixer cores, re-importing when mod_root changes.
+def _load_fixer_modules(mod_root: Path, fixer: str) -> dict[str, ModuleType]:
+    """Import the upstream cores a fixer needs, re-importing on mod_root change.
 
     Modules are cached per mod_root so a server process imports once; tests
     that plant stand-ins in fresh tmp trees get a fresh import instead of a
-    stale sys.modules hit from an earlier root.
+    stale sys.modules hit from an earlier root. Directories inserted into
+    sys.path for a previous root are removed on switch, so a root without
+    upstream modules fails cleanly instead of resolving another root's copies.
     """
-    global _loaded_mod_root, _loaded_modules
-    if _loaded_modules is not None and _loaded_mod_root == mod_root:
-        return _loaded_modules
+    global _loaded_mod_root, _loaded_modules, _inserted_dirs
+    names = _UPSTREAM_IMPORTS[fixer]
+    if not names:
+        return {}
 
-    for d in (str(mod_root / "tools"), str(mod_root / "tools" / "linting")):
-        if d not in sys.path:
-            sys.path.insert(0, d)
-    for name in _UPSTREAM_MODULES:
-        sys.modules.pop(name, None)
-    modules = {name: importlib.import_module(name) for name in _UPSTREAM_MODULES}
-    _loaded_mod_root = mod_root
-    _loaded_modules = modules
-    return modules
+    if _loaded_mod_root != mod_root:
+        for d in _inserted_dirs:
+            if d in sys.path:
+                sys.path.remove(d)
+        _inserted_dirs = []
+        for d in (str(mod_root / "tools"), str(mod_root / "tools" / "linting")):
+            if d not in sys.path:
+                sys.path.insert(0, d)
+                _inserted_dirs.append(d)
+        for name in _UPSTREAM_MODULES:
+            sys.modules.pop(name, None)
+        _loaded_modules = {}
+        _loaded_mod_root = mod_root
+
+    for name in names:
+        if name not in _loaded_modules:
+            _loaded_modules[name] = importlib.import_module(name)
+    return _loaded_modules
 
 
 def fix_lint_tool(
@@ -101,8 +123,6 @@ def fix_lint_tool(
             "ok": False,
             "error": "fixer=log_ids requires path= (scope detection is path-based)",
         }
-
-    modules = _load_fixer_modules(mod_root)
 
     raw: bytes
     if content is not None:
@@ -139,6 +159,18 @@ def fix_lint_tool(
     }
     if had_bom:
         result["had_bom"] = True
+
+    try:
+        modules = _load_fixer_modules(mod_root, fixer)
+    except ImportError as e:
+        return {
+            "ok": False,
+            "fixer": fixer,
+            "error": (
+                f"Upstream fixer modules not found under {mod_root}/tools ({e}); "
+                f"is the mod root a Millennium-Dawn checkout with tools/linting?"
+            ),
+        }
 
     if fixer == "line_endings":
         return _finish_line_endings(result, raw)
@@ -200,6 +232,11 @@ def _fix_styling(
         fixed_lines.pop()
     fixed_lines.append("")
 
+    # Upstream displays at most 50 unfixable issues; an unbounded list here
+    # could crowd the fixed text out of the response budget.
+    if len(warnings) > 50:
+        warnings = warnings[:50] + [f"... and {len(warnings) - 50} more"]
+
     summary = {"lines_fixed": lines_fixed, "line_fixes": total_fixes}
     return "\n".join(fixed_lines), total_fixes, summary, warnings
 
@@ -239,7 +276,7 @@ def _finish(
         result["warnings"] = warnings
     result["changed"] = fixed != original
     if not result["changed"]:
-        return enforce_budget(result, heavy_keys=("txt",))
+        return enforce_budget(result, heavy_keys=("txt", "warnings"))
     return _emit_txt(result, fixed)
 
 
@@ -250,7 +287,7 @@ def _finish_line_endings(result: dict, raw: bytes) -> dict:
     result["fixes"] = count
     result["summary"] = {"crlf_to_lf": count}
     if count == 0:
-        return enforce_budget(result, heavy_keys=("txt",))
+        return enforce_budget(result, heavy_keys=("txt", "warnings"))
 
     try:
         text = raw.replace(b"\r\n", b"\n").decode("utf-8")
@@ -289,14 +326,14 @@ def _fix_log_ids(
                 "note": f"path outside fixer scope ({', '.join(LOG_ID_SCOPES)})",
             }
         )
-        return enforce_budget(result, heavy_keys=("txt",))
+        return enforce_budget(result, heavy_keys=("txt", "warnings"))
 
     finder = getattr(modules["check_common_mistakes"], f"_find_{kind}_log_mismatches")
     lines = text.splitlines(keepends=True)
     mismatches = finder(lines)
     if not mismatches:
         result.update({"changed": False, "fixes": 0, "summary": {f"{kind}_log_ids": 0}})
-        return enforce_budget(result, heavy_keys=("txt",))
+        return enforce_budget(result, heavy_keys=("txt", "warnings"))
 
     by_line: dict[int, list[tuple[int, int, str]]] = {}
     for line_idx, start, end, correct_id, _bad_token in mismatches:
@@ -329,4 +366,4 @@ def _emit_txt(result: dict, txt: str) -> dict:
             "txt clipped to fit the response budget; do NOT write clipped "
             "content back — edit the file directly instead"
         )
-    return enforce_budget(result, heavy_keys=("txt",))
+    return enforce_budget(result, heavy_keys=("txt", "warnings"))

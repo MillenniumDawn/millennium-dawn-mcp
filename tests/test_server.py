@@ -292,6 +292,51 @@ def test_call_generate_gfx_merge(server, fake_mod_root):
     assert payload["would_write"] is True
 
 
+def test_call_fix_lint(fake_mod_root, cache_dir):
+    """fix_lint through FastMCP with upstream stand-ins planted in the mod root."""
+    linting = fake_mod_root / "tools" / "linting"
+    linting.mkdir(parents=True, exist_ok=True)
+    (fake_mod_root / "tools" / "shared_utils.py").write_text(
+        "def strip_inline_comment(line):\n    return line\n", encoding="utf-8"
+    )
+    (linting / "fix_styling.py").write_text(
+        "def fix_line(line):\n"
+        '    n = line.count("XX")\n'
+        '    return line.replace("XX", "YY"), n\n',
+        encoding="utf-8",
+    )
+    (linting / "fix_loc_yaml.py").write_text(
+        "def check_line(line, line_num):\n    return []\n" "def fix_line(line):\n    return line\n",
+        encoding="utf-8",
+    )
+    (linting / "check_common_mistakes.py").write_text(
+        "def _find_focus_log_mismatches(lines):\n    return []\n"
+        "def _find_decision_log_mismatches(lines):\n    return []\n",
+        encoding="utf-8",
+    )
+    srv = build_server(_settings(fake_mod_root, cache_dir))
+
+    async def go():
+        return await srv.call_tool("fix_lint", {"fixer": "styling", "content": "a XX b\n"})
+
+    payload = json.loads(_text(asyncio.new_event_loop().run_until_complete(go())))
+    assert payload["ok"] is True
+    assert payload["changed"] is True
+    assert payload["txt"] == "a YY b\n"
+
+
+def test_call_fix_lint_missing_upstream(server):
+    """A mod root without tools/linting must return a structured error, not
+    raise through the MCP boundary."""
+
+    async def go():
+        return await server.call_tool("fix_lint", {"fixer": "styling", "content": "a\n"})
+
+    payload = json.loads(_text(asyncio.new_event_loop().run_until_complete(go())))
+    assert payload["ok"] is False
+    assert "tools" in payload["error"]
+
+
 def test_resource_focus_raw(server):
     async def go():
         return await server.read_resource("md://focus/TST_root")

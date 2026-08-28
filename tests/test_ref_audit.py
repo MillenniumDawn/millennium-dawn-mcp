@@ -116,7 +116,8 @@ def test_sites_carry_file_line_and_referrer(audit_mod):
     entry = next(e for e in out["unresolved"] if e["ref"] == "TST_missing_focus")
     site = entry["sites"][0]
     assert site["file"] == "common/national_focus/TST_audit.txt"
-    assert isinstance(site["line"], int) and site["line"] > 1
+    # Hand-counted from _FOCUS_FILE: the `prerequisite = { ... }` line.
+    assert site["line"] == 20
     assert site["via"] == "prerequisite"
     assert site["referrer"] == "TST_audit_child"
 

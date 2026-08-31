@@ -130,10 +130,13 @@ practice that's a few KB of paradox script and ~1 ms.
 
 1. Inherit `GenericTxtIndex` in `src/md_mcp/indexes/<name>.py`.
 2. Set the class attributes: `cache_version`, `cache_name`, `subdir`,
-   `pattern`, `content_prefilter`, `primary_key`.
+   `pattern`, `primary_key`.
 3. Define a **module-level** parser fn (so `ProcessPoolExecutor` can pickle it)
    with signature `(abs_path: str, relpath: str) -> Optional[List[dict]]`.
-   Return `None` for "can't parse"; `[]` for "no records found".
+   Return `None` for "can't parse"; `[]` for "no records found". Have it read
+   the file and do its own cheap substring check up front (see `event.py`,
+   `idea.py`, `gfx.py`) so files that obviously don't contain the record kind
+   skip the full parse.
 4. Set `parser_fn = _your_parser_fn` on the class.
 5. Add the class to `src/md_mcp/indexes/__init__.py`.
 6. Wire into `server.py`: instantiate once, pass to resolver/analysis tools.

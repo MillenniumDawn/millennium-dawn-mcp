@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 from ..util.response import BUDGET_BYTES, enforce_budget
-from ..validators import SLOW_VALIDATORS, ValidatorRunner
+from ..validators import SEVERITY_RANK, SLOW_VALIDATORS, ValidatorRunner
 from .lint_validators import run_validators_for_lint, select_validators
 
 _LINT_LINE_RE = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):\s*(?P<msg>.+)$")
@@ -43,8 +43,6 @@ _LOC_ENC_BAD_RE = re.compile(r"^(?P<file>.+?):\s+Missing UTF-8 BOM.*$")
 
 # ANSI escape stripper for scripts that emit colour codes.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
-
-_SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2}
 
 # Leave room for status fields and stderr within the response budget.
 _MAX_REVIEW_REPORT_BYTES = max(1, BUDGET_BYTES - 12_000)
@@ -579,8 +577,8 @@ def lint_tool(
             overall[sev] = overall.get(sev, 0) + 1
         all_issues.extend(v_issues)
 
-    floor = _SEVERITY_RANK.get(severity_min, 0)
-    filtered = [i for i in all_issues if _SEVERITY_RANK.get(i.get("severity", "info"), 0) >= floor]
+    floor = SEVERITY_RANK.get(severity_min, 0)
+    filtered = [i for i in all_issues if SEVERITY_RANK.get(i.get("severity", "info"), 0) >= floor]
     truncated = len(filtered) > limit if limit >= 0 else False
     issues_capped = filtered[:limit] if limit >= 0 else filtered
 

@@ -6,20 +6,11 @@ import logging
 from typing import Optional
 
 from ..paradox import parse_string
-from ..paradox.schema import extract_event_records
+from ..paradox.schema import EVENT_KINDS, extract_event_records
 from ..util.encoding import read_text
 from .base import GenericTxtIndex
 
 logger = logging.getLogger(__name__)
-
-
-_EVENT_TOKENS = (
-    "country_event",
-    "news_event",
-    "state_event",
-    "unit_leader_event",
-    "operative_leader_event",
-)
 
 
 def _parse_event_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
@@ -29,7 +20,7 @@ def _parse_event_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
     except OSError as e:
         logger.warning("event index: cannot read %s: %s", abs_path, e)
         return None
-    if not any(tok in text for tok in _EVENT_TOKENS):
+    if not any(tok in text for tok in EVENT_KINDS):
         return []
     try:
         root = parse_string(text, error_prefix=f"In file {relpath}:\n")

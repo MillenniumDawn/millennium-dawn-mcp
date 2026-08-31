@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from md_mcp.indexes import DecisionIndex, EventIndex, GfxIndex, IdeaIndex
+from md_mcp.indexes.event import _parse_event_file
+from md_mcp.indexes.gfx import _parse_gfx_file
+from md_mcp.indexes.idea import _parse_idea_file
 
 
 def test_gfx_index_builds(fake_mod_root, cache_dir):
@@ -71,3 +74,27 @@ def test_idea_index_categories(fake_mod_root, cache_dir):
     assert acme is not None and acme["category"] == "tank_manufacturer"
     # The slot wrapper itself (designer / law) must NOT be indexed as an idea.
     assert "designer" not in i.list_keys()
+
+
+# The unclosed brace makes a real parse fail (return None), so these pass only
+# if the prefilter short-circuits before parsing.
+_TOKEN_FREE_MALFORMED = "some_unrelated_block = { foo = bar"
+
+
+def test_event_parser_skips_files_without_event_tokens(tmp_path):
+    """No `country_event`/`news_event`/etc. token means the file is skipped pre-parse."""
+    f = tmp_path / "no_events.txt"
+    f.write_text(_TOKEN_FREE_MALFORMED, encoding="utf-8")
+    assert _parse_event_file(str(f), "no_events.txt") == []
+
+
+def test_idea_parser_skips_files_without_ideas_token(tmp_path):
+    f = tmp_path / "no_ideas.txt"
+    f.write_text(_TOKEN_FREE_MALFORMED, encoding="utf-8")
+    assert _parse_idea_file(str(f), "no_ideas.txt") == []
+
+
+def test_gfx_parser_skips_files_without_sprite_token(tmp_path):
+    f = tmp_path / "no_sprites.gfx"
+    f.write_text(_TOKEN_FREE_MALFORMED, encoding="utf-8")
+    assert _parse_gfx_file(str(f), "no_sprites.gfx") == []

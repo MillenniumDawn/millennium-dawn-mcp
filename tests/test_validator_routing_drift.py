@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import re
 from pathlib import Path
@@ -13,6 +14,7 @@ from md_mcp.tools.lint_validators import SCAN_PREFIXES, _validators_for_path
 from md_mcp.validators import SLOW_VALIDATORS
 
 EXPECTED_REGISTRY = {
+    "validate_common_mistakes": (("", ".txt"),),
     "validate_style": (("", ".txt"),),
     "validate_oob_units": (
         ("history/units/", ".txt"),
@@ -28,6 +30,7 @@ EXPECTED_REGISTRY = {
         ("common/operations/", ".txt"),
         ("common/resistance_compliance_modifiers/", ".txt"),
         ("common/scripted_guis/", ".txt"),
+        ("common/ideas/", ".txt"),
     ),
     "validate_ai_roles": (
         ("common/ai_strategy/", ".txt"),
@@ -37,6 +40,7 @@ EXPECTED_REGISTRY = {
     "validate_characters": (
         ("common/characters/", ".txt"),
         ("common/unit_leader/", ".txt"),
+        ("common/country_leader/", ".txt"),
         ("common/national_focus/", ".txt"),
         ("common/decisions/", ".txt"),
         ("common/scripted_effects/", ".txt"),
@@ -53,6 +57,7 @@ EXPECTED_REGISTRY = {
     ),
     "validate_ideas": (
         ("common/ideas/", ".txt"),
+        ("common/idea_tags/", ".txt"),
         ("common/national_focus/", ".txt"),
         ("common/decisions/", ".txt"),
         ("common/on_actions/", ".txt"),
@@ -74,18 +79,20 @@ EXPECTED_REGISTRY = {
 }
 
 EXPECTED_REGISTRY_EXCLUDES = {
-    "validate_style": r"Changelog\.txt$|AUTHORS\.txt$|descriptions.*\.txt$"
+    "validate_common_mistakes": r"Changelog\.txt$|AUTHORS\.txt$|descriptions.*\.txt$",
+    "validate_style": r"Changelog\.txt$|AUTHORS\.txt$|descriptions.*\.txt$",
 }
 
-CORE_GROUPS = ("common", "events", "history", "interface", "localisation")
+CORE_GROUPS = ("common", "events", "history", "interface", "localisation", "map-adjacency")
 EXPECTED_CI_ROUTING = {
+    "common_mistakes": CORE_GROUPS,
     "agency_upgrades": CORE_GROUPS,
     "ai_equipment": ("ai-equipment",),
     "ai_navy": ("ai-navy",),
     "ai_roles": ("ai-strategy",),
     "characters": ("characters",),
     "cosmetic_tags": CORE_GROUPS,
-    "decisions": ("decisions",),
+    "decisions": ("decisions", "localisation"),
     "defines": CORE_GROUPS,
     "dlc_guards": ("common", "events"),
     "events": CORE_GROUPS,
@@ -102,7 +109,7 @@ EXPECTED_CI_ROUTING = {
     "scientist_traits": ("scientist-traits",),
     "scripted_gui": ("interface", "scripted-guis"),
     "scripted_localisation": CORE_GROUPS,
-    "scripted_params": ("decisions", "events", "national-focus", "scripted-effects"),
+    "scripted_params": ("common", "events", "history"),
     "set_variables": CORE_GROUPS,
     "simplifications": (
         "decisions",
@@ -111,7 +118,9 @@ EXPECTED_CI_ROUTING = {
         "on-actions",
         "scripted-effects",
     ),
+    "tech_categories": ("common", "events"),
     "technologies": ("common",),
+    "building_guards": ("common", "events"),
     "unused_scripted": CORE_GROUPS,
     "variables": CORE_GROUPS,
 }
@@ -123,6 +132,7 @@ EXPECTED_CI_FILTERS = {
     "characters": (
         "common/characters/**",
         "common/unit_leader/**",
+        "common/country_leader/**",
         "common/national_focus/**",
         "common/decisions/**",
         "common/scripted_effects/**",
@@ -150,6 +160,7 @@ EXPECTED_CI_FILTERS = {
         "common/units/**",
         "common/ai_templates/**",
         "common/scripted_effects/**",
+        "common/ideas/**",
         "history/countries/**",
         "common/national_focus/**",
         "events/**",
@@ -164,9 +175,69 @@ EXPECTED_CI_FILTERS = {
     "scripted-effects": ("common/scripted_effects/**",),
     "scripted-guis": ("common/scripted_guis/**",),
     "scripted-loc": ("common/scripted_localisation/**",),
-    "style": ("common/**/*.txt", "events/**/*.txt", "history/**/*.txt"),
+    "style": (
+        "common/**/*.txt",
+        "events/**/*.txt",
+        "history/**/*.txt",
+        "music/**/*.txt",
+    ),
     "mod": ("*.mod",),
+    "content": (
+        "common/**",
+        "events/**",
+        "history/**",
+        "localisation/**",
+        "interface/**",
+        "music/**",
+        "map/adjacency_rules.txt",
+        "*.mod",
+    ),
 }
+
+EXPECTED_WORKSPACE_PATHS = (
+    "common",
+    "events",
+    "history",
+    "localisation",
+    "interface",
+    "gfx/flags",
+    "map/adjacency_rules.txt",
+    "music",
+    "tools",
+    "resources/documentation",
+    ".claude",
+    "CLAUDE.md",
+    "*.mod",
+    ".workspace-manifest",
+    ".validation_cache",
+)
+EXPECTED_PREPARE_WORKSPACE_PATHS = (
+    "common",
+    "events",
+    "history",
+    "localisation",
+    "interface",
+    "gfx/flags",
+    "music",
+    "map/adjacency_rules.txt",
+    "*.mod",
+)
+EXPECTED_VALIDATE_PATHS_CHECKOUT = (
+    "common",
+    "descriptions",
+    "events",
+    "gfx",
+    "history",
+    "interface",
+    "localisation",
+    "map",
+    "music",
+    "portraits",
+    "scenario_tests",
+    "sound",
+    "tutorial",
+    "descriptor.mod",
+)
 
 # These CI gates intentionally cover more paths than the validator scans.
 COARSE_CI_ROUTES = {
@@ -181,13 +252,18 @@ COARSE_CI_ROUTES = {
     ("technologies", "common"),
 }
 
+# CI deliberately reruns decisions for any localisation change, while the
+# MCP auto-map only runs it for English localisation that the validator reads.
+CI_BROAD_SCOPE_EXCEPTIONS = {("decisions", "localisation")}
+
 EXPECTED_STANDALONE_JOBS = {
     "file_paths": ("validate-paths", "validate_file_paths.py", ("map/provinces.bmp",)),
-    "mod_descriptors": ("structural-lint", "validate_mod_descriptors.py", ("descriptor.mod",)),
-    "style": ("styling-check", "validate_style.py", ("common/ideas/__routing_probe.txt",)),
+    "mod_descriptors": ("content-checks", "validate_mod_descriptors.py", ("descriptor.mod",)),
+    "style": ("content-checks", "validate_style.py", ("common/ideas/__routing_probe.txt",)),
 }
 
 INTENTIONALLY_NOT_AUTO_ROUTED = {
+    "common_mistakes",
     "cosmetic_tags",
     "set_variables",
     "unused_scripted",
@@ -239,6 +315,54 @@ def _load_ci_routes(mod_root: Path):
     return routes, filters, jobs
 
 
+def _load_style_scan_patterns(mod_root: Path) -> tuple[str, ...]:
+    path = mod_root / "tools" / "validation" / "validate_style.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == "_SCAN_PATTERNS"
+            for target in node.targets
+        ):
+            continue
+        patterns = ast.literal_eval(node.value)
+        assert isinstance(patterns, list)
+        assert all(isinstance(pattern, str) for pattern in patterns)
+        return tuple(patterns)
+    raise AssertionError(f"{path} no longer defines _SCAN_PATTERNS")
+
+
+def _load_workspace_paths(mod_root: Path) -> tuple[str, ...]:
+    path = mod_root / ".github" / "workflows" / "coding-pipeline.yml"
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return tuple(workflow["env"]["WORKSPACE_PATHS"].split())
+
+
+def _load_prepare_workspace_paths(mod_root: Path) -> tuple[str, ...]:
+    path = mod_root / ".github" / "workflows" / "coding-pipeline.yml"
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["prepare-workspace"]["steps"]
+    checkout = next(step for step in steps if step.get("id") == "checkout")
+    return tuple(
+        line.strip()
+        for line in checkout["with"]["sparse-checkout"].splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+
+
+def _load_validate_paths_checkout(mod_root: Path) -> tuple[str, ...]:
+    path = mod_root / ".github" / "workflows" / "coding-pipeline.yml"
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["validate-paths"]["steps"]
+    checkout = next(step for step in steps if step.get("name") == "Checkout PR tree")
+    return tuple(
+        line.strip()
+        for line in checkout["with"]["sparse-checkout"].splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+
+
 def _probe_path(pattern: str) -> str:
     return pattern.replace("**", "__routing_probe").replace("*", "routing_probe")
 
@@ -257,20 +381,36 @@ def test_upstream_commit_registry_snapshot(real_mod_root):
 def test_commit_registry_paths_reach_auto_map(real_mod_root):
     for spec in _load_registry(real_mod_root):
         name = spec.script.removeprefix("validate_")
-        if name == "style":
+        if name in INTENTIONALLY_NOT_AUTO_ROUTED:
             continue
         for prefix, extension in spec.rules:
-            probe = prefix if not extension else f"{prefix}__routing_probe{extension}"
-            assert name in _validators_for_path(probe), f"{name} is not auto-routed for {probe}"
+            if not prefix and extension == ".txt":
+                probes = [
+                    _probe_path(pattern)
+                    for pattern in _load_style_scan_patterns(real_mod_root)
+                    if pattern.endswith(extension)
+                ]
+                assert probes, f"{spec.script} has no text scan patterns"
+            else:
+                probes = [prefix if not extension else f"{prefix}__routing_probe{extension}"]
+            for probe in probes:
+                assert name in _validators_for_path(probe), f"{name} is not auto-routed for {probe}"
 
 
 @pytest.mark.integration
 def test_upstream_ci_routing_snapshot(real_mod_root):
     routes, filters, _jobs = _load_ci_routes(real_mod_root)
     assert routes == EXPECTED_CI_ROUTING
-    actual_filters = {name: frozenset(filters[name]) for name in EXPECTED_CI_FILTERS}
+    actual_filters = {name: frozenset(paths) for name, paths in filters.items()}
     expected_filters = {name: frozenset(paths) for name, paths in EXPECTED_CI_FILTERS.items()}
     assert actual_filters == expected_filters
+
+
+@pytest.mark.integration
+def test_upstream_workspace_paths_snapshot(real_mod_root):
+    assert _load_workspace_paths(real_mod_root) == EXPECTED_WORKSPACE_PATHS
+    assert _load_prepare_workspace_paths(real_mod_root) == EXPECTED_PREPARE_WORKSPACE_PATHS
+    assert _load_validate_paths_checkout(real_mod_root) == EXPECTED_VALIDATE_PATHS_CHECKOUT
 
 
 @pytest.mark.integration
@@ -284,6 +424,17 @@ def test_precise_ci_paths_reach_auto_map(real_mod_root):
             continue
         for group in groups:
             if (validator, group) in COARSE_CI_ROUTES:
+                continue
+            if (validator, group) in CI_BROAD_SCOPE_EXCEPTIONS:
+                for pattern in filters[group]:
+                    probe = _probe_path(pattern)
+                    assert validator not in _validators_for_path(
+                        probe
+                    ), f"{validator} unexpectedly routes broader CI pattern {pattern}"
+                assert validator in _validators_for_path("localisation/english/__routing_probe.yml")
+                assert validator not in _validators_for_path(
+                    "localisation/french/__routing_probe.yml"
+                )
                 continue
             for pattern in filters[group]:
                 probe = _probe_path(pattern)

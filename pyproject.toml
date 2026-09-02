@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "md-mcp"
-version = "0.1.0"
+version = "1.0.0"
 description = "MCP server for Millennium Dawn HOI4 mod development"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -16,6 +16,8 @@ import re
 from pathlib import Path
 from typing import Literal, Optional
 
+from ..paradox.schema import EVENT_KINDS
+
 logger = logging.getLogger(__name__)
 
 Kind = Literal["focus", "event", "decision", "idea", "loc", "sprite", "flag", "variable"]
@@ -37,8 +39,9 @@ def _focus_pattern(target: str) -> re.Pattern:
 
 def _event_pattern(target: str) -> re.Pattern:
     # `country_event = X`, `country_event = { id = X ... }`, `news_event = X`, etc.
+    event_kinds = "|".join(re.escape(kind) for kind in EVENT_KINDS)
     return re.compile(
-        r"\b(?:country_event|news_event|state_event|unit_leader_event|operative_leader_event)\s*=\s*(?:"
+        rf"\b(?:{event_kinds})\s*=\s*(?:"
         + re.escape(target)
         + r"\b"
         + r"|\{\s*(?:[^{}]*\s)?id\s*=\s*"

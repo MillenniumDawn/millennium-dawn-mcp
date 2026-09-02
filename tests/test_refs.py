@@ -2,7 +2,20 @@
 
 from __future__ import annotations
 
-from md_mcp.analysis.refs import find_references
+from md_mcp.analysis.refs import _event_pattern, find_references
+from md_mcp.paradox.schema import EVENT_KINDS
+
+
+def test_event_pattern_matches_every_canonical_event_kind():
+    assert any(EVENT_KINDS)
+    pattern = _event_pattern("TST.1")
+    for kind in EVENT_KINDS:
+        assert pattern.search(f"{kind} = TST.1") is not None
+        assert pattern.search(f"{kind} = {{ id = TST.1 title = title }}") is not None
+        assert pattern.search(f"my_{kind} = TST.1") is None
+        assert pattern.search(f"{kind}_extra = TST.1") is None
+        assert pattern.search(f"{kind} = TST.12") is None
+        assert pattern.search(f"{kind} = {{ id = TST.12 }}") is None
 
 
 def test_find_focus_references_in_focus_file(fake_mod_root):

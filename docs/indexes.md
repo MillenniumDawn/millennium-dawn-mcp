@@ -129,8 +129,8 @@ practice that's a few KB of paradox script and ~1 ms.
 ## Adding a new index
 
 1. Inherit `GenericTxtIndex` in `src/md_mcp/indexes/<name>.py`.
-2. Set the class attributes: `cache_version`, `cache_name`, `subdir`,
-   `pattern`, `primary_key`.
+2. Set the class attributes: `cache_version`, `cache_name`, `primary_key`,
+   and either `subdir`/`pattern` or `subdirs`/`patterns`.
 3. Define a **module-level** parser fn (so `ProcessPoolExecutor` can pickle it)
    with signature `(abs_path: str, relpath: str) -> Optional[List[dict]]`.
    Return `None` for "can't parse"; `[]` for "no records found". Have it read

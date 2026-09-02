@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import pytest
 
-from md_mcp.indexes import FocusIndex, IdeaIndex, LocalisationIndex
+from md_mcp.indexes import FocusIndex, GenericTxtIndex, IdeaIndex, LocalisationIndex
 from md_mcp.indexes.base import FileSig, IndexCache
 
 _DUP_IDEA = "ideas = {\n\tcountry = {\n\t\tTST_dup = { picture = generic_idea }\n\t}\n}\n"
@@ -27,6 +28,47 @@ _DUP_TWO_KEYS = (
     "\t}\n"
     "}\n"
 )
+
+
+def _parse_tuple_index_file(abs_path: str, relpath: str) -> list[dict]:
+    return [{"lang": "en", "key": Path(abs_path).read_text(encoding="utf-8").strip()}]
+
+
+class _TupleIndex(GenericTxtIndex):
+    cache_name = "tuple"
+    subdirs = ("common/first", "common/second")
+    patterns = ("*.txt", "*.yml")
+    primary_key = ("lang", "key")
+    parser_fn = staticmethod(_parse_tuple_index_file)
+
+
+def test_generic_index_collects_multiple_dirs_patterns_and_tuple_keys(tmp_path, cache_dir):
+    root = tmp_path / "TupleMod"
+    first = root / "common" / "first"
+    second = root / "common" / "second"
+    first.mkdir(parents=True)
+    second.mkdir(parents=True)
+    first_file = first / "first.txt"
+    first_file.write_text("first", encoding="utf-8")
+    (second / "second.yml").write_text("second", encoding="utf-8")
+    (first / "ignored.json").write_text("ignored", encoding="utf-8")
+
+    index = _TupleIndex(root, cache_dir, include_vanilla=False)
+    index.ensure_fresh()
+
+    assert index.list_files() == ["common/first/first.txt", "common/second/second.yml"]
+    assert index.list_keys() == [("en", "first"), ("en", "second")]
+    second_record = index.resolve(("en", "second"))
+    assert second_record is not None
+    assert second_record["file"] == "common/second/second.yml"
+
+    first_file.write_text("updated", encoding="utf-8")
+    index._stale_check.force_next()
+    index.ensure_fresh()
+    assert index.resolve(("en", "first")) is None
+    updated_record = index.resolve(("en", "updated"))
+    assert updated_record is not None
+    assert updated_record["file"] == "common/first/first.txt"
 
 
 def test_focus_index_builds_from_fixture(fake_mod_root, cache_dir):
@@ -63,8 +105,8 @@ def test_focus_index_warm_path_is_noop(fake_mod_root, cache_dir):
 def test_focus_index_cache_persisted(fake_mod_root, cache_dir):
     fi = FocusIndex(fake_mod_root, cache_dir)
     fi.ensure_fresh()
-    assert (cache_dir / "v2" / "focus.manifest.json").exists()
-    assert (cache_dir / "v2" / "focus.data.json").exists()
+    assert (cache_dir / "v3" / "focus.manifest.json").exists()
+    assert (cache_dir / "v3" / "focus.data.json").exists()
 
     # Second instance reads cache + ensures freshness; no exception, matching ids.
     fi2 = FocusIndex(fake_mod_root, cache_dir)
@@ -120,8 +162,8 @@ def test_focus_index_rebuilds_on_shape_corrupt_manifest(fake_mod_root, cache_dir
     ids = sorted(fi.list_ids())
     assert ids
 
-    manifest = cache_dir / "v2" / "focus.manifest.json"
-    data = cache_dir / "v2" / "focus.data.json"
+    manifest = cache_dir / "v3" / "focus.manifest.json"
+    data = cache_dir / "v3" / "focus.data.json"
     manifest.write_text(
         '{"common/national_focus/test.txt": {"mtime_ns": 1, "size": 2}}',
         encoding="utf-8",
@@ -219,11 +261,63 @@ def test_loc_index_handles_embedded_quotes(fake_mod_root, cache_dir):
     assert r["value"] == 'He called it "important"'
 
 
+def test_loc_index_suppresses_duplicate_warnings_but_keeps_last_write_wins(
+    tmp_path, cache_dir, caplog
+):
+    root = tmp_path / "DuplicateLocMod"
+    loc_dir = root / "localisation" / "english"
+    loc_dir.mkdir(parents=True)
+    content = 'l_english:\n TST_duplicate_loc: "Value"\n'
+    (loc_dir / "a_l_english.yml").write_text(content, encoding="utf-8")
+    (loc_dir / "b_l_english.yml").write_text(content, encoding="utf-8")
+
+    li = LocalisationIndex(root, cache_dir, include_vanilla=False)
+    with caplog.at_level(logging.WARNING):
+        li.ensure_fresh()
+
+    record = li.resolve("TST_duplicate_loc")
+    assert record is not None
+    assert record["file"] == "localisation/english/b_l_english.yml"
+    assert li.duplicates() == {
+        ("l_english", "TST_duplicate_loc"): ["localisation/english/a_l_english.yml"]
+    }
+    assert not [r for r in caplog.records if "Duplicate key" in r.getMessage()]
+
+
+def test_loc_index_rebuilds_stale_file(fake_mod_root, cache_dir):
+    li = LocalisationIndex(fake_mod_root, cache_dir)
+    assert li.resolve("TST_root") is not None
+
+    loc_file = fake_mod_root / "localisation" / "english" / "test_l_english.yml"
+    loc_file.write_text('l_english:\n TST_root: "Updated Root"\n', encoding="utf-8")
+    li._stale_check.force_next()
+
+    updated = li.resolve("TST_root")
+    assert updated is not None
+    assert updated["value"] == "Updated Root"
+
+
 def test_loc_index_handles_legacy_version_suffix(fake_mod_root, cache_dir):
     li = LocalisationIndex(fake_mod_root, cache_dir)
     r = li.resolve("TST_versioned")
     assert r is not None
     assert r["value"] == "value with legacy version suffix"
+
+
+def test_loc_index_parallel_build(fake_mod_root, cache_dir, monkeypatch):
+    monkeypatch.delenv("MD_MCP_SERIAL_PARSE", raising=False)
+    loc_dir = fake_mod_root / "localisation" / "english"
+    for number in range(4):
+        (loc_dir / f"parallel_{number}_l_english.yml").write_text(
+            f'l_english:\n TST_parallel_{number}: "Parallel {number}"\n', encoding="utf-8"
+        )
+
+    li = LocalisationIndex(fake_mod_root, cache_dir)
+    li.ensure_fresh()
+
+    rec = li.resolve("TST_parallel_3")
+    assert rec is not None
+    assert rec["value"] == "Parallel 3"
 
 
 def test_loc_index_fallback_to_english(fake_mod_root, cache_dir):

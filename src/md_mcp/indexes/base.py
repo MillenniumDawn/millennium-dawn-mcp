@@ -25,7 +25,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -191,21 +191,29 @@ def resolve_root(roots: Iterable[Path], relpath: str) -> Optional[Path]:
     return None
 
 
+def _normalise_specs(value: str | Sequence[str]) -> tuple[str, ...]:
+    return (value,) if isinstance(value, str) else tuple(value)
+
+
 def collect_files(
     roots: Iterable[Path],
-    subdir: str,
-    pattern: str,
+    subdir: str | Sequence[str],
+    pattern: str | Sequence[str],
     predicate: Optional[Callable[[Path], bool]] = None,
 ) -> list[Path]:
-    """Walk `subdir` under each root for `pattern`, optionally narrowed by `predicate`."""
+    """Walk each subdir under each root for each pattern, optionally filtering files."""
     results: list[Path] = []
+    seen: set[Path] = set()
     for base in roots:
-        d = base / subdir
-        if not d.is_dir():
-            continue
-        for p in d.rglob(pattern):
-            if p.is_file() and (predicate is None or predicate(p)):
-                results.append(p)
+        for subdir_name in _normalise_specs(subdir):
+            d = base / subdir_name
+            if not d.is_dir():
+                continue
+            for pattern_name in _normalise_specs(pattern):
+                for p in d.rglob(pattern_name):
+                    if p.is_file() and (predicate is None or predicate(p)) and p not in seen:
+                        seen.add(p)
+                        results.append(p)
     return results
 
 
@@ -314,29 +322,24 @@ def parse_files(
 
 
 class GenericTxtIndex:
-    """Shared scaffolding for paradox-script indexes that walk a single subdir for `.txt`.
+    """Shared scaffolding for indexes that collect and parse content files.
 
-    Subclasses provide:
-        * `cache_version: int`
-        * `cache_name: str`     — file basename under `<cache_dir>/v<ver>/`
-        * `subdir: str`         — path under each root, e.g. `events`
-        * `pattern: str`        — glob like `*.txt`
-        * `parser_fn`           — *module-level* function
-                                  `(abs_path: str, relpath: str) -> Optional[list[dict]]`
-                                  (must be picklable for ProcessPoolExecutor)
-        * `primary_key`         — record field used for the reverse map
-
-    Subclasses no longer override `parse_one`; instead they set `parser_fn = <some_top_level_fn>`
-    so the rebuild loop can dispatch through a process pool.
-
-    The class itself handles file collection, manifest, cache, and incremental rebuild.
+    Subclasses provide cache metadata, one or more `subdir`/`pattern` specs, a
+    picklable module-level `parser_fn`, and a string or tuple `primary_key`.
     """
 
     cache_version: int = 1
     cache_name: str = ""
     subdir: str = ""
     pattern: str = "*.txt"
-    primary_key: str = "id"
+    subdirs: Sequence[str] = ()
+    patterns: Sequence[str] = ()
+    file_predicate: Optional[Callable[[Path], bool]] = None
+    primary_key: str | tuple[str, ...] = "id"
+    parse_chunksize: int = 4
+    missing_result: Any = None
+    track_parse_errors: bool = False
+    warn_on_duplicates: bool = True
 
     def __init__(
         self,
@@ -352,19 +355,22 @@ class GenericTxtIndex:
         self.vanilla_path: "Optional[_Path]" = vanilla_path if include_vanilla else None
         self._cache = IndexCache(cache_dir, self.cache_name, self.cache_version)
         self._stale_check = StaleCheck()
+        self._subdirs = _normalise_specs(self.subdirs or self.subdir)
+        self._patterns = _normalise_specs(self.patterns or self.pattern)
 
         self._by_file: dict[str, list[dict]] = {}
-        self._by_key: dict[str, dict] = {}
-        self._duplicates: dict[str, list[str]] = {}
+        self._by_key: dict[Any, dict] = {}
+        self._duplicates: dict[Any, list[str]] = {}
+        self._parse_errors: dict[str, str] = {}
         self._loaded = False
 
     # ---------- public API ----------
 
-    def resolve(self, key: str) -> "Optional[dict]":
+    def resolve(self, key: Any) -> "Optional[dict]":
         self.ensure_fresh()
         return self._by_key.get(key)
 
-    def list_keys(self) -> list[str]:
+    def list_keys(self) -> list[Any]:
         self.ensure_fresh()
         return sorted(self._by_key.keys())
 
@@ -376,7 +382,14 @@ class GenericTxtIndex:
         self.ensure_fresh()
         return self._by_file.get(relpath, [])
 
-    def duplicates(self) -> dict[str, list[str]]:
+    def parse_errors(self) -> list[dict]:
+        self.ensure_fresh()
+        return [
+            {"file": relpath, "error": error}
+            for relpath, error in sorted(self._parse_errors.items())
+        ]
+
+    def duplicates(self) -> dict[Any, list[str]]:
         """Return {key: [shadowed files]} recorded by the last rebuild.
 
         `_rebuild` recomputes this on every call, including a fresh instance's
@@ -396,10 +409,9 @@ class GenericTxtIndex:
 
     # ---------- subclass hooks ----------
 
-    # Set by subclasses to a *module-level* function (picklable). Signature:
-    #   parser_fn(abs_path: str, relpath: str) -> Optional[list[dict]]
-    # Returning None means "could not parse"; returning [] means "no records found".
-    parser_fn: Optional[Callable[[str, str], "Optional[list[dict]]"]] = None
+    # Set by subclasses to a *module-level* function (picklable). It returns records,
+    # None, or an object exposing `records` and an optional `error`.
+    parser_fn: Optional[Callable[[str, str], Any]] = None
 
     # ---------- internals ----------
 
@@ -407,7 +419,7 @@ class GenericTxtIndex:
         return roots_for(self.mod_root, self.vanilla_path)
 
     def _collect_files(self) -> list["Path"]:
-        return collect_files(self._roots(), self.subdir, self.pattern)
+        return collect_files(self._roots(), self._subdirs, self._patterns, self.file_predicate)
 
     def _rebuild(self) -> None:
         plan = plan_rebuild(self._cache, self._collect_files(), self._roots(), self._loaded)
@@ -415,36 +427,55 @@ class GenericTxtIndex:
             return
 
         if self._loaded:
-            cached_files = self._by_file
+            cached_data = {"files": self._by_file, "parse_errors": self._parse_errors}
         else:
             cached_data = self._cache.load_data() or {}
-            cached_files = cached_data.get("files", {})
+        cached_files = cached_data.get("files", {})
+        if not isinstance(cached_files, dict):
+            cached_files = {}
 
         new_by_file: dict[str, list[dict]] = {}
         for relpath in plan.staleness.unchanged:
             if relpath in cached_files:
                 new_by_file[relpath] = cached_files[relpath]
 
+        new_parse_errors: dict[str, str] = {}
+        if self.track_parse_errors:
+            cached_errors = cached_data.get("parse_errors", {})
+            if not isinstance(cached_errors, dict):
+                cached_errors = {}
+            new_parse_errors = {
+                relpath: cached_errors[relpath]
+                for relpath in plan.staleness.unchanged
+                if relpath in cached_errors
+            }
+            for relpath in new_parse_errors:
+                new_by_file.pop(relpath, None)
+
         if plan.to_parse:
             results = self._parse_parallel(plan.to_parse)
-            for relpath, recs in zip(plan.to_parse, results, strict=False):
-                if recs is not None:
-                    new_by_file[relpath] = recs
+            for relpath, result in zip(plan.to_parse, results, strict=False):
+                records = getattr(result, "records", result)
+                error = getattr(result, "error", None)
+                if records is not None:
+                    new_by_file[relpath] = records
+                elif self.track_parse_errors:
+                    new_parse_errors[relpath] = error or "parser worker failed"
 
         # Last-write-wins in canonical relpath order, regardless of how files were
         # discovered, loaded from the manifest, or reparsed.
         new_by_file = dict(sorted(new_by_file.items()))
-        new_by_key: dict[str, dict] = {}
-        new_duplicates: dict[str, list[str]] = {}
+        new_by_key: dict[Any, dict] = {}
+        new_duplicates: dict[Any, list[str]] = {}
         for relpath, recs in new_by_file.items():
             for rec in recs:
-                k = rec.get(self.primary_key)
+                k = self._record_key(rec)
                 if k is None:
                     continue
                 existing = new_by_key.get(k)
                 if existing is not None:
                     shadowed_file = existing["file"]
-                    if k not in new_duplicates:
+                    if self.warn_on_duplicates and k not in new_duplicates:
                         logger.warning(
                             "Duplicate key %r in %s: %s shadowed by %s",
                             k,
@@ -458,12 +489,23 @@ class GenericTxtIndex:
         self._by_file = new_by_file
         self._by_key = new_by_key
         self._duplicates = new_duplicates
+        self._parse_errors = new_parse_errors
 
         if plan.should_save:
-            self._cache.save_data({"files": new_by_file})
+            payload: dict[str, Any] = {"files": new_by_file}
+            if self.track_parse_errors:
+                payload["parse_errors"] = new_parse_errors
+            self._cache.save_data(payload)
             self._cache.save_manifest(plan.current_sigs)
 
-    def _parse_parallel(self, relpaths: list[str]) -> list["Optional[list[dict]]"]:
+    def _record_key(self, record: dict) -> Any:
+        primary_key = self.primary_key
+        if not isinstance(primary_key, str):
+            values = tuple(record.get(field) for field in primary_key)
+            return values if all(value is not None for value in values) else None
+        return record.get(primary_key)
+
+    def _parse_parallel(self, relpaths: list[str]) -> list[Any]:
         fn = type(self).parser_fn
         if fn is None:
             # Legit abstract-method guard, not a scaffolded stub.
@@ -471,7 +513,13 @@ class GenericTxtIndex:
             raise NotImplementedError(
                 f"{type(self).__name__} must set `parser_fn` to a module-level function"
             )
-        return parse_files(fn, self._roots(), relpaths)
+        return parse_files(
+            fn,
+            self._roots(),
+            relpaths,
+            missing=self.missing_result,
+            chunksize=self.parse_chunksize,
+        )
 
 
 def _safe_process_context():

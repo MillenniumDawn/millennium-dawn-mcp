@@ -13,6 +13,6 @@ def test_version_matches_pyproject() -> None:
         tomllib = importlib.import_module("tomllib")
     except ModuleNotFoundError:
         tomllib = importlib.import_module("tomli")
-    with Path("pyproject.toml").open("rb") as f:
+    with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as f:
         version = tomllib.load(f)["project"]["version"]
     assert version == md_mcp.__version__

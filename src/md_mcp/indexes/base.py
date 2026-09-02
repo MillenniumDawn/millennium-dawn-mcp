@@ -231,37 +231,6 @@ class RebuildPlan:
         return bool(self.to_parse or self.staleness.removed or not self.manifest)
 
 
-@dataclass
-class RebuildState:
-    """A rebuild plan with current or persisted index data ready for reuse."""
-
-    plan: RebuildPlan
-    data: dict
-
-    def reused_files(self) -> dict:
-        cached_files = self.data.get("files", {})
-        return {
-            relpath: cached_files[relpath]
-            for relpath in self.plan.staleness.unchanged
-            if relpath in cached_files
-        }
-
-
-def prepare_rebuild(
-    cache: IndexCache,
-    paths: list[Path],
-    roots: list[Path],
-    loaded: bool,
-    **in_memory: Any,
-) -> Optional[RebuildState]:
-    """Plan a rebuild and load reusable data, or return None when the index is current."""
-    plan = plan_rebuild(cache, paths, roots, loaded)
-    if plan is None:
-        return None
-    data = in_memory if loaded else cache.load_data() or {}
-    return RebuildState(plan, data)
-
-
 def plan_rebuild(
     cache: IndexCache, files: list[Path], roots: list[Path], loaded: bool
 ) -> Optional[RebuildPlan]:

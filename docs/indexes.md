@@ -99,8 +99,8 @@ directories are simply ignored; users can blow them away manually.
 └── v<N>/
     ├── focus.data.json
     ├── focus.manifest.json
-    ├── localisation.l_english.data.json
-    ├── localisation.l_english.manifest.json
+    ├── loc.data.json
+    ├── loc.manifest.json
     └── ...
 ```
 
@@ -119,7 +119,7 @@ file/line** path:
 Heavy fields (`x`, `y`, `cost`, `prerequisites`, `mutually_exclusive`,
 `icon`, …) are **recomputed on demand** from source — they're only needed
 when the caller explicitly asks for them via `resolve_focus`. This keeps the
-cache file small enough to load and parse in <50 ms cold. Focus cache v2 also
+cache file small enough to load and parse in <50 ms cold. Focus cache v3 also
 persists per-file read and parse errors so callers can distinguish an incomplete
 index from a clean search.
 
@@ -129,8 +129,8 @@ practice that's a few KB of paradox script and ~1 ms.
 ## Adding a new index
 
 1. Inherit `GenericTxtIndex` in `src/md_mcp/indexes/<name>.py`.
-2. Set the class attributes: `cache_version`, `cache_name`, `subdir`,
-   `pattern`, `primary_key`.
+2. Set the class attributes: `cache_version`, `cache_name`, `primary_key`,
+   and either `subdir`/`pattern` or `subdirs`/`patterns`.
 3. Define a **module-level** parser fn (so `ProcessPoolExecutor` can pickle it)
    with signature `(abs_path: str, relpath: str) -> Optional[List[dict]]`.
    Return `None` for "can't parse"; `[]` for "no records found". Have it read

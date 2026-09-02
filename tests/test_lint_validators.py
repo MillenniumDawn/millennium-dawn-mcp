@@ -21,7 +21,7 @@ from .test_lint_dispatcher import _git, _init_repo, _seed_all_scripts
 
 _ALL_NAMES = sorted(
     {v for _, vals in VALIDATOR_AUTO_MAP for v in vals}
-    | {"localisation", "style", "variables", "set_variables", "cosmetic_tags"}
+    | {"common_mistakes", "localisation", "style", "variables", "set_variables", "cosmetic_tags"}
     | set(SLOW_VALIDATORS)
 )
 
@@ -82,6 +82,7 @@ def _issue(file, message="bad", severity="warning", line=0, category="CAT"):
 # narrow rows add the domain-specific pass for that directory.
 _BROAD_COMMON = {
     "agency_upgrades",
+    "building_guards",
     "decisions",
     "dlc_guards",
     "events",
@@ -89,10 +90,12 @@ _BROAD_COMMON = {
     "gfx_references",
     "ideas",
     "scripted_gui",
+    "scripted_params",
     "simplifications",
+    "tech_categories",
 }
-# Same for history/: the common/ broad set minus simplifications, which only
-# reaches common/ and events/ upstream.
+# Same for history/: the common/ broad set minus simplifications, building
+# guards, and tech categories, which only reach common/ and events/ upstream.
 _BROAD_HISTORY = {
     "agency_upgrades",
     "decisions",
@@ -101,6 +104,7 @@ _BROAD_HISTORY = {
     "gfx_references",
     "history",
     "ideas",
+    "scripted_params",
 }
 
 
@@ -143,7 +147,10 @@ _BROAD_HISTORY = {
                 "style",
             },
         ),
-        ("common/ideas/USA.txt", _BROAD_COMMON | {"history", "modifiers", "style"}),
+        (
+            "common/ideas/USA.txt",
+            _BROAD_COMMON | {"history", "modifiers", "oob_units", "style"},
+        ),
         (
             "common/on_actions/00_on_actions.txt",
             _BROAD_COMMON
@@ -155,7 +162,10 @@ _BROAD_HISTORY = {
             _BROAD_COMMON | {"oob_units", "style"},
         ),
         ("common/characters/USA.txt", _BROAD_COMMON | {"characters", "style"}),
-        ("common/country_leader/USA.txt", _BROAD_COMMON | {"mios", "style"}),
+        (
+            "common/country_leader/USA.txt",
+            _BROAD_COMMON | {"characters", "mios", "style"},
+        ),
         ("common/modifiers/USA.txt", _BROAD_COMMON | {"style"}),
         ("common/opinion_modifiers/USA.txt", _BROAD_COMMON | {"style"}),
         ("common/dynamic_modifiers/USA.txt", _BROAD_COMMON | {"modifiers", "style"}),
@@ -203,13 +213,35 @@ _BROAD_HISTORY = {
         ),
         (
             "localisation/english/MD_focus_USA_l_english.yml",
+            {
+                "decisions",
+                "file_paths",
+                "gfx_references",
+                "ideas",
+                "localisation",
+                "mios",
+                "scripted_gui",
+            },
+        ),
+        (
+            "localisation/french/MD_focus_USA_l_french.yml",
             {"file_paths", "gfx_references", "ideas", "localisation", "mios", "scripted_gui"},
         ),
+        ("music/01_theme.txt", {"file_paths", "style"}),
         ("descriptor.mod", {"mod_descriptors"}),
     ],
 )
 def test_select_validators_mapping(path, expected):
     assert set(select_validators([path], set(_ALL_NAMES))) == expected
+
+
+def test_style_scan_prefixes_include_music():
+    assert SCAN_PREFIXES["style"] == ("common/", "events/", "history/", "music/")
+
+
+def test_select_validators_does_not_route_decisions_for_non_english_localisation():
+    selected = select_validators(["localisation/french/MD_focus_USA_l_french.yml"], set(_ALL_NAMES))
+    assert "decisions" not in selected
 
 
 @pytest.mark.parametrize(
@@ -227,16 +259,22 @@ def test_select_validators_does_not_route_modifiers_outside_scan_domain(path):
 
 def test_select_validators_dedups_across_files():
     got = select_validators(["common/ideas/USA.txt", "common/ideas/CAN.txt"], set(_ALL_NAMES))
-    assert got == sorted(_BROAD_COMMON | {"history", "modifiers", "style"})
+    assert got == sorted(_BROAD_COMMON | {"history", "modifiers", "oob_units", "style"})
 
 
 def test_select_validators_mode_all_is_fast_set():
     got = select_validators(None, set(_ALL_NAMES))
-    assert got == sorted(set(_ALL_NAMES) - SLOW_VALIDATORS)
+    assert got == sorted(set(_ALL_NAMES) - SLOW_VALIDATORS - {"common_mistakes"})
 
 
 def test_select_validators_empty_scope_selects_nothing():
     assert select_validators([], set(_ALL_NAMES)) == []
+
+
+def test_select_validators_auto_excludes_dedicated_common_mistakes():
+    assert not any("common_mistakes" in validators for _, validators in VALIDATOR_AUTO_MAP)
+    assert "common_mistakes" not in select_validators(["common/x.txt"], set(_ALL_NAMES))
+    assert "common_mistakes" not in select_validators(None, set(_ALL_NAMES))
 
 
 def test_select_validators_never_auto_selects_globals():
@@ -449,15 +487,16 @@ def test_lint_signature_has_validator_params():
     "mode,staged_only",
     [("changed", False), ("staged", True), ("all", False)],
 )
-def test_lint_default_runs_style_validator_for_script_scope(tmp_path, mode, staged_only):
+@pytest.mark.parametrize("scope", ["common", "events", "history", "music"])
+def test_lint_default_runs_style_validator_for_script_scope(tmp_path, mode, staged_only, scope):
     _init_repo(tmp_path)
     _seed_all_scripts(tmp_path, {})
     (tmp_path / "descriptor.mod").write_text('name = "x"\n')
-    script_file = tmp_path / "common" / "x.txt"
+    script_file = tmp_path / scope / "x.txt"
     script_file.parent.mkdir()
     script_file.write_text("x = 1\n")
     if mode == "staged":
-        _git(tmp_path, "add", "common/x.txt")
+        _git(tmp_path, "add", f"{scope}/x.txt")
 
     runner = FakeRunner(names=["style"])
     out = lint_tool(tmp_path, mode=mode, validator_runner=runner)
@@ -538,6 +577,23 @@ def test_lint_requested_validator_failure_sets_top_level_failure(tmp_path):
     assert all(c["ok"] for c in out["checks"] if not c["name"].startswith("validator:"))
 
 
+def test_lint_validators_auto_runs_style_for_music_scope(tmp_path):
+    _init_repo(tmp_path)
+    _seed_all_scripts(tmp_path, {})
+    changed = tmp_path / "music" / "song.txt"
+    changed.parent.mkdir(parents=True)
+    changed.write_text("track = {}\n")
+
+    runner = FakeRunner(names=["file_paths", "style"])
+    out = lint_tool(tmp_path, mode="changed", validators=["auto"], validator_runner=runner)
+
+    assert out["validators_run"] == ["file_paths", "style"]
+    assert runner.calls == [
+        {"name": "file_paths", "staged_only": False},
+        {"name": "style", "staged_only": False},
+    ]
+
+
 def test_lint_validators_auto_merges_and_scopes(tmp_path):
     _init_repo(tmp_path)
     _seed_all_scripts(tmp_path, {})
@@ -572,6 +628,28 @@ def test_lint_validators_auto_merges_and_scopes(tmp_path):
     assert len(v_issues) == 1
     assert v_issues[0]["file"] == "common/national_focus/USA.txt"
     assert out["counts"]["warning"] >= 1
+
+
+def test_lint_validators_auto_does_not_duplicate_common_mistakes(tmp_path):
+    _init_repo(tmp_path)
+    _seed_all_scripts(tmp_path, {})
+    changed = tmp_path / "common" / "x.txt"
+    changed.parent.mkdir(parents=True)
+    changed.write_text("x = 1\n")
+
+    runner = FakeRunner(names=["common_mistakes", "style"])
+    out = lint_tool(
+        tmp_path,
+        mode="changed",
+        checks=["common_mistakes"],
+        validators=["auto"],
+        validator_runner=runner,
+    )
+
+    assert out["validators_run"] == ["style"]
+    assert runner.calls == [{"name": "style", "staged_only": False}]
+    assert [c["name"] for c in out["checks"]].count("common_mistakes") == 1
+    assert not any(c["name"] == "validator:common_mistakes" for c in out["checks"])
 
 
 def test_lint_validators_explicit_union_with_auto(tmp_path):

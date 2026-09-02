@@ -127,24 +127,48 @@ def test_check_equipment_variant_rejects_invalid_or_ambiguous_input(fake_mod_roo
 
 @pytest.mark.integration
 def test_check_equipment_variant_uses_current_mod_rules(real_mod_root):
+    # Mirrors Zulfiqar in history/countries/PER - Iran.txt.
     valid = """create_equipment_variant = {
+    name = "Zulfiqar"
     type = medium_tank_chassis_1
+    parent_version = 0
     modules = {
+        main_armament_slot = tank_medium_cannon_2
+        ammunition_load_slot = mixed_main_ammo_2
+        turret_type_slot = tank_base_tank_turret
+        suspension_type_slot = tank_torsion_bar_suspension_medium
+        armor_type_slot = tank_composite_armor_gen1
         engine_type_slot = tank_diesel_engine_gen3
+        reload_type_slot = automatic_loading
+        special_type_slot_1 = smoke_launchers
+        special_type_slot_2 = empty
+        special_type_slot_4 = tank_battlestation_2
+        special_type_slot_6 = reactive_armor_gen1
     }
+    upgrades = {
+        tank_nsb_armor_upgrade = 3
+    }
+    icon = "gfx/interface/technologies/PER/LAND/Zulfiqar.dds"
 }"""
 
     clean = check_equipment_variant_tool(EquipmentVariantChecker(real_mod_root), valid)
     invalid = check_equipment_variant_tool(
-        EquipmentVariantChecker(real_mod_root), valid.replace("engine_type_slot", "missing_slot")
+        EquipmentVariantChecker(real_mod_root),
+        valid.replace(
+            "    modules = {\n",
+            "    modules = {\n        missing_slot = tank_diesel_engine_gen3\n",
+        ),
     )
 
     assert clean["ok"] is True
     assert clean["valid"] is True
+    assert clean["issues"] == []
     assert invalid["ok"] is True
+    assert invalid["valid"] is False
+    assert invalid["issues_total"] == 1
     assert invalid["issues"] == [
         {
-            "line": 4,
+            "line": 6,
             "severity": "error",
             "kind": "unknown_slot",
             "message": (

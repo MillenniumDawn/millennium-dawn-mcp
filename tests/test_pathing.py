@@ -18,19 +18,22 @@ def test_explicit_mod_root_wins(fake_mod_root):
     assert find_mod_root(explicit=str(fake_mod_root)) == fake_mod_root
 
 
-def test_explicit_invalid_path_falls_through(tmp_path):
+def test_explicit_invalid_path_falls_through(tmp_path, monkeypatch):
+    monkeypatch.delenv("MD_MOD_ROOT", raising=False)
     with pytest.raises(ModRootNotFound) as e:
         find_mod_root(explicit=str(tmp_path), start=tmp_path)
     assert "explicit --mod-root" in str(e.value)
 
 
-def test_walk_up_from_subdir(fake_mod_root):
+def test_walk_up_from_subdir(fake_mod_root, monkeypatch):
+    monkeypatch.delenv("MD_MOD_ROOT", raising=False)
     subdir = fake_mod_root / "common" / "national_focus"
     found = find_mod_root(start=subdir)
     assert found == fake_mod_root
 
 
-def test_no_match_raises_with_actionable_message(tmp_path):
+def test_no_match_raises_with_actionable_message(tmp_path, monkeypatch):
+    monkeypatch.delenv("MD_MOD_ROOT", raising=False)
     with pytest.raises(ModRootNotFound) as e:
         find_mod_root(start=tmp_path)
     msg = str(e.value)

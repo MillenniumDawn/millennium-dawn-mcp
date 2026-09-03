@@ -30,7 +30,7 @@ from typing import Callable, Optional, Sequence
 
 from ..util.response import BUDGET_BYTES, enforce_budget
 from ..validators import SEVERITY_RANK, SLOW_VALIDATORS, ValidatorRunner
-from .lint_validators import run_validators_for_lint, select_validators
+from .lint_validators import STYLE_PREFIXES, run_validators_for_lint, select_validators
 
 _LINT_LINE_RE = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):\s*(?P<msg>.+)$")
 
@@ -432,8 +432,7 @@ def lint_tool(
     # for script scopes, while an explicit empty list disables all validators.
     if validators is None:
         style_in_scope = relevant is None or any(
-            f.endswith(".txt") and f.startswith(("common/", "events/", "history/"))
-            for f in relevant
+            f.endswith(".txt") and f.startswith(STYLE_PREFIXES) for f in relevant
         )
         validator_request = ["style"] if style_in_scope else []
     else:

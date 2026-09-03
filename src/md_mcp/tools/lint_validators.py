@@ -30,6 +30,9 @@ from ..validators.attribution import IssueAttributor
 # survive as a count on the check entry.
 UNATTRIBUTED_SAMPLE = 5
 
+STYLE_PREFIXES: tuple[str, ...] = ("common/", "events/", "history/", "music/")
+AUTO_ROUTING_EXCLUDED = frozenset({"common_mistakes"})
+
 # Path-prefix -> validators whose scan domain covers that directory. A file can
 # match several rows; matches union. Derived from the scan globs in
 # Millennium-Dawn/tools/validation/validate_*.py: self._collect_files(...)
@@ -40,18 +43,20 @@ UNATTRIBUTED_SAMPLE = 5
 # recursively in addition to their "obvious" subdirectory — e.g. gfx_references
 # resolves GFX references out of every script file, not just interface/. Those
 # get their own broad row here and compose with the narrower rows via union.
-# style's equally broad common/events/history domain and localisation's *.yml
-# domain are already handled as extension-keyed special cases below, so they
-# don't need a row here too.
+# style's equally broad common/events/history/music domain and localisation's
+# *.yml domain are already handled as extension-keyed special cases below, so
+# they don't need a row here too.
 #
-# Deliberately absent: variables, set_variables, cosmetic_tags (global
-# cross-reference scans, meaningless per-file) and the SLOW_VALIDATORS.
-# All stay reachable by explicit name; the fast globals also run under "*".
+# Deliberately absent: common_mistakes (lint_tool runs its dedicated checker),
+# variables, set_variables, cosmetic_tags (global cross-reference scans,
+# meaningless per-file) and the SLOW_VALIDATORS.
+# All stay reachable by explicit name; other fast validators also run under "*".
 VALIDATOR_AUTO_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "common/",
         (
             "agency_upgrades",
+            "building_guards",
             "decisions",
             "dlc_guards",
             "events",
@@ -59,13 +64,16 @@ VALIDATOR_AUTO_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
             "gfx_references",
             "ideas",
             "scripted_gui",
+            "scripted_params",
             "simplifications",
+            "tech_categories",
         ),
     ),
     (
         "events/",
         (
             "agency_upgrades",
+            "building_guards",
             "characters",
             "decisions",
             "dlc_guards",
@@ -79,6 +87,7 @@ VALIDATOR_AUTO_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
             "scripted_gui",
             "scripted_params",
             "simplifications",
+            "tech_categories",
         ),
     ),
     (
@@ -91,12 +100,14 @@ VALIDATOR_AUTO_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
             "gfx_references",
             "history",
             "ideas",
+            "scripted_params",
         ),
     ),
     (
         "localisation/",
         ("file_paths", "gfx_references", "ideas", "mios", "scripted_gui"),
     ),
+    ("localisation/english/", ("decisions",)),
     (
         "localisation/english/MD_auto_agency_l_english.yml",
         ("agency_upgrades",),
@@ -141,7 +152,7 @@ VALIDATOR_AUTO_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("common/bop/", ("decisions",)),
-    ("common/ideas/", ("history", "ideas", "modifiers")),
+    ("common/ideas/", ("history", "ideas", "modifiers", "oob_units")),
     ("common/characters/", ("characters", "ideas")),
     ("common/unit_leader/", ("characters",)),
     ("common/dynamic_modifiers/", ("modifiers",)),
@@ -168,7 +179,7 @@ VALIDATOR_AUTO_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("common/technologies/", ("history", "technologies")),
     ("common/military_industrial_organization/", ("mios",)),
     # mios reads company traits and equipment stats for its bonus checks.
-    ("common/country_leader/", ("mios",)),
+    ("common/country_leader/", ("characters", "mios")),
     ("common/units/equipment/", ("mios",)),
     ("common/equipment_groups/", ("mios",)),
     ("common/scientist_traits/", ("scientist_traits",)),
@@ -198,7 +209,7 @@ def _scan_prefixes() -> dict[str, tuple[str, ...]]:
         for v in vals:
             out.setdefault(v, set()).add(prefix)
     out.setdefault("localisation", set()).add("localisation/")
-    out.setdefault("style", set()).update({"common/", "events/", "history/"})
+    out.setdefault("style", set()).update(STYLE_PREFIXES)
     return {k: tuple(sorted(v)) for k, v in out.items()}
 
 
@@ -214,7 +225,7 @@ def _validators_for_path(path: str) -> set[str]:
         names.add("localisation")
     # style scans every .txt in the script dirs; catch-all so any script edit
     # gets a style pass.
-    if path.endswith(".txt") and path.startswith(("common/", "events/", "history/")):
+    if path.endswith(".txt") and path.startswith(STYLE_PREFIXES):
         names.add("style")
     return names
 
@@ -222,15 +233,15 @@ def _validators_for_path(path: str) -> set[str]:
 def select_validators(relevant: Optional[list[str]], available: set[str]) -> list[str]:
     """Resolve `validators=["auto"]` to concrete names for the given file scope.
 
-    `relevant=None` (mode=all) degrades to every fast validator. An empty
-    relevant list selects nothing — zero runner calls on a clean tree.
+    `relevant=None` (mode=all) degrades to every fast auto-routable validator.
+    An empty relevant list selects nothing — zero runner calls on a clean tree.
     """
     if relevant is None:
-        return sorted(available - SLOW_VALIDATORS)
+        return sorted(available - SLOW_VALIDATORS - AUTO_ROUTING_EXCLUDED)
     wanted: set[str] = set()
     for f in relevant:
         wanted |= _validators_for_path(f)
-    return sorted(wanted & available)
+    return sorted((wanted - AUTO_ROUTING_EXCLUDED) & available)
 
 
 def run_validators_for_lint(

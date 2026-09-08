@@ -46,6 +46,7 @@ EXPECTED_TOOLS = {
     "parse_file",
     "parse_string",
     "find_focuses",
+    "lookup_docs",
     # M2 resolvers
     "resolve_sprite",
     "resolve_event",
@@ -300,13 +301,11 @@ def test_call_fix_lint(fake_mod_root, cache_dir):
         "def strip_inline_comment(line):\n    return line\n", encoding="utf-8"
     )
     (linting / "fix_styling.py").write_text(
-        "def fix_line(line):\n"
-        '    n = line.count("XX")\n'
-        '    return line.replace("XX", "YY"), n\n',
+        'def fix_line(line):\n    n = line.count("XX")\n    return line.replace("XX", "YY"), n\n',
         encoding="utf-8",
     )
     (linting / "fix_loc_yaml.py").write_text(
-        "def check_line(line, line_num):\n    return []\n" "def fix_line(line):\n    return line\n",
+        "def check_line(line, line_num):\n    return []\ndef fix_line(line):\n    return line\n",
         encoding="utf-8",
     )
     (linting / "check_common_mistakes.py").write_text(

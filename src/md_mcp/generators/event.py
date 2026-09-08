@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ..paradox.schema import EVENT_KINDS
 from ..util.response import enforce_budget
 
 
@@ -43,13 +44,7 @@ def generate_event(
                            effects?: str}`. Defaults to a single "Continue" option.
       title, description — loc values for `ID.t` / `ID.d`
     """
-    if kind not in {
-        "country_event",
-        "news_event",
-        "state_event",
-        "unit_leader_event",
-        "operative_leader_event",
-    }:
+    if kind not in EVENT_KINDS:
         raise ValueError(f"Unsupported event kind: {kind}")
 
     eid = f"{namespace}.{number}"

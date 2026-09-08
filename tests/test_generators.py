@@ -19,6 +19,7 @@ from md_mcp.generators import (
 from md_mcp.generators import gfx as gfx_mod
 from md_mcp.paradox import parse_string
 from md_mcp.paradox.schema import (
+    EVENT_KINDS,
     extract_decision_records,
     extract_event_records,
     extract_focus_records,
@@ -88,9 +89,36 @@ def test_event_round_trips_with_options():
     assert r["namespace_directive"] == "add_namespace = Test"
 
 
+@pytest.mark.parametrize("kind", EVENT_KINDS)
+def test_event_canonical_kinds_are_accepted(kind):
+    result = generate_event(namespace="X", number=1, kind=kind)
+
+    assert result["txt"].startswith(f"{kind} = {{")
+
+
 def test_event_invalid_kind_rejected():
     with pytest.raises(ValueError):
         generate_event(namespace="X", number=1, kind="bogus_event")
+
+
+def test_event_default_output_is_unchanged():
+    result = generate_event(namespace="X", number=1)
+
+    assert result["txt"] == (
+        "country_event = {\n"
+        "\tid = X.1\n"
+        "\ttitle = X.1.t\n"
+        "\tdesc = X.1.d\n"
+        "\tpicture = GFX_event_generic\n"
+        "\n"
+        "\tis_triggered_only = yes\n"
+        "\n"
+        "\toption = {\n"
+        "\t\tname = X.1.a\n"
+        '\t\tlog = "[GetDateText]: [This.GetName]: X.1.a executed"\n'
+        "\t}\n"
+        "}"
+    )
 
 
 def test_event_too_many_options_rejected():

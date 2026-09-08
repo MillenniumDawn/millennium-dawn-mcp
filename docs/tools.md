@@ -1,6 +1,6 @@
 # Tool & Resource Reference
 
-29 tools and 6 resources, grouped by purpose. Output shapes show the
+30 tools and 6 resources, grouped by purpose. Output shapes show the
 **default** behaviour — most tools have detail-tier or `limit` knobs.
 
 All tools return either `{"ok": True, ...}` or `{"ok": False, "error": "..."}`.
@@ -118,6 +118,29 @@ Returns `{"ok": true, "root": <AST>}` or `{"ok": false, "error": ...}`.
 The `<AST>` shape is a tagged-union JSON: every node is `{name, operator, value, line}`
 where `value` is `null | str | num | {symbol: str} | [Node, ...]` (block) — see
 [`parser.md`](./parser.md) for the full grammar.
+
+---
+
+## Script documentation
+
+### `lookup_docs(kind, key?, limit?, offset?) -> dict`
+
+Look up an exact effect, trigger, or modifier key in the matching
+`resources/documentation/*_documentation.md` file. Omit `key` to page the
+available keys. `kind` is `effect`, `trigger`, or `modifier`; key matching is
+case-sensitive. Missing keys return up to five close-match `suggestions`,
+paginated by `limit` and `offset`.
+
+Exact results return every definition for the key in `entries`, preserving
+repeated upstream definitions. Each definition includes the Markdown `content`,
+`file`, `line`, and `end_line`. List results include key and source location
+without content. Both modes return `total`, `returned`, and `truncated`, and
+are protected by the normal 100 KB output budget.
+
+Returns `{ok, kind, key?, total, returned, truncated, entries}` on a hit or
+list, and `{ok: false, kind, key?, total, returned, truncated, error, suggestions}`
+on a miss. A missing upstream documentation file is reported as an error
+instead of scanning other sources.
 
 ---
 

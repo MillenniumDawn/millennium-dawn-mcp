@@ -52,6 +52,7 @@ from .tools.analysis_tools import find_focuses_tool
 from .tools.equipment_variant_tools import EquipmentVariantChecker, check_equipment_variant_tool
 from .tools.lint_fixers import fix_lint_tool
 from .tools.linting_tools import lint_tool, review_branch_tool
+from .tools.lookup_docs import lookup_docs_tool
 from .tools.parser_tools import parse_file_tool, parse_string_tool
 from .tools.resolver_tools import (
     resolve_decision_tool,
@@ -167,6 +168,10 @@ def build_server(settings: Settings):
         name="find_focuses",
         description="Search the focus index by tag, prereq, mutex partner, or kind. Returns a paginated id+file+line list.",
     )(_bind_tool(find_focuses_tool, settings, focus_index))
+    mcp.tool(
+        name="lookup_docs",
+        description="Look up an effect, trigger, or modifier in resources/documentation; pass key for exact docs or omit it for a paginated key list, with close-match suggestions on misses.",
+    )(_bind_tool(lookup_docs_tool, settings))
 
     @mcp.tool(name="find_references")
     def _find_references(

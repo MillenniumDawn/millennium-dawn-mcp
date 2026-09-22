@@ -100,6 +100,7 @@ VALIDATOR_AUTO_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
             "gfx_references",
             "history",
             "ideas",
+            "oob_units",
             "scripted_params",
         ),
     ),
@@ -107,7 +108,7 @@ VALIDATOR_AUTO_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
         "localisation/",
         ("file_paths", "gfx_references", "ideas", "mios", "scripted_gui"),
     ),
-    ("localisation/english/", ("decisions",)),
+    ("localisation/english/", ("decisions", "focus_tree")),
     (
         "localisation/english/MD_auto_agency_l_english.yml",
         ("agency_upgrades",),
@@ -120,6 +121,7 @@ VALIDATOR_AUTO_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
             "file_paths",
             "gfx_references",
             "ideas",
+            "mios",
             "scientist_traits",
             "scripted_gui",
             "scripted_localisation",
@@ -178,6 +180,9 @@ VALIDATOR_AUTO_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("common/special_projects/", ("history", "oob_units")),
     ("common/technologies/", ("history", "technologies")),
     ("common/military_industrial_organization/", ("mios",)),
+    ("common/doctrines/", ("mios",)),
+    # Decision category icons live here, not under interface/.
+    ("gfx/interface/decisions/", ("decisions",)),
     # mios reads company traits and equipment stats for its bonus checks.
     ("common/country_leader/", ("characters", "mios")),
     ("common/units/equipment/", ("mios",)),
@@ -223,6 +228,9 @@ def _validators_for_path(path: str) -> set[str]:
             names.update(vals)
     if path.startswith("localisation/") and path.endswith(".yml"):
         names.add("localisation")
+    # Decision icon checks read interface gfx, not every .gui file.
+    if path.startswith("interface/") and path.endswith(".gfx"):
+        names.add("decisions")
     # style scans every .txt in the script dirs; catch-all so any script edit
     # gets a style pass.
     if path.endswith(".txt") and path.startswith(STYLE_PREFIXES):

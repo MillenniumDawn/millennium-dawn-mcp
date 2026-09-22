@@ -198,9 +198,10 @@ fileless issues (`validate_events`, 762 on the real mod) flooded the response
 regardless of scope.
 
 The auto-routing table remains local because upstream has two routing layers:
-the commit-stage `_REGISTRY` in `tools/precommit_validate.py` and the broader CI
-matrices in `coding-pipeline.yml`. The nightly integration suite snapshots both
-and checks that every commit-stage rule reaches the matching auto validator.
+the commit-stage `_REGISTRY` in `tools/precommit_validate.py` and the CI batches
+in `tools/validation/validator_batches.py` (groups from `change_groups.py`,
+wired by `test-suite.yml`). The nightly integration suite snapshots both and
+checks that every commit-stage rule reaches the matching auto validator.
 An upstream route change therefore fails nightly until the local scan-domain
 map is reconciled.
 

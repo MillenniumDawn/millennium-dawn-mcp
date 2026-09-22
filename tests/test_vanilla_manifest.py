@@ -25,6 +25,16 @@ def test_load_manifest_skips_comments_and_blank_lines(tmp_path: Path) -> None:
     assert load_sprite_manifest(root) == frozenset({"GFX_foo", "GFX_bar", "GFX_baz"})
 
 
+def test_load_sprite_manifest_drops_texture_size(tmp_path: Path) -> None:
+    """Upstream appends WxH when the texture could be read; the name is the key."""
+    root = tmp_path / "Mod"
+    (root / "tools" / "validation").mkdir(parents=True)
+    (root / "tools" / "validation" / "vanilla_sprites.txt").write_text(
+        "GFX_sized 510x210\nGFX_bare\n", encoding="utf-8"
+    )
+    assert load_sprite_manifest(root) == frozenset({"GFX_sized", "GFX_bare"})
+
+
 def test_load_manifest_strips_whitespace(tmp_path: Path) -> None:
     root = tmp_path / "Mod"
     (root / "tools" / "validation").mkdir(parents=True)

@@ -56,5 +56,12 @@ def load_manifest(mod_root: Path, filename: str) -> Optional[frozenset[str]]:
 
 
 def load_sprite_manifest(mod_root: Path) -> Optional[frozenset[str]]:
-    """Load `vanilla_sprites.txt`, or None when it is missing/unreadable."""
-    return load_manifest(mod_root, "vanilla_sprites.txt")
+    """Load sprite names from `vanilla_sprites.txt`, or None if it is missing.
+
+    A line is the sprite name, optionally followed by a texture size (`510x210`).
+    Only the name is kept; the size column is for upstream icon checks.
+    """
+    entries = load_manifest(mod_root, "vanilla_sprites.txt")
+    if entries is None:
+        return None
+    return frozenset(entry.split(maxsplit=1)[0] for entry in entries)

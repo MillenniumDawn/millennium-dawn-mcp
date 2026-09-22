@@ -259,13 +259,15 @@ for "check this code's quality."
   `common/technologies/`, `common/technology_tags/`, `common/bookmarks/`,
   `history/countries/`, `common/decisions/categories/`,
   `common/national_focus/`, and `events/`, plus `.txt` files under `common/`,
-  `events/`, or `history/` containing event-call tokens. When one of these files
-  changes, warnings at unchanged consumers may be included at their original
-  file and line with `scope: "related"`. This marks a potentially related
-  warning; the upstream validator provides no dependency metadata to prove the
-  edit caused it. The check entry's `related` count is the full number of such
-  warnings; `total` remains the count on changed files. Overall lint counts
-  include related warnings, and `issues_total_after_filter` includes those
+  `events/`, or `history/` containing event-call tokens. Deleted context files
+  also count in changed and staged modes; changed mode includes rename sources.
+  When one of these files changes, warnings at unchanged consumers may be
+  included at their original file and line with `scope: "related"`. This marks
+  a potentially related warning; the upstream validator provides no dependency
+  metadata to prove the edit caused it. The check entry's `related` count is
+  the full number of such warnings; `total` remains the count on changed
+  files. Overall lint counts include related warnings, and
+  `issues_total_after_filter` includes those
   passing `severity_min`. The final `issues` array is subject to `limit` and
   the response byte budget; `truncated` flags omitted details. Issues without
   a resolvable file — some validators bury the filename in the message or omit

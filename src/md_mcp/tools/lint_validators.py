@@ -20,6 +20,7 @@ nothing to do with the edit.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Optional, Sequence
@@ -46,7 +47,8 @@ EQUIPMENT_VARIANT_CONTEXT_PREFIXES: tuple[str, ...] = (
     "common/national_focus/",
     "events/",
 )
-_EVENT_CALL_TOKENS = ("country_event", "news_event", "random_events", "events =")
+_EVENT_CALL_TOKENS = ("country_event", "news_event", "random_events")
+_EVENT_LIST_ASSIGNMENT = re.compile(r"\bevents\s*=")
 AUTO_ROUTING_EXCLUDED = frozenset({"common_mistakes"})
 
 # Path-prefix -> validators whose scan domain covers that directory. A file can
@@ -257,6 +259,12 @@ def _validators_for_path(path: str) -> set[str]:
     return names
 
 
+def _has_event_call(text: str) -> bool:
+    return any(token in text for token in _EVENT_CALL_TOKENS) or bool(
+        _EVENT_LIST_ASSIGNMENT.search(text)
+    )
+
+
 def _equipment_variant_context_changed(relevant: set, mod_root: Optional[Path]) -> bool:
     """Whether a scoped edit can change availability at an unchanged consumer."""
     for path in relevant:
@@ -272,7 +280,7 @@ def _equipment_variant_context_changed(relevant: set, mod_root: Optional[Path]) 
             continue
         try:
             text = read_text(mod_root / relative)
-            if any(token in text for token in _EVENT_CALL_TOKENS):
+            if _has_event_call(text):
                 return True
         except OSError:
             pass
@@ -292,9 +300,7 @@ def _equipment_variant_context_changed(relevant: set, mod_root: Optional[Path]) 
         except (OSError, subprocess.SubprocessError):
             continue
         if diff.returncode == 0 and any(
-            line.startswith("-")
-            and not line.startswith("---")
-            and any(token in line for token in _EVENT_CALL_TOKENS)
+            line.startswith("-") and not line.startswith("---") and _has_event_call(line)
             for line in diff.stdout.splitlines()
         ):
             return True

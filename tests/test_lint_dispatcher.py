@@ -448,15 +448,19 @@ def test_changed_files_picks_up_staged_unstaged_and_untracked(tmp_path):
 def test_changed_files_skips_deletions(tmp_path):
     _init_repo(tmp_path)
     (tmp_path / "baseline.txt").unlink()
-    assert _changed_files(tmp_path) == []
+    removed: list[str] = []
+    assert _changed_files(tmp_path, removed=removed) == []
+    assert removed == ["baseline.txt"]
 
 
 def test_changed_files_handles_renames(tmp_path):
     _init_repo(tmp_path)
     _git(tmp_path, "mv", "baseline.txt", "renamed.txt")
-    found = set(_changed_files(tmp_path))
+    removed: list[str] = []
+    found = set(_changed_files(tmp_path, removed=removed))
     assert "renamed.txt" in found
     assert "baseline.txt" not in found
+    assert removed == ["baseline.txt"]
 
 
 def test_changed_files_non_git_dir_returns_empty(tmp_path):

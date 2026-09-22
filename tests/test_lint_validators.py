@@ -104,6 +104,7 @@ _BROAD_HISTORY = {
     "gfx_references",
     "history",
     "ideas",
+    "oob_units",
     "scripted_params",
 }
 
@@ -193,6 +194,7 @@ _BROAD_HISTORY = {
             _BROAD_COMMON | {"ai_equipment", "ai_navy", "mios", "modifiers", "oob_units", "style"},
         ),
         ("common/equipment_groups/00_groups.txt", _BROAD_COMMON | {"mios", "style"}),
+        ("common/doctrines/x.txt", _BROAD_COMMON | {"mios", "style"}),
         ("history/units/USA_2000.txt", _BROAD_HISTORY | {"oob_units", "style"}),
         (
             "history/countries/USA.txt",
@@ -202,20 +204,24 @@ _BROAD_HISTORY = {
             "interface/usa.gfx",
             {
                 "agency_upgrades",
+                "decisions",
                 "factions",
                 "file_paths",
                 "gfx_references",
                 "ideas",
+                "mios",
                 "scientist_traits",
                 "scripted_gui",
                 "scripted_localisation",
             },
         ),
+        ("gfx/interface/decisions/category.gfx", {"decisions", "file_paths"}),
         (
             "localisation/english/MD_focus_USA_l_english.yml",
             {
                 "decisions",
                 "file_paths",
+                "focus_tree",
                 "gfx_references",
                 "ideas",
                 "localisation",

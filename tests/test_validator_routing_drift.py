@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import importlib.util
-import re
 from pathlib import Path
 
 import pytest
@@ -17,11 +16,10 @@ EXPECTED_REGISTRY = {
     "validate_common_mistakes": (("", ".txt"),),
     "validate_style": (("", ".txt"),),
     "validate_oob_units": (
-        ("history/units/", ".txt"),
+        ("history/", ".txt"),
         ("common/units/", ".txt"),
         ("common/ai_templates/", ".txt"),
         ("common/scripted_effects/", ".txt"),
-        ("history/countries/", ".txt"),
         ("common/national_focus/", ".txt"),
         ("events/", ".txt"),
         ("common/decisions/", ".txt"),
@@ -72,8 +70,10 @@ EXPECTED_REGISTRY = {
         ("common/military_industrial_organization/organizations/", ".txt"),
         ("common/military_industrial_organization/policies/", ".txt"),
         ("common/country_leader/", ".txt"),
+        ("common/doctrines/", ".txt"),
         ("common/units/equipment/", ".txt"),
         ("common/equipment_groups/", ".txt"),
+        ("interface/", ".gfx"),
         ("localisation/english/", ".yml"),
     ),
 }
@@ -85,27 +85,39 @@ EXPECTED_REGISTRY_EXCLUDES = {
 
 CORE_GROUPS = ("common", "events", "history", "interface", "localisation", "map-adjacency")
 EXPECTED_CI_ROUTING = {
-    "common_mistakes": CORE_GROUPS,
+    "achievements": CORE_GROUPS,
     "agency_upgrades": CORE_GROUPS,
     "ai_equipment": ("ai-equipment",),
     "ai_navy": ("ai-navy",),
+    "ai_path_rules": ("common", "history", "national-focus"),
     "ai_roles": ("ai-strategy",),
+    "bonus_names": ("common", "events"),
+    "building_guards": ("common", "events"),
     "characters": ("characters",),
+    "common_mistakes": CORE_GROUPS,
     "cosmetic_tags": CORE_GROUPS,
+    "country_names": ("common",),
     "decisions": ("decisions", "localisation"),
     "defines": CORE_GROUPS,
     "dlc_guards": ("common", "events"),
+    "dynamic_modifier_guards": ("common", "events"),
+    "equipment_upkeep": ("oob",),
+    "equipment_variants": ("common", "events", "history"),
     "events": CORE_GROUPS,
     "factions": ("factions",),
-    "focus_tree": ("national-focus",),
+    "focus_tree": ("localisation", "national-focus"),
     "gfx_references": ("common", "events", "history", "interface", "localisation"),
     "history": CORE_GROUPS,
     "ideas": CORE_GROUPS,
+    "influence_calls": ("common", "events"),
     "localisation": CORE_GROUPS,
-    "mios": ("localisation", "mios"),
+    "math_expressions": CORE_GROUPS,
+    "mio_icons": ("mios",),
+    "mios": ("interface", "localisation", "mios"),
     "modifiers": ("common",),
     "on_actions": ("events", "on-actions"),
     "oob_units": ("oob",),
+    "party_loc": ("common", "localisation"),
     "scientist_traits": ("scientist-traits",),
     "scripted_gui": ("interface", "scripted-guis"),
     "scripted_localisation": CORE_GROUPS,
@@ -120,7 +132,6 @@ EXPECTED_CI_ROUTING = {
     ),
     "tech_categories": ("common", "events"),
     "technologies": ("common",),
-    "building_guards": ("common", "events"),
     "unused_scripted": CORE_GROUPS,
     "variables": CORE_GROUPS,
 }
@@ -141,26 +152,35 @@ EXPECTED_CI_FILTERS = {
         "history/countries/**",
     ),
     "common": ("common/**",),
-    "decisions": ("common/**/*.txt", "events/**/*.txt", "history/**/*.txt"),
+    "decisions": (
+        "common/**/*.txt",
+        "events/**/*.txt",
+        "history/**/*.txt",
+        "interface/**/*.gfx",
+        "gfx/interface/decisions/**",
+    ),
     "events": ("events/**",),
     "factions": ("common/factions/**",),
     "history": ("history/**",),
     "interface": ("interface/**",),
     "localisation": ("localisation/**",),
+    "map-adjacency": ("map/adjacency_rules.txt",),
     "mios": (
         "common/military_industrial_organization/**",
         "common/country_leader/**",
+        "common/doctrines/**",
         "common/units/equipment/**",
         "common/equipment_groups/**",
+        "interface/**",
     ),
     "national-focus": ("common/national_focus/**",),
     "on-actions": ("common/on_actions/**",),
     "oob": (
         "history/units/**",
+        "history/**",
         "common/units/**",
         "common/ai_templates/**",
         "common/scripted_effects/**",
-        "common/ideas/**",
         "history/countries/**",
         "common/national_focus/**",
         "events/**",
@@ -170,6 +190,7 @@ EXPECTED_CI_FILTERS = {
         "common/operations/**",
         "common/resistance_compliance_modifiers/**",
         "common/scripted_guis/**",
+        "common/ideas/**",
     ),
     "scientist-traits": ("common/scientist_traits/**", "interface/**"),
     "scripted-effects": ("common/scripted_effects/**",),
@@ -188,10 +209,12 @@ EXPECTED_CI_FILTERS = {
         "history/**",
         "localisation/**",
         "interface/**",
+        "gfx/interface/decisions/**",
         "music/**",
         "map/adjacency_rules.txt",
         "*.mod",
     ),
+    "docs": ("docs/**", "tools/docs_checks/**", ".github/workflows/docs-quality.yml"),
 }
 
 EXPECTED_WORKSPACE_PATHS = (
@@ -201,12 +224,15 @@ EXPECTED_WORKSPACE_PATHS = (
     "localisation",
     "interface",
     "gfx/flags",
+    "gfx/interface/decisions",
     "map/adjacency_rules.txt",
     "music",
     "tools",
     "resources/documentation",
     ".claude",
+    ".github/actions/setup-md-python/action.yml",
     "CLAUDE.md",
+    "pyproject.toml",
     "*.mod",
     ".workspace-manifest",
     ".validation_cache",
@@ -218,25 +244,21 @@ EXPECTED_PREPARE_WORKSPACE_PATHS = (
     "localisation",
     "interface",
     "gfx/flags",
-    "music",
+    "gfx/interface/decisions",
     "map/adjacency_rules.txt",
+    "music",
+    "tools",
+    "resources/documentation",
+    ".claude",
+    ".github/actions/setup-md-python/action.yml",
+    "CLAUDE.md",
+    "pyproject.toml",
     "*.mod",
 )
 EXPECTED_VALIDATE_PATHS_CHECKOUT = (
-    "common",
-    "descriptions",
-    "events",
-    "gfx",
-    "history",
-    "interface",
-    "localisation",
-    "map",
-    "music",
-    "portraits",
-    "scenario_tests",
-    "sound",
-    "tutorial",
     "descriptor.mod",
+    "tools",
+    ".github/actions/setup-md-python/action.yml",
 )
 
 # These CI gates intentionally cover more paths than the validator scans.
@@ -252,19 +274,34 @@ COARSE_CI_ROUTES = {
     ("technologies", "common"),
 }
 
-# CI deliberately reruns decisions for any localisation change, while the
-# MCP auto-map only runs it for English localisation that the validator reads.
-CI_BROAD_SCOPE_EXCEPTIONS = {("decisions", "localisation")}
+# CI reruns these for any localisation change. They only read English yml.
+CI_BROAD_SCOPE_EXCEPTIONS = {
+    ("decisions", "localisation"),
+    ("focus_tree", "localisation"),
+}
 
 EXPECTED_STANDALONE_JOBS = {
     "file_paths": ("validate-paths", "validate_file_paths.py", ("map/provinces.bmp",)),
-    "mod_descriptors": ("content-checks", "validate_mod_descriptors.py", ("descriptor.mod",)),
-    "style": ("content-checks", "validate_style.py", ("common/ideas/__routing_probe.txt",)),
+    "mod_descriptors": ("mod-tests", "validate_mod_descriptors.py", ("descriptor.mod",)),
+    "style": ("mod-tests", "validate_style.py", ("common/ideas/__routing_probe.txt",)),
 }
 
+# Whole-tree or not-yet-scoped CI validators. Adding them to auto-routing
+# scans the domain before file scope and blows the one-file lint budget (#124).
 INTENTIONALLY_NOT_AUTO_ROUTED = {
+    "achievements",
+    "ai_path_rules",
+    "bonus_names",
     "common_mistakes",
     "cosmetic_tags",
+    "country_names",
+    "dynamic_modifier_guards",
+    "equipment_upkeep",
+    "equipment_variants",
+    "influence_calls",
+    "math_expressions",
+    "mio_icons",
+    "party_loc",
     "set_variables",
     "unused_scripted",
     "variables",
@@ -280,39 +317,33 @@ def _load_registry(mod_root: Path):
     return module._REGISTRY
 
 
-_OUTPUT_CHECK = re.compile(r"needs\.detect-changes\.outputs\.([a-z-]+)(?:\s*==\s*'true')?")
+def _load_module(mod_root: Path, relative: str, module_name: str):
+    path = mod_root / relative
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def _or_groups(expression: str) -> set[str]:
-    route_clause = expression.split("&& 'true'", 1)[0]
-    groups = set(_OUTPUT_CHECK.findall(route_clause))
-    residual = _OUTPUT_CHECK.sub("true", route_clause)
-    for token in ("${{", "}}", "(", ")", "true", "||"):
-        residual = residual.replace(token, "")
-    assert not residual.strip(), f"CI route is no longer a positive OR expression: {expression}"
-    return groups
+def _load_ci_workflow(mod_root: Path):
+    path = mod_root / ".github" / "workflows" / "test-suite.yml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 def _load_ci_routes(mod_root: Path):
-    path = mod_root / ".github" / "workflows" / "coding-pipeline.yml"
-    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
-    jobs = workflow["jobs"]
-    filter_step = next(
-        step for step in jobs["detect-changes"]["steps"] if step.get("id") == "filter"
+    batches = _load_module(
+        mod_root, "tools/validation/validator_batches.py", "md_upstream_validator_batches"
     )
-    filters = yaml.safe_load(filter_step["with"]["filters"])
-
+    groups = _load_module(
+        mod_root, "tools/validation/change_groups.py", "md_upstream_change_groups"
+    )
     routes = {}
-    for job_name in ("validate-core", "validate-targeted"):
-        job = jobs[job_name]
-        job_groups = _or_groups(job["if"])
-        for entry in job["strategy"]["matrix"]["validator"]:
-            name = Path(entry["script"]).stem.removeprefix("validate_")
-            assert name not in routes, f"duplicate CI validator matrix entry: {name}"
-            expression = entry.get("should_run")
-            groups = job_groups if expression is None else _or_groups(expression)
-            routes[name] = tuple(sorted(groups))
-    return routes, filters, jobs
+    for spec in batches.ALL_SPECS:
+        name = Path(spec.script).stem.removeprefix("validate_")
+        assert name not in routes, f"duplicate CI validator: {name}"
+        routes[name] = tuple(sorted(spec.groups))
+    return routes, groups.GROUP_PATTERNS, _load_ci_workflow(mod_root)["jobs"]
 
 
 def _load_style_scan_patterns(mod_root: Path) -> tuple[str, ...]:
@@ -333,34 +364,28 @@ def _load_style_scan_patterns(mod_root: Path) -> tuple[str, ...]:
     raise AssertionError(f"{path} no longer defines _SCAN_PATTERNS")
 
 
+def _sparse_checkout_paths(steps: list) -> tuple[str, ...]:
+    checkout = next(step for step in steps if "sparse-checkout" in step.get("with", {}))
+    return tuple(
+        line.strip()
+        for line in checkout["with"]["sparse-checkout"].splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+
+
 def _load_workspace_paths(mod_root: Path) -> tuple[str, ...]:
-    path = mod_root / ".github" / "workflows" / "coding-pipeline.yml"
-    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    workflow = _load_ci_workflow(mod_root)
     return tuple(workflow["env"]["WORKSPACE_PATHS"].split())
 
 
 def _load_prepare_workspace_paths(mod_root: Path) -> tuple[str, ...]:
-    path = mod_root / ".github" / "workflows" / "coding-pipeline.yml"
-    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
-    steps = workflow["jobs"]["prepare-workspace"]["steps"]
-    checkout = next(step for step in steps if step.get("id") == "checkout")
-    return tuple(
-        line.strip()
-        for line in checkout["with"]["sparse-checkout"].splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    )
+    workflow = _load_ci_workflow(mod_root)
+    return _sparse_checkout_paths(workflow["jobs"]["prepare-workspace"]["steps"])
 
 
 def _load_validate_paths_checkout(mod_root: Path) -> tuple[str, ...]:
-    path = mod_root / ".github" / "workflows" / "coding-pipeline.yml"
-    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
-    steps = workflow["jobs"]["validate-paths"]["steps"]
-    checkout = next(step for step in steps if step.get("name") == "Checkout PR tree")
-    return tuple(
-        line.strip()
-        for line in checkout["with"]["sparse-checkout"].splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    )
+    workflow = _load_ci_workflow(mod_root)
+    return _sparse_checkout_paths(workflow["jobs"]["validate-paths"]["steps"])
 
 
 def _probe_path(pattern: str) -> str:
@@ -399,11 +424,13 @@ def test_commit_registry_paths_reach_auto_map(real_mod_root):
 
 @pytest.mark.integration
 def test_upstream_ci_routing_snapshot(real_mod_root):
-    routes, filters, _jobs = _load_ci_routes(real_mod_root)
+    routes, filters, jobs = _load_ci_routes(real_mod_root)
     assert routes == EXPECTED_CI_ROUTING
     actual_filters = {name: frozenset(paths) for name, paths in filters.items()}
     expected_filters = {name: frozenset(paths) for name, paths in EXPECTED_CI_FILTERS.items()}
     assert actual_filters == expected_filters
+    run_steps = [step.get("run", "") for step in jobs["mod-tests"]["steps"]]
+    assert any("run_validator_batch.py" in command for command in run_steps)
 
 
 @pytest.mark.integration

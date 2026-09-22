@@ -451,12 +451,14 @@ _UPSTREAM_FILES = [
     Path("tools") / "linting" / "fix_styling.py",
     Path("tools") / "linting" / "fix_loc_yaml.py",
     Path("tools") / "linting" / "check_common_mistakes.py",
+    # fix_styling imports validate_style, which imports validator_common.
+    Path("tools") / "validation" / "validate_style.py",
+    Path("tools") / "validation" / "validator_common.py",
+    Path("tools") / "validation" / "disk_cache.py",
 ]
 
-_STYLING_VIOLATIONS = (
-    "focus = {\n" '\tid = "TEST"\n' "    # === bad comment ===\n" "\ta = b   c =  d\n" "}\n"
-)
-_STYLING_FIXED = "focus = {\n" '\tid = "TEST"\n' "\t# --- bad comment ---\n" "\ta = b c = d\n" "}\n"
+_STYLING_VIOLATIONS = 'focus = {\n\tid = "TEST"\n    # === bad comment ===\n\ta = b   c =  d\n}\n'
+_STYLING_FIXED = 'focus = {\n\tid = "TEST"\n    # === bad comment ===\n\ta = b c = d\n}\n'
 
 _LOC_BODY = (
     "l_english:\n"
@@ -475,14 +477,14 @@ _LOC_FIXED = (
     '# smart "quote" comment\n'
 )
 
-_FOCUS_LOG_VIOLATIONS = "focus = {\n" "\tid = REAL_ID\n" '\tlog = "...Focus WRONG_ID"\n' "}\n"
-_FOCUS_LOG_FIXED = "focus = {\n" "\tid = REAL_ID\n" '\tlog = "...Focus REAL_ID"\n' "}\n"
+_FOCUS_LOG_VIOLATIONS = 'focus = {\n\tid = REAL_ID\n\tlog = "...Focus WRONG_ID"\n}\n'
+_FOCUS_LOG_FIXED = 'focus = {\n\tid = REAL_ID\n\tlog = "...Focus REAL_ID"\n}\n'
 
 _DECISION_LOG_VIOLATIONS = (
-    "my_category = {\n" "\tmy_decision = {\n" '\t\tlog = "...Decision WRONG_ID"\n' "\t}\n" "}\n"
+    'my_category = {\n\tmy_decision = {\n\t\tlog = "...Decision WRONG_ID"\n\t}\n}\n'
 )
 _DECISION_LOG_FIXED = (
-    "my_category = {\n" "\tmy_decision = {\n" '\t\tlog = "...Decision my_decision"\n' "\t}\n" "}\n"
+    'my_category = {\n\tmy_decision = {\n\t\tlog = "...Decision my_decision"\n\t}\n}\n'
 )
 
 
@@ -522,7 +524,7 @@ def test_integration_styling_roundtrip(upstream_root):
     out = fix_lint_tool(upstream_root, fixer="styling", path=rel)
     assert out["ok"] is True
     assert out["changed"] is True
-    assert out["fixes"] == 3
+    assert out["fixes"] == 1
     assert out["txt"] == _STYLING_FIXED
 
     # The server never writes, so the fixpoint check feeds txt back in.
@@ -612,7 +614,9 @@ def test_integration_decision_log_id_roundtrip(upstream_root):
 def test_integration_all_fixers_at_max_txt_bytes_are_clipped(upstream_root):
     """A fixer output larger than the clip cap truncates txt and stays budgeted."""
     rel = "common/national_focus/big_styling_fixture.txt"
-    _write(upstream_root, rel, "a = b\n" + "\ta = b   c\n" + "x = " + "a" * 120_000 + "\n")
+    # Upstream v3.0 only fixes spacing around '=' and braces, so the bulk
+    # must be a genuine violation of that shape to change and clip.
+    _write(upstream_root, rel, "a = b\n" + "\ta  = b\n" * 20_000)
 
     out = fix_lint_tool(upstream_root, fixer="styling", path=rel)
     assert out["ok"] is True

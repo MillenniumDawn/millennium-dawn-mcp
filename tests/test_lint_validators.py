@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import inspect
+import json
 from pathlib import Path
 
 import pytest
 
+from md_mcp.config import Settings
 from md_mcp.tools.lint_validators import (
     SCAN_PREFIXES,
     UNATTRIBUTED_SAMPLE,
@@ -15,13 +17,23 @@ from md_mcp.tools.lint_validators import (
     select_validators,
 )
 from md_mcp.tools.linting_tools import lint_tool
+from md_mcp.tools.validation_tools import validate_tool
+from md_mcp.util.response import BUDGET_BYTES
 from md_mcp.validators import SLOW_VALIDATORS, ValidatorInfo, ValidatorRunner, available_validators
 
 from .test_lint_dispatcher import _git, _init_repo, _seed_all_scripts
 
 _ALL_NAMES = sorted(
     {v for _, vals in VALIDATOR_AUTO_MAP for v in vals}
-    | {"common_mistakes", "localisation", "style", "variables", "set_variables", "cosmetic_tags"}
+    | {
+        "common_mistakes",
+        "cosmetic_tags",
+        "equipment_variants",
+        "localisation",
+        "set_variables",
+        "style",
+        "variables",
+    }
     | set(SLOW_VALIDATORS)
 )
 
@@ -85,6 +97,7 @@ _BROAD_COMMON = {
     "building_guards",
     "decisions",
     "dlc_guards",
+    "equipment_variants",
     "events",
     "file_paths",
     "gfx_references",
@@ -99,6 +112,7 @@ _BROAD_COMMON = {
 _BROAD_HISTORY = {
     "agency_upgrades",
     "decisions",
+    "equipment_variants",
     "events",
     "file_paths",
     "gfx_references",
@@ -253,6 +267,36 @@ def test_select_validators_does_not_route_decisions_for_non_english_localisation
 @pytest.mark.parametrize(
     "path",
     [
+        "common/ideas/USA.txt",
+        "events/USA.txt",
+        "history/countries/USA.txt",
+        "common/technologies/armor.txt",
+        "common/technology_tags/armor.txt",
+        "common/bookmarks/00_bookmarks.txt",
+        "common/decisions/categories/USA.txt",
+        "common/national_focus/USA.txt",
+    ],
+)
+def test_select_validators_routes_equipment_variants_for_consumer_and_context_text(path):
+    assert select_validators([path], {"equipment_variants"}) == ["equipment_variants"]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "common/technologies/armor.yml",
+        "history/countries/USA.gfx",
+        "interface/USA.gfx",
+        "music/USA.txt",
+    ],
+)
+def test_select_validators_does_not_route_equipment_variants_outside_script_text(path):
+    assert "equipment_variants" not in select_validators([path], {"equipment_variants"})
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
         "common/characters/USA.txt",
         "common/country_leader/USA.txt",
         "common/modifiers/USA.txt",
@@ -332,6 +376,166 @@ def test_run_validators_scopes_and_reports_mod_wide():
     assert issues[0]["file"] == "common/national_focus/USA.txt"
     assert issues[0]["line"] == 42
     assert issues[0]["category"] == "CAT"
+
+
+def test_run_equipment_variants_keeps_changed_consumer_warning_location(tmp_path):
+    consumer = "history/countries/USA.txt"
+    path = tmp_path / consumer
+    path.parent.mkdir(parents=True)
+    path.write_text("create_equipment_variant = {}\n", encoding="utf-8")
+    warning = _issue(
+        consumer,
+        message="variant equipment technology is unavailable",
+        severity="warning",
+        line=17,
+        category="equipment-variant-unavailable",
+    )
+    runner = FakeRunner(results={"equipment_variants": {"ok": True, "issues": [warning]}})
+
+    entries, issues = run_validators_for_lint(
+        runner,
+        ["equipment_variants"],
+        staged_only=False,
+        relevant_set={consumer},
+        mod_root=tmp_path,
+    )
+
+    assert entries == [
+        {"name": "validator:equipment_variants", "ok": True, "total": 1, "total_mod_wide": 1}
+    ]
+    assert issues == [
+        {
+            "check": "validator:equipment_variants",
+            "file": consumer,
+            "message": "variant equipment technology is unavailable",
+            "severity": "warning",
+            "line": 17,
+            "category": "equipment-variant-unavailable",
+        }
+    ]
+
+
+def test_run_equipment_variants_reports_related_warning_for_context_only_edit(tmp_path):
+    context = "common/technologies/armor.txt"
+    consumer = "history/countries/USA.txt"
+    for rel in (context, consumer):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True)
+        path.write_text("x = 1\n", encoding="utf-8")
+    warning = _issue(
+        consumer,
+        message="variant equipment technology is unavailable",
+        severity="warning",
+        line=17,
+        category="equipment-variant-unavailable",
+    )
+    runner = FakeRunner(results={"equipment_variants": {"ok": True, "issues": [warning]}})
+
+    entries, issues = run_validators_for_lint(
+        runner,
+        ["equipment_variants"],
+        staged_only=False,
+        relevant_set={context},
+        mod_root=tmp_path,
+    )
+
+    assert entries == [
+        {
+            "name": "validator:equipment_variants",
+            "ok": True,
+            "total": 0,
+            "related": 1,
+            "total_mod_wide": 1,
+        }
+    ]
+    assert issues == [
+        {
+            "check": "validator:equipment_variants",
+            "file": consumer,
+            "message": "variant equipment technology is unavailable",
+            "severity": "warning",
+            "line": 17,
+            "category": "equipment-variant-unavailable",
+            "scope": "related",
+        }
+    ]
+
+
+def test_removed_event_call_keeps_related_warning_in_staged_mode(tmp_path):
+    _init_repo(tmp_path)
+    hooks = tmp_path / "test-hooks"
+    hooks.mkdir()
+    _git(tmp_path, "config", "core.hooksPath", str(hooks))
+    context = "common/scripted_effects/event_dispatch.txt"
+    consumer = "history/countries/USA.txt"
+    for rel, content in (
+        (context, "country_event = TEST.1\n"),
+        (consumer, "create_equipment_variant = {}\n"),
+    ):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    _git(tmp_path, "add", "common", "history")
+    _git(tmp_path, "commit", "-qm", "seed event context")
+    (tmp_path / context).write_text("x = 1\n", encoding="utf-8")
+    _git(tmp_path, "add", context)
+
+    runner = FakeRunner(
+        results={
+            "equipment_variants": {
+                "ok": True,
+                "issues": [
+                    _issue(
+                        consumer,
+                        message="variant equipment technology is unavailable",
+                        line=2,
+                        category="equipment-variant-unavailable",
+                    )
+                ],
+            }
+        }
+    )
+    entries, issues = run_validators_for_lint(
+        runner,
+        ["equipment_variants"],
+        staged_only=True,
+        relevant_set={context},
+        mod_root=tmp_path,
+    )
+
+    assert runner.calls == [{"name": "equipment_variants", "staged_only": False}]
+    assert entries[0]["related"] == 1
+    assert issues[0]["file"] == consumer
+    assert issues[0]["scope"] == "related"
+
+
+def test_related_warnings_follow_scoped_validator_findings(tmp_path):
+    context = "common/technologies/armor.txt"
+    consumer = "history/countries/USA.txt"
+    for rel in (context, consumer):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True)
+        path.write_text("x = 1\n", encoding="utf-8")
+    runner = FakeRunner(
+        results={
+            "equipment_variants": {"ok": True, "issues": [_issue(consumer)]},
+            "history": {"ok": True, "issues": [_issue(context)]},
+        }
+    )
+
+    _, issues = run_validators_for_lint(
+        runner,
+        ["equipment_variants", "history"],
+        staged_only=False,
+        relevant_set={context},
+        mod_root=tmp_path,
+    )
+
+    assert [issue["check"] for issue in issues] == [
+        "validator:history",
+        "validator:equipment_variants",
+    ]
+    assert issues[1]["scope"] == "related"
 
 
 def test_run_validators_attributes_fileless_issues_from_the_message(mod_with_files):
@@ -634,6 +838,125 @@ def test_lint_validators_auto_merges_and_scopes(tmp_path):
     assert len(v_issues) == 1
     assert v_issues[0]["file"] == "common/national_focus/USA.txt"
     assert out["counts"]["warning"] >= 1
+
+
+_SYNTHETIC_EQUIPMENT_VARIANTS = """
+from pathlib import Path
+
+class Issue:
+    def __init__(self, **fields):
+        self.fields = fields
+
+    def to_dict(self):
+        return dict(self.fields)
+
+class Validator:
+    def __init__(self, mod_path, use_colors=True, staged_only=False):
+        self.root = Path(mod_path)
+        self._issues = []
+
+    def run_all_validations(self):
+        consumer = self.root / "history/countries/USA.txt"
+        context = self.root / "common/technologies/armor.txt"
+        if "create_equipment_variant" not in consumer.read_text(encoding="utf-8"):
+            return
+        if "armor_equipment_technology_available = yes" in context.read_text(encoding="utf-8"):
+            return
+        self._issues = [Issue(
+            file="history/countries/USA.txt",
+            line=3,
+            severity="warning",
+            category="equipment-variant-unavailable",
+            message="armor equipment technology is unavailable",
+        )]
+"""
+
+
+def test_lint_equipment_variant_context_edit_reruns_validator_and_unlock_clears_warning(tmp_path):
+    # Synthetic upstream module exercises ValidatorRunner's isolated process
+    # and lint's changed-file scope without requiring a full mod checkout.
+    _init_repo(tmp_path)
+    # Some developer machines install a global pre-commit template; this test
+    # needs a reliable local commit to leave only the context file changed.
+    hooks = tmp_path / "test-hooks"
+    hooks.mkdir()
+    _git(tmp_path, "config", "core.hooksPath", str(hooks))
+    _seed_all_scripts(tmp_path, {})
+    validator = tmp_path / "tools" / "validation" / "validate_equipment_variants.py"
+    validator.parent.mkdir(parents=True)
+    validator.write_text(_SYNTHETIC_EQUIPMENT_VARIANTS, encoding="utf-8")
+    consumer = tmp_path / "history" / "countries" / "USA.txt"
+    consumer.parent.mkdir(parents=True)
+    consumer.write_text("create_equipment_variant = {\n  type = test_hull\n}\n", encoding="utf-8")
+    _git(tmp_path, "add", "history", "tools")
+    _git(tmp_path, "commit", "-qm", "seed unchanged variant consumer")
+
+    context = tmp_path / "common" / "technologies" / "armor.txt"
+    context.parent.mkdir(parents=True)
+    context.write_text("armor_equipment_technology_available = no\n", encoding="utf-8")
+    runner = ValidatorRunner(tmp_path)
+    settings = Settings(mod_root=tmp_path, vanilla_path=None, cache_dir=tmp_path / "cache")
+
+    direct = validate_tool(settings, runner, validator="equipment_variants")
+    assert direct["ok"] is True
+    assert direct["counts"]["warning"] == 1
+    assert direct["issues"][0]["file"] == "history/countries/USA.txt"
+
+    lint = lint_tool(tmp_path, mode="changed", validators=["auto"], validator_runner=runner)
+    assert lint["ok"] is True
+    assert lint["validators_run"] == ["equipment_variants"]
+    entry = next(c for c in lint["checks"] if c["name"] == "validator:equipment_variants")
+    assert entry["total"] == 0
+    assert entry["related"] == 1
+    assert lint["counts"]["warning"] == 1
+    assert lint["issues"] == [
+        {
+            "check": "validator:equipment_variants",
+            "file": "history/countries/USA.txt",
+            "message": "armor equipment technology is unavailable",
+            "severity": "warning",
+            "line": 3,
+            "category": "equipment-variant-unavailable",
+            "scope": "related",
+        }
+    ]
+
+    context.write_text("armor_equipment_technology_available = yes\n", encoding="utf-8")
+    unlocked = lint_tool(tmp_path, mode="changed", validators=["auto"], validator_runner=runner)
+    assert unlocked["validators_run"] == ["equipment_variants"]
+    assert unlocked["counts"]["warning"] == 0
+    assert unlocked["issues"] == []
+    assert validate_tool(settings, runner, validator="equipment_variants")["issues"] == []
+
+
+def test_lint_equipment_variant_related_warnings_respect_response_budget(tmp_path):
+    _seed_all_scripts(tmp_path, {})
+    context = "common/technologies/armor.txt"
+    consumer = "history/countries/USA.txt"
+    for rel in (context, consumer):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True)
+        path.write_text("x = 1\n", encoding="utf-8")
+    warnings = [_issue(consumer, message=f"{i}: {'x' * 200}", line=i + 1) for i in range(1_000)]
+    runner = FakeRunner(results={"equipment_variants": {"ok": True, "issues": warnings}})
+
+    out = lint_tool(
+        tmp_path,
+        files=[context],
+        validators=["auto"],
+        limit=1_000,
+        validator_runner=runner,
+    )
+
+    entry = next(c for c in out["checks"] if c["name"] == "validator:equipment_variants")
+    assert entry["total"] == 0
+    assert entry["related"] == 1_000
+    assert entry["total_mod_wide"] == 1_000
+    assert out["counts"]["warning"] == 1_000
+    assert out["issues_total_after_filter"] == 1_000
+    assert out["truncated"] is True
+    assert 0 < len(out["issues"]) < 1_000
+    assert len(json.dumps(out).encode("utf-8")) <= BUDGET_BYTES
 
 
 def test_lint_validators_auto_does_not_duplicate_common_mistakes(tmp_path):

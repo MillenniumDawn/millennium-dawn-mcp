@@ -184,6 +184,17 @@ totals. See the lint section of [`docs/tools.md`](./tools.md). The bridge
 consumes `ValidatorRunner.run()` output only, so the coupling caveat above still
 has a single adapter point.
 
+`lint(validators=["auto"])` also selects `equipment_variants` for `.txt` changes
+under `common/`, `events/`, or `history/`. It warns when a created variant is
+consumed before its equipment technology is assured. A technology, country, or
+event context edit may affect an unchanged consumer. Lint can therefore include
+off-scope warnings at their original consumer file and line with
+`scope: "related"`; this is a potential relationship, not a proven dependency.
+The check's `total` counts on-scope issues and `related` counts all potentially
+related warnings. Overall lint counts include related warnings; the final
+`issues` array may be truncated by the response limits. The separate
+`check_equipment_variant` tool checks hull slots and module categories.
+
 Scoping can't compare `Issue.file` to the changed-file set directly, because
 that field isn't uniform (mod-relative, basename, `""`, `"unknown"`, and it
 varies within a single validator). `IssueAttributor`

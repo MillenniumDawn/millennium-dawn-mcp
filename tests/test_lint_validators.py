@@ -461,7 +461,49 @@ def test_run_equipment_variants_reports_related_warning_for_context_only_edit(tm
     ]
 
 
-def test_removed_event_call_keeps_related_warning_in_staged_mode(tmp_path):
+@pytest.mark.parametrize("mode", ["changed", "staged"])
+def test_event_pool_without_spaces_reports_related_warning(tmp_path, mode):
+    _init_repo(tmp_path)
+    hooks = tmp_path / "test-hooks"
+    hooks.mkdir()
+    _git(tmp_path, "config", "core.hooksPath", str(hooks))
+    _seed_all_scripts(tmp_path, {})
+    consumer = "history/countries/USA.txt"
+    consumer_path = tmp_path / consumer
+    consumer_path.parent.mkdir(parents=True)
+    consumer_path.write_text("create_equipment_variant = {}\n", encoding="utf-8")
+    _git(tmp_path, "add", "history", "tools")
+    _git(tmp_path, "commit", "-qm", "seed unchanged consumer")
+
+    context = "common/on_actions/event_pool.txt"
+    context_path = tmp_path / context
+    context_path.parent.mkdir(parents=True)
+    context_path.write_text("events={ TEST.1 }\n", encoding="utf-8")
+    if mode == "staged":
+        _git(tmp_path, "add", context)
+    runner = FakeRunner(
+        names=["equipment_variants"],
+        results={"equipment_variants": {"ok": True, "issues": [_issue(consumer)]}},
+    )
+
+    out = lint_tool(tmp_path, mode=mode, validators=["auto"], validator_runner=runner)
+
+    assert out["validators_run"] == ["equipment_variants"]
+    assert runner.calls == [{"name": "equipment_variants", "staged_only": False}]
+    assert out["issues"] == [
+        {
+            "check": "validator:equipment_variants",
+            "file": consumer,
+            "message": "bad",
+            "severity": "warning",
+            "category": "CAT",
+            "scope": "related",
+        }
+    ]
+
+
+@pytest.mark.parametrize("event_call", ["country_event = TEST.1", "events={ TEST.1 }"])
+def test_removed_event_call_keeps_related_warning_in_staged_mode(tmp_path, event_call):
     _init_repo(tmp_path)
     hooks = tmp_path / "test-hooks"
     hooks.mkdir()
@@ -469,7 +511,7 @@ def test_removed_event_call_keeps_related_warning_in_staged_mode(tmp_path):
     context = "common/scripted_effects/event_dispatch.txt"
     consumer = "history/countries/USA.txt"
     for rel, content in (
-        (context, "country_event = TEST.1\n"),
+        (context, f"{event_call}\n"),
         (consumer, "create_equipment_variant = {}\n"),
     ):
         path = tmp_path / rel
@@ -507,6 +549,41 @@ def test_removed_event_call_keeps_related_warning_in_staged_mode(tmp_path):
     assert entries[0]["related"] == 1
     assert issues[0]["file"] == consumer
     assert issues[0]["scope"] == "related"
+
+
+@pytest.mark.parametrize("mode", ["changed", "staged"])
+def test_deleted_country_context_reports_related_warning(tmp_path, mode):
+    _init_repo(tmp_path)
+    hooks = tmp_path / "test-hooks"
+    hooks.mkdir()
+    _git(tmp_path, "config", "core.hooksPath", str(hooks))
+    _seed_all_scripts(tmp_path, {})
+    context = "history/countries/USA.txt"
+    consumer = "events/USA.txt"
+    for rel, content in (
+        (context, "set_technology = { armor_tech = 1 }\n"),
+        (consumer, "create_equipment_variant = {}\n"),
+    ):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    _git(tmp_path, "add", "history", "events", "tools")
+    _git(tmp_path, "commit", "-qm", "seed country context and consumer")
+    (tmp_path / context).unlink()
+    if mode == "staged":
+        _git(tmp_path, "add", "-u", context)
+    runner = FakeRunner(
+        names=["equipment_variants"],
+        results={"equipment_variants": {"ok": True, "issues": [_issue(consumer)]}},
+    )
+
+    out = lint_tool(tmp_path, mode=mode, validators=["auto"], validator_runner=runner)
+
+    assert out["validators_run"] == ["equipment_variants"]
+    assert runner.calls == [{"name": "equipment_variants", "staged_only": False}]
+    assert out["issues"][0]["file"] == consumer
+    assert out["issues"][0]["scope"] == "related"
+    assert all(check["skipped"] == "no files in scope" for check in out["checks"][:3])
 
 
 def test_related_warnings_follow_scoped_validator_findings(tmp_path):

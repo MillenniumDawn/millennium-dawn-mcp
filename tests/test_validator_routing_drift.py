@@ -269,6 +269,10 @@ COARSE_CI_ROUTES = {
     for group in groups
 } | {
     ("modifiers", "common"),
+    # CI watches every file in these trees; the validator consumes script .txt.
+    ("equipment_variants", "common"),
+    ("equipment_variants", "events"),
+    ("equipment_variants", "history"),
     ("scripted_params", "decisions"),
     ("simplifications", "decisions"),
     ("technologies", "common"),
@@ -297,7 +301,6 @@ INTENTIONALLY_NOT_AUTO_ROUTED = {
     "country_names",
     "dynamic_modifier_guards",
     "equipment_upkeep",
-    "equipment_variants",
     "influence_calls",
     "math_expressions",
     "mio_icons",
@@ -390,6 +393,14 @@ def _load_validate_paths_checkout(mod_root: Path) -> tuple[str, ...]:
 
 def _probe_path(pattern: str) -> str:
     return pattern.replace("**", "__routing_probe").replace("*", "routing_probe")
+
+
+def test_equipment_variants_ci_domains_are_auto_routable_for_script_text():
+    assert EXPECTED_CI_ROUTING["equipment_variants"] == ("common", "events", "history")
+    assert "equipment_variants" not in INTENTIONALLY_NOT_AUTO_ROUTED
+    for root in ("common", "events", "history"):
+        assert "equipment_variants" in _validators_for_path(f"{root}/__routing_probe.txt")
+        assert "equipment_variants" not in _validators_for_path(f"{root}/__routing_probe.gfx")
 
 
 @pytest.mark.integration

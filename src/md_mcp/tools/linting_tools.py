@@ -22,6 +22,7 @@ and wraps the result in `enforce_budget`.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -595,6 +596,27 @@ def lint_tool(
     }
     if not counts_only:
         summary["issues"] = issues_capped
+
+        # Keep a useful prefix of diagnostics when the byte budget is tighter
+        # than the caller's issue limit. enforce_budget() drops the whole array
+        # once it is oversized, which would hide every consumer location.
+        def fits_budget() -> bool:
+            return (
+                len(json.dumps(summary, ensure_ascii=False, default=str).encode("utf-8"))
+                <= BUDGET_BYTES
+            )
+
+        if not fits_budget():
+            summary["truncated"] = True
+            low, high = 0, len(issues_capped)
+            while low < high:
+                middle = (low + high + 1) // 2
+                summary["issues"] = issues_capped[:middle]
+                if fits_budget():
+                    low = middle
+                else:
+                    high = middle - 1
+            summary["issues"] = issues_capped[:low]
 
     return enforce_budget(summary, heavy_keys=("issues",))
 

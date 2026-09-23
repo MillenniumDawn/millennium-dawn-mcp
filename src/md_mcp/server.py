@@ -293,7 +293,7 @@ def build_server(settings: Settings):
 
     mcp.tool(
         name="generate_focus",
-        description="Scaffold a `focus = { ... }` block. Returns {txt, loc_yml_keys}; agent writes via Edit.",
+        description="Scaffold a `focus = { ... }` block. Returns {txt, loc_yml_keys}; agent writes via Edit. Keep trees tight: siblings 2 apart on x, tiers 1 apart on y (default x=0 y=1 under relative_position_id) unless the user asks for wider.",
     )(generate_focus)
     mcp.tool(
         name="generate_event",

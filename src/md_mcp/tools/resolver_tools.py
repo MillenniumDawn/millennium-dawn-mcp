@@ -36,7 +36,9 @@ def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusInde
     if cached is None:
         return {"ok": False, "id": focus_id, "error": "Focus not found in mod or vanilla"}
 
-    abs_path = resolve_scope_file(cached["file"], settings.mod_root, settings.vanilla_path)
+    abs_path = resolve_scope_file(
+        cached["file"], settings.mod_root, settings.vanilla_path, settings.submod_root
+    )
     if abs_path is None:
         return {
             "ok": True,
@@ -48,7 +50,7 @@ def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusInde
         }
 
     try:
-        # abs_path is constrained to mod_root/vanilla by resolve_scope_file.
+        # abs_path is constrained to the configured content roots.
         # pi-lens-ignore: python-path-traversal
         text = read_text(abs_path)
         root = parse_string(text, error_prefix=f"In file {cached['file']}:\n")

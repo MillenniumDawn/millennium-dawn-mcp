@@ -62,6 +62,19 @@ def test_resolve_scope_file_falls_back_to_vanilla(tmp_path):
     assert got.read_text(encoding="utf-8") == "v"
 
 
+def test_resolve_scope_file_prefers_submod_overlay(tmp_path):
+    mod = tmp_path / "mod"
+    submod = tmp_path / "submod"
+    vanilla = tmp_path / "vanilla"
+    rel = "common/national_focus/shared.txt"
+    for root, text in ((mod, "mod"), (submod, "submod"), (vanilla, "vanilla")):
+        target = root / rel
+        target.parent.mkdir(parents=True)
+        target.write_text(text, encoding="utf-8")
+    got = resolve_scope_file(rel, mod, vanilla, **{"submod_root": submod})
+    assert got == (submod / rel).resolve()
+
+
 def test_resolve_scope_file_rejects_absolute_path(tmp_path):
     outside = tmp_path / "outside.txt"
     outside.write_text("secret", encoding="utf-8")
@@ -223,3 +236,33 @@ def test_unrecognized_validator_mode_fails_loudly(tmp_path, monkeypatch):
     monkeypatch.setenv("MD_MCP_VALIDATOR_MODE", "in-process")
     with pytest.raises(RuntimeError, match="in-process"):
         config.load(str(root))
+
+
+def test_submod_root_loads_from_env_and_moves_default_cache(tmp_path, monkeypatch):
+    root = _make_mod_root(tmp_path / "Mod")
+    submod = tmp_path / "Overlay"
+    submod.mkdir()
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
+    monkeypatch.setenv("MD_MCP_SUBMOD_ROOT", str(submod))
+    settings = config.load(str(root))
+    assert vars(settings)["submod_root"] == submod.resolve()
+    assert settings.cache_dir == submod / config.DEFAULT_CACHE_DIRNAME
+
+
+def test_submod_root_loads_from_toml_without_mod_layout(tmp_path, monkeypatch):
+    root = _make_mod_root(tmp_path / "Mod")
+    submod = tmp_path / "OverlayOnly"
+    submod.mkdir()
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(f'mod_root = "{root}"\nsubmod_root = "{submod}"\n', encoding="utf-8")
+    monkeypatch.setattr(config, "CONFIG_PATH", cfg)
+    monkeypatch.delenv("MD_MCP_SUBMOD_ROOT", raising=False)
+    settings = config.load()
+    assert vars(settings)["submod_root"] == submod.resolve()
+
+
+def test_invalid_submod_root_fails_loudly(tmp_path, monkeypatch):
+    root = _make_mod_root(tmp_path / "Mod")
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
+    with pytest.raises(RuntimeError, match="existing directory"):
+        config.load(str(root), **{"submod_root": str(tmp_path / "missing-overlay")})

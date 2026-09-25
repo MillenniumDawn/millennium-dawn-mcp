@@ -91,6 +91,30 @@ def test_focus_index_resolve_returns_path_and_line(fake_mod_root, cache_dir):
     assert rec["line"] is not None and rec["line"] > 0
 
 
+def test_focus_index_submod_precedence_and_relative_dedupe(fake_mod_root, tmp_path):
+    submod = tmp_path / "SubmodOverlay"
+    focus_dir = submod / "common" / "national_focus"
+    focus_dir.mkdir(parents=True)
+    (focus_dir / "test.txt").write_text(
+        "focus_tree = {\n    focus = { id = TST_root }\n    focus = { id = TST_overlay_only }\n}\n",
+        encoding="utf-8",
+    )
+
+    index = FocusIndex(
+        fake_mod_root,
+        tmp_path / "cache",
+        **{"submod_root": submod, "include_vanilla": False},
+    )
+    index.ensure_fresh()
+
+    assert index.list_files() == ["common/national_focus/test.txt"]
+    overlay = index.resolve("TST_root")
+    assert overlay is not None
+    assert overlay["file"] == "common/national_focus/test.txt"
+    assert index.resolve("TST_overlay_only") is not None
+    assert index.resolve("TST_branch_a") is None
+
+
 def test_focus_index_warm_path_is_noop(fake_mod_root, cache_dir):
     fi = FocusIndex(fake_mod_root, cache_dir)
     fi.ensure_fresh()

@@ -209,6 +209,7 @@ def find_references(
     *,
     vanilla_path: Optional[Path] = None,
     include_vanilla: bool = False,
+    submod_root: Optional[Path] = None,
     limit: int = 100,
     offset: int = 0,
     snippet_chars: int = 120,
@@ -233,7 +234,9 @@ def find_references(
     exts = _EXTENSIONS.get(kind, (".txt",))
     scan_dirs = _SCAN_DIRS[kind]
 
-    roots = [mod_root] + ([vanilla_path] if include_vanilla and vanilla_path else [])
+    roots = ([submod_root] if submod_root else []) + [mod_root]
+    if include_vanilla and vanilla_path:
+        roots.append(vanilla_path)
 
     matches: list[dict] = []
     file_hits: dict[str, int] = {}

@@ -36,7 +36,9 @@ def focus_resource(focus_id: str, settings: Settings, focus_index: FocusIndex) -
     cached = focus_index.resolve(focus_id)
     if cached is None:
         raise KeyError(f"Focus '{focus_id}' not found")
-    abs_path = resolve_scope_file(cached["file"], settings.mod_root, settings.vanilla_path)
+    abs_path = resolve_scope_file(
+        cached["file"], settings.mod_root, settings.vanilla_path, settings.submod_root
+    )
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {cached['file']}")
 
@@ -59,7 +61,9 @@ def sprite_resource(name: str, settings: Settings, gfx_index: GfxIndex) -> str:
     rec = gfx_index.resolve(name)
     if rec is None:
         raise KeyError(f"Sprite '{name}' not found")
-    abs_path = resolve_scope_file(rec["file"], settings.mod_root, settings.vanilla_path)
+    abs_path = resolve_scope_file(
+        rec["file"], settings.mod_root, settings.vanilla_path, settings.submod_root
+    )
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
     text = read_text(abs_path)
@@ -74,7 +78,9 @@ def event_resource(event_id: str, settings: Settings, event_index: EventIndex) -
     rec = event_index.resolve(event_id)
     if rec is None:
         raise KeyError(f"Event '{event_id}' not found")
-    abs_path = resolve_scope_file(rec["file"], settings.mod_root, settings.vanilla_path)
+    abs_path = resolve_scope_file(
+        rec["file"], settings.mod_root, settings.vanilla_path, settings.submod_root
+    )
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
     text = read_text(abs_path)
@@ -89,7 +95,9 @@ def decision_resource(decision_id: str, settings: Settings, decision_index: Deci
     rec = decision_index.resolve(decision_id)
     if rec is None:
         raise KeyError(f"Decision '{decision_id}' not found")
-    abs_path = resolve_scope_file(rec["file"], settings.mod_root, settings.vanilla_path)
+    abs_path = resolve_scope_file(
+        rec["file"], settings.mod_root, settings.vanilla_path, settings.submod_root
+    )
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
     text = read_text(abs_path)
@@ -104,7 +112,9 @@ def idea_resource(idea_id: str, settings: Settings, idea_index: IdeaIndex) -> st
     rec = idea_index.resolve(idea_id)
     if rec is None:
         raise KeyError(f"Idea '{idea_id}' not found")
-    abs_path = resolve_scope_file(rec["file"], settings.mod_root, settings.vanilla_path)
+    abs_path = resolve_scope_file(
+        rec["file"], settings.mod_root, settings.vanilla_path, settings.submod_root
+    )
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
     text = read_text(abs_path)

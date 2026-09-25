@@ -4,9 +4,11 @@ Maps changed-file paths to the validators whose domain covers them, runs the
 selected validators through `ValidatorRunner.run()` (the single adapter point
 for the brittle upstream API), and normalises issues into the lint shape.
 
-Validators scan their whole domain regardless of scope; we post-filter issues
-by the relevant-file set and report both on-scope and mod-wide totals so scope
-filtering never silently hides cross-file breakage.
+Compatible collectors scope primary inputs to the relevant files before they
+scan; definition lookups that pass `ignore_staged=True` still see the full repo.
+`total_mod_wide` is the pre-filter count from the scan that ran; when a check
+entry has `scoped: true`, that count is not a full-mod census. Collectors that
+cannot take a file scope still scan their domain and are post-filtered.
 
 `Issue.file` can't be compared to the scope set directly — it arrives as a
 mod-relative path, a bare basename, `""`, or `"unknown"` depending on which
@@ -264,11 +266,12 @@ def run_validators_for_lint(
 
     Returns (check_entries, issues). Check entries are named `validator:<name>`
     and carry `total` (on-scope only), plus `total_mod_wide` and, when any
-    survive, `unattributed`. The returned issue list also appends up to
-    `UNATTRIBUTED_SAMPLE` unattributed issues (tagged `scope="unattributed"`),
-    and `lint_tool` folds those into its top-level counts, so when unattributed
-    issues exist `total` is the on-scope count, not the length of the returned
-    list. Per-validator failures are isolated, same as lint checks.
+    survive, `unattributed`. A `scoped: true` entry means the collector limited
+    primary inputs, so `total_mod_wide` is not a full-mod census. The returned
+    issue list also appends up to `UNATTRIBUTED_SAMPLE` unattributed issues
+    (tagged `scope="unattributed"`), and `lint_tool` folds those into its
+    top-level counts. `total` remains the on-scope count, not the length of the
+    returned list. Per-validator failures are isolated, same as lint checks.
 
     Without `mod_root` there's nothing to resolve partial paths against, so
     matching degrades to exact comparison.
@@ -281,7 +284,12 @@ def run_validators_for_lint(
     for name in names:
         label = f"validator:{name}"
         try:
-            result = runner.run(name, staged_only=staged_only)
+            if wanted is not None:
+                result = runner.run(
+                    name, staged_only=staged_only, files=sorted(wanted), post_filter=False
+                )
+            else:
+                result = runner.run(name, staged_only=staged_only)
         except Exception as e:
             check_entries.append({"name": label, "ok": False, "error": str(e)})
             continue
@@ -306,6 +314,8 @@ def run_validators_for_lint(
         entry = {"name": label, "ok": True, "total": len(on_scope)}
         if wanted is not None:
             entry["total_mod_wide"] = len(raw)
+            if result.get("scoped"):
+                entry["scoped"] = True
             if unattributed:
                 entry["unattributed"] = len(unattributed)
         check_entries.append(entry)

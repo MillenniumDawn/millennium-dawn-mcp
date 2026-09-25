@@ -34,6 +34,7 @@ def check_encoding(
     mod_root: Path,
     *,
     files: Optional[list[str]] = None,
+    submod_root: Optional[Path] = None,
     limit: int | float | str | None = 200,
     offset: int | float | str | None = 0,
 ) -> dict:
@@ -53,21 +54,36 @@ def check_encoding(
     except ValueError as exc:
         return enforce_budget({"ok": False, "error": str(exc)})
 
+    roots = [root for root in (submod_root, mod_root) if root is not None]
     targets: list[Path] = []
+    target_relpaths: dict[Path, str] = {}
+    seen_relpaths: set[str] = set()
     if files:
         for f in files:
-            p = (mod_root / f) if not Path(f).is_absolute() else Path(f)
-            if p.exists():
-                targets.append(p)
+            path = Path(f)
+            rel = path.as_posix() if not path.is_absolute() else str(path)
+            candidates = [path] if path.is_absolute() else [root / path for root in roots]
+            for candidate in candidates:
+                if candidate.exists():
+                    targets.append(candidate)
+                    target_relpaths[candidate] = rel
+                    break
     else:
-        for sub in _TXT_DIRS:
-            d = mod_root / sub
-            if d.is_dir():
-                targets.extend(p for p in d.rglob("*.txt") if p.is_file())
-        for sub in _YML_DIRS:
-            d = mod_root / sub
-            if d.is_dir():
-                targets.extend(p for p in d.rglob("*.yml") if p.is_file())
+        for root in roots:
+            for sub in (*_TXT_DIRS, *_YML_DIRS):
+                suffix = "*.yml" if sub in _YML_DIRS else "*.txt"
+                d = root / sub
+                if not d.is_dir():
+                    continue
+                for path in d.rglob(suffix):
+                    if not path.is_file():
+                        continue
+                    rel = str(path.relative_to(root))
+                    if rel in seen_relpaths:
+                        continue
+                    seen_relpaths.add(rel)
+                    targets.append(path)
+                    target_relpaths[path] = rel
 
     violations: list[dict] = []
     for path in targets:
@@ -78,15 +94,25 @@ def check_encoding(
             continue
 
         has_bom = head == UTF8_BOM
-        try:
-            rel = str(path.relative_to(mod_root))
-        except ValueError:
-            rel = str(path)
+        resolved_rel = target_relpaths.get(path)
+        if resolved_rel is None:
+            for root in roots:
+                try:
+                    resolved_rel = str(path.relative_to(root))
+                    break
+                except ValueError:
+                    continue
+            if resolved_rel is None:
+                resolved_rel = str(path)
 
         if path.suffix.lower() == ".txt" and has_bom:
-            violations.append({"file": rel, "expected": "no-bom", "actual": "bom"})
-        elif path.suffix.lower() == ".yml" and rel.startswith("localisation/") and not has_bom:
-            violations.append({"file": rel, "expected": "bom", "actual": "no-bom"})
+            violations.append({"file": resolved_rel, "expected": "no-bom", "actual": "bom"})
+        elif (
+            path.suffix.lower() == ".yml"
+            and resolved_rel.startswith("localisation/")
+            and not has_bom
+        ):
+            violations.append({"file": resolved_rel, "expected": "bom", "actual": "no-bom"})
 
     violation_page, truncated, total = paginate(violations, offset=offset, limit=limit)
     return enforce_budget(

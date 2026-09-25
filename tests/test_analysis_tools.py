@@ -7,6 +7,7 @@ import json
 from md_mcp.config import Settings
 from md_mcp.indexes import FocusIndex
 from md_mcp.tools import analysis_tools
+from md_mcp.tools.resolver_tools import resolve_focus_tool
 from md_mcp.util.response import BUDGET_BYTES
 
 
@@ -30,6 +31,30 @@ def _focus_text(focus_id: str) -> str:
     }}
 }}
 """
+
+
+def test_resolve_focus_reads_overlay_and_reports_overlay_line(fake_mod_root, tmp_path):
+    submod = tmp_path / "Overlay"
+    focus_dir = submod / "common" / "national_focus"
+    focus_dir.mkdir(parents=True)
+    (focus_dir / "test.txt").write_text(
+        "focus_tree = {\n\n\n    focus = { id = TST_root }\n}\n",
+        encoding="utf-8",
+    )
+    settings = Settings(
+        mod_root=fake_mod_root,
+        vanilla_path=None,
+        cache_dir=tmp_path / "cache",
+    )
+    vars(settings)["submod_root"] = submod
+    index = FocusIndex(fake_mod_root, settings.cache_dir)
+    vars(index)["submod_root"] = submod
+
+    result = resolve_focus_tool("TST_root", settings, index)
+
+    assert result["ok"] is True
+    assert result["file"] == "common/national_focus/test.txt"
+    assert result["line"] == 4
 
 
 def test_focus_index_persists_parse_errors(fake_mod_root, cache_dir):

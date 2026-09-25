@@ -174,13 +174,24 @@ def signatures_for(paths: Iterable[Path], roots: Path | list[Path]) -> dict[str,
                     continue
         if rel is None:
             rel = str(p)
-        sigs[rel] = sig
+        # If callers supply duplicate relative paths, preserve the first root's
+        # signature just like resolve_root/collect_files do.
+        if rel not in sigs:
+            sigs[rel] = sig
     return sigs
 
 
-def roots_for(mod_root: Path, vanilla_path: Optional[Path]) -> list[Path]:
-    """Content roots in resolution order: mod first, vanilla second when configured."""
-    return [mod_root] if vanilla_path is None else [mod_root, vanilla_path]
+def roots_for(
+    mod_root: Path, vanilla_path: Optional[Path], submod_root: Optional[Path] = None
+) -> list[Path]:
+    """Content roots in resolution order: submod, mod, then vanilla."""
+    roots: list[Path] = []
+    if submod_root is not None:
+        roots.append(submod_root)
+    roots.append(mod_root)
+    if vanilla_path is not None:
+        roots.append(vanilla_path)
+    return roots
 
 
 def resolve_root(roots: Iterable[Path], relpath: str) -> Optional[Path]:
@@ -203,7 +214,7 @@ def collect_files(
 ) -> list[Path]:
     """Walk each subdir under each root for each pattern, optionally filtering files."""
     results: list[Path] = []
-    seen: set[Path] = set()
+    seen: set[str] = set()
     for base in roots:
         for subdir_name in _normalise_specs(subdir):
             d = base / subdir_name
@@ -211,9 +222,16 @@ def collect_files(
                 continue
             for pattern_name in _normalise_specs(pattern):
                 for p in d.rglob(pattern_name):
-                    if p.is_file() and (predicate is None or predicate(p)) and p not in seen:
-                        seen.add(p)
-                        results.append(p)
+                    if not p.is_file() or (predicate is not None and not predicate(p)):
+                        continue
+                    try:
+                        relpath = str(p.relative_to(base))
+                    except ValueError:
+                        relpath = str(p)
+                    if relpath in seen:
+                        continue
+                    seen.add(relpath)
+                    results.append(p)
     return results
 
 
@@ -317,10 +335,12 @@ class GenericTxtIndex:
         vanilla_path: "Optional[Path]" = None,
         *,
         include_vanilla: bool = True,
+        submod_root: "Optional[Path]" = None,
     ):
         from pathlib import Path as _Path
 
         self.mod_root: _Path = mod_root
+        self.submod_root: "Optional[_Path]" = submod_root
         self.vanilla_path: "Optional[_Path]" = vanilla_path if include_vanilla else None
         self._cache = IndexCache(cache_dir, self.cache_name, self.cache_version)
         self._stale_check = StaleCheck()
@@ -385,7 +405,7 @@ class GenericTxtIndex:
     # ---------- internals ----------
 
     def _roots(self) -> list["Path"]:
-        return roots_for(self.mod_root, self.vanilla_path)
+        return roots_for(self.mod_root, self.vanilla_path, self.submod_root)
 
     def _collect_files(self) -> list["Path"]:
         return collect_files(self._roots(), self._subdirs, self._patterns, self.file_predicate)

@@ -54,6 +54,7 @@ def focus_graph(
     focus_index: FocusIndex,
     *,
     vanilla_path: Optional[Path] = None,
+    submod_root: Optional[Path] = None,
     detail: str = "summary",
     focus_ids: Optional[Sequence[str]] = None,
     node_limit: int = 100,
@@ -79,7 +80,7 @@ def focus_graph(
     by_id: dict[str, dict] = {}
 
     for relpath in candidate_files:
-        abs_path = resolve_scope_file(relpath, mod_root, vanilla_path)
+        abs_path = resolve_scope_file(relpath, mod_root, vanilla_path, submod_root)
         if abs_path is None:
             continue
         try:

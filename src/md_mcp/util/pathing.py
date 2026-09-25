@@ -62,14 +62,19 @@ def _looks_like_mod_root(p: Path) -> bool:
     return p.is_dir() and (p / "descriptor.mod").exists() and (p / "tools" / "validation").is_dir()
 
 
-def resolve_scope_file(relpath: str, mod_root: Path, vanilla_path: Path | None) -> Path | None:
-    """Locate a scope file, falling back to vanilla for files the mod doesn't override.
+def resolve_scope_file(
+    relpath: str,
+    mod_root: Path,
+    vanilla_path: Path | None,
+    submod_root: Path | None = None,
+) -> Path | None:
+    """Locate a scope file, preferring submod, then mod, then vanilla.
 
     `relpath` is caller-supplied (a tool argument), so it must stay inside the
     root it resolves against: absolute paths and `..` traversal are rejected
     rather than read.
     """
-    for root in (mod_root, vanilla_path):
+    for root in (submod_root, mod_root, vanilla_path):
         if root is None:
             continue
         p = contained(root, relpath)

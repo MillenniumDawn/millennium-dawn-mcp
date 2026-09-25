@@ -124,6 +124,7 @@ Full env-var reference:
 | Variable | Purpose |
 |---|---|
 | `MD_MOD_ROOT` | Path to the `Millennium-Dawn/` checkout. |
+| `MD_MCP_SUBMOD_ROOT` | Optional submod/worktree overlay; matching files take precedence over the mod root. |
 | `HOI4_PATH` | Path to the vanilla `Hearts of Iron IV/` install (optional). |
 | `MD_MCP_CACHE_DIR` | Override the cache location (use this for read-only checkouts). |
 | `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process` (faster, but deadlocks the server; `serve` forces `isolated` regardless). |
@@ -133,10 +134,31 @@ Example `~/.config/md-mcp/config.toml`:
 
 ```toml
 mod_root      = "/Users/me/Programming/MD/Millennium-Dawn"
+submod_root   = "/Users/me/Programming/MD/my-submod"
 hoi4_path     = "/Users/me/Programming/MD/Hearts of Iron IV"
 validator_mode = "isolated"
 default_lang   = "en"
 ```
+
+### Submods and worktree overlays
+
+Set `MD_MCP_SUBMOD_ROOT` (or `submod_root` in the TOML config) to an existing
+overlay directory. Files are resolved submod-first, then mod, then vanilla; the
+default cache is stored under the overlay. For a project-local setup:
+
+```json
+{
+  "mcpServers": {
+    "md": {
+      "command": "md-mcp",
+      "args": ["serve", "--submod-root", "/path/to/my-submod"]
+    }
+  }
+}
+```
+
+Validators intentionally remain base-only and run against `MD_MOD_ROOT`; use
+lint/diff tools for submod worktree changes.
 
 ---
 

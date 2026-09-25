@@ -19,6 +19,10 @@ import io
 import json
 import os
 import sys
+from pathlib import Path
+from typing import Optional
+
+from .runner import _configure_file_scope
 
 
 def main() -> int:
@@ -27,6 +31,7 @@ def main() -> int:
     ap.add_argument("--module", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--staged-only", action="store_true")
+    ap.add_argument("--files")
     args = ap.parse_args()
 
     # Same insertion sequence as ValidatorRunner._ensure_sys_path, so both modes
@@ -39,7 +44,12 @@ def main() -> int:
             sys.path.insert(0, d)
 
     try:
-        payload = _collect(args.mod_root, args.module, args.staged_only)
+        files = json.loads(Path(args.files).read_text(encoding="utf-8")) if args.files else None
+        if files is not None and (
+            not isinstance(files, list) or any(not isinstance(f, str) for f in files)
+        ):
+            raise ValueError("--files payload must be a list of paths")
+        payload = _collect(args.mod_root, args.module, args.staged_only, files=files)
     except Exception as e:
         payload = {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
@@ -55,13 +65,16 @@ def main() -> int:
     return 0 if payload.get("ok") else 1
 
 
-def _collect(mod_root: str, module_name: str, staged_only: bool) -> dict:
+def _collect(
+    mod_root: str, module_name: str, staged_only: bool, files: Optional[list[str]] = None
+) -> dict:
     module = importlib.import_module(module_name)
     validator_cls = getattr(module, "Validator", None)
     if validator_cls is None:
         raise AttributeError(f"module {module_name} does not define `Validator`")
 
     inst = validator_cls(mod_path=mod_root, use_colors=False, staged_only=staged_only)
+    scoped = _configure_file_scope(inst, files)
 
     # Validators chatter on stdout and some call sys.exit() mid-run; neither
     # should cost us the issues they already collected.
@@ -73,7 +86,10 @@ def _collect(mod_root: str, module_name: str, staged_only: bool) -> dict:
     ):
         inst.run_all_validations()
 
-    return {"ok": True, "issues": [i.to_dict() for i in getattr(inst, "_issues", [])]}
+    payload = {"ok": True, "issues": [i.to_dict() for i in getattr(inst, "_issues", [])]}
+    if scoped:
+        payload["scoped"] = True
+    return payload
 
 
 if __name__ == "__main__":

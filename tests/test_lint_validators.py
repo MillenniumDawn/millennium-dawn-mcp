@@ -34,6 +34,7 @@ class FakeRunner(ValidatorRunner):
         self.results = results or {}
         self.names = names if names is not None else _ALL_NAMES
         self.calls: list = []
+        self.scope_calls: list = []
 
     def list(self):
         return [
@@ -41,8 +42,9 @@ class FakeRunner(ValidatorRunner):
             for n in self.names
         ]
 
-    def run(self, name, *, staged_only=False, files=None):
+    def run(self, name, *, staged_only=False, files=None, post_filter=True):
         self.calls.append({"name": name, "staged_only": staged_only})
+        self.scope_calls.append({"name": name, "files": files, "post_filter": post_filter})
         if name in self.results:
             return self.results[name]
         return {"ok": True, "validator": name, "counts": {}, "issues": []}
@@ -326,6 +328,13 @@ def test_run_validators_scopes_and_reports_mod_wide():
     )
     assert entries == [
         {"name": "validator:focus_tree", "ok": True, "total": 1, "total_mod_wide": 2}
+    ]
+    assert runner.scope_calls == [
+        {
+            "name": "focus_tree",
+            "files": ["common/national_focus/USA.txt"],
+            "post_filter": False,
+        }
     ]
     assert len(issues) == 1
     assert issues[0]["check"] == "validator:focus_tree"

@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
-from src.md_mcp.tools import upstream_analysis
+import md_mcp.tools.upstream_analysis as upstream_analysis
 
 
 def _write_tick_script(root: Path) -> None:

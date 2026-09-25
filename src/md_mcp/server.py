@@ -230,8 +230,10 @@ def build_server(settings: Settings):
         severity_min: str = "info",
         limit: int = 500,
         counts_only: bool = False,
+        delta: bool = False,
+        baseline: Optional[str] = None,
     ) -> dict:
-        """Run a validator (or all fast ones). severity_min=info|warning|error filters; limit caps issues; counts_only skips the issues array."""
+        """Run validators and optionally return only new issues since a baseline; severity_min filters and limit caps issues."""
         return validate_tool(
             settings,
             validator_runner,
@@ -242,6 +244,8 @@ def build_server(settings: Settings):
             severity_min=severity_min,
             limit=limit,
             counts_only=counts_only,
+            delta=delta,
+            baseline=baseline,
         )
 
     @mcp.tool()

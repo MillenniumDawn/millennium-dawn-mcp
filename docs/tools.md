@@ -160,9 +160,10 @@ found for a checkable type.
 Returns `{ok, valid, issues_total, returned, truncated, issues}`. Each issue is
 `{line, severity: "error", kind, message, hull}`.
 
-### `validate(validator?, staged_only?, files?, strict?, severity_min?, limit?, counts_only?) -> dict`
+### `validate(validator?, staged_only?, files?, strict?, severity_min?, limit?, counts_only?, delta?, baseline?) -> dict`
 
-Run one validator or the full fast suite.
+Run one validator or the full fast suite. Set `delta=True` to return only new
+issues compared with a baseline snapshot.
 
 - **`validator`** — name from `validate_list` (`localisation`, `focus_id`,
   etc.). Omit to run all *fast* validators (slow `unused_scripted` and
@@ -174,6 +175,12 @@ Run one validator or the full fast suite.
   `"warning"`, `"error"`.
 - **`limit=500`** — cap issues returned (counts stay accurate). `-1` for no cap.
 - **`counts_only=True`** — return just per-validator counts; skip the issues array.
+- **`delta=True`** — dedupe findings and return only issues absent from the baseline.
+- **`baseline`** — an issue-list JSON file, a sidecar directory, or a git ref
+  (default `main`). Git refs use `cache_dir/validator-baselines/<safe-ref>.json`;
+  pass a snapshot file or directory if that cached snapshot is missing. Snapshot
+  paths must be absolute, contain a slash or backslash, or end in `.json`;
+  bare names are treated as git refs.
 
 Returns `{ok, validators, counts: {error, warning, info}, issues, issues_total_after_filter, truncated}`.
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ..analysis.issue_delta import new_issue_dicts
 from ..config import Settings
 from ..util.response import coerce_int, enforce_budget, paginate
 from ..validators import SEVERITY_RANK, SLOW_VALIDATORS, ValidatorRunner, available_validators
@@ -51,6 +52,14 @@ def _apply_strict(counts: dict) -> dict:
     return counts
 
 
+def _counts_for_issues(issues: list[dict]) -> dict:
+    counts = {"error": 0, "warning": 0, "info": 0}
+    for issue in issues:
+        severity = issue.get("severity", "info")
+        counts[severity] = counts.get(severity, 0) + 1
+    return counts
+
+
 def _filter_and_cap(
     issues: list[dict],
     *,
@@ -77,6 +86,8 @@ def validate_tool(
     severity_min: str = "info",
     limit: int = 500,
     counts_only: bool = False,
+    delta: bool = False,
+    baseline: Optional[str] = None,
 ) -> dict:
     """Run validators and return structured issues.
 
@@ -88,14 +99,24 @@ def validate_tool(
       severity_min  — "info" | "warning" | "error" — drop issues below this floor
       limit         — cap issues returned (counts remain accurate). Use -1 for no cap.
       counts_only   — skip the issues array entirely, return just per-validator counts
+      delta         — return only issues absent from a baseline snapshot
+      baseline      — snapshot file/directory or git ref; defaults to main in delta mode
     """
     if validator is not None:
         result = runner.run(validator, staged_only=staged_only, files=files)
         if not result.get("ok"):
             return result
+        issues = result.get("issues", [])
+        if delta:
+            try:
+                issues = new_issue_dicts(
+                    settings, [(issue_dict, validator) for issue_dict in issues], baseline
+                )
+            except (FileNotFoundError, ImportError, ValueError) as exc:
+                return enforce_budget({"ok": False, "error": str(exc)})
+            result["counts"] = _counts_for_issues(issues)
         if strict and "counts" in result:
             result["counts"] = _apply_strict(result["counts"])
-        issues = result.get("issues", [])
         kept, truncated, total = _filter_and_cap(issues, severity_min=severity_min, limit=limit)
         result["issues_total_after_filter"] = total
         result["truncated"] = truncated
@@ -110,6 +131,7 @@ def validate_tool(
     targets = [v for v in infos if v.name not in SLOW_VALIDATORS]
 
     aggregated: list[dict] = []
+    issue_records: list[tuple[dict, str]] = []
     per_validator: list[dict] = []
     overall = {"error": 0, "warning": 0, "info": 0}
 
@@ -129,8 +151,26 @@ def validate_tool(
         )
         if result.get("ok"):
             aggregated.extend(result["issues"])
+            issue_records.extend((issue, v.name) for issue in result["issues"])
             for k, n in result["counts"].items():
                 overall[k] = overall.get(k, 0) + n
+
+    if delta:
+        try:
+            aggregated = new_issue_dicts(settings, issue_records, baseline)
+        except (FileNotFoundError, ImportError, ValueError) as exc:
+            return enforce_budget({"ok": False, "error": str(exc)})
+        overall = _counts_for_issues(aggregated)
+        for entry in per_validator:
+            if not entry["ok"]:
+                continue
+            name = entry["name"]
+            own_issues = [
+                issue
+                for issue in aggregated
+                if name in {issue.get("validator"), *issue.get("detected_by", [])}
+            ]
+            entry["counts"] = _counts_for_issues(own_issues)
 
     if strict:
         overall = _apply_strict(overall)

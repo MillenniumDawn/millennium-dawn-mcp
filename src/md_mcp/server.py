@@ -33,12 +33,17 @@ from .generators import (
     generate_loc_stub,
 )
 from .indexes import (
+    CharacterIndex,
+    CountryTagIndex,
     DecisionIndex,
     EventIndex,
     FocusIndex,
     GfxIndex,
     IdeaIndex,
     LocalisationIndex,
+    ScriptedEffectIndex,
+    ScriptedTriggerIndex,
+    TraitIndex,
 )
 from .resources import (
     decision_resource,
@@ -48,19 +53,24 @@ from .resources import (
     loc_resource,
     sprite_resource,
 )
-from .tools.analysis_tools import find_focuses_tool
+from .tools.analysis_tools import find_focuses_tool, find_indexed_tool
 from .tools.equipment_variant_tools import EquipmentVariantChecker, check_equipment_variant_tool
 from .tools.lint_fixers import fix_lint_tool
 from .tools.linting_tools import lint_tool, review_branch_tool
 from .tools.lookup_docs import lookup_docs_tool
 from .tools.parser_tools import parse_file_tool, parse_string_tool
 from .tools.resolver_tools import (
+    resolve_character_tool,
+    resolve_country_tag_tool,
     resolve_decision_tool,
     resolve_event_tool,
     resolve_focus_tool,
     resolve_idea_tool,
     resolve_loc_tool,
+    resolve_scripted_effect_tool,
+    resolve_scripted_trigger_tool,
     resolve_sprite_tool,
+    resolve_trait_tool,
 )
 from .tools.validation_tools import validate_list_tool, validate_tool
 from .validators import ValidatorRunner
@@ -72,9 +82,11 @@ class _NamedPartial(partial):
     __name__: str
 
 
-def _bind_tool(function: Callable[..., dict], *args: object) -> Callable[..., dict]:
+def _bind_tool(
+    function: Callable[..., dict], *args: object, **kwargs: object
+) -> Callable[..., dict]:
     """Bind server-owned state while retaining the name FastMCP needs for its argument model."""
-    bound = _NamedPartial(function, *args)
+    bound = _NamedPartial(function, *args, **kwargs)
     bound.__name__ = function.__name__
     return bound
 
@@ -99,6 +111,17 @@ def build_server(settings: Settings):
     event_index = EventIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
     decision_index = DecisionIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
     idea_index = IdeaIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
+    country_tag_index = CountryTagIndex(
+        settings.mod_root, settings.cache_dir, settings.vanilla_path
+    )
+    character_index = CharacterIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
+    trait_index = TraitIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
+    scripted_effect_index = ScriptedEffectIndex(
+        settings.mod_root, settings.cache_dir, settings.vanilla_path
+    )
+    scripted_trigger_index = ScriptedTriggerIndex(
+        settings.mod_root, settings.cache_dir, settings.vanilla_path
+    )
     validator_runner = ValidatorRunner(settings.mod_root, mode=settings.validator_mode)
     equipment_variant_checker = EquipmentVariantChecker(settings.mod_root)
 
@@ -140,6 +163,31 @@ def build_server(settings: Settings):
         """Get an idea's file, line, category, and slot."""
         return resolve_idea_tool(idea_id, settings, idea_index)
 
+    @mcp.tool()
+    def resolve_country_tag(tag: str) -> dict:
+        """Get a country tag's country-history path, file, and line."""
+        return resolve_country_tag_tool(tag, country_tag_index)
+
+    @mcp.tool()
+    def resolve_character(character_id: str) -> dict:
+        """Get a character's definition file and line."""
+        return resolve_character_tool(character_id, character_index)
+
+    @mcp.tool()
+    def resolve_trait(trait_id: str) -> dict:
+        """Get a leader trait's definition file and line."""
+        return resolve_trait_tool(trait_id, trait_index)
+
+    @mcp.tool()
+    def resolve_scripted_effect(effect_id: str) -> dict:
+        """Get a scripted effect definition's file and line."""
+        return resolve_scripted_effect_tool(effect_id, scripted_effect_index)
+
+    @mcp.tool()
+    def resolve_scripted_trigger(trigger_id: str) -> dict:
+        """Get a scripted trigger definition's file and line."""
+        return resolve_scripted_trigger_tool(trigger_id, scripted_trigger_index)
+
     # ---------- parsers ----------
 
     @mcp.tool()
@@ -169,6 +217,26 @@ def build_server(settings: Settings):
         description="Search the focus index by tag, prereq, mutex partner, or kind. Returns a paginated id+file+line list.",
     )(_bind_tool(find_focuses_tool, settings, focus_index))
     mcp.tool(
+        name="find_country_tags",
+        description="Search indexed country tags by substring with paginated id, country-file, and source details.",
+    )(_bind_tool(find_indexed_tool, country_tag_index))
+    mcp.tool(
+        name="find_characters",
+        description="Search indexed character definitions by substring with paginated source details.",
+    )(_bind_tool(find_indexed_tool, character_index, kind="character"))
+    mcp.tool(
+        name="find_traits",
+        description="Search indexed country and unit leader traits by substring with paginated source details.",
+    )(_bind_tool(find_indexed_tool, trait_index, kind="trait"))
+    mcp.tool(
+        name="find_scripted_effects",
+        description="Search indexed scripted effects by substring with paginated source details.",
+    )(_bind_tool(find_indexed_tool, scripted_effect_index, kind="scripted_effect"))
+    mcp.tool(
+        name="find_scripted_triggers",
+        description="Search indexed scripted triggers by substring with paginated source details.",
+    )(_bind_tool(find_indexed_tool, scripted_trigger_index, kind="scripted_trigger"))
+    mcp.tool(
         name="lookup_docs",
         description="Look up an effect, trigger, or modifier in resources/documentation; pass key for exact docs or omit it for a paginated key list, with close-match suggestions on misses.",
     )(_bind_tool(lookup_docs_tool, settings))
@@ -182,7 +250,7 @@ def build_server(settings: Settings):
         snippet_chars: int = 120,
         files_only: bool = False,
     ) -> dict:
-        """Find every reference to a focus/event/decision/idea/loc/sprite/flag/variable. files_only collapses to a unique file list."""
+        """Find references to indexed focuses/events/ideas, tags, characters, traits, scripted definitions, loc/sprites, flags, or variables. files_only collapses to a unique file list."""
         return find_references(
             settings.mod_root,
             kind,  # type: ignore[arg-type]
@@ -210,6 +278,11 @@ def build_server(settings: Settings):
             decision_index=decision_index,
             idea_index=idea_index,
             loc_index=loc_index,
+            country_tag_index=country_tag_index,
+            character_index=character_index,
+            trait_index=trait_index,
+            scripted_effect_index=scripted_effect_index,
+            scripted_trigger_index=scripted_trigger_index,
             include=include,
             limit_per_category=limit_per_category,
         )
@@ -355,7 +428,7 @@ def build_server(settings: Settings):
         offset: int = 0,
         counts_only: bool = False,
     ) -> dict:
-        """Audit cross-references in a tag's focus files (or explicit files=): focus/event/idea/sprite/loc/decision ids resolved against the indexes; returns deduped unresolved refs with file:line sites. kinds=[...] subsets."""
+        """Audit indexed focus/event/idea/sprite/loc/decision/tag/character/trait/scripted refs in tag focus files or explicit files=; returns deduped unresolved refs with file:line sites. kinds=[...] subsets."""
         return check_refs(
             settings.mod_root,
             focus_index=focus_index,
@@ -364,6 +437,11 @@ def build_server(settings: Settings):
             gfx_index=gfx_index,
             loc_index=loc_index,
             decision_index=decision_index,
+            country_tag_index=country_tag_index,
+            character_index=character_index,
+            trait_index=trait_index,
+            scripted_effect_index=scripted_effect_index,
+            scripted_trigger_index=scripted_trigger_index,
             tag=tag,
             files=files,
             kinds=kinds,
@@ -490,7 +568,19 @@ def main() -> None:  # pragma: no cover — entry point
         sys.exit(0)
 
     if args.cmd == "build-index":
-        for cls in (FocusIndex, LocalisationIndex, GfxIndex, EventIndex, DecisionIndex, IdeaIndex):
+        for cls in (
+            FocusIndex,
+            LocalisationIndex,
+            GfxIndex,
+            EventIndex,
+            DecisionIndex,
+            IdeaIndex,
+            CountryTagIndex,
+            CharacterIndex,
+            TraitIndex,
+            ScriptedEffectIndex,
+            ScriptedTriggerIndex,
+        ):
             idx = cls(settings.mod_root, settings.cache_dir, settings.vanilla_path)
             idx.ensure_fresh()
             keys = idx.list_keys()

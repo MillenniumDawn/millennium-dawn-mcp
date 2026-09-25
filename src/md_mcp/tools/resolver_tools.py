@@ -11,12 +11,17 @@ from typing import Optional
 
 from ..config import Settings
 from ..indexes import (
+    CharacterIndex,
+    CountryTagIndex,
     DecisionIndex,
     EventIndex,
     FocusIndex,
     GfxIndex,
     IdeaIndex,
     LocalisationIndex,
+    ScriptedEffectIndex,
+    ScriptedTriggerIndex,
+    TraitIndex,
 )
 from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records
@@ -203,3 +208,50 @@ def resolve_idea_tool(idea_id: str, settings: Settings, idea_index: IdeaIndex) -
         "file": rec["file"],
         "line": rec["line"],
     }
+
+
+def _resolve_definition(index, target: str, *, label: str) -> dict:
+    rec = index.resolve(target)
+    if rec is None:
+        return {"ok": False, "id": target, "error": f"{label} not found"}
+    return {
+        "ok": True,
+        "id": rec["id"],
+        "name": rec["id"],
+        "kind": rec.get("kind"),
+        "file": rec["file"],
+        "line": rec["line"],
+        **{key: rec[key] for key in ("tag", "country_file") if key in rec},
+    }
+
+
+def resolve_country_tag_tool(tag: str, country_tag_index: CountryTagIndex) -> dict:
+    """Get a country tag's country-history path and source location."""
+    result = _resolve_definition(country_tag_index, tag, label="Country tag")
+    if result.get("ok"):
+        result["tag"] = tag
+    return result
+
+
+def resolve_character_tool(character_id: str, character_index: CharacterIndex) -> dict:
+    """Get a character definition's file and line."""
+    return _resolve_definition(character_index, character_id, label="Character")
+
+
+def resolve_trait_tool(trait_id: str, trait_index: TraitIndex) -> dict:
+    """Get a leader trait definition's file and line."""
+    return _resolve_definition(trait_index, trait_id, label="Trait")
+
+
+def resolve_scripted_effect_tool(
+    effect_id: str, scripted_effect_index: ScriptedEffectIndex
+) -> dict:
+    """Get a scripted effect definition's file and line."""
+    return _resolve_definition(scripted_effect_index, effect_id, label="Scripted effect")
+
+
+def resolve_scripted_trigger_tool(
+    trigger_id: str, scripted_trigger_index: ScriptedTriggerIndex
+) -> dict:
+    """Get a scripted trigger definition's file and line."""
+    return _resolve_definition(scripted_trigger_index, trigger_id, label="Scripted trigger")

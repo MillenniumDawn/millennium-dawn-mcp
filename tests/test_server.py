@@ -52,9 +52,21 @@ EXPECTED_TOOLS = {
     "resolve_event",
     "resolve_decision",
     "resolve_idea",
+    # Issue #18 resolvers
+    "resolve_country_tag",
+    "resolve_character",
+    "resolve_trait",
+    "resolve_scripted_effect",
+    "resolve_scripted_trigger",
     # M2 analysis
     "find_references",
     "list_country_content",
+    # Issue #18 definition searches
+    "find_country_tags",
+    "find_characters",
+    "find_traits",
+    "find_scripted_effects",
+    "find_scripted_triggers",
     # M2 validation
     "check_equipment_variant",
     "validate",
@@ -107,6 +119,23 @@ def test_call_resolve_loc(server):
     payload = json.loads(_text(result))
     assert payload["ok"] is True
     assert payload["value"] == "The Root Focus"
+
+
+def test_call_issue_18_resolvers_and_finders(server):
+    async def resolve():
+        return await server.call_tool("resolve_country_tag", {"tag": "TST"})
+
+    payload = json.loads(_text(asyncio.new_event_loop().run_until_complete(resolve())))
+    assert payload["ok"] is True
+    assert payload["country_file"] == "countries/Testland.txt"
+
+    async def find():
+        return await server.call_tool("find_characters", {"query": "test", "limit": 1})
+
+    payload = json.loads(_text(asyncio.new_event_loop().run_until_complete(find())))
+    assert payload["ok"] is True
+    assert payload["total"] == 1
+    assert payload["matches"][0]["id"] == "TST_test_character"
 
 
 def test_call_resolve_sprite_manifest_fallback(fake_mod_root, cache_dir):

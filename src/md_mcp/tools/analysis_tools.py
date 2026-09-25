@@ -99,6 +99,53 @@ def _all_records(focus_index: FocusIndex):
             yield rec["id"], {**rec, "file": relpath}
 
 
+def find_indexed_tool(
+    index,
+    *,
+    query: Optional[str] = None,
+    kind: Optional[str] = None,
+    limit: int | float | str | None = 200,
+    offset: int | float | str | None = 0,
+) -> dict:
+    """Search a definition index by id, optionally restricting its kind."""
+    try:
+        needle = query.casefold() if query else None
+        records = [
+            rec
+            for relpath in index.list_files()
+            for rec in index.records_for_file(relpath)
+            if (kind is None or rec.get("kind") == kind)
+            and (needle is None or needle in str(rec.get("id", "")).casefold())
+        ]
+        records.sort(key=lambda rec: (str(rec.get("id", "")), rec.get("file", "")))
+        page, truncated, total = paginate(records, offset, limit)
+    except ValueError as exc:
+        return enforce_budget({"ok": False, "error": str(exc)})
+
+    matches = []
+    for rec in page:
+        match = {
+            "id": rec.get("id"),
+            "kind": rec.get("kind"),
+            "file": rec.get("file"),
+            "line": rec.get("line"),
+        }
+        if "country_file" in rec:
+            match["country_file"] = rec["country_file"]
+        matches.append(match)
+    return enforce_budget(
+        {
+            "ok": True,
+            "query": query,
+            "total": total,
+            "returned": len(matches),
+            "truncated": truncated,
+            "matches": matches,
+        },
+        heavy_keys=("matches",),
+    )
+
+
 def _filter_deep(
     candidates: list[dict],
     settings: Settings,

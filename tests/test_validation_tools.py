@@ -337,8 +337,10 @@ def _patch_fake_baseline(monkeypatch, baseline_issues):
 class _FakeRunner:
     def __init__(self, issues):
         self.issues = issues
+        self.calls = []
 
     def run(self, validator, **kwargs):
+        self.calls.append(validator)
         counts = {"error": 0, "warning": 0, "info": 0}
         for issue in self.issues:
             severity = issue.get("severity", "info")
@@ -447,12 +449,14 @@ def test_validate_delta_missing_default_snapshot_returns_actionable_error(
     settings = _delta_settings(fake_mod_root)
     _patch_fake_report_lib(monkeypatch)
 
-    result = _validate_tool_with_delta(settings, _FakeRunner([]), validator="synthetic", delta=True)
+    runner = _FakeRunner([])
+    result = _validate_tool_with_delta(settings, runner, validator="synthetic", delta=True)
 
     expected_path = settings.cache_dir / "validator-baselines" / "main.json"
     assert result["ok"] is False
     assert str(expected_path) in result["error"]
     assert "snapshot file or directory" in result["error"]
+    assert runner.calls == []
 
 
 def test_validate_delta_returns_unkeyable_issue_as_new(fake_mod_root, monkeypatch):

@@ -62,6 +62,7 @@ from .tools.resolver_tools import (
     resolve_loc_tool,
     resolve_sprite_tool,
 )
+from .tools.standardize_tools import standardize_tool
 from .tools.validation_tools import validate_list_tool, validate_tool
 from .validators import ValidatorRunner
 
@@ -319,6 +320,10 @@ def build_server(settings: Settings):
         name="generate_loc_stub",
         description="Build a localisation YAML stub from [{key, value}, ...]. Use bom_prefix=True for new files.",
     )(generate_loc_stub)
+    mcp.tool(
+        name="standardize",
+        description="Standardize script content in memory using upstream formatters; provide content= with content_type=focus|event|decision|idea|mio|technology|history, or a mod-relative .txt path= to detect the type. Clipped txt must not be written back.",
+    )(_bind_tool(standardize_tool, settings.mod_root))
 
     # ---------- M3 analysis ----------
 

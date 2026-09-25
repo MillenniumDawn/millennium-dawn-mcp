@@ -153,6 +153,12 @@ hull-slot and module-category rules. The text may include enclosing effect
 scopes but must contain exactly one variant with a scalar `type` and a `modules`
 block. `limit` (default 100) and `offset` paginate compatibility issues.
 
+This checks whether the chosen modules fit the hull. It does not check whether
+a variant is consumed before its equipment technology is assured. Use the mod's
+`equipment_variants` validator through `validate(validator="equipment_variants")`
+or `lint(validators=["auto"])` for those availability warnings in mod files.
+That validator does not check individual module technology unlocks.
+
 The upstream compatibility helper intentionally skips equipment types without
 indexed module slots, so a clean result only means no slot/module issue was
 found for a checkable type.
@@ -234,8 +240,12 @@ for "check this code's quality."
     a change under `common/national_focus/` runs `focus_tree`,
     `scripted_params`, `simplifications`, `modifiers`, and `style`; a change
     under `events/` runs `events`, `on_actions`, and friends; loc `.yml`
-    changes run `localisation`. Global cross-reference validators
-    (`variables`, `set_variables`, `cosmetic_tags`) and the slow two
+    changes run `localisation`. Relevant `.txt` files under `common/`,
+    `events/`, and `history/` also select `equipment_variants`, which reports
+    `equipment-variant-unavailable` warnings at the consuming variant's file
+    and line when equipment technology is not yet assured.
+    Global cross-reference validators (`variables`, `set_variables`,
+    `cosmetic_tags`) and the slow two
     (`unused_scripted`, `unused_textures`) are never auto-selected.
   - `["*"]` — every fast validator (same exclusions as `validate`'s run-all).
   - Explicit names run exactly those; sentinels and names union. For example,
@@ -243,14 +253,29 @@ for "check this code's quality."
 
   Validator issues are attributed back to real mod paths, then post-filtered to
   the file scope. Each `validator:<name>` entry reports the on-scope `total`
-  (equal to the issues it contributes to `issues`) and `total_mod_wide`, so a
-  nonzero mod-wide count is visible even when your files are clean. Issues that
-  can't be attributed to any file — some validators bury the filename in the
-  message, some drop it — report as an `unattributed` count on the entry, with
-  the first few carried into `issues` as a sample (`scope: "unattributed"`)
-  rather than flooding the response.
+  and `total_mod_wide`, so a nonzero mod-wide count is visible even when your
+  files are clean. For `equipment_variants`, a context change may affect an
+  unchanged consumer. Context paths include `.txt` files under
+  `common/technologies/`, `common/technology_tags/`, `common/bookmarks/`,
+  `history/countries/`, `common/decisions/categories/`,
+  `common/national_focus/`, and `events/`, plus `.txt` files under `common/`,
+  `events/`, or `history/` containing event-call tokens. Deleted context files
+  also count in changed and staged modes; changed mode includes rename sources.
+  When one of these files changes, warnings at unchanged consumers may be
+  included at their original file and line with `scope: "related"`. This marks
+  a potentially related warning; the upstream validator provides no dependency
+  metadata to prove the edit caused it. The check entry's `related` count is
+  the full number of such warnings; `total` remains the count on changed
+  files. Overall lint counts include related warnings, and
+  `issues_total_after_filter` includes those
+  passing `severity_min`. The final `issues` array is subject to `limit` and
+  the response byte budget; `truncated` flags omitted details. Issues without
+  a resolvable file — some validators bury the filename in the message or omit
+  it — are counted as `unattributed` on the entry. The first few appear in
+  `issues` as samples (`scope: "unattributed"`) to avoid flooding the response.
 - **`severity_min="info"`** — drops issues below `info` / `warning` / `error`.
-- **`limit=500`** — caps the issues array. `truncated` flags overflow.
+- **`limit=500`** — caps the issues array. `truncated` flags details omitted by
+  this limit or the response byte budget.
 - **`counts_only=True`** — omit the issues array; return per-check + overall counts only.
 
 Returns:

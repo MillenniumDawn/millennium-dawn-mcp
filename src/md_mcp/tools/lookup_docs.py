@@ -10,6 +10,14 @@ from ..config import Settings
 from ..util.response import coerce_int, enforce_budget, paginate
 
 _DOC_KINDS = frozenset(("effect", "trigger", "modifier"))
+_SYSTEM_DOC_KINDS = {
+    "doc": Path(".claude/docs"),
+    "docs": Path(".claude/docs"),
+    "claude_docs": Path(".claude/docs"),
+    "rule": Path(".claude/rules"),
+    "rules": Path(".claude/rules"),
+    "claude_rules": Path(".claude/rules"),
+}
 _DOC_RELATIVE_PATHS = {
     "effect": Path("resources/documentation/effects_documentation.md"),
     "trigger": Path("resources/documentation/triggers_documentation.md"),
@@ -32,12 +40,15 @@ def lookup_docs_tool(
     if key is not None:
         result_context["key"] = key
 
-    if normalized_kind not in _DOC_KINDS:
+    if normalized_kind not in _DOC_KINDS and normalized_kind not in _SYSTEM_DOC_KINDS:
         return enforce_budget(
             {
                 "ok": False,
                 **result_context,
-                "error": "kind must be one of: effect, trigger, modifier",
+                "error": (
+                    "kind must be one of: effect, trigger, modifier, doc, docs, "
+                    "claude_docs, rule, rules, claude_rules"
+                ),
             }
         )
 
@@ -46,6 +57,16 @@ def lookup_docs_tool(
         offset = coerce_int(offset, name="offset", default=0)
     except ValueError as exc:
         return enforce_budget({"ok": False, **result_context, "error": str(exc)})
+
+    if normalized_kind in _SYSTEM_DOC_KINDS:
+        return _lookup_system_docs(
+            settings.mod_root,
+            normalized_kind,
+            _SYSTEM_DOC_KINDS[normalized_kind],
+            key,
+            limit,
+            offset,
+        )
 
     relative_path = _DOC_RELATIVE_PATHS[normalized_kind]
     path = settings.mod_root / relative_path
@@ -120,6 +141,125 @@ def lookup_docs_tool(
         },
         heavy_keys=("entries",),
     )
+
+
+def _lookup_system_docs(
+    mod_root: Path,
+    kind: str,
+    relative_dir: Path,
+    key: Optional[str],
+    limit: int,
+    offset: int,
+) -> dict:
+    directory = mod_root / relative_dir
+    context = {"kind": kind}
+    if key is not None:
+        context["key"] = key
+    if not directory.is_dir():
+        return enforce_budget(
+            {
+                "ok": False,
+                **context,
+                "file": relative_dir.as_posix(),
+                "error": f"Documentation directory not found: {relative_dir.as_posix()}",
+            }
+        )
+
+    try:
+        documents = _read_system_documents(directory, relative_dir)
+    except (OSError, UnicodeError) as exc:
+        return enforce_budget(
+            {
+                "ok": False,
+                **context,
+                "file": relative_dir.as_posix(),
+                "error": f"Could not read documentation: {exc}",
+            }
+        )
+
+    if key is not None:
+        lowered = key.casefold()
+        matches = [
+            document
+            for document in documents
+            if lowered in {alias.casefold() for alias in document["aliases"]}
+        ]
+        if not matches:
+            suggestions = difflib.get_close_matches(
+                lowered,
+                [document["key"].casefold() for document in documents],
+                n=5,
+                cutoff=0.5,
+            )
+            canonical = {document["key"].casefold(): document["key"] for document in documents}
+            suggestions = [canonical[item] for item in suggestions]
+            page, truncated, total = paginate(suggestions, offset=offset, limit=limit)
+            return enforce_budget(
+                {
+                    "ok": False,
+                    **context,
+                    "file": relative_dir.as_posix(),
+                    "error": f"No {kind} documentation found for {key!r}",
+                    "total": total,
+                    "returned": len(page),
+                    "truncated": truncated,
+                    "suggestions": page,
+                },
+                heavy_keys=("suggestions",),
+            )
+        page, truncated, total = paginate(matches, offset=offset, limit=limit)
+        first = matches[0]
+        return enforce_budget(
+            {
+                "ok": True,
+                **context,
+                "file": first["file"],
+                "line": first["line"],
+                "total": total,
+                "returned": len(page),
+                "truncated": truncated,
+                "entries": page,
+            },
+            heavy_keys=("entries",),
+        )
+
+    summaries = [_entry_summary(document) | {"title": document["title"]} for document in documents]
+    page, truncated, total = paginate(summaries, offset=offset, limit=limit)
+    return enforce_budget(
+        {
+            "ok": True,
+            **context,
+            "total": total,
+            "returned": len(page),
+            "truncated": truncated,
+            "entries": page,
+        },
+        heavy_keys=("entries",),
+    )
+
+
+def _read_system_documents(directory: Path, relative_dir: Path) -> list[dict]:
+    documents: list[dict] = []
+    for path in sorted(directory.rglob("*.md")):
+        if not path.is_file():
+            continue
+        relative_path = relative_dir / path.relative_to(directory)
+        content = path.read_text(encoding="utf-8")
+        lines = content.splitlines()
+        key = relative_path.with_suffix("").as_posix()
+        title = next((line.lstrip("#").strip() for line in lines if line.startswith("# ")), key)
+        documents.append(
+            {
+                "key": key,
+                "aliases": (key, relative_path.as_posix(), path.name, path.stem, title),
+                "title": title,
+                "content": content,
+                "file": relative_path.as_posix(),
+                "line": 1,
+                "end_line": len(lines),
+            }
+        )
+    return documents
 
 
 def _read_entries(path: Path, relative_path: str) -> dict[str, list[dict]]:

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from ..util.encoding import read_text
+from ..analysis.suppressions import suppressed_count
 from ..validators import SLOW_VALIDATORS, ValidatorRunner
 from ..validators.attribution import IssueAttributor
 
@@ -242,6 +243,15 @@ SCAN_PREFIXES: dict[str, tuple[str, ...]] = _scan_prefixes()
 
 def _validators_for_path(path: str) -> set[str]:
     names: set[str] = set()
+    if (
+        path.startswith("localisation/")
+        and path.endswith(".yml")
+        and not path.startswith("localisation/english/")
+    ):
+        # Upstream intentionally audits English localisation only. Explicit
+        # validators remain an opt-in escape hatch; auto routing must not flag
+        # expected non-English drift.
+        return names
     for prefix, vals in VALIDATOR_AUTO_MAP:
         if path.startswith(prefix):
             names.update(vals)
@@ -367,7 +377,8 @@ def run_validators_for_lint(
             check_entries.append({"name": label, "ok": False, "error": result.get("error")})
             continue
 
-        raw = result.get("issues", []) or []
+        raw = list(result.get("issues", []) or [])
+        suppressed = suppressed_count(result)
         prefixes = SCAN_PREFIXES.get(name, ())
         on_scope: list[dict] = []
         related: list[dict] = []
@@ -385,8 +396,11 @@ def run_validators_for_lint(
             on_scope = raw
 
         entry = {"name": label, "ok": True, "total": len(on_scope)}
+        if suppressed:
+            entry["suppressed_mod_wide"] = suppressed
+            entry["suppression_source"] = ".claude/docs/known-false-positives.md"
         if wanted is not None:
-            entry["total_mod_wide"] = len(raw)
+            entry["total_mod_wide"] = len(raw) + suppressed
             if related:
                 entry["related"] = len(related)
             if unattributed:

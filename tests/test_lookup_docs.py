@@ -32,6 +32,12 @@ def _write_docs(mod_root, kind: str, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def _write_system_doc(mod_root, tree: str, name: str, content: str) -> None:
+    path = mod_root / ".claude" / tree / f"{name}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
 def test_lookup_docs_signature() -> None:
     parameters = inspect.signature(lookup_docs_tool).parameters
     assert list(parameters) == ["settings", "kind", "key", "limit", "offset"]
@@ -219,20 +225,55 @@ def test_lookup_docs_missing_file(fake_mod_root, cache_dir) -> None:
     assert "not found" in out["error"].lower()
 
 
+def test_lookup_docs_exposes_claude_docs_and_rules_with_budgeted_pages(
+    fake_mod_root, cache_dir
+) -> None:
+    _write_system_doc(fake_mod_root, "docs", "workflow", "# Workflow\n\nUse the safe workflow.\n")
+    _write_system_doc(fake_mod_root, "rules", "content", "# Content Rules\n\nKeep edits scoped.\n")
+    settings = _settings(fake_mod_root, cache_dir)
+
+    docs = lookup_docs_tool(settings, "claude_docs")
+    exact = lookup_docs_tool(settings, "doc", key="workflow")
+    rules = lookup_docs_tool(settings, "rules", key="content")
+
+    assert docs["ok"] is True
+    assert docs["total"] == 1
+    assert docs["entries"][0]["file"] == ".claude/docs/workflow.md"
+    assert exact["ok"] is True
+    assert "Use the safe workflow." in exact["entries"][0]["content"]
+    assert exact["file"] == ".claude/docs/workflow.md"
+    assert rules["ok"] is True
+    assert "Keep edits scoped." in rules["entries"][0]["content"]
+
+
+def test_lookup_docs_missing_claude_tree_is_graceful(fake_mod_root, cache_dir) -> None:
+    out = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "claude_rules")
+
+    assert out["ok"] is False
+    assert ".claude/rules" in out["file"]
+    assert "not found" in out["error"].lower()
+
+
 def test_lookup_docs_mcp_registration_and_call(fake_mod_root, cache_dir) -> None:
     _write_docs(fake_mod_root, "effect", "# Effects\n\n## test_effect\nA test effect.\n")
+    _write_system_doc(fake_mod_root, "docs", "workflow", "# Workflow\n\nUse the workflow.\n")
     server = build_server(_settings(fake_mod_root, cache_dir))
 
     async def go():
-        return await server.list_tools(), await server.call_tool(
-            "lookup_docs", {"kind": "effect", "key": "test_effect"}
+        return (
+            await server.list_tools(),
+            await server.call_tool("lookup_docs", {"kind": "effect", "key": "test_effect"}),
+            await server.call_tool("lookup_docs", {"kind": "claude_docs", "key": "workflow"}),
         )
 
-    tools, result = asyncio.run(go())
+    tools, result, system_result = asyncio.run(go())
     assert "lookup_docs" in {tool.name for tool in tools}
     payload = json.loads(cast(Any, result)[0].text)
     assert payload["ok"] is True
     assert payload["entries"][0]["key"] == "test_effect"
+    system_payload = json.loads(cast(Any, system_result)[0].text)
+    assert system_payload["ok"] is True
+    assert "Use the workflow." in system_payload["entries"][0]["content"]
 
 
 @pytest.mark.integration

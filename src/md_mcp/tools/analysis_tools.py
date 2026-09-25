@@ -117,7 +117,12 @@ def _filter_deep(
     skipped_files: set[str] = set()
     skipped_records = 0
     for parsed in iter_scope_files(
-        by_file, settings.mod_root, settings.vanilla_path, errors, skipped_files
+        by_file,
+        settings.mod_root,
+        settings.vanilla_path,
+        errors,
+        failed_files=skipped_files,
+        submod_root=settings.submod_root,
     ):
         relpath = parsed.relpath
         group = by_file[relpath]

@@ -104,8 +104,14 @@ class ValidatorRunner:
     the validator *instances* (their internal state is per-run).
     """
 
-    def __init__(self, mod_root: Path, mode: str = "isolated"):
+    def __init__(
+        self,
+        mod_root: Path,
+        mode: str = "isolated",
+        submod_root: Optional[Path] = None,
+    ):
         self.mod_root = mod_root
+        self.submod_root = submod_root
         self.mode = "isolated" if mode == "subprocess" else mode
         self._infos: Optional[dict[str, ValidatorInfo]] = None
         self._modules: dict[str, object] = {}
@@ -116,7 +122,7 @@ class ValidatorRunner:
         """Lazily-built, shared path index. Building it shells out `git ls-files`
         over the whole mod, so reuse it across validator runs in one call."""
         if self._attributor_cache is None:
-            self._attributor_cache = IssueAttributor(self.mod_root)
+            self._attributor_cache = IssueAttributor(self.mod_root, self.submod_root)
         return self._attributor_cache
 
     def list(self) -> builtins.list[ValidatorInfo]:

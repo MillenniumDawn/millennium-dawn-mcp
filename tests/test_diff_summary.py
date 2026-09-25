@@ -22,6 +22,7 @@ import subprocess
 import textwrap
 import types
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -162,6 +163,21 @@ def test_valid_bases_are_accepted(git_repo: Path):
     out = diff_summary(git_repo, base="HEAD")
     assert out["ok"] is True
     assert out["total_files"] == 0
+
+
+def test_diff_summary_uses_submod_worktree_for_git(tmp_path: Path, git_repo: Path):
+    _write(git_repo, "common/national_focus/Overlay.txt", "focus_tree = {}\n")
+    _add_and_commit(git_repo, "common/national_focus/Overlay.txt", message="overlay change")
+
+    call_diff_summary = cast(Any, diff_summary)
+    out = call_diff_summary(
+        tmp_path,
+        base="HEAD~1",
+        with_ids=False,
+        submod_root=git_repo,
+    )
+    assert out["ok"] is True
+    assert out["files"][0]["path"] == "common/national_focus/Overlay.txt"
 
 
 # --- core diff behaviour against a real repo ------------------------------

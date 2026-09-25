@@ -34,15 +34,16 @@ def iter_scope_files(
     vanilla_path: Optional[Path],
     errors: list[dict],
     failed_files: Optional[set[str]] = None,
+    submod_root: Optional[Path] = None,
 ) -> Iterator[ScopeFile]:
-    """Yield parsed scope files, recording mod-then-vanilla resolution errors in order."""
+    """Yield parsed scope files, recording root-resolution errors in order."""
     for relpath in relpaths:
-        abs_path = resolve_scope_file(relpath, mod_root, vanilla_path)
+        abs_path = resolve_scope_file(relpath, mod_root, vanilla_path, submod_root)
         if abs_path is None:
             _record_error(errors, failed_files, relpath, "not found")
             continue
         try:
-            # abs_path is constrained to mod_root/vanilla by resolve_scope_file.
+            # abs_path is constrained to the configured content roots.
             # pi-lens-ignore: python-path-traversal
             text = read_text(abs_path)
             root = parse_string(text)

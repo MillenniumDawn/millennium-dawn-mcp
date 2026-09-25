@@ -32,13 +32,14 @@ def parse_file_tool(
     mod_root: Path,
     vanilla_path: Path | None = None,
     *,
+    submod_root: Path | None = None,
     max_bytes: int = _DEFAULT_MAX_BYTES,
     top_level_only: bool = False,
 ) -> dict:
-    """Parse a `.txt`/`.gfx` file under `mod_root` or `vanilla_path`.
+    """Parse a `.txt`/`.gfx` file under the configured content roots.
 
-    `path` may be absolute or relative to `mod_root`; relative paths always resolve
-    against `mod_root`, never `vanilla_path`. Rejects paths that resolve outside both
+    `path` may be absolute or relative; relative paths resolve submod-first, then
+    `mod_root`, then `vanilla_path`. Rejects paths that resolve outside all
     roots (including `..` traversal and symlink escapes), non-regular files, and
     unsupported extensions.
 
@@ -49,7 +50,7 @@ def parse_file_tool(
                         a compact map for orienting in a large file.
     """
     try:
-        resolved = _resolve_path(path, mod_root, vanilla_path)
+        resolved = _resolve_path(path, mod_root, vanilla_path, submod_root)
     except PathAccessError as e:
         return {"ok": False, "error": str(e)}
 
@@ -116,12 +117,17 @@ def parse_string_tool(text: str) -> dict:
     )
 
 
-def _resolve_path(path: str, mod_root: Path, vanilla_path: Path | None) -> Path:
-    """Resolve `path` to a regular `.txt`/`.gfx` file under `mod_root` or `vanilla_path`.
+def _resolve_path(
+    path: str,
+    mod_root: Path,
+    vanilla_path: Path | None,
+    submod_root: Path | None = None,
+) -> Path:
+    """Resolve `path` to a regular `.txt`/`.gfx` file under the content roots.
 
     Delegates to the shared containment check in `util.pathing`; raises
     `PathAccessError` for anything outside the roots, a non-regular file, or an
     unsupported extension.
     """
-    roots = [mod_root] if vanilla_path is None else [mod_root, vanilla_path]
+    roots = [root for root in (submod_root, mod_root, vanilla_path) if root is not None]
     return validate_user_path(path, roots, extensions=_ALLOWED_EXTENSIONS, require_file=True)

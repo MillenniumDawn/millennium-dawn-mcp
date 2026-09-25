@@ -1,4 +1,4 @@
-"""Server configuration: mod-root, vanilla path, cache dir.
+"""Server configuration: mod-root, optional submod overlay, vanilla path, cache dir.
 
 CLI flags > env vars > config file > defaults. Loaded once at startup and passed
 into the index and tool layers.
@@ -26,13 +26,24 @@ class Settings:
     cache_dir: Path
     validator_mode: str = "isolated"  # or "in_process"
     default_lang: str = "en"
+    submod_root: Optional[Path] = None
 
 
-def load(mod_root: Optional[str] = None) -> Settings:
-    """Resolve all settings. `mod_root`, when given, takes precedence over env/config."""
+def load(mod_root: str | Path | None = None, submod_root: str | Path | None = None) -> Settings:
+    """Resolve all settings. Explicit roots take precedence over env/config."""
     file_cfg = _load_file_config()
 
     root = find_mod_root(mod_root or os.environ.get("MD_MOD_ROOT") or file_cfg.get("mod_root"))
+
+    submod_setting = (
+        submod_root or os.environ.get("MD_MCP_SUBMOD_ROOT") or file_cfg.get("submod_root")
+    )
+    submod: Optional[Path] = None
+    if submod_setting:
+        candidate = Path(submod_setting).expanduser().resolve()
+        if not candidate.is_dir():
+            raise RuntimeError(f"submod_root must be an existing directory: {candidate}")
+        submod = candidate
 
     # Vanilla support is opt-in. Reason: indexing vanilla doubles cold-build time and
     # forces a full reparse if the cache was built without it. Users rarely need
@@ -49,7 +60,7 @@ def load(mod_root: Optional[str] = None) -> Settings:
     cache_dir = (
         Path(cache_setting).expanduser().resolve()
         if cache_setting
-        else root / DEFAULT_CACHE_DIRNAME
+        else (submod or root) / DEFAULT_CACHE_DIRNAME
     )
 
     validator_mode = os.environ.get("MD_MCP_VALIDATOR_MODE") or file_cfg.get(
@@ -65,6 +76,7 @@ def load(mod_root: Optional[str] = None) -> Settings:
         mod_root=root,
         vanilla_path=v,
         cache_dir=cache_dir,
+        submod_root=submod,
         validator_mode=validator_mode,
         default_lang=os.environ.get("MD_MCP_DEFAULT_LANG") or file_cfg.get("default_lang", "en"),
     )

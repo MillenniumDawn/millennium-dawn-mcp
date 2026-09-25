@@ -50,8 +50,9 @@ _WALK_ROOTS = ("common", "events", "history", "interface", "localisation", "gfx"
 class IssueAttributor:
     """Maps validator issues onto mod-relative paths. Index built once, lazily."""
 
-    def __init__(self, mod_root: Path):
+    def __init__(self, mod_root: Path, submod_root: Optional[Path] = None):
         self.mod_root = Path(mod_root)
+        self.submod_root = Path(submod_root) if submod_root is not None else None
         self._index: Optional[dict[str, list[str]]] = None
         self._path_set: Optional[frozenset[str]] = None
 
@@ -99,7 +100,7 @@ class IssueAttributor:
     def _paths(self) -> frozenset[str]:
         """Every mod-relative file path. Built once, then O(1) membership."""
         if self._path_set is None:
-            self._path_set = frozenset(_list_mod_files(self.mod_root))
+            self._path_set = frozenset(_list_mod_files(self.mod_root, self.submod_root))
         return self._path_set
 
 
@@ -110,14 +111,15 @@ def _normalise(value: str) -> str:
     return value
 
 
-def _list_mod_files(mod_root: Path) -> tuple[str, ...]:
-    """Every mod-relative file path. `git ls-files` when possible, else a walk."""
+def _list_mod_files(mod_root: Path, submod_root: Optional[Path] = None) -> tuple[str, ...]:
+    """Every active-worktree-relative file path, using the submod git repo when set."""
+    git_root = submod_root or mod_root
     try:
         proc = subprocess.run(
             # --others picks up files the user just created; lint's changed-file
             # scope includes them, so attribution has to see them too.
             ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-            cwd=str(mod_root),
+            cwd=str(git_root),
             check=False,
             capture_output=True,
             stdin=subprocess.DEVNULL,
@@ -133,10 +135,10 @@ def _list_mod_files(mod_root: Path) -> tuple[str, ...]:
 
     out: list[str] = []
     for root_name in _WALK_ROOTS:
-        root = mod_root / root_name
+        root = git_root / root_name
         if not root.is_dir():
             continue
         for dirpath, _dirnames, filenames in os.walk(root):
-            rel_dir = os.path.relpath(dirpath, mod_root).replace(os.sep, "/")
+            rel_dir = os.path.relpath(dirpath, git_root).replace(os.sep, "/")
             out.extend(f"{rel_dir}/{f}" for f in filenames)
     return tuple(out)

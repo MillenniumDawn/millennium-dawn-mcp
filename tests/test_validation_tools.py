@@ -105,6 +105,21 @@ def test_validate_list_budget_guard_drops_oversized_validator_page(fake_mod_root
     assert len(json.dumps(result).encode("utf-8")) <= BUDGET_BYTES
 
 
+def test_validate_default_skips_non_english_localisation(fake_mod_root):
+    _plant(fake_mod_root, "french_probe", _GOOD)
+
+    result = validate_tool(
+        _settings(fake_mod_root),
+        ValidatorRunner(fake_mod_root),
+        files=["localisation/french/probe_l_french.yml"],
+    )
+
+    assert result["ok"] is True
+    assert result["skipped_files"] == 1
+    assert result["counts"] == {"error": 0, "warning": 0, "info": 0}
+    assert result["issues"] == []
+
+
 def test_validate_all_ok_when_every_validator_ok(fake_mod_root):
     _plant(fake_mod_root, "good", _GOOD)
     result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root))

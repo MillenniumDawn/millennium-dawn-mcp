@@ -229,10 +229,7 @@ _BROAD_HISTORY = {
                 "scripted_gui",
             },
         ),
-        (
-            "localisation/french/MD_focus_USA_l_french.yml",
-            {"file_paths", "gfx_references", "ideas", "localisation", "mios", "scripted_gui"},
-        ),
+        ("localisation/french/MD_focus_USA_l_french.yml", set()),
         ("music/01_theme.txt", {"file_paths", "style"}),
         ("descriptor.mod", {"mod_descriptors"}),
     ],

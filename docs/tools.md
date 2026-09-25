@@ -493,12 +493,17 @@ to mod files. Caller-supplied script and localisation content is guarded by
 `enforce_budget`; an oversized response sets `size_truncated` and reports
 dropped keys instead of exceeding the MCP response cap.
 
-### `generate_focus(id, tag, x, y, ...) -> dict`
+### `generate_focus(id, tag, x?, y?, ...) -> dict`
 
-Scaffold a `focus = { ... }` block. Optional fields: `cost`, `icon`,
+Scaffold a `focus = { ... }` block. Optional fields: `x`, `y`, `cost`, `icon`,
 `relative_position_id`, `prerequisites`, `mutually_exclusive`,
 `search_filters`, `available`, `completion_reward`, `ai_base`, `title`,
 `description`.
+
+`x` and `y` default to `0` and `1`, a child directly under its
+`relative_position_id`. Focus frames are wider than they are tall, so the
+convention is 2 apart on x for siblings and 1 apart on y for tiers. Go wider
+only when the user asks.
 
 Returns `{txt, loc_yml_keys: [{key, value}, ...]}`. The loc rows are stubs
 the agent should add to the country's `_l_english.yml`.

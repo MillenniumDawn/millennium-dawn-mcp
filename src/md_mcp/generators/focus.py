@@ -23,8 +23,8 @@ def generate_focus(
     *,
     id: str,
     tag: str,
-    x: int,
-    y: int,
+    x: int = 0,
+    y: int = 1,
     cost: float = 10,
     icon: Optional[str] = None,
     relative_position_id: Optional[str] = None,
@@ -42,7 +42,11 @@ def generate_focus(
     Args:
       id                    — focus ID (e.g. `ISR_idf_modernization`); TAG must be uppercase
       tag                   — country tag (used for the auto search filter + log target)
-      x, y                  — grid coordinates
+      x, y                  — grid coordinates. Keep trees tight: siblings sit 2
+                              apart on x (focus frames are wide), each tier sits 1
+                              below its parent on y. Default (0, 1) places a child
+                              directly under `relative_position_id`. Use wider gaps
+                              only when the user asks for them.
       cost                  — political-power cost in 70-day chunks (default 10 = 1 month)
       icon                  — GFX_ sprite name; omit and a placeholder is inserted
       relative_position_id  — anchor focus id (recommended for non-root focuses)

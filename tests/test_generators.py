@@ -65,6 +65,12 @@ def test_focus_emits_prereq_and_mutex_correctly():
     assert rec["relative_position_id"] == "TST_root"
 
 
+def test_focus_defaults_to_tight_child_offset():
+    r = generate_focus(id="TST_child", tag="TST", relative_position_id="TST_root")
+    [rec] = extract_focus_records(parse_string("focus_tree = { id = test\n" + r["txt"] + "\n}"))
+    assert (rec["x"], rec["y"]) == (0, 1)
+
+
 def test_focus_includes_log_line():
     r = generate_focus(id="TST_x", tag="TST", x=0, y=0)
     assert 'log = "[GetDateText]: [Root.GetName]: Focus TST_x"' in r["txt"]

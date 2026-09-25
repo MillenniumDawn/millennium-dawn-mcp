@@ -76,6 +76,9 @@ EXPECTED_TOOLS = {
     "focus_layout",
     "diff_summary",
     "check_encoding",
+    "tick_audit",
+    "estimate_gdp",
+    "calculate_days",
 }
 
 

@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
+from ..analysis.suppressions import suppress_issues, suppressed_count
 from ..util.response import BUDGET_BYTES, enforce_budget
 from ..validators import SEVERITY_RANK, SLOW_VALIDATORS, ValidatorRunner
 from .lint_validators import STYLE_PREFIXES, run_validators_for_lint, select_validators
@@ -534,6 +535,7 @@ def lint_tool(
     per_check: list[dict] = []
     all_issues: list[dict] = []
     overall = {"error": 0, "warning": 0, "info": 0}
+    suppressed_total = 0
 
     for name in selected:
         result = runners[name]()
@@ -550,7 +552,12 @@ def lint_tool(
             if result.get("stderr_tail"):
                 check_summary["stderr_tail"] = result["stderr_tail"]
         else:
-            issues = result.get("issues", []) or []
+            issues, suppressed = suppress_issues(result.get("issues", []) or [], mod_root)
+            if suppressed:
+                suppressed_total += suppressed
+                check_summary["suppressed"] = suppressed
+                check_summary["suppression_source"] = ".claude/docs/known-false-positives.md"
+                check_summary["total"] = len(issues)
             # Tag each issue with which check produced it (helps the agent).
             for i in issues:
                 i.setdefault("check", name)
@@ -575,6 +582,7 @@ def lint_tool(
             sev = i.get("severity", "info")
             overall[sev] = overall.get(sev, 0) + 1
         all_issues.extend(v_issues)
+        suppressed_total += sum(suppressed_count(entry) for entry in v_entries)
 
     floor = SEVERITY_RANK.get(severity_min, 0)
     filtered = [i for i in all_issues if SEVERITY_RANK.get(i.get("severity", "info"), 0) >= floor]
@@ -593,6 +601,9 @@ def lint_tool(
         "truncated": truncated,
         "checks": per_check,
     }
+    if suppressed_total:
+        summary["suppressed"] = suppressed_total
+        summary["suppression_source"] = ".claude/docs/known-false-positives.md"
     if not counts_only:
         summary["issues"] = issues_capped
 

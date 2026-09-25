@@ -23,12 +23,14 @@ import os
 from pathlib import Path
 from typing import Optional, Sequence
 
+from ..analysis.suppressions import suppress_issues, suppressed_count
 from ..validators import SLOW_VALIDATORS, ValidatorRunner
 from ..validators.attribution import IssueAttributor
 
 # How many unattributable issues carry their detail into the response. The rest
 # survive as a count on the check entry.
 UNATTRIBUTED_SAMPLE = 5
+
 
 STYLE_PREFIXES: tuple[str, ...] = ("common/", "events/", "history/", "music/")
 AUTO_ROUTING_EXCLUDED = frozenset({"common_mistakes"})
@@ -223,6 +225,15 @@ SCAN_PREFIXES: dict[str, tuple[str, ...]] = _scan_prefixes()
 
 def _validators_for_path(path: str) -> set[str]:
     names: set[str] = set()
+    if (
+        path.startswith("localisation/")
+        and path.endswith(".yml")
+        and not path.startswith("localisation/english/")
+    ):
+        # Upstream intentionally audits English localisation only. Explicit
+        # validators remain an opt-in escape hatch; auto routing must not flag
+        # expected non-English drift.
+        return names
     for prefix, vals in VALIDATOR_AUTO_MAP:
         if path.startswith(prefix):
             names.update(vals)
@@ -289,7 +300,10 @@ def run_validators_for_lint(
             check_entries.append({"name": label, "ok": False, "error": result.get("error")})
             continue
 
-        raw = result.get("issues", []) or []
+        raw = list(result.get("issues", []) or [])
+        suppressed = suppressed_count(result)
+        if not suppressed:
+            raw, suppressed = suppress_issues(raw, mod_root or Path.cwd())
         prefixes = SCAN_PREFIXES.get(name, ())
         on_scope: list[dict] = []
         unattributed: list[dict] = []
@@ -304,8 +318,11 @@ def run_validators_for_lint(
             on_scope = raw
 
         entry = {"name": label, "ok": True, "total": len(on_scope)}
+        if suppressed:
+            entry["suppressed"] = suppressed
+            entry["suppression_source"] = ".claude/docs/known-false-positives.md"
         if wanted is not None:
-            entry["total_mod_wide"] = len(raw)
+            entry["total_mod_wide"] = len(raw) + suppressed
             if unattributed:
                 entry["unattributed"] = len(unattributed)
         check_entries.append(entry)

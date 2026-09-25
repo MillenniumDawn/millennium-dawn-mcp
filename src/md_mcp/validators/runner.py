@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from ..analysis.suppressions import suppress_issues  # pyright: ignore[reportMissingImports]
 from .attribution import IssueAttributor
 
 logger = logging.getLogger(__name__)
@@ -234,7 +235,8 @@ class ValidatorRunner:
 
         issues = [i.to_dict() for i in getattr(inst, "_issues", [])]
         kept, unattributed = _filter_by_files(issues, files, self._attributor())
-        return _summarise(info, kept, unattributed=unattributed)
+        kept, suppressed = suppress_issues(kept, self.mod_root)
+        return _summarise(info, kept, unattributed=unattributed, suppressed=suppressed)
 
     # ------------------------------------------------------------------
     # isolated mode (default)
@@ -296,7 +298,8 @@ class ValidatorRunner:
             return {"ok": False, "validator": info.name, "error": payload.get("error")}
 
         kept, unattributed = _filter_by_files(payload.get("issues", []), files, self._attributor())
-        return _summarise(info, kept, unattributed=unattributed)
+        kept, suppressed = suppress_issues(kept, self.mod_root)
+        return _summarise(info, kept, unattributed=unattributed, suppressed=suppressed)
 
 
 def _filter_by_files(
@@ -322,7 +325,13 @@ def _filter_by_files(
     return kept, unattributed
 
 
-def _summarise(info: ValidatorInfo, issues: list[dict], *, unattributed: int = 0) -> dict:
+def _summarise(
+    info: ValidatorInfo,
+    issues: list[dict],
+    *,
+    unattributed: int = 0,
+    suppressed: int = 0,
+) -> dict:
     counts = {"error": 0, "warning": 0, "info": 0}
     for i in issues:
         sev = i.get("severity", "info")
@@ -336,4 +345,7 @@ def _summarise(info: ValidatorInfo, issues: list[dict], *, unattributed: int = 0
     }
     if unattributed:
         result["unattributed"] = unattributed
+    if suppressed:
+        result["suppressed"] = suppressed
+        result["suppression_source"] = ".claude/docs/known-false-positives.md"
     return result

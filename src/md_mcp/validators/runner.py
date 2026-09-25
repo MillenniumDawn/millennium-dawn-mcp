@@ -23,6 +23,7 @@ import builtins
 import contextlib
 import importlib
 import importlib.util
+import inspect
 import io
 import json
 import logging
@@ -133,12 +134,13 @@ class ValidatorRunner:
         *,
         staged_only: bool = False,
         files: Optional[builtins.list[str]] = None,
+        post_filter: bool = True,
     ) -> dict:
         """Run a single validator. Returns {ok, validator, title, issues, counts}.
 
-        `files` is currently advisory — most validators don't expose a path-filter API,
-        so we filter the resulting issue list by file. `staged_only` uses the validator's
-        native staged-files mode.
+        When supported by the upstream shared collector, `files` scopes primary
+        inputs while definition passes can still request a full scan. Issues are
+        post-filtered unless `post_filter` is false.
         """
         info = self.get(name)
         if info is None:
@@ -149,8 +151,12 @@ class ValidatorRunner:
             }
 
         if self.mode == "in_process":
-            return self._run_inprocess(info, staged_only=staged_only, files=files)
-        return self._run_isolated(info, staged_only=staged_only, files=files)
+            return self._run_inprocess(
+                info, staged_only=staged_only, files=files, post_filter=post_filter
+            )
+        return self._run_isolated(
+            info, staged_only=staged_only, files=files, post_filter=post_filter
+        )
 
     # ------------------------------------------------------------------
     # in-process mode
@@ -180,6 +186,7 @@ class ValidatorRunner:
         *,
         staged_only: bool,
         files: Optional[builtins.list[str]],
+        post_filter: bool,
     ) -> dict:
         try:
             module = self._load_module(info)
@@ -211,6 +218,8 @@ class ValidatorRunner:
                 "error": f"Constructor failed: {e}",
             }
 
+        scoped = _configure_file_scope(inst, files)
+
         # Silence validator's stdout chatter — we only want the structured issues.
         # Catch SystemExit so a validator's `sys.exit()` doesn't kill the server.
         buf_out, buf_err = io.StringIO(), io.StringIO()
@@ -233,8 +242,11 @@ class ValidatorRunner:
             }
 
         issues = [i.to_dict() for i in getattr(inst, "_issues", [])]
-        kept, unattributed = _filter_by_files(issues, files, self._attributor())
-        return _summarise(info, kept, unattributed=unattributed)
+        if post_filter:
+            kept, unattributed = _filter_by_files(issues, files, self._attributor())
+        else:
+            kept, unattributed = issues, 0
+        return _summarise(info, kept, unattributed=unattributed, scoped=scoped)
 
     # ------------------------------------------------------------------
     # isolated mode (default)
@@ -246,6 +258,7 @@ class ValidatorRunner:
         *,
         staged_only: bool,
         files: Optional[builtins.list[str]],
+        post_filter: bool,
     ) -> dict:
         cmd = [
             sys.executable,
@@ -261,6 +274,11 @@ class ValidatorRunner:
 
         with tempfile.TemporaryDirectory(prefix="md-mcp-validator-") as td:
             out = Path(td) / "issues.json"
+            if files is not None:
+                scope = Path(td) / "files.json"
+                # pi-lens-ignore: python-path-traversal
+                scope.write_text(json.dumps(files), encoding="utf-8")
+                cmd.extend(["--files", str(scope)])
             try:
                 proc = subprocess.run(
                     [*cmd, "--out", str(out)],
@@ -269,14 +287,13 @@ class ValidatorRunner:
                     stdin=subprocess.DEVNULL,
                     timeout=600,
                 )
-            except subprocess.TimeoutExpired:
-                return {
-                    "ok": False,
-                    "validator": info.name,
-                    "error": "Validator timed out after 600s",
-                }
-            except Exception as e:
-                return {"ok": False, "validator": info.name, "error": str(e)}
+            except (OSError, subprocess.SubprocessError, ValueError) as e:
+                error = (
+                    "Validator timed out after 600s"
+                    if isinstance(e, subprocess.TimeoutExpired)
+                    else str(e)
+                )
+                return {"ok": False, "validator": info.name, "error": error}
 
             # A validator that dies before writing the payload must surface as a
             # failure. Reporting it as zero issues reads as a clean run.
@@ -295,8 +312,66 @@ class ValidatorRunner:
         if not payload.get("ok"):
             return {"ok": False, "validator": info.name, "error": payload.get("error")}
 
-        kept, unattributed = _filter_by_files(payload.get("issues", []), files, self._attributor())
-        return _summarise(info, kept, unattributed=unattributed)
+        issues = payload.get("issues", [])
+        if post_filter:
+            kept, unattributed = _filter_by_files(issues, files, self._attributor())
+        else:
+            kept, unattributed = issues, 0
+        return _summarise(info, kept, unattributed=unattributed, scoped=bool(payload.get("scoped")))
+
+
+def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:
+    if files is None:
+        return False
+    collector = getattr(inst, "_collect_files", None)
+    if not callable(collector):
+        return False
+    code = getattr(collector, "__code__", None)
+    if (
+        code is None
+        or "ignore_staged" not in code.co_varnames
+        or not {"staged_only", "staged_files"}.issubset(code.co_names)
+    ):
+        return False
+    try:
+        signature = inspect.signature(collector)
+    except (TypeError, ValueError):
+        return False
+
+    mod_root = Path(inst.mod_path).resolve()
+    normalized = [f.replace("\\", "/") for f in files]
+    for file in normalized:
+        relative = Path(file)
+        if relative.is_absolute() or ".." in relative.parts:
+            return False
+        try:
+            (mod_root / relative).resolve().relative_to(mod_root)
+        except (OSError, RuntimeError, ValueError):
+            return False
+
+    original_staged_only = getattr(inst, "staged_only", False)
+    original_staged_files = getattr(inst, "staged_files", None)
+
+    def scoped_collect(*args, **kwargs):
+        try:
+            bound = signature.bind_partial(*args, **kwargs)
+        except TypeError:
+            return collector(*args, **kwargs)
+        if bound.arguments.get("ignore_staged", False):
+            return collector(*args, **kwargs)
+        try:
+            inst.staged_files = normalized
+            inst.staged_only = True
+            return collector(*args, **kwargs)
+        finally:
+            inst.staged_only = original_staged_only
+            inst.staged_files = original_staged_files
+
+    try:
+        inst._collect_files = scoped_collect
+    except (AttributeError, TypeError):
+        return False
+    return True
 
 
 def _filter_by_files(
@@ -308,7 +383,7 @@ def _filter_by_files(
     each issue is resolved to a real path via `IssueAttributor` before the scope
     test. Issues that won't resolve are counted, not guessed into scope.
     """
-    if not files:
+    if files is None:
         return issues, 0
     wanted = {os.path.normpath(f) for f in files}
     kept: list[dict] = []
@@ -322,7 +397,9 @@ def _filter_by_files(
     return kept, unattributed
 
 
-def _summarise(info: ValidatorInfo, issues: list[dict], *, unattributed: int = 0) -> dict:
+def _summarise(
+    info: ValidatorInfo, issues: list[dict], *, unattributed: int = 0, scoped: bool = False
+) -> dict:
     counts = {"error": 0, "warning": 0, "info": 0}
     for i in issues:
         sev = i.get("severity", "info")
@@ -336,4 +413,6 @@ def _summarise(info: ValidatorInfo, issues: list[dict], *, unattributed: int = 0
     }
     if unattributed:
         result["unattributed"] = unattributed
+    if scoped:
+        result["scoped"] = True
     return result

@@ -483,6 +483,38 @@ or parser fails, `id_diff` contains `base_error`, `head_error`, or `error`, and 
 ID delta is reported for that file. Deleted files do not perform an ID read.
 Invalid bases and Git failures return `{ok: false, error, error_msg?}`.
 
+### `tick_audit(tag?, limit?, offset?) -> dict`
+
+Run upstream `tools/analysis/tick_audit.py` in an isolated subprocess. The
+summary reports indexed counts, per-cadence totals, timed-decision/event-loop
+counts, and a paginated sample of recurring hooks. `tag` filters the hook
+sample to that country and global hooks; `limit=20` and `offset=0` page it.
+Returns `{ok, tag, totals, cadences, timed_decisions, event_loops, event_fires,
+total, returned, truncated, hooks}`. Each hook sample includes file/line,
+work-unit counts, and counts of referenced effects/events. Subprocess failures
+and timeouts return `{ok: false, error}`.
+
+### `estimate_gdp(tag) -> dict`
+
+Run upstream `tools/analysis/estimate_gdp.py` for exactly one country tag. It
+loads GDP ideas and matching state histories in an isolated subprocess; it
+does not calculate all-country rankings. Returns `{ok, tag, gdp_total,
+gdp_per_capita, population, population_m, states, overall_productivity,
+breakdown}`, where `breakdown` contains buildings, healthcare, agriculture,
+and resources. A missing tag or subprocess failure returns `{ok: false,
+error}`.
+
+### `calculate_days(year, month, day) -> dict`
+
+Calculate a date's day offset from 2000 using the arithmetic ported from the
+upstream interactive `calculate_days.py`: 365 days per year, February has 28
+days, and leap years are not applied. Rejects years before 2000 and invalid
+months/days. Returns `{ok: true, days}` or `{ok: false, error}`.
+
+All three tools run via an isolated subprocess with a timeout; they do not
+write to the mod or vanilla installation. List-bearing responses enforce the
+normal output budget.
+
 ---
 
 ## Generators — return strings, never write

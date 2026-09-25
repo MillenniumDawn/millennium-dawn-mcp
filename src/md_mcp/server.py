@@ -62,6 +62,11 @@ from .tools.resolver_tools import (
     resolve_loc_tool,
     resolve_sprite_tool,
 )
+from .tools.upstream_analysis import (
+    calculate_days_tool,
+    estimate_gdp_tool,
+    tick_audit_tool,
+)
 from .tools.validation_tools import validate_list_tool, validate_tool
 from .validators import ValidatorRunner
 
@@ -321,6 +326,25 @@ def build_server(settings: Settings):
     )(generate_loc_stub)
 
     # ---------- M3 analysis ----------
+
+    @mcp.tool(name="tick_audit")
+    def _tick_audit(
+        tag: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> dict:
+        """Summarize recurring tick work. tag filters hooks; limit/offset page hook samples."""
+        return tick_audit_tool(settings.mod_root, tag=tag, limit=limit, offset=offset)
+
+    @mcp.tool(name="estimate_gdp")
+    def _estimate_gdp(tag: str) -> dict:
+        """Estimate one country's starting GDP from upstream history. Requires a country tag."""
+        return estimate_gdp_tool(settings.mod_root, tag)
+
+    @mcp.tool(name="calculate_days")
+    def _calculate_days(year: int, month: int, day: int) -> dict:
+        """Calculate days since 2000 using fixed non-leap years; validates year, month, and day."""
+        return calculate_days_tool(settings.mod_root, year, month, day)
 
     @mcp.tool(name="focus_graph")
     def _focus_graph(

@@ -64,6 +64,48 @@ class Validator:
 """
 )
 
+_STAGED_GUARD_VALIDATOR = (
+    _ISSUE
+    + """
+from pathlib import Path
+
+last_instance = None
+
+
+class Validator:
+    def __init__(self, mod_path, use_colors=False, staged_only=False, **kwargs):
+        global last_instance
+        self.mod_path = Path(mod_path)
+        self.staged_only = staged_only
+        self.staged_files = None
+        self._issues = []
+        last_instance = self
+
+    def _collect_files(self, patterns, ignore_staged=False):
+        files = sorted(self.mod_path.glob(patterns[0]))
+        if self.staged_only and not ignore_staged:
+            selected = set(self.staged_files or [])
+            files = [
+                path for path in files
+                if path.relative_to(self.mod_path).as_posix() in selected
+            ]
+        return files
+
+    def run_all_validations(self):
+        if self.staged_only:
+            return
+        for path in self._collect_files(["events/*.txt"]):
+            self._issues.append(
+                _Issue(
+                    severity="warning",
+                    category="event",
+                    message="checked",
+                    file=path.relative_to(self.mod_path).as_posix(),
+                )
+            )
+"""
+)
+
 _LEGACY_VALIDATOR = (
     _ISSUE
     + """
@@ -132,6 +174,20 @@ def _assert_primary_scope(root: Path, mode: str) -> None:
 def test_scope_limits_primary_inputs_and_keeps_full_definition_lookups(tmp_path):
     for mode in ("isolated", "in_process"):
         _assert_primary_scope(tmp_path / mode / "Mod", mode)
+
+
+def test_scoped_collect_does_not_leave_staged_only_enabled(tmp_path):
+    root = tmp_path / "Mod"
+    _write_fixture(root, "staged_guard", _STAGED_GUARD_VALIDATOR)
+    runner = ValidatorRunner(root, mode="in_process")
+    target = "events/Algeria.txt"
+
+    result = runner.run("staged_guard", files=[target], post_filter=False)
+    validator = runner._modules["validate_staged_guard"].last_instance
+
+    assert result["scoped"] is True
+    assert [issue["file"] for issue in result["issues"]] == [target]
+    assert validator.staged_only is False
 
 
 def test_scope_rejects_paths_outside_the_mod_root(tmp_path):

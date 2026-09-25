@@ -23,6 +23,7 @@ import builtins
 import contextlib
 import importlib
 import importlib.util
+import inspect
 import io
 import json
 import logging
@@ -323,12 +324,18 @@ def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:
     if files is None:
         return False
     collector = getattr(inst, "_collect_files", None)
+    if not callable(collector):
+        return False
     code = getattr(collector, "__code__", None)
     if (
         code is None
         or "ignore_staged" not in code.co_varnames
         or not {"staged_only", "staged_files"}.issubset(code.co_names)
     ):
+        return False
+    try:
+        signature = inspect.signature(collector)
+    except (TypeError, ValueError):
         return False
 
     mod_root = Path(inst.mod_path).resolve()
@@ -342,8 +349,28 @@ def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:
         except (OSError, RuntimeError, ValueError):
             return False
 
-    inst.staged_files = normalized
-    inst.staged_only = True
+    original_staged_only = getattr(inst, "staged_only", False)
+    original_staged_files = getattr(inst, "staged_files", None)
+
+    def scoped_collect(*args, **kwargs):
+        try:
+            bound = signature.bind_partial(*args, **kwargs)
+        except TypeError:
+            return collector(*args, **kwargs)
+        if bound.arguments.get("ignore_staged", False):
+            return collector(*args, **kwargs)
+        try:
+            inst.staged_files = normalized
+            inst.staged_only = True
+            return collector(*args, **kwargs)
+        finally:
+            inst.staged_only = original_staged_only
+            inst.staged_files = original_staged_files
+
+    try:
+        inst._collect_files = scoped_collect
+    except (AttributeError, TypeError):
+        return False
     return True
 
 

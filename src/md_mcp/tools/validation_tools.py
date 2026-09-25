@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ..analysis.issue_delta import new_issue_dicts
+from ..analysis.issue_delta import new_issue_dicts, prepare_baseline
 from ..config import Settings
 from ..util.response import coerce_int, enforce_budget, paginate
 from ..validators import SEVERITY_RANK, SLOW_VALIDATORS, ValidatorRunner, available_validators
@@ -102,6 +102,13 @@ def validate_tool(
       delta         — return only issues absent from a baseline snapshot
       baseline      — snapshot file/directory or git ref; defaults to main in delta mode
     """
+    prepared_baseline = None
+    if delta:
+        try:
+            prepared_baseline = prepare_baseline(settings, baseline)
+        except (FileNotFoundError, ImportError, ValueError) as exc:
+            return enforce_budget({"ok": False, "error": str(exc)})
+
     if validator is not None:
         result = runner.run(validator, staged_only=staged_only, files=files)
         if not result.get("ok"):
@@ -110,7 +117,10 @@ def validate_tool(
         if delta:
             try:
                 issues = new_issue_dicts(
-                    settings, [(issue_dict, validator) for issue_dict in issues], baseline
+                    settings,
+                    [(issue_dict, validator) for issue_dict in issues],
+                    baseline,
+                    prepared_baseline=prepared_baseline,
                 )
             except (FileNotFoundError, ImportError, ValueError) as exc:
                 return enforce_budget({"ok": False, "error": str(exc)})
@@ -157,7 +167,9 @@ def validate_tool(
 
     if delta:
         try:
-            aggregated = new_issue_dicts(settings, issue_records, baseline)
+            aggregated = new_issue_dicts(
+                settings, issue_records, baseline, prepared_baseline=prepared_baseline
+            )
         except (FileNotFoundError, ImportError, ValueError) as exc:
             return enforce_budget({"ok": False, "error": str(exc)})
         overall = _counts_for_issues(aggregated)

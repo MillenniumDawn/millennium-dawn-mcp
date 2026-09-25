@@ -7,9 +7,10 @@ import importlib
 import json
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import Optional
+from typing import Any, Optional
 
 from ..validators.attribution import IssueAttributor
 
@@ -87,15 +88,32 @@ def _read_issue_file(path: Path, issue_type) -> list:
     return [issue_type.from_dict(item) for item in data if isinstance(item, dict)]
 
 
-def new_issue_dicts(
-    settings, issue_records: list[tuple[dict, str]], baseline: Optional[str]
-) -> list[dict]:
-    """Return deduped current findings classified as new against a snapshot."""
+@dataclass(frozen=True)
+class PreparedBaseline:
+    report_lib: Any
+    keys: set
+
+
+def prepare_baseline(settings, baseline: Optional[str]) -> PreparedBaseline:
+    """Load and key the baseline before running validators."""
     report_lib = _report_lib(settings.mod_root)
     baseline_issues = report_lib.dedupe(_load_baseline_issues(settings, baseline, report_lib))
     baseline_keys = {
         key for issue in baseline_issues if (key := report_lib.issue_key(issue)) is not None
     }
+    return PreparedBaseline(report_lib=report_lib, keys=baseline_keys)
+
+
+def new_issue_dicts(
+    settings,
+    issue_records: list[tuple[dict, str]],
+    baseline: Optional[str],
+    *,
+    prepared_baseline: Optional[PreparedBaseline] = None,
+) -> list[dict]:
+    """Return deduped current findings classified as new against a snapshot."""
+    prepared = prepared_baseline or prepare_baseline(settings, baseline)
+    report_lib = prepared.report_lib
     attributor = IssueAttributor(settings.mod_root)
     current_issues = []
     for issue_dict, validator in issue_records:
@@ -104,7 +122,7 @@ def new_issue_dicts(
         current_issues.append(report_lib.Issue.from_dict(normalized, validator=validator))
 
     current_issues = report_lib.dedupe(current_issues)
-    current_baseline = report_lib.Baseline(meta={}, keys=baseline_keys)
+    current_baseline = report_lib.Baseline(meta={}, keys=prepared.keys)
     stats = report_lib.classify(current_issues, current_baseline)
     new_issues = stats.new_issues + [
         issue for issue in current_issues if report_lib.issue_key(issue) is None

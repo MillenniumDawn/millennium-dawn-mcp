@@ -19,10 +19,14 @@ Reference kinds and where they're harvested:
   loc       — `<focus_id>` and `<focus_id>_desc` for every focus defined in
               scope, plus `custom_effect_tooltip` keys
   decision  — `activate_decision`, `unlock_decision_tooltip`
+  country_tag — tag fields such as `original_tag` and `change_tag`
+  character — character fields such as `character` and `has_character`
+  trait — leader-trait fields such as `add_trait` and `has_trait`
+  scripted_effect / scripted_trigger — indexed scripted-definition calls
 
-Not checked (no index exists yet): country flags, variables, scripted effect
-names. Reported in `not_checked` so absence of findings isn't mistaken for
-coverage. If the vanilla install isn't configured, ids defined in vanilla
+Not checked (no index exists yet): country flags and variables. Reported in
+`not_checked` so absence of findings isn't mistaken for coverage. If the vanilla
+install isn't configured, ids defined in vanilla
 (ideas especially) will show as unresolved — `vanilla_indexed` flags this;
 passing `vanilla_sprites` (the committed manifest) resolves vanilla-only sprite
 ids without an install, surfaced via `vanilla_manifest`.
@@ -34,19 +38,41 @@ from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
 from ..indexes import (
+    CharacterIndex,
+    CountryTagIndex,
     DecisionIndex,
     EventIndex,
     FocusIndex,
     GfxIndex,
     IdeaIndex,
     LocalisationIndex,
+    ScriptedEffectIndex,
+    ScriptedTriggerIndex,
+    TraitIndex,
 )
 from ..paradox.nodes import Node, SymbolNode
 from ..util.line_numbers import line_starts, pos_to_line
 from ..util.response import enforce_budget
 from .scope import iter_scope_files
 
-_ALL_KINDS: tuple = ("focus", "event", "idea", "sprite", "loc", "decision")
+_ALL_KINDS: tuple = (
+    "focus",
+    "event",
+    "idea",
+    "sprite",
+    "loc",
+    "decision",
+    "country_tag",
+    "character",
+    "trait",
+    "scripted_effect",
+    "scripted_trigger",
+)
+_KIND_ALIASES = {
+    "tag": "country_tag",
+    "scripted_effects": "scripted_effect",
+    "scripted_triggers": "scripted_trigger",
+}
 _MAX_FILES = 200
 
 _EVENT_NODES = frozenset({"country_event", "news_event"})
@@ -58,6 +84,38 @@ _IDEA_SYMBOL_NODES = frozenset({"add_idea", "remove_idea", "idea", "has_idea"})
 _SPRITE_NODES = frozenset({"icon", "picture"})
 _LOC_NODES = frozenset({"custom_effect_tooltip"})
 _DECISION_NODES = frozenset({"activate_decision", "unlock_decision_tooltip"})
+_COUNTRY_TAG_NODES = frozenset(
+    {
+        "original_tag",
+        "tag",
+        "change_tag",
+        "set_cosmetic_tag",
+        "target_tag",
+        "original_tag_to_check",
+        "tag_to_check",
+    }
+)
+_CHARACTER_NODES = frozenset(
+    {
+        "character",
+        "has_character",
+        "create_character",
+        "remove_character",
+        "modify_character",
+        "set_character",
+    }
+)
+_TRAIT_NODES = frozenset({"trait", "has_trait", "add_trait", "remove_trait", "remove_leader_trait"})
+_SCRIPTED_NAMED_NODES = frozenset(
+    {
+        "call_scripted_effect",
+        "execute_scripted_effect",
+        "run_scripted_effect",
+        "call_scripted_trigger",
+        "evaluate_scripted_trigger",
+        "run_scripted_trigger",
+    }
+)
 _FOCUS_DEF_NODES = frozenset({"focus", "shared_focus", "joint_focus"})
 
 # Kinds whose refs are a plain symbol under one of the listed node names. The
@@ -79,6 +137,11 @@ def check_refs(
     gfx_index: GfxIndex,
     loc_index: LocalisationIndex,
     decision_index: DecisionIndex,
+    country_tag_index: Optional[CountryTagIndex] = None,
+    character_index: Optional[CharacterIndex] = None,
+    trait_index: Optional[TraitIndex] = None,
+    scripted_effect_index: Optional[ScriptedEffectIndex] = None,
+    scripted_trigger_index: Optional[ScriptedTriggerIndex] = None,
     tag: Optional[str] = None,
     files: Optional[list[str]] = None,
     kinds: Optional[Sequence[str]] = None,
@@ -101,6 +164,7 @@ def check_refs(
         return {"ok": False, "error": "Pass tag= or files=[...] (mod-relative paths)."}
 
     selected = list(kinds) if kinds else list(_ALL_KINDS)
+    selected = [_KIND_ALIASES.get(kind, kind) for kind in selected]
     unknown = [k for k in selected if k not in _ALL_KINDS]
     if unknown:
         return {"ok": False, "error": f"Unknown kind(s): {unknown}. Valid: {list(_ALL_KINDS)}"}
@@ -117,6 +181,31 @@ def check_refs(
     files_truncated = len(scope_files) > _MAX_FILES
     scope_files = scope_files[:_MAX_FILES]
 
+    indexes: dict[str, Any] = {
+        "focus": focus_index,
+        "event": event_index,
+        "idea": idea_index,
+        "sprite": gfx_index,
+        "loc": loc_index,
+        "decision": decision_index,
+        "country_tag": country_tag_index,
+        "character": character_index,
+        "trait": trait_index,
+        "scripted_effect": scripted_effect_index,
+        "scripted_trigger": scripted_trigger_index,
+    }
+    for kind in selected_set:
+        index = indexes.get(kind)
+        if index is not None:
+            index.ensure_fresh()
+
+    scripted_effect_names = (
+        set(scripted_effect_index.list_keys()) if scripted_effect_index else set()
+    )
+    scripted_trigger_names = (
+        set(scripted_trigger_index.list_keys()) if scripted_trigger_index else set()
+    )
+
     # Collect raw references: (kind, ref, via, file, line, referrer).
     refs: list[dict] = []
     parse_errors: list[dict] = []
@@ -124,7 +213,17 @@ def check_refs(
 
     for parsed in iter_scope_files(scope_files, mod_root, vanilla_path, parse_errors):
         starts = line_starts(parsed.text)
-        _walk(parsed.root, parsed.relpath, starts, selected_set, refs, focus_defs, referrer=None)
+        _walk(
+            parsed.root,
+            parsed.relpath,
+            starts,
+            selected_set,
+            refs,
+            focus_defs,
+            referrer=None,
+            scripted_effect_names=scripted_effect_names,
+            scripted_trigger_names=scripted_trigger_names,
+        )
 
     if "loc" in selected_set:
         for fd in focus_defs:
@@ -155,17 +254,20 @@ def check_refs(
         ),
         "loc": lambda r: loc_index.resolve(r, lang) is not None,
         "decision": lambda r: decision_index.resolve(r) is not None,
+        "country_tag": lambda r: (
+            country_tag_index is not None and country_tag_index.resolve(r) is not None
+        ),
+        "character": lambda r: (
+            character_index is not None and character_index.resolve(r) is not None
+        ),
+        "trait": lambda r: trait_index is not None and trait_index.resolve(r) is not None,
+        "scripted_effect": lambda r: (
+            scripted_effect_index is not None and scripted_effect_index.resolve(r) is not None
+        ),
+        "scripted_trigger": lambda r: (
+            scripted_trigger_index is not None and scripted_trigger_index.resolve(r) is not None
+        ),
     }
-    index_by_kind: dict[str, Any] = {
-        "focus": focus_index,
-        "event": event_index,
-        "idea": idea_index,
-        "sprite": gfx_index,
-        "loc": loc_index,
-        "decision": decision_index,
-    }
-    for k in selected_set:
-        index_by_kind[k].ensure_fresh()
 
     checked: dict[str, set[str]] = {k: set() for k in selected}
     unresolved_by_key: dict[tuple, dict] = {}
@@ -202,7 +304,7 @@ def check_refs(
         "files_scanned": len(scope_files),
         "files_truncated": files_truncated,
         "kinds_checked": selected,
-        "not_checked": ["country_flags", "variables", "scripted_effects"],
+        "not_checked": ["country_flags", "variables"],
         "vanilla_indexed": vanilla_path is not None,
         "vanilla_manifest": vanilla_sprites is not None,
         "counts": {
@@ -232,6 +334,9 @@ def _walk(
     refs: list[dict],
     focus_defs: list[dict],
     referrer: Optional[str],
+    *,
+    scripted_effect_names: set[str],
+    scripted_trigger_names: set[str],
 ) -> None:
     for child in node.children():
         name = child.name
@@ -284,8 +389,61 @@ def _walk(
                 if ref:
                     refs.append(_ref(kind, ref, name, relpath, child, starts, ctx))
 
+        for kind, names in (
+            ("country_tag", _COUNTRY_TAG_NODES),
+            ("character", _CHARACTER_NODES),
+            ("trait", _TRAIT_NODES),
+        ):
+            if kind in kinds and name in names:
+                ref = _symbol_or_str(child)
+                if ref is None and isinstance(child.value, list):
+                    if kind == "country_tag":
+                        ref = _symbol_or_str(_child_get(child, "tag")) or _symbol_or_str(
+                            _child_get(child, "original_tag")
+                        )
+                    else:
+                        ref = _symbol_or_str(_child_get(child, kind))
+                if ref:
+                    refs.append(_ref(kind, ref, name, relpath, child, starts, ctx))
+
+        if (
+            "scripted_effect" in kinds
+            and name
+            and (
+                name in scripted_effect_names
+                or name in _SCRIPTED_NAMED_NODES
+                or name.endswith("_effect")
+                or name.startswith(("run_", "call_"))
+            )
+        ):
+            ref = _symbol_or_str(child) or name
+            refs.append(_ref("scripted_effect", ref, name, relpath, child, starts, ctx))
+
+        if (
+            "scripted_trigger" in kinds
+            and name
+            and (
+                name in scripted_trigger_names
+                or name in _SCRIPTED_NAMED_NODES
+                or name.endswith("_trigger")
+                or name.startswith(("run_", "call_"))
+            )
+        ):
+            ref = _symbol_or_str(child) or name
+            refs.append(_ref("scripted_trigger", ref, name, relpath, child, starts, ctx))
+
         if isinstance(child.value, list):
-            _walk(child, relpath, starts, kinds, refs, focus_defs, ctx)
+            _walk(
+                child,
+                relpath,
+                starts,
+                kinds,
+                refs,
+                focus_defs,
+                ctx,
+                scripted_effect_names=scripted_effect_names,
+                scripted_trigger_names=scripted_trigger_names,
+            )
 
 
 def _ref(

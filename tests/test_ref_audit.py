@@ -192,7 +192,8 @@ def test_vanilla_flag_surfaced(audit_mod):
     )
     assert out["vanilla_indexed"] is False
     assert out["vanilla_manifest"] is False
-    assert "scripted_effects" in out["not_checked"]
+    assert "scripted_effects" not in out["not_checked"]
+    assert "scripted_triggers" not in out["not_checked"]
 
 
 _MANIFEST_FOCUS = """focus_tree = {

@@ -3,9 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
 
-from md_mcp.analysis.suppressions import suppressed_count
+from md_mcp.analysis.suppressions import SuppressionRule, _anchors, _bullets, suppressed_count
+from md_mcp.config import Settings
 from md_mcp.tools.lint_validators import run_validators_for_lint
 from md_mcp.tools.linting_tools import lint_tool
+from md_mcp.tools.validation_tools import _apply_suppressions, validate_tool
 from md_mcp.validators import ValidatorRunner  # pyright: ignore[reportMissingImports]
 
 _ISSUE_CLASS = """
@@ -162,3 +164,88 @@ def test_missing_runtime_rule_is_a_graceful_noop(tmp_path):
     assert entries == [{"name": "validator:style", "ok": True, "total": 1}]
     assert len(issues) == 1
     assert issues[0]["message"] == "fixture_known_pattern"
+
+
+def test_rule_ignores_unrelated_haystacks():
+    rule = SuppressionRule(
+        text="`fixture_known_pattern`", anchors=(("fixture_known",),), keywords=()
+    )
+
+    assert rule.matches({"message": ""}) is False
+    assert rule.matches({"message": "unrelated problem"}) is False
+
+
+def test_wildcard_anchor_requires_the_prefix_to_appear():
+    rule = SuppressionRule(text="one_random_*", anchors=(("one_random*",),), keywords=())
+
+    assert rule.matches({"message": "two_random_thing here"}) is False
+    assert rule.matches({"message": "uses one_random_thing flag"}) is True
+
+
+def test_equality_anchors_require_both_sides():
+    rule = SuppressionRule(
+        text="`target_tag = THIS`", anchors=(("target_tag", "this"),), keywords=()
+    )
+
+    assert rule.matches({"message": "target_tag = THIS is fine"}) is True
+    assert rule.matches({"message": "only target_tag without the value"}) is False
+    assert _anchors("has `target_tag = THIS` set") == (("target_tag", "this"),)
+
+
+def test_bullets_join_wrapped_lines_and_split_consecutive_bullets():
+    text = "- first bullet\n  wrapped continuation\n- second bullet\n"
+
+    assert _bullets(text) == ["first bullet wrapped continuation", "second bullet"]
+
+
+def test_apply_suppressions_skips_already_suppressed_results(tmp_path):
+    result = {"ok": True, "suppressed": 2, "suppression_source": "x", "issues": []}
+
+    assert _apply_suppressions(result, tmp_path) is result
+
+
+def test_apply_suppressions_drops_matching_issues_and_adjusts_counts(tmp_path):
+    _write_rule(tmp_path)
+    issue = {
+        "severity": "warning",
+        "category": "fixture",
+        "message": "fixture_known_pattern",
+        "file": "common/x.txt",
+    }
+    result = {
+        "ok": True,
+        "counts": {"error": 0, "warning": 1, "info": 0},
+        "issues": [issue],
+    }
+
+    updated = _apply_suppressions(result, tmp_path)
+
+    assert updated["suppressed"] == 1
+    assert updated["suppression_source"] == ".claude/docs/known-false-positives.md"
+    assert updated["issues"] == []
+    assert updated["counts"] == {"error": 0, "warning": 0, "info": 0}
+    # The caller's dict is never mutated.
+    assert result["issues"] == [issue]
+
+
+def test_validate_all_reports_suppressed_findings_in_summary(fake_mod_root):
+    _write_rule(fake_mod_root)
+    (fake_mod_root / "common").mkdir(exist_ok=True)
+    (fake_mod_root / "common" / "x.txt").write_text("x = 1\n", encoding="utf-8")
+    validator = fake_mod_root / "tools" / "validation" / "validate_synthetic.py"
+    validator.write_text(_VALIDATOR, encoding="utf-8")
+    settings = Settings(
+        mod_root=fake_mod_root,
+        vanilla_path=None,
+        cache_dir=fake_mod_root / ".md-mcp-cache",
+        validator_mode="in_process",
+    )
+
+    result = validate_tool(settings, ValidatorRunner(fake_mod_root))
+
+    assert result["suppressed"] == 1
+    assert result["suppression_source"] == ".claude/docs/known-false-positives.md"
+    entry = result["validators"][0]
+    assert entry["suppressed"] == 1
+    assert entry["suppression_source"] == ".claude/docs/known-false-positives.md"
+    assert result["counts"] == {"error": 1, "warning": 0, "info": 0}

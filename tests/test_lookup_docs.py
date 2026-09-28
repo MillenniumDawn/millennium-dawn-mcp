@@ -321,3 +321,37 @@ def test_lookup_docs_real_checkout(real_mod_root, cache_dir) -> None:
     assert out["entries"][0]["key"] == "add_advisor_role"
     assert out["entries"][0]["line"] > 0
     assert out["file"] == "resources/documentation/effects_documentation.md"
+
+
+def test_lookup_docs_system_key_miss_suggests_close_matches(fake_mod_root, cache_dir) -> None:
+    _write_system_doc(fake_mod_root, "docs", "workflow", "# Workflow\nUse the safe workflow.\n")
+    _write_system_doc(fake_mod_root, "docs", "workloads", "# Workloads\nOther content.\n")
+
+    result = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "docs", key="workflow2")
+
+    assert result["ok"] is False
+    assert "No docs documentation found for 'workflow2'" in result["error"]
+    assert ".claude/docs/workflow" in result["suggestions"]
+
+
+def test_lookup_docs_system_undecodable_document_is_graceful(fake_mod_root, cache_dir) -> None:
+    bad = fake_mod_root / ".claude" / "docs" / "broken.md"
+    bad.parent.mkdir(parents=True, exist_ok=True)
+    bad.write_bytes(b"\xff\xfe # broken bytes")
+
+    result = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "docs")
+
+    assert result["ok"] is False
+    assert "Could not read documentation" in result["error"]
+
+
+def test_read_system_documents_skips_directories_named_like_docs(fake_mod_root, cache_dir) -> None:
+    _write_system_doc(fake_mod_root, "docs", "workflow", "# Workflow\nReal content.\n")
+    directory = fake_mod_root / ".claude" / "docs"
+    (directory / "fake.md").mkdir(exist_ok=True)
+
+    result = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "docs")
+
+    assert result["ok"] is True
+    keys = [entry["key"] for entry in result["entries"]]
+    assert keys == [".claude/docs/workflow"]

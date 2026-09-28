@@ -46,11 +46,11 @@ class SuppressionRule:
     keywords: tuple[str, ...]
 
     def matches(self, issue: dict) -> bool:
+        # The join separator guarantees a non-empty haystack even when both
+        # fields are absent.
         haystack = " ".join(
             str(issue.get(field) or "") for field in ("message", "category")
         ).casefold()
-        if not haystack:
-            return False
 
         # A rule with several code anchors describes one construct, so require
         # every anchor.  This avoids treating a generic token such as `icon` as

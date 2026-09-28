@@ -493,6 +493,11 @@ to mod files. Caller-supplied script and localisation content is guarded by
 `enforce_budget`; an oversized response sets `size_truncated` and reports
 dropped keys instead of exceeding the MCP response cap.
 
+### `standardize(content?, path?, content_type?) -> dict`
+
+Run the upstream standardizer in memory and return `{ok, txt, changed, kind}`.
+Provide `content=` with `content_type=focus|event|decision|idea|mio|technology|history`, or provide a mod-relative `.txt` `path=` and omit `content_type` to detect the kind from its location. Exactly one of `content` or `path` is required. Localisation YAML is unsupported. The output is BOM-free. The tool never writes files; `txt_truncated=true` means the returned text must not be written back.
+
 ### `generate_focus(id, tag, x?, y?, ...) -> dict`
 
 Scaffold a `focus = { ... }` block. Optional fields: `x`, `y`, `cost`, `icon`,

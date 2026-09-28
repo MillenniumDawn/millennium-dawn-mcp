@@ -70,6 +70,7 @@ EXPECTED_TOOLS = {
     "generate_gfx_entry",
     "generate_gfx_merge",
     "generate_loc_stub",
+    "standardize",
     # M3 analysis
     "focus_graph",
     "check_refs",

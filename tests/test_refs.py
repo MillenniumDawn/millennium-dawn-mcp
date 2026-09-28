@@ -83,3 +83,34 @@ def test_find_references_snippet_chars_clip(fake_mod_root):
     r = find_references(fake_mod_root, "focus", "TST_root", snippet_chars=5)
     for m in r["matches"]:
         assert len(m["snippet"]) <= 5
+
+
+def test_find_references_scans_submod_then_vanilla_roots(fake_mod_root, tmp_path):
+    submod = tmp_path / "Overlay"
+    vanilla = tmp_path / "Vanilla"
+    for root, name in ((submod, "submod"), (vanilla, "vanilla")):
+        focus_dir = root / "common" / "national_focus"
+        focus_dir.mkdir(parents=True)
+        (focus_dir / "overlay.txt").write_text(f"focus = TST_{name}_ref\n", encoding="utf-8")
+
+    vanilla_hit = find_references(
+        fake_mod_root,
+        "focus",
+        "TST_vanilla_ref",
+        include_vanilla=True,
+        vanilla_path=vanilla,
+        submod_root=submod,
+    )
+    assert vanilla_hit["ok"]
+    assert vanilla_hit["total"] == 1
+    assert vanilla_hit["matches"][0]["file"] == "common/national_focus/overlay.txt"
+    assert "TST_vanilla_ref" in vanilla_hit["matches"][0]["snippet"]
+
+    without_vanilla = find_references(
+        fake_mod_root,
+        "focus",
+        "TST_vanilla_ref",
+        vanilla_path=vanilla,
+        submod_root=submod,
+    )
+    assert without_vanilla["total"] == 0

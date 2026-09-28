@@ -58,6 +58,25 @@ def test_check_encoding_walks_submod_files_once(fake_mod_root, tmp_path):
     assert result["violations"][0]["file"] == "common/national_focus/overlay.txt"
 
 
+def test_check_encoding_overlay_duplicate_relpath_walked_once(fake_mod_root, tmp_path):
+    submod = tmp_path / "Overlay"
+    for root in (submod, fake_mod_root):
+        shared = root / "common" / "national_focus" / "shared.txt"
+        shared.parent.mkdir(parents=True, exist_ok=True)
+        shared.write_bytes(b"\xef\xbb\xbf" + b"focus_tree = {}\n")
+    # rglob also yields directories named like the pattern; they must be skipped.
+    not_a_file = fake_mod_root / "events" / "fake_event.txt"
+    not_a_file.mkdir(exist_ok=True)
+
+    call_check_encoding = cast(Any, check_encoding)
+    result = call_check_encoding(fake_mod_root, submod_root=submod)
+
+    shared_violations = [
+        v for v in result["violations"] if v["file"] == "common/national_focus/shared.txt"
+    ]
+    assert len(shared_violations) == 1
+
+
 def test_detects_bom_on_txt(fake_mod_root):
     # Inject a BOM into a .txt file to ensure it's flagged.
     txt = fake_mod_root / "common" / "national_focus" / "test.txt"

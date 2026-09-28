@@ -94,16 +94,9 @@ def check_encoding(
             continue
 
         has_bom = head == UTF8_BOM
-        resolved_rel = target_relpaths.get(path)
-        if resolved_rel is None:
-            for root in roots:
-                try:
-                    resolved_rel = str(path.relative_to(root))
-                    break
-                except ValueError:
-                    continue
-            if resolved_rel is None:
-                resolved_rel = str(path)
+        # Both target sources (explicit `files=` and the roots walk) populate
+        # this map, so every target has a relpath by construction.
+        resolved_rel = target_relpaths[path]
 
         if path.suffix.lower() == ".txt" and has_bom:
             violations.append({"file": resolved_rel, "expected": "no-bom", "actual": "bom"})

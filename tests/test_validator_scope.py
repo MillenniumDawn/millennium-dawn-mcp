@@ -180,6 +180,78 @@ def test_scope_limits_primary_inputs_and_keeps_full_definition_lookups(tmp_path)
         _assert_primary_scope(tmp_path / mode / "Mod", mode)
 
 
+_FULL_REPO_PASS_VALIDATOR = (
+    _ISSUE
+    + """
+from pathlib import Path
+
+
+class Validator:
+    def __init__(self, mod_path, use_colors=False, staged_only=False, **kwargs):
+        self.mod_path = Path(mod_path)
+        self.staged_only = staged_only
+        self.staged_files = None
+        self._issues = []
+
+    def _collect_files(self, patterns, ignore_staged=False):
+        files = sorted(self.mod_path.glob(patterns[0]))
+        if self.staged_only and not ignore_staged:
+            selected = set(self.staged_files or [])
+            files = [
+                path for path in files
+                if path.relative_to(self.mod_path).as_posix() in selected
+            ]
+        return files
+
+    def _seen(self, category):
+        names = [path.name for path in self._collect_files(["common/ideas/*.txt"])]
+        self._issues.append(
+            _Issue(severity="warning", category=category, message=",".join(names), file="")
+        )
+
+    def _parse_all_ideas(self):
+        saved = self.staged_only
+        self.staged_only = False
+        self._seen("parse_all_ideas")
+        self.staged_only = saved
+
+    def validate_orphaned_tooltip_keys(self):
+        self._seen("orphaned_tooltip_keys")
+
+    def _script_written_variables(self):
+        self._seen("script_written_variables")
+
+    def run_all_validations(self):
+        self._parse_all_ideas()
+        self.validate_orphaned_tooltip_keys()
+        self._script_written_variables()
+        self._seen("scoped_pass")
+"""
+)
+
+
+def _assert_full_repo_passes(root: Path, mode: str) -> None:
+    _write_fixture(root, "full_passes", _FULL_REPO_PASS_VALIDATOR)
+    runner = ValidatorRunner(root, mode=mode)
+    run: Any = runner.run
+
+    result = run("full_passes", files=["common/ideas/USA.txt"], post_filter=False)
+
+    assert result["scoped"] is True
+    seen = {issue["category"]: issue["message"] for issue in result["issues"]}
+    assert seen == {
+        "parse_all_ideas": "CAN.txt,USA.txt",
+        "orphaned_tooltip_keys": "CAN.txt,USA.txt",
+        "script_written_variables": "CAN.txt,USA.txt",
+        "scoped_pass": "USA.txt",
+    }
+
+
+def test_full_repo_passes_stay_unscoped_under_file_scope(tmp_path):
+    for mode in ("isolated", "in_process"):
+        _assert_full_repo_passes(tmp_path / mode / "Mod", mode)
+
+
 def test_scoped_collect_does_not_leave_staged_only_enabled(tmp_path):
     root = tmp_path / "Mod"
     _write_fixture(root, "staged_guard", _STAGED_GUARD_VALIDATOR)

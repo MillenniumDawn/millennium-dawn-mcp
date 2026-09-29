@@ -21,6 +21,7 @@ from __future__ import annotations
 import ast
 import builtins
 import contextlib
+import functools
 import importlib
 import importlib.util
 import inspect
@@ -320,6 +321,14 @@ class ValidatorRunner:
         return _summarise(info, kept, unattributed=unattributed, scoped=bool(payload.get("scoped")))
 
 
+# Upstream passes that build repo-wide sets from plain collector calls.
+_FULL_REPO_PASSES = (
+    "_parse_all_ideas",
+    "validate_orphaned_tooltip_keys",
+    "_script_written_variables",
+)
+
+
 def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:
     if files is None:
         return False
@@ -352,7 +361,11 @@ def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:
     original_staged_only = getattr(inst, "staged_only", False)
     original_staged_files = getattr(inst, "staged_files", None)
 
+    unscoped_depth = 0
+
     def scoped_collect(*args, **kwargs):
+        if unscoped_depth:
+            return collector(*args, **kwargs)
         try:
             bound = signature.bind_partial(*args, **kwargs)
         except TypeError:
@@ -367,7 +380,23 @@ def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:
             inst.staged_only = original_staged_only
             inst.staged_files = original_staged_files
 
+    def unscoped(method):
+        @functools.wraps(method)
+        def run_unscoped(*args, **kwargs):
+            nonlocal unscoped_depth
+            unscoped_depth += 1
+            try:
+                return method(*args, **kwargs)
+            finally:
+                unscoped_depth -= 1
+
+        return run_unscoped
+
     try:
+        for name in _FULL_REPO_PASSES:
+            method = getattr(inst, name, None)
+            if callable(method):
+                setattr(inst, name, unscoped(method))
         inst._collect_files = scoped_collect
     except (AttributeError, TypeError):
         return False

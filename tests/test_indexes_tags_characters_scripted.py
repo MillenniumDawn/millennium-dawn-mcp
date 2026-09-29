@@ -90,9 +90,34 @@ def test_find_references_supports_new_kinds(fake_mod_root):
         assert result["total"] >= 1
 
 
+def _audit(root, cache, text, kinds):
+    (root / "common" / "national_focus" / "TST_new_refs.txt").write_text(text, encoding="utf-8")
+    tags, characters, traits, effects, triggers = _indexes(root, cache)
+    return check_refs(
+        root,
+        files=["common/national_focus/TST_new_refs.txt"],
+        kinds=kinds,
+        country_tag_index=tags,
+        character_index=characters,
+        trait_index=traits,
+        scripted_effect_index=effects,
+        scripted_trigger_index=triggers,
+        focus_index=FocusIndex(root, cache, include_vanilla=False),
+        event_index=EventIndex(root, cache, include_vanilla=False),
+        idea_index=IdeaIndex(root, cache, include_vanilla=False),
+        gfx_index=GfxIndex(root, cache, include_vanilla=False),
+        loc_index=LocalisationIndex(root, cache, include_vanilla=False),
+        decision_index=DecisionIndex(root, cache, include_vanilla=False),
+    )
+
+
+_SCRIPTED_KINDS = ["scripted_effect", "scripted_trigger"]
+
+
 def test_check_refs_resolves_new_definition_kinds(fake_mod_root, cache_dir):
-    scope = fake_mod_root / "common" / "national_focus" / "TST_new_refs.txt"
-    scope.write_text(
+    result = _audit(
+        fake_mod_root,
+        cache_dir,
         """focus_tree = {
     focus = {
         id = TST_new_refs
@@ -104,26 +129,39 @@ def test_check_refs_resolves_new_definition_kinds(fake_mod_root, cache_dir):
     }
 }
 """,
-        encoding="utf-8",
-    )
-    tags, characters, traits, effects, triggers = _indexes(fake_mod_root, cache_dir)
-    result = check_refs(
-        fake_mod_root,
-        files=["common/national_focus/TST_new_refs.txt"],
-        kinds=["country_tag", "character", "trait", "scripted_effect", "scripted_trigger"],
-        country_tag_index=tags,
-        character_index=characters,
-        trait_index=traits,
-        scripted_effect_index=effects,
-        scripted_trigger_index=triggers,
-        focus_index=FocusIndex(fake_mod_root, cache_dir, include_vanilla=False),
-        event_index=EventIndex(fake_mod_root, cache_dir, include_vanilla=False),
-        idea_index=IdeaIndex(fake_mod_root, cache_dir, include_vanilla=False),
-        gfx_index=GfxIndex(fake_mod_root, cache_dir, include_vanilla=False),
-        loc_index=LocalisationIndex(fake_mod_root, cache_dir, include_vanilla=False),
-        decision_index=DecisionIndex(fake_mod_root, cache_dir, include_vanilla=False),
+        ["country_tag", "character", "trait", *_SCRIPTED_KINDS],
     )
     assert result["total_unresolved"] == 0
+
+
+@pytest.mark.parametrize(
+    ("text", "kind"),
+    [
+        ("TST_test_effect = yes", "scripted_effect"),
+        ("hidden_effect = { TST_test_effect = yes }", "scripted_effect"),
+        ("call_scripted_effect = TST_test_effect", "scripted_effect"),
+        ("TST_test_trigger = yes", "scripted_trigger"),
+        ("evaluate_scripted_trigger = TST_test_trigger", "scripted_trigger"),
+    ],
+)
+def test_check_refs_resolves_scripted_calls_as_one_kind(fake_mod_root, cache_dir, text, kind):
+    result = _audit(fake_mod_root, cache_dir, text, _SCRIPTED_KINDS)
+
+    assert result["total_unresolved"] == 0
+    assert {k: c["checked"] for k, c in result["counts"].items()} == {
+        "scripted_effect": int(kind == "scripted_effect"),
+        "scripted_trigger": int(kind == "scripted_trigger"),
+    }
+
+
+def test_check_refs_reports_dangling_wrapped_effect_only_as_effect(fake_mod_root, cache_dir):
+    result = _audit(
+        fake_mod_root, cache_dir, "call_scripted_effect = TST_missing_effect", _SCRIPTED_KINDS
+    )
+
+    assert [(e["kind"], e["ref"]) for e in result["unresolved"]] == [
+        ("scripted_effect", "TST_missing_effect")
+    ]
 
 
 def test_manifest_includes_new_definition_categories(fake_mod_root, cache_dir):

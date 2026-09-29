@@ -106,15 +106,11 @@ _CHARACTER_NODES = frozenset(
     }
 )
 _TRAIT_NODES = frozenset({"trait", "has_trait", "add_trait", "remove_trait", "remove_leader_trait"})
-_SCRIPTED_NAMED_NODES = frozenset(
-    {
-        "call_scripted_effect",
-        "execute_scripted_effect",
-        "run_scripted_effect",
-        "call_scripted_trigger",
-        "evaluate_scripted_trigger",
-        "run_scripted_trigger",
-    }
+_SCRIPTED_EFFECT_WRAPPERS = frozenset(
+    {"call_scripted_effect", "execute_scripted_effect", "run_scripted_effect"}
+)
+_SCRIPTED_TRIGGER_WRAPPERS = frozenset(
+    {"call_scripted_trigger", "evaluate_scripted_trigger", "run_scripted_trigger"}
 )
 _FOCUS_DEF_NODES = frozenset({"focus", "shared_focus", "joint_focus"})
 
@@ -406,31 +402,21 @@ def _walk(
                 if ref:
                     refs.append(_ref(kind, ref, name, relpath, child, starts, ctx))
 
-        if (
-            "scripted_effect" in kinds
-            and name
-            and (
-                name in scripted_effect_names
-                or name in _SCRIPTED_NAMED_NODES
-                or name.endswith("_effect")
-                or name.startswith(("run_", "call_"))
-            )
+        for kind, wrappers, defined in (
+            ("scripted_effect", _SCRIPTED_EFFECT_WRAPPERS, scripted_effect_names),
+            ("scripted_trigger", _SCRIPTED_TRIGGER_WRAPPERS, scripted_trigger_names),
         ):
-            ref = _symbol_or_str(child) or name
-            refs.append(_ref("scripted_effect", ref, name, relpath, child, starts, ctx))
-
-        if (
-            "scripted_trigger" in kinds
-            and name
-            and (
-                name in scripted_trigger_names
-                or name in _SCRIPTED_NAMED_NODES
-                or name.endswith("_trigger")
-                or name.startswith(("run_", "call_"))
-            )
-        ):
-            ref = _symbol_or_str(child) or name
-            refs.append(_ref("scripted_trigger", ref, name, relpath, child, starts, ctx))
+            if kind not in kinds:
+                continue
+            if name in wrappers:
+                ref = _symbol_or_str(child)
+            elif name in defined:
+                # A direct call's value is the argument (`yes` or a block), not the id.
+                ref = name
+            else:
+                continue
+            if ref:
+                refs.append(_ref(kind, ref, name, relpath, child, starts, ctx))
 
         if isinstance(child.value, list):
             _walk(

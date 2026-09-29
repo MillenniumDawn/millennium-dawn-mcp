@@ -482,6 +482,12 @@ def test_staged_files_returns_index_only(tmp_path):
     assert _staged_files(tmp_path) == ["staged.txt"]
 
 
+def test_staged_files_lists_both_sides_of_renames(tmp_path):
+    _init_repo(tmp_path)
+    _git(tmp_path, "mv", "baseline.txt", "renamed.txt")
+    assert set(_staged_files(tmp_path)) == {"baseline.txt", "renamed.txt"}
+
+
 def test_lint_default_mode_is_changed(tmp_path):
     """No `mode` arg → uses `changed`, which surfaces unstaged + untracked."""
     _init_repo(tmp_path)

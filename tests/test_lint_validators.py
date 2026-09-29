@@ -586,6 +586,39 @@ def test_deleted_country_context_reports_related_warning(tmp_path, mode):
     assert all(check["skipped"] == "no files in scope" for check in out["checks"][:3])
 
 
+@pytest.mark.parametrize("mode", ["changed", "staged"])
+def test_renamed_context_to_unrouted_path_reports_related_warning(tmp_path, mode):
+    _init_repo(tmp_path)
+    hooks = tmp_path / "test-hooks"
+    hooks.mkdir()
+    _git(tmp_path, "config", "core.hooksPath", str(hooks))
+    _seed_all_scripts(tmp_path, {})
+    context = "common/technologies/armor.txt"
+    consumer = "history/countries/USA.txt"
+    for rel, content in (
+        (context, "armor_tech = { allow = { always = yes } }\n"),
+        (consumer, "create_equipment_variant = {}\n"),
+    ):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    _git(tmp_path, "add", "common", "history", "tools")
+    _git(tmp_path, "commit", "-qm", "seed technology context and consumer")
+    (tmp_path / "archive").mkdir()
+    _git(tmp_path, "mv", context, "archive/armor.txt")
+    runner = FakeRunner(
+        names=["equipment_variants"],
+        results={"equipment_variants": {"ok": True, "issues": [_issue(consumer)]}},
+    )
+
+    out = lint_tool(tmp_path, mode=mode, validators=["auto"], validator_runner=runner)
+
+    assert out["validators_run"] == ["equipment_variants"]
+    assert runner.calls == [{"name": "equipment_variants", "staged_only": False}]
+    assert out["issues"][0]["file"] == consumer
+    assert out["issues"][0]["scope"] == "related"
+
+
 def test_related_warnings_follow_scoped_validator_findings(tmp_path):
     context = "common/technologies/armor.txt"
     consumer = "history/countries/USA.txt"

@@ -260,7 +260,7 @@ for "check this code's quality."
   `history/countries/`, `common/decisions/categories/`,
   `common/national_focus/`, and `events/`, plus `.txt` files under `common/`,
   `events/`, or `history/` containing event-call tokens. Deleted context files
-  also count in changed and staged modes; changed mode includes rename sources.
+  and rename sources also count in changed and staged modes.
   When one of these files changes, warnings at unchanged consumers may be
   included at their original file and line with `scope: "related"`. This marks
   a potentially related warning; the upstream validator provides no dependency

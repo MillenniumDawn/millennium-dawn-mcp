@@ -647,10 +647,10 @@ def lint_tool(
 
 
 def _staged_files(mod_root: Path) -> list[str]:
-    """Files in the git index (staged for commit)."""
+    """Files in the git index (staged for commit); renames list both paths."""
     try:
         proc = subprocess.run(
-            ["git", "diff", "--name-only", "--cached"],
+            ["git", "diff", "--name-only", "--cached", "--no-renames"],
             cwd=str(mod_root),
             capture_output=True,
             text=True,

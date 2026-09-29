@@ -149,3 +149,32 @@ def test_clips_oversized_text_and_warns_not_to_write(fake_mod_root: Path, monkey
     assert result["txt_truncated"] is True
     assert "do NOT write clipped content back" in result["note"]
     assert len(json.dumps(result, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+
+
+def test_path_resolves_overlay_first_then_base(tmp_path: Path, monkeypatch):
+    base = tmp_path / "base"
+    submod = tmp_path / "submod"
+    shadowed = "events/shadowed.txt"
+    for root, rel, text in (
+        (base, shadowed, "base\n"),
+        (submod, shadowed, "overlay\n"),
+        (base, "events/base_only.txt", "base only\n"),
+        (submod, "events/overlay_only.txt", "overlay only\n"),
+    ):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+    monkeypatch.setattr(
+        standardize_tools,
+        "_load_standardize_api",
+        lambda _root: SimpleNamespace(
+            kind_for_path=lambda path: "event" if path.startswith("events/") else None,
+            standardize_text=lambda _kind, text, _root: text.upper(),
+        ),
+    )
+
+    def run(rel: str) -> dict:
+        return standardize_tool(base, submod, path=rel)
+
+    assert run(shadowed)["txt"] == "OVERLAY\n"
+    assert run("events/overlay_only.txt")["txt"] == "OVERLAY ONLY\n"
+    assert run("events/base_only.txt")["txt"] == "BASE ONLY\n"

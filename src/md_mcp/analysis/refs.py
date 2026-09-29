@@ -221,6 +221,8 @@ def find_references(
     which is far smaller than a full match list for hot loc keys or sprites.
     `offset` + `limit` paginate the match list. The scan still runs to
     completion so `total` is accurate; only the returned slice is bounded.
+    A file whose relative path exists in a higher-priority root (submod, then
+    mod, then vanilla) is hidden and not scanned.
     """
     from ..util.response import enforce_budget  # local import; avoids cycle
 
@@ -245,9 +247,11 @@ def find_references(
     scan_cap = max(limit + offset, 100) * 50 if not files_only else 100_000
 
     scan_truncated = False
+    seen: set[str] = set()  # relative paths owned by a higher-priority root
     for base in roots:
         if scan_truncated:
             break
+        shadowed = frozenset(seen)
         for sub in scan_dirs:
             if scan_truncated:
                 break
@@ -263,17 +267,19 @@ def find_references(
                     if not path.is_file():
                         continue
                     try:
+                        rel = str(path.relative_to(base))
+                    except ValueError:
+                        rel = str(path)
+                    seen.add(rel)
+                    if rel in shadowed:
+                        continue
+                    try:
                         text = path.read_bytes().decode("utf-8", errors="replace")
                     except OSError:
                         continue
 
                     if text.startswith("﻿"):
                         text = text[1:]
-
-                    try:
-                        rel = str(path.relative_to(base))
-                    except ValueError:
-                        rel = str(path)
 
                     for m in pattern.finditer(text):
                         if files_only:

@@ -331,7 +331,13 @@ def build_server(settings: Settings):
         content: Optional[str] = None,
     ) -> dict:
         """Apply an upstream lint fixer in-memory: fixer=styling|loc_yaml|line_endings|log_ids; give content= or mod-relative path= (path required for log_ids; loc_yaml=.yml only, styling=.txt only). Returns {txt, changed, fixes, summary, warnings}; txt omitted when unchanged, clipped with txt_truncated=true when oversized — never write clipped txt back. loc_yaml reports had_bom; preserve it when writing .yml."""
-        return fix_lint_tool(settings.mod_root, fixer=fixer, path=path, content=content)
+        return fix_lint_tool(
+            settings.mod_root,
+            fixer=fixer,
+            path=path,
+            content=content,
+            submod_root=settings.submod_root,
+        )
 
     # ---------- generators (M3) — return file content as strings ----------
 
@@ -366,7 +372,7 @@ def build_server(settings: Settings):
     mcp.tool(
         name="standardize",
         description="Standardize script content in memory using upstream formatters; provide content= with content_type=focus|event|decision|idea|mio|technology|history, or a mod-relative .txt path= to detect the type. Clipped txt must not be written back.",
-    )(_bind_tool(standardize_tool, settings.mod_root))
+    )(_bind_tool(standardize_tool, settings.mod_root, settings.submod_root))
 
     # ---------- M3 analysis ----------
 

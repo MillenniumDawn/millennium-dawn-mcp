@@ -266,3 +266,52 @@ def test_invalid_submod_root_fails_loudly(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
     with pytest.raises(RuntimeError, match="existing directory"):
         config.load(str(root), **{"submod_root": str(tmp_path / "missing-overlay")})
+
+
+def test_validate_user_path_prefers_first_root_with_existing_file(tmp_path):
+    submod = tmp_path / "submod"
+    mod = tmp_path / "mod"
+    vanilla = tmp_path / "vanilla"
+    for root, rel in (
+        (submod, "common/shared.txt"),
+        (mod, "common/shared.txt"),
+        (mod, "common/base.txt"),
+        (vanilla, "common/vanilla.txt"),
+    ):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("x", encoding="utf-8")
+    roots = [submod, mod, vanilla]
+
+    assert (
+        validate_user_path("common/shared.txt", roots) == (submod / "common/shared.txt").resolve()
+    )
+    assert validate_user_path("common/base.txt", roots) == (mod / "common/base.txt").resolve()
+    assert (
+        validate_user_path("common/vanilla.txt", roots)
+        == (vanilla / "common/vanilla.txt").resolve()
+    )
+
+
+def test_validate_user_path_missing_everywhere_falls_back_to_first_root(tmp_path):
+    submod = tmp_path / "submod"
+    mod = tmp_path / "mod"
+    submod.mkdir()
+    mod.mkdir()
+
+    got = validate_user_path("nope.txt", [submod, mod])
+    assert got == (submod / "nope.txt").resolve()
+    with pytest.raises(PathAccessError, match="not a regular file"):
+        validate_user_path("nope.txt", [submod, mod], require_file=True)
+
+
+def test_validate_user_path_symlink_escape_in_overlay_is_not_preferred(tmp_path):
+    submod = tmp_path / "submod"
+    mod = tmp_path / "mod"
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+    submod.mkdir()
+    (submod / "a.txt").symlink_to(outside)
+    (mod).mkdir()
+    (mod / "a.txt").write_text("base", encoding="utf-8")
+
+    assert validate_user_path("a.txt", [submod, mod]) == (mod / "a.txt").resolve()

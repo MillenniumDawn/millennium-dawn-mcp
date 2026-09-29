@@ -109,7 +109,8 @@ def validate_user_path(
 ) -> Path:
     """Resolve a user-supplied path against content roots, raising on escape.
 
-    Relative paths resolve against the first root; absolute paths are used as-is.
+    Relative paths resolve against the first root that contains an existing
+    match, falling back to the first root; absolute paths are used as-is.
     The resolved location must land inside at least one of `roots`. With
     `require_file`, the target must be a regular file; with `extensions`, its
     suffix must be in the allowlist.
@@ -119,8 +120,13 @@ def validate_user_path(
     root_list = [roots] if isinstance(roots, Path) else list(roots)
     first = next(r for r in root_list if r is not None)
     p = Path(path)
-    candidate = p if p.is_absolute() else first / p
-    resolved = candidate.resolve()
+    if p.is_absolute():
+        resolved = p.resolve()
+    else:
+        resolved = next(
+            (c for root in root_list if (c := contained(root, p)) is not None and c.exists()),
+            (first / p).resolve(),
+        )
 
     if not any(resolved.is_relative_to(root.resolve()) for root in root_list):
         allowed = " or ".join(str(root) for root in root_list)

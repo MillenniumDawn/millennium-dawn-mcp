@@ -122,6 +122,7 @@ def _clip_txt(result: dict, txt: str) -> dict:
 
 def standardize_tool(
     mod_root: Path,
+    submod_root: Optional[Path] = None,
     *,
     content: Optional[str] = None,
     path: Optional[str] = None,
@@ -150,10 +151,11 @@ def standardize_tool(
     api: ModuleType
     norm_path: Optional[str] = None
     if path is not None:
+        roots = [r for r in (submod_root, mod_root) if r is not None]
         try:
             source_path = validate_user_path(
                 path,
-                mod_root,
+                roots,
                 extensions={".txt"},
                 require_file=True,
             )
@@ -163,10 +165,9 @@ def standardize_tool(
             api = _load_standardize_api(mod_root)
         except ImportError as exc:
             return _upstream_import_error(mod_root, exc)
-        try:
-            norm_path = source_path.relative_to(mod_root.resolve()).as_posix()
-        except ValueError:
-            return {"ok": False, "error": "path must be inside the mod root."}
+        # validate_user_path guarantees the path sits under one of the roots
+        owner = next(r for r in roots if source_path.is_relative_to(r.resolve()))
+        norm_path = source_path.relative_to(owner.resolve()).as_posix()
         kind = normalized_type or api.kind_for_path(norm_path)
         if kind is None:
             return {

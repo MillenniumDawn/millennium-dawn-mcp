@@ -279,6 +279,15 @@ def _run_parsed_script(
     return enforce_budget(result, heavy_keys=("issues",))
 
 
+def _discover_mod_files(mod_root: Path, submod_root: Optional[Path]) -> list[str]:
+    """List `.mod` arguments overlay first; base-only ones are absolute (cwd is the overlay)."""
+    if submod_root is None:
+        return sorted(p.name for p in mod_root.glob("*.mod") if p.is_file())
+    overlay = sorted(p.name for p in submod_root.glob("*.mod") if p.is_file())
+    base = [str(p) for p in sorted(mod_root.glob("*.mod")) if p.is_file() and p.name not in overlay]
+    return overlay + base
+
+
 def lint_mod_encoding_tool(
     mod_root: Path,
     *,
@@ -288,11 +297,12 @@ def lint_mod_encoding_tool(
 ) -> dict:
     """Run `tools/linting/validate_mod_encoding.py` against `.mod` files.
 
-    With no `files`, defaults to every `.mod` file under the mod root.
+    With no `files`, defaults to every `.mod` file under the mod root, with
+    overlay descriptors shadowing base ones of the same name.
     """
     script = mod_root / "tools" / "linting" / "validate_mod_encoding.py"
     if files is None:
-        files = [str(p.relative_to(mod_root)) for p in mod_root.glob("*.mod") if p.is_file()]
+        files = _discover_mod_files(mod_root, submod_root)
     if not files:
         return {
             "ok": True,

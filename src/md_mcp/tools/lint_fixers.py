@@ -100,12 +100,14 @@ def fix_lint_tool(
     fixer: str,
     path: Optional[str] = None,
     content: Optional[str] = None,
+    submod_root: Optional[Path] = None,
 ) -> dict:
     """Apply one upstream lint fixer in-memory and return the fixed text.
 
     Args:
         fixer   — `styling` | `loc_yaml` | `line_endings` | `log_ids`
-        path    — mod-relative path. Source when `content` is omitted; always
+        path    — mod-relative path, read from `submod_root` first when set.
+                  Source when `content` is omitted; always
                   required for `log_ids` (scope detection is path-based);
                   `loc_yaml` is restricted to .yml (its tab→space rewrite
                   corrupts .txt) and `styling` to .txt. Pure metadata when
@@ -143,7 +145,8 @@ def fix_lint_tool(
                 "error": f"fixer=styling only applies to .txt files, got {norm_path}",
             }
         try:
-            resolved = validate_user_path(norm_path, mod_root, require_file=True)
+            roots = [r for r in (submod_root, mod_root) if r is not None]
+            resolved = validate_user_path(norm_path, roots, require_file=True)
         except PathAccessError as e:
             return {"ok": False, "error": str(e)}
         raw = resolved.read_bytes()

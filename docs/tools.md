@@ -214,6 +214,14 @@ issues compared with a baseline snapshot.
 
 Returns `{ok, validators, counts: {error, warning, info}, issues, issues_total_after_filter, truncated}`.
 
+In delta mode, baseline and current file paths go through the same attribution
+before keys are compared, so a bare `a.txt` in a sidecar matches
+`events/a.txt`. Findings with no resolvable file or line (or an ambiguous bare
+name) cannot be compared, so they are left out of `issues` and counted in an
+extra `unclassified` field. Each deduped issue is counted once in the
+per-validator `counts`, under the validator that reported its final severity,
+so the breakdown sums to the top-level `counts`.
+
 ### `validate_list(limit?, offset?) -> dict`
 
 Enumerate available validators with their titles. Each entry includes

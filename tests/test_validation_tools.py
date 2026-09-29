@@ -10,7 +10,7 @@ import importlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable, cast
+from typing import Any, Callable, cast
 
 import pytest
 
@@ -276,11 +276,17 @@ def _fake_report_lib():
         return (issue.severity, issue.category, issue.file, issue.line, issue.message)
 
     def dedupe(issues):
-        return list(
-            {
-                (issue.category, issue.file, issue.line, issue.message): issue for issue in issues
-            }.values()
-        )
+        merged: dict[tuple, Any] = {}
+        for issue in issues:
+            key = (issue.category, issue.file, issue.line, issue.message)
+            kept = merged.setdefault(key, issue)
+            if kept is issue:
+                continue
+            if issue.validator not in (kept.validator, *kept.detected_by):
+                kept.detected_by.append(issue.validator)
+            if issue.severity == "error" and kept.severity == "warning":
+                kept.severity = "error"
+        return list(merged.values())
 
     def classify(issues, baseline):
         new_issues = []
@@ -459,7 +465,7 @@ def test_validate_delta_missing_default_snapshot_returns_actionable_error(
     assert runner.calls == []
 
 
-def test_validate_delta_returns_unkeyable_issue_as_new(fake_mod_root, monkeypatch):
+def test_validate_delta_leaves_unkeyable_issue_unclassified(fake_mod_root, monkeypatch):
     settings = _delta_settings(fake_mod_root)
     _patch_fake_baseline(monkeypatch, [])
     issue = {
@@ -474,9 +480,82 @@ def test_validate_delta_returns_unkeyable_issue_as_new(fake_mod_root, monkeypatc
     )
 
     assert result["ok"] is True
-    assert len(result["issues"]) == 1
-    assert result["issues"][0]["file"] == ""
-    assert result["issues"][0]["line"] == 0
+    assert result["issues"] == []
+    assert result["counts"] == {"error": 0, "warning": 0, "info": 0}
+    assert result["unclassified"] == 1
+
+
+def test_validate_delta_duplicate_basename_is_unclassified_not_new(fake_mod_root, monkeypatch):
+    settings = _delta_settings(fake_mod_root)
+    (fake_mod_root / "common").mkdir(exist_ok=True)
+    (fake_mod_root / "common" / "a.txt").write_text("synthetic", encoding="utf-8")
+    _patch_fake_baseline(monkeypatch, [])
+    issue = {
+        "severity": "error",
+        "category": "synthetic",
+        "message": "ambiguous",
+        "file": "a.txt",
+        "line": 2,
+    }
+
+    result = _validate_tool_with_delta(
+        settings, _FakeRunner([issue]), validator="synthetic", delta=True, baseline="fake"
+    )
+
+    assert result["issues"] == []
+    assert result["unclassified"] == 1
+
+
+def _run_all_delta(fake_mod_root, monkeypatch, by_validator, **kwargs):
+    for name in by_validator:
+        _plant(fake_mod_root, name, _GOOD)
+    settings = _delta_settings(fake_mod_root)
+    _patch_fake_baseline(monkeypatch, [])
+
+    class Runner:
+        def run(self, validator, **_kwargs):
+            issues = by_validator[validator]
+            counts = {"error": 0, "warning": 0, "info": 0}
+            for issue in issues:
+                counts[issue["severity"]] += 1
+            return {"ok": True, "counts": counts, "issues": issues}
+
+    return _validate_tool_with_delta(settings, Runner(), delta=True, baseline="fake", **kwargs)
+
+
+def _shared(severity):
+    return {
+        "severity": severity,
+        "category": "synthetic",
+        "message": "shared",
+        "file": "events/a.txt",
+        "line": 5,
+    }
+
+
+def test_validate_delta_breakdown_sums_to_deduped_total_for_duplicates(fake_mod_root, monkeypatch):
+    result = _run_all_delta(
+        fake_mod_root, monkeypatch, {"alpha": [_shared("warning")], "beta": [_shared("warning")]}
+    )
+
+    per = {entry["name"]: entry["counts"] for entry in result["validators"]}
+    assert result["counts"] == {"error": 0, "warning": 1, "info": 0}
+    assert per["alpha"] == {"error": 0, "warning": 1, "info": 0}
+    assert per["beta"] == {"error": 0, "warning": 0, "info": 0}
+
+
+def test_validate_delta_breakdown_credits_escalated_severity_to_reporter(
+    fake_mod_root, monkeypatch
+):
+    result = _run_all_delta(
+        fake_mod_root, monkeypatch, {"alpha": [_shared("warning")], "beta": [_shared("error")]}
+    )
+
+    per = {entry["name"]: entry["counts"] for entry in result["validators"]}
+    assert result["counts"] == {"error": 1, "warning": 0, "info": 0}
+    assert per["alpha"] == {"error": 0, "warning": 0, "info": 0}
+    assert per["beta"] == {"error": 1, "warning": 0, "info": 0}
+    assert result["issues"][0]["detected_by"] == ["beta"]
 
 
 def test_validate_delta_bare_main_is_a_ref_not_a_cwd_file(fake_mod_root, monkeypatch, tmp_path):
@@ -566,13 +645,13 @@ def test_validate_delta_uses_real_sibling_report_lib(tmp_path):
     ]
 
     delta_helper = _delta_helper()
-    new_issues = delta_helper(settings, records, str(baseline_file))
+    new_issues = delta_helper(settings, records, str(baseline_file)).issues
     baseline_dir = tmp_path / "baseline-sidecars"
     baseline_dir.mkdir()
     (baseline_dir / "synthetic.json").write_text(
         baseline_file.read_text(encoding="utf-8"), encoding="utf-8"
     )
-    sidecar_new_issues = delta_helper(settings, records, str(baseline_dir))
+    sidecar_new_issues = delta_helper(settings, records, str(baseline_dir)).issues
 
     assert [issue["message"] for issue in new_issues] == ["new"]
     assert [issue["message"] for issue in sidecar_new_issues] == ["new"]

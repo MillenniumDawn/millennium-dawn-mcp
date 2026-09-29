@@ -116,7 +116,7 @@ def validate_tool(
         issues = result.get("issues", [])
         if delta:
             try:
-                issues = new_issue_dicts(
+                delta_result = new_issue_dicts(
                     settings,
                     [(issue_dict, validator) for issue_dict in issues],
                     baseline,
@@ -124,7 +124,9 @@ def validate_tool(
                 )
             except (FileNotFoundError, ImportError, ValueError) as exc:
                 return enforce_budget({"ok": False, "error": str(exc)})
+            issues = delta_result.issues
             result["counts"] = _counts_for_issues(issues)
+            result["unclassified"] = delta_result.unclassified
         if strict and "counts" in result:
             result["counts"] = _apply_strict(result["counts"])
         kept, truncated, total = _filter_and_cap(issues, severity_min=severity_min, limit=limit)
@@ -165,24 +167,27 @@ def validate_tool(
             for k, n in result["counts"].items():
                 overall[k] = overall.get(k, 0) + n
 
+    unclassified: Optional[int] = None
     if delta:
         try:
-            aggregated = new_issue_dicts(
+            delta_result = new_issue_dicts(
                 settings, issue_records, baseline, prepared_baseline=prepared_baseline
             )
         except (FileNotFoundError, ImportError, ValueError) as exc:
             return enforce_budget({"ok": False, "error": str(exc)})
+        aggregated = delta_result.issues
+        unclassified = delta_result.unclassified
         overall = _counts_for_issues(aggregated)
+        # One owner per deduped issue keeps the breakdown summing to `overall`.
         for entry in per_validator:
             if not entry["ok"]:
                 continue
-            name = entry["name"]
-            own_issues = [
+            owned = [
                 issue
-                for issue in aggregated
-                if name in {issue.get("validator"), *issue.get("detected_by", [])}
+                for issue, owner in zip(aggregated, delta_result.owners, strict=True)
+                if owner == entry["name"]
             ]
-            entry["counts"] = _counts_for_issues(own_issues)
+            entry["counts"] = _counts_for_issues(owned)
 
     if strict:
         overall = _apply_strict(overall)
@@ -206,6 +211,8 @@ def validate_tool(
         "issues_total_after_filter": total,
         "truncated": truncated,
     }
+    if unclassified is not None:
+        summary["unclassified"] = unclassified
     if not counts_only:
         summary["issues"] = kept
 

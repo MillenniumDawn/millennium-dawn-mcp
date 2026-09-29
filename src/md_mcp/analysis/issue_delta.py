@@ -10,7 +10,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 from ..validators.attribution import IssueAttributor
 
@@ -92,16 +92,44 @@ def _read_issue_file(path: Path, issue_type) -> list:
 class PreparedBaseline:
     report_lib: Any
     keys: set
+    attributor: IssueAttributor
+
+
+class DeltaResult(NamedTuple):
+    """New findings, the validator owning each, and the count of unkeyable findings."""
+
+    issues: list[dict]
+    owners: list[str]
+    unclassified: int
+
+
+def _attribute(issue, attributor: IssueAttributor) -> None:
+    """Rewrite `issue.file` to a mod-relative path; baseline and current share this policy."""
+    issue.file = attributor.resolve({"file": issue.file, "message": issue.message}) or ""
 
 
 def prepare_baseline(settings, baseline: Optional[str]) -> PreparedBaseline:
     """Load and key the baseline before running validators."""
     report_lib = _report_lib(settings.mod_root)
-    baseline_issues = report_lib.dedupe(_load_baseline_issues(settings, baseline, report_lib))
+    attributor = IssueAttributor(settings.mod_root)
+    baseline_issues = _load_baseline_issues(settings, baseline, report_lib)
+    for issue in baseline_issues:
+        _attribute(issue, attributor)
     baseline_keys = {
-        key for issue in baseline_issues if (key := report_lib.issue_key(issue)) is not None
+        key
+        for issue in report_lib.dedupe(baseline_issues)
+        if (key := report_lib.issue_key(issue)) is not None
     }
-    return PreparedBaseline(report_lib=report_lib, keys=baseline_keys)
+    return PreparedBaseline(report_lib=report_lib, keys=baseline_keys, attributor=attributor)
+
+
+def _owner(issue, reported: dict[tuple, list[tuple[str, str]]]) -> str:
+    """Pick the validator that itself reported the deduped issue's severity."""
+    key = (issue.category, issue.file, issue.line, issue.message)
+    for validator, severity in reported.get(key, ()):
+        if severity == issue.severity:
+            return validator
+    return issue.validator
 
 
 def new_issue_dicts(
@@ -110,21 +138,26 @@ def new_issue_dicts(
     baseline: Optional[str],
     *,
     prepared_baseline: Optional[PreparedBaseline] = None,
-) -> list[dict]:
-    """Return deduped current findings classified as new against a snapshot."""
+) -> DeltaResult:
+    """Classify deduped current findings against a snapshot; unkeyable ones are unclassified."""
     prepared = prepared_baseline or prepare_baseline(settings, baseline)
     report_lib = prepared.report_lib
-    attributor = IssueAttributor(settings.mod_root)
     current_issues = []
+    reported: dict[tuple, list[tuple[str, str]]] = {}
     for issue_dict, validator in issue_records:
-        normalized = dict(issue_dict)
-        normalized["file"] = attributor.resolve(normalized) or ""
-        current_issues.append(report_lib.Issue.from_dict(normalized, validator=validator))
+        issue = report_lib.Issue.from_dict(issue_dict, validator=validator)
+        _attribute(issue, prepared.attributor)
+        current_issues.append(issue)
+        key = (issue.category, issue.file, issue.line, issue.message)
+        reported.setdefault(key, []).append((issue.validator, issue.severity))
 
+    # dedupe raises the kept issue's severity in place, so `reported` is captured above.
     current_issues = report_lib.dedupe(current_issues)
     current_baseline = report_lib.Baseline(meta={}, keys=prepared.keys)
-    stats = report_lib.classify(current_issues, current_baseline)
-    new_issues = stats.new_issues + [
-        issue for issue in current_issues if report_lib.issue_key(issue) is None
-    ]
-    return [issue.to_dict() for issue in new_issues]
+    new_issues = report_lib.classify(current_issues, current_baseline).new_issues
+    unclassified = sum(1 for issue in current_issues if report_lib.issue_key(issue) is None)
+    return DeltaResult(
+        issues=[issue.to_dict() for issue in new_issues],
+        owners=[_owner(issue, reported) for issue in new_issues],
+        unclassified=unclassified,
+    )

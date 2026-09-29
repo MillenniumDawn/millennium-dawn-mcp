@@ -366,6 +366,50 @@ def test_new_issue_dicts_classifies_against_planted_report_lib(fake_mod_root: Pa
         ),
     ]
 
-    new_issues = new_issue_dicts(settings, records, str(snapshot))
+    new_issues = new_issue_dicts(settings, records, str(snapshot)).issues
 
     assert [issue["message"] for issue in new_issues] == ["fresh"]
+
+
+def _sidecar_issue(file: str, message: str = "known", line: int = 3) -> dict:
+    return {
+        "severity": "warning",
+        "category": "fake",
+        "message": message,
+        "file": file,
+        "line": line,
+    }
+
+
+def test_new_issue_dicts_matches_bare_sidecar_path_to_attributed_current_path(
+    fake_mod_root: Path, tmp_path: Path
+):
+    _plant_report_lib(fake_mod_root)
+    (fake_mod_root / "events").mkdir(exist_ok=True)
+    (fake_mod_root / "events" / "a.txt").write_text("synthetic", encoding="utf-8")
+    sidecars = tmp_path / "sidecars"
+    sidecars.mkdir()
+    (sidecars / "fake.json").write_text(json.dumps([_sidecar_issue("a.txt")]), encoding="utf-8")
+
+    result = new_issue_dicts(
+        _settings(fake_mod_root), [(_sidecar_issue("a.txt"), "fake")], str(sidecars)
+    )
+
+    assert result.issues == []
+    assert result.unclassified == 0
+
+
+def test_new_issue_dicts_keeps_ambiguous_basename_unclassified(fake_mod_root: Path, tmp_path: Path):
+    _plant_report_lib(fake_mod_root)
+    for directory in ("events", "common"):
+        (fake_mod_root / directory).mkdir(exist_ok=True)
+        (fake_mod_root / directory / "dup.txt").write_text("synthetic", encoding="utf-8")
+    snapshot = tmp_path / "baseline.json"
+    snapshot.write_text("[]", encoding="utf-8")
+
+    result = new_issue_dicts(
+        _settings(fake_mod_root), [(_sidecar_issue("dup.txt"), "fake")], str(snapshot)
+    )
+
+    assert result.issues == []
+    assert result.unclassified == 1

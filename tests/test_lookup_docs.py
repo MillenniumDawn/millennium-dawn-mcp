@@ -267,7 +267,10 @@ def test_lookup_docs_mcp_registration_and_call(fake_mod_root, cache_dir) -> None
         )
 
     tools, result, system_result = asyncio.run(go())
-    assert "lookup_docs" in {tool.name for tool in tools}
+    description = next(tool.description for tool in tools if tool.name == "lookup_docs")
+    assert description is not None
+    for advertised in ("effect", "trigger", "modifier", ".claude/docs", ".claude/rules"):
+        assert advertised in description
     payload = json.loads(cast(Any, result)[0].text)
     assert payload["ok"] is True
     assert payload["entries"][0]["key"] == "test_effect"

@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
-from ..analysis.suppressions import suppress_issues, suppressed_count
+from ..analysis.suppressions import suppressed_count
 from ..util.pathing import contained
 from ..util.process import run_in_group
 from ..util.response import BUDGET_BYTES, enforce_budget
@@ -593,12 +593,7 @@ def lint_tool(
             if result.get("stderr_tail"):
                 check_summary["stderr_tail"] = result["stderr_tail"]
         else:
-            issues, suppressed = suppress_issues(result.get("issues", []) or [], mod_root)
-            if suppressed:
-                suppressed_total += suppressed
-                check_summary["suppressed"] = suppressed
-                check_summary["suppression_source"] = ".claude/docs/known-false-positives.md"
-                check_summary["total"] = len(issues)
+            issues = result.get("issues", []) or []
             # Tag each issue with which check produced it (helps the agent).
             for i in issues:
                 i.setdefault("check", name)

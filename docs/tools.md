@@ -151,7 +151,9 @@ where `value` is `null | str | num | {symbol: str} | [Node, ...]` (block) — se
 
 Look up an exact effect, trigger, or modifier key in the matching
 `resources/documentation/*_documentation.md` file. Omit `key` to page the
-available keys. `kind` is `effect`, `trigger`, or `modifier`; key matching is
+available keys. `kind` is `effect`, `trigger`, or `modifier`, or `doc` or
+`rule` for the Markdown files in `.claude/docs` and `.claude/rules` (aliases
+`docs`, `claude_docs`, `rules`, `claude_rules`); key matching is
 case-sensitive. Missing keys return up to five close-match `suggestions`,
 paginated by `limit` and `offset`.
 
@@ -206,6 +208,14 @@ Run one validator or the full fast suite.
 - **`counts_only=True`** — return just per-validator counts; skip the issues array.
 
 Returns `{ok, validators, counts: {error, warning, info}, issues, issues_total_after_filter, truncated}`.
+
+Suppression: upstream `known-false-positives.md` says a `GFX_*` sprite absent
+from `interface/*.gfx` is fine when `tools/validation/vanilla_sprites.txt` lists
+it. The `missing-focus-icon` and `missing-decision-icon` findings are dropped
+only when a sprite named in the message is in that manifest (for decisions, any
+of the `X / GFX_decision_X / GFX_X` candidates). Nothing else is suppressed, and
+without the manifest nothing is. The count is reported as `suppressed` next to
+`suppression_source`.
 
 ### `validate_list(limit?, offset?) -> dict`
 

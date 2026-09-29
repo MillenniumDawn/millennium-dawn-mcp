@@ -3,12 +3,27 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
 
-from md_mcp.analysis.suppressions import SuppressionRule, _anchors, _bullets, suppressed_count
+import pytest
+
+from md_mcp.analysis.suppressions import suppress_issues, suppressed_count
 from md_mcp.config import Settings
 from md_mcp.tools.lint_validators import run_validators_for_lint
 from md_mcp.tools.linting_tools import lint_tool
 from md_mcp.tools.validation_tools import _apply_suppressions, validate_tool
-from md_mcp.validators import ValidatorRunner  # pyright: ignore[reportMissingImports]
+from md_mcp.validators import (  # pyright: ignore[reportMissingImports]
+    ValidatorInfo,
+    ValidatorRunner,
+)
+
+_SOURCE = ".claude/docs/known-false-positives.md"
+
+_UPSTREAM_DOC = Path(__file__).parent / "fixtures" / "known_false_positives.md"
+
+_FOCUS_MESSAGE = "Missing icon sprite 'GFX_vanilla_only' for focus 'TST_focus'"
+_DECISION_MESSAGE = (
+    "TST_decision: icon = vanilla_only -> no sprite vanilla_only / GFX_decision_vanilla_only / "
+    "GFX_vanilla_only defined in interface/*.gfx (create the sprite or pick an existing icon)"
+)
 
 _ISSUE_CLASS = """
 class _Issue:
@@ -19,10 +34,9 @@ class _Issue:
         return dict(self.kw)
 """
 
-
 _VALIDATOR = (
     _ISSUE_CLASS
-    + """
+    + f"""
 class Validator:
     TITLE = "Synthetic"
 
@@ -32,8 +46,8 @@ class Validator:
     def run_all_validations(self):
         self._issues = [
             _Issue(
-                severity="warning", category="fixture", message="fixture_known_pattern",
-                file="common/x.txt",
+                severity="warning", category="missing-focus-icon",
+                message={_FOCUS_MESSAGE!r}, file="common/x.txt",
             ),
             _Issue(
                 severity="error", category="fixture", message="real_problem",
@@ -44,10 +58,20 @@ class Validator:
 )
 
 
-def _write_rule(mod_root: Path, text: str = "fixture_known_pattern") -> None:
+def _write_manifest(mod_root: Path, *names: str) -> None:
+    path = mod_root / "tools" / "validation" / "vanilla_sprites.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("# header\n" + "".join(f"{name} 32x32\n" for name in names), encoding="utf-8")
+
+
+def _write_upstream_doc(mod_root: Path) -> None:
     path = mod_root / ".claude" / "docs" / "known-false-positives.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"# Known false positives\n\n- `{text}` is intentional.\n", encoding="utf-8")
+    path.write_text(_UPSTREAM_DOC.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+def _issue(category: str, message: str) -> dict:
+    return {"severity": "warning", "category": category, "message": message, "file": "x.txt"}
 
 
 def test_suppressed_count_is_nonnegative_and_best_effort():
@@ -62,8 +86,78 @@ def test_suppressed_count_is_nonnegative_and_best_effort():
         assert suppressed_count(result) == expected
 
 
-def test_validator_suppresses_runtime_rule_and_reports_count(fake_mod_root):
-    _write_rule(fake_mod_root)
+@pytest.mark.parametrize(
+    ("category", "message"),
+    [
+        ("missing-focus-icon", _FOCUS_MESSAGE),
+        ("missing-decision-icon", _DECISION_MESSAGE),
+    ],
+)
+def test_icon_finding_is_suppressed_when_manifest_lists_the_sprite(tmp_path, category, message):
+    _write_manifest(tmp_path, "GFX_vanilla_only", "GFX_decision_vanilla_only")
+    keep = _issue("missing-focus-icon", "Missing icon sprite 'GFX_mod_typo' for focus 'X'")
+
+    kept, suppressed = suppress_issues([_issue(category, message), keep], tmp_path)
+
+    assert suppressed == 1
+    assert kept == [keep]
+
+
+def test_decision_finding_matches_any_candidate_in_manifest(tmp_path):
+    _write_manifest(tmp_path, "GFX_vanilla_only")
+
+    kept, suppressed = suppress_issues(
+        [_issue("missing-decision-icon", _DECISION_MESSAGE)], tmp_path
+    )
+
+    assert (kept, suppressed) == ([], 1)
+
+
+@pytest.mark.parametrize(
+    ("category", "message"),
+    [
+        ("missing-focus-icon", _FOCUS_MESSAGE),
+        ("missing-decision-icon", _DECISION_MESSAGE),
+    ],
+)
+def test_icon_finding_stays_when_sprite_is_not_in_manifest(tmp_path, category, message):
+    _write_manifest(tmp_path, "GFX_other")
+    issue = _issue(category, message)
+
+    assert suppress_issues([issue], tmp_path) == ([issue], 0)
+
+
+def test_no_manifest_means_no_suppression(tmp_path):
+    issue = _issue("missing-focus-icon", _FOCUS_MESSAGE)
+
+    assert suppress_issues([issue], tmp_path) == ([issue], 0)
+
+
+@pytest.mark.parametrize("category", ["missing-idea-icon", "missing-event-picture", "fixture", ""])
+def test_other_categories_are_never_suppressed(tmp_path, category):
+    _write_manifest(tmp_path, "GFX_vanilla_only", "GFX_decision_vanilla_only")
+    issue = _issue(category, _FOCUS_MESSAGE)
+
+    assert suppress_issues([issue], tmp_path) == ([issue], 0)
+
+
+def test_unrelated_messages_with_upstream_prose_words_stay_visible(tmp_path):
+    _write_upstream_doc(tmp_path)
+    _write_manifest(tmp_path, "GFX_vanilla_only")
+    issues = [
+        _issue("trigger", "invalid trigger num_of_civilian_factories in total civilian block"),
+        _issue("style", "hidden_trigger = { } directly inside custom_trigger_tooltip is redundant"),
+        _issue("sprite", "missing sprite GFX_nowhere referenced by an idea"),
+        _issue("style", "treasury_change after one_random_building_effect double-charges"),
+        _issue("missing-focus-icon", "sprite missing but no quoted name"),
+        _issue("missing-decision-icon", "decision icon missing sprite"),
+    ]
+
+    assert suppress_issues(issues, tmp_path) == (issues, 0)
+
+
+def test_validator_suppresses_manifest_backed_finding_and_reports_count(fake_mod_root):
+    _write_manifest(fake_mod_root, "GFX_vanilla_only")
     (fake_mod_root / "common").mkdir(exist_ok=True)
     (fake_mod_root / "common" / "x.txt").write_text("x = 1\n", encoding="utf-8")
     validator = fake_mod_root / "tools" / "validation" / "validate_synthetic.py"
@@ -72,7 +166,7 @@ def test_validator_suppresses_runtime_rule_and_reports_count(fake_mod_root):
     result = ValidatorRunner(fake_mod_root).run("synthetic")
 
     assert result["suppressed"] == 1
-    assert result["suppression_source"] == ".claude/docs/known-false-positives.md"
+    assert result["suppression_source"] == _SOURCE
     assert [issue["message"] for issue in result["issues"]] == ["real_problem"]
     assert result["counts"] == {"error": 1, "warning": 0, "info": 0}
 
@@ -85,7 +179,8 @@ def test_lint_suppresses_fake_runner_issues_and_preserves_scope_counts(tmp_path)
                 "issues": [
                     {
                         "file": "common/x.txt",
-                        "message": "fixture_known_pattern",
+                        "message": _FOCUS_MESSAGE,
+                        "category": "missing-focus-icon",
                         "severity": "warning",
                     }
                 ],
@@ -93,7 +188,7 @@ def test_lint_suppresses_fake_runner_issues_and_preserves_scope_counts(tmp_path)
 
     (tmp_path / "common").mkdir()
     (tmp_path / "common" / "x.txt").write_text("x = 1\n", encoding="utf-8")
-    _write_rule(tmp_path)
+    _write_manifest(tmp_path, "GFX_vanilla_only")
 
     entries, issues = run_validators_for_lint(
         cast(Any, Runner()),
@@ -110,20 +205,58 @@ def test_lint_suppresses_fake_runner_issues_and_preserves_scope_counts(tmp_path)
             "ok": True,
             "total": 0,
             "suppressed": 1,
-            "suppression_source": ".claude/docs/known-false-positives.md",
+            "suppression_source": _SOURCE,
             "total_mod_wide": 1,
         }
     ]
 
 
-def test_lint_script_suppression_is_reported(tmp_path):
-    _write_rule(tmp_path)
+def test_lint_tool_reports_validator_suppressions_in_summary(tmp_path):
+    class Runner(ValidatorRunner):
+        def __init__(self) -> None:
+            super().__init__(tmp_path)
+
+        def list(self):
+            return [
+                ValidatorInfo(
+                    name="style", module_name="validate_style", title="style", path=tmp_path
+                )
+            ]
+
+        def run(self, name, *, staged_only=False, files=None):
+            return {
+                "ok": True,
+                "issues": [_issue("missing-focus-icon", _FOCUS_MESSAGE) | {"file": "common/x.txt"}],
+            }
+
+    (tmp_path / "common").mkdir()
+    (tmp_path / "common" / "x.txt").write_text("x = 1\n", encoding="utf-8")
+    _write_manifest(tmp_path, "GFX_vanilla_only")
+
+    result = lint_tool(
+        tmp_path,
+        files=["common/x.txt"],
+        checks=[],
+        validators=["style"],
+        validator_runner=Runner(),
+    )
+
+    assert result["suppressed"] == 1
+    assert result["suppression_source"] == _SOURCE
+    assert result["issues"] == []
+
+
+def test_lint_script_output_matching_upstream_prose_stays_visible(tmp_path):
+    _write_upstream_doc(tmp_path)
     (tmp_path / "common").mkdir()
     (tmp_path / "common" / "x.txt").write_text("x = 1\n", encoding="utf-8")
     script = tmp_path / "tools" / "linting" / "check_common_mistakes.py"
     script.parent.mkdir(parents=True)
     script.write_text(
-        'import sys\nprint("common/x.txt:1: fixture_known_pattern")\nsys.exit(1)\n',
+        "import sys\n"
+        'print("common/x.txt:1: hidden_trigger = { } directly inside '
+        'custom_trigger_tooltip is redundant")\n'
+        "sys.exit(1)\n",
         encoding="utf-8",
     )
 
@@ -134,19 +267,19 @@ def test_lint_script_suppression_is_reported(tmp_path):
         validators=[],
     )
 
-    assert result["suppressed"] == 1
-    assert result["counts"] == {"error": 0, "warning": 0, "info": 0}
-    assert result["issues"] == []
+    assert "suppressed" not in result
+    assert len(result["issues"]) == 1
 
 
-def test_missing_runtime_rule_is_a_graceful_noop(tmp_path):
+def test_missing_manifest_is_a_graceful_noop(tmp_path):
     class Runner:
         def run(self, name, *, staged_only=False):
             return {
                 "ok": True,
                 "issues": [
                     {
-                        "message": "fixture_known_pattern",
+                        "message": _FOCUS_MESSAGE,
+                        "category": "missing-focus-icon",
                         "severity": "warning",
                         "file": "common/x.txt",
                     }
@@ -163,39 +296,6 @@ def test_missing_runtime_rule_is_a_graceful_noop(tmp_path):
 
     assert entries == [{"name": "validator:style", "ok": True, "total": 1}]
     assert len(issues) == 1
-    assert issues[0]["message"] == "fixture_known_pattern"
-
-
-def test_rule_ignores_unrelated_haystacks():
-    rule = SuppressionRule(
-        text="`fixture_known_pattern`", anchors=(("fixture_known",),), keywords=()
-    )
-
-    assert rule.matches({"message": ""}) is False
-    assert rule.matches({"message": "unrelated problem"}) is False
-
-
-def test_wildcard_anchor_requires_the_prefix_to_appear():
-    rule = SuppressionRule(text="one_random_*", anchors=(("one_random*",),), keywords=())
-
-    assert rule.matches({"message": "two_random_thing here"}) is False
-    assert rule.matches({"message": "uses one_random_thing flag"}) is True
-
-
-def test_equality_anchors_require_both_sides():
-    rule = SuppressionRule(
-        text="`target_tag = THIS`", anchors=(("target_tag", "this"),), keywords=()
-    )
-
-    assert rule.matches({"message": "target_tag = THIS is fine"}) is True
-    assert rule.matches({"message": "only target_tag without the value"}) is False
-    assert _anchors("has `target_tag = THIS` set") == (("target_tag", "this"),)
-
-
-def test_bullets_join_wrapped_lines_and_split_consecutive_bullets():
-    text = "- first bullet\n  wrapped continuation\n- second bullet\n"
-
-    assert _bullets(text) == ["first bullet wrapped continuation", "second bullet"]
 
 
 def test_apply_suppressions_skips_already_suppressed_results(tmp_path):
@@ -205,13 +305,8 @@ def test_apply_suppressions_skips_already_suppressed_results(tmp_path):
 
 
 def test_apply_suppressions_drops_matching_issues_and_adjusts_counts(tmp_path):
-    _write_rule(tmp_path)
-    issue = {
-        "severity": "warning",
-        "category": "fixture",
-        "message": "fixture_known_pattern",
-        "file": "common/x.txt",
-    }
+    _write_manifest(tmp_path, "GFX_vanilla_only")
+    issue = _issue("missing-focus-icon", _FOCUS_MESSAGE)
     result = {
         "ok": True,
         "counts": {"error": 0, "warning": 1, "info": 0},
@@ -221,7 +316,7 @@ def test_apply_suppressions_drops_matching_issues_and_adjusts_counts(tmp_path):
     updated = _apply_suppressions(result, tmp_path)
 
     assert updated["suppressed"] == 1
-    assert updated["suppression_source"] == ".claude/docs/known-false-positives.md"
+    assert updated["suppression_source"] == _SOURCE
     assert updated["issues"] == []
     assert updated["counts"] == {"error": 0, "warning": 0, "info": 0}
     # The caller's dict is never mutated.
@@ -229,7 +324,7 @@ def test_apply_suppressions_drops_matching_issues_and_adjusts_counts(tmp_path):
 
 
 def test_validate_all_reports_suppressed_findings_in_summary(fake_mod_root):
-    _write_rule(fake_mod_root)
+    _write_manifest(fake_mod_root, "GFX_vanilla_only")
     (fake_mod_root / "common").mkdir(exist_ok=True)
     (fake_mod_root / "common" / "x.txt").write_text("x = 1\n", encoding="utf-8")
     validator = fake_mod_root / "tools" / "validation" / "validate_synthetic.py"
@@ -244,8 +339,8 @@ def test_validate_all_reports_suppressed_findings_in_summary(fake_mod_root):
     result = validate_tool(settings, ValidatorRunner(fake_mod_root))
 
     assert result["suppressed"] == 1
-    assert result["suppression_source"] == ".claude/docs/known-false-positives.md"
+    assert result["suppression_source"] == _SOURCE
     entry = result["validators"][0]
     assert entry["suppressed"] == 1
-    assert entry["suppression_source"] == ".claude/docs/known-false-positives.md"
+    assert entry["suppression_source"] == _SOURCE
     assert result["counts"] == {"error": 1, "warning": 0, "info": 0}

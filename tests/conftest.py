@@ -33,6 +33,12 @@ def fake_mod_root(tmp_path: Path) -> Path:
     (root / "events").mkdir()
     (root / "common" / "decisions").mkdir()
     (root / "common" / "ideas").mkdir()
+    (root / "common" / "country_tags").mkdir()
+    (root / "common" / "characters").mkdir()
+    (root / "common" / "country_leader").mkdir()
+    (root / "common" / "unit_leader").mkdir()
+    (root / "common" / "scripted_effects").mkdir()
+    (root / "common" / "scripted_triggers").mkdir()
     (root / "interface").mkdir()
     shutil.copy(FIXTURES / "events_minimal.txt", root / "events" / "test_events.txt")
     shutil.copy(
@@ -40,6 +46,24 @@ def fake_mod_root(tmp_path: Path) -> Path:
     )
     shutil.copy(FIXTURES / "ideas_minimal.txt", root / "common" / "ideas" / "test_ideas.txt")
     shutil.copy(FIXTURES / "sprites_minimal.gfx", root / "interface" / "test_sprites.gfx")
+
+    (root / "common" / "country_tags" / "test_tags.txt").write_text(
+        'TST = "countries/Testland.txt"\n', encoding="utf-8"
+    )
+    (root / "common" / "characters" / "TST.txt").write_text(
+        "characters = {\n    TST_test_character = { name = Test Character }\n}\n",
+        encoding="utf-8",
+    )
+    (root / "common" / "country_leader" / "TST_traits.txt").write_text(
+        "leader_traits = {\n    TST_test_trait = { random = no }\n}\n",
+        encoding="utf-8",
+    )
+    (root / "common" / "scripted_effects" / "test_effects.txt").write_text(
+        "TST_test_effect = { set_country_flag = TST_ready }\n", encoding="utf-8"
+    )
+    (root / "common" / "scripted_triggers" / "test_triggers.txt").write_text(
+        "TST_test_trigger = { has_country_flag = TST_ready }\n", encoding="utf-8"
+    )
 
     return root
 

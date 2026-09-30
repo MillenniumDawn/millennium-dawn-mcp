@@ -20,7 +20,24 @@ from ..paradox.schema import EVENT_KINDS
 
 logger = logging.getLogger(__name__)
 
-Kind = Literal["focus", "event", "decision", "idea", "loc", "sprite", "flag", "variable"]
+Kind = Literal[
+    "focus",
+    "event",
+    "decision",
+    "idea",
+    "loc",
+    "sprite",
+    "flag",
+    "variable",
+    "country_tag",
+    "tag",
+    "character",
+    "trait",
+    "scripted_effect",
+    "scripted_trigger",
+    "scripted_effects",
+    "scripted_triggers",
+]
 
 
 # For each kind, define:
@@ -109,6 +126,43 @@ def _sprite_pattern(target: str) -> re.Pattern:
     return re.compile(r"\b" + re.escape(target) + r"\b")
 
 
+def _named_definition_pattern(target: str) -> re.Pattern:
+    """Match a top-level definition or direct scripted call by name."""
+    return re.compile(r"(?<![\w])" + re.escape(target) + r"\s*=\s*(?:\{|[^\s{}#]+)")
+
+
+def _country_tag_pattern(target: str) -> re.Pattern:
+    return re.compile(
+        r"\b(?:original_tag|tag|change_tag|set_cosmetic_tag|target_tag|"
+        r"original_tag_to_check|tag_to_check)\s*=\s*(?:"
+        + re.escape(target)
+        + r"\b|\{\s*(?:tag|original_tag)\s*=\s*"
+        + re.escape(target)
+        + r"\b)"
+    )
+
+
+def _character_pattern(target: str) -> re.Pattern:
+    return re.compile(
+        r"\b(?:character|has_character|create_character|remove_character|"
+        r"modify_character|set_character)\s*=\s*(?:"
+        + re.escape(target)
+        + r"\b|\{\s*character\s*=\s*"
+        + re.escape(target)
+        + r"\b)"
+    )
+
+
+def _trait_pattern(target: str) -> re.Pattern:
+    return re.compile(
+        r"\b(?:trait|has_trait|add_trait|remove_trait|remove_leader_trait)\s*=\s*(?:"
+        + re.escape(target)
+        + r"\b|\{\s*trait\s*=\s*"
+        + re.escape(target)
+        + r"\b)"
+    )
+
+
 _PATTERNS = {
     "focus": _focus_pattern,
     "event": _event_pattern,
@@ -118,6 +172,14 @@ _PATTERNS = {
     "sprite": _sprite_pattern,
     "flag": _flag_pattern,
     "variable": _variable_pattern,
+    "country_tag": _country_tag_pattern,
+    "character": _character_pattern,
+    "trait": _trait_pattern,
+    "scripted_effect": _named_definition_pattern,
+    "scripted_trigger": _named_definition_pattern,
+    "tag": _country_tag_pattern,
+    "scripted_effects": _named_definition_pattern,
+    "scripted_triggers": _named_definition_pattern,
 }
 
 
@@ -192,9 +254,97 @@ _SCAN_DIRS = {
         "common/ideas",
         "interface",
     ],
+    "country_tag": [
+        "common/country_tags",
+        "common/national_focus",
+        "events",
+        "common/decisions",
+        "common/ideas",
+        "common/scripted_effects",
+        "common/scripted_triggers",
+        "history/countries",
+    ],
+    "character": [
+        "common/characters",
+        "common/national_focus",
+        "events",
+        "common/decisions",
+        "common/scripted_effects",
+        "common/scripted_triggers",
+        "history/countries",
+        "history/units",
+    ],
+    "trait": [
+        "common/country_leader",
+        "common/unit_leader",
+        "common/characters",
+        "common/national_focus",
+        "events",
+        "common/scripted_effects",
+        "common/scripted_triggers",
+        "history/units",
+    ],
+    "scripted_effect": [
+        "common/scripted_effects",
+        "common/scripted_triggers",
+        "common/national_focus",
+        "events",
+        "common/decisions",
+        "common/ideas",
+        "common/on_actions",
+        "history/countries",
+    ],
+    "scripted_trigger": [
+        "common/scripted_triggers",
+        "common/scripted_effects",
+        "common/national_focus",
+        "events",
+        "common/decisions",
+        "common/ideas",
+        "common/on_actions",
+        "history/countries",
+    ],
+    "tag": [
+        "common/country_tags",
+        "common/national_focus",
+        "events",
+        "common/decisions",
+        "common/ideas",
+        "common/scripted_effects",
+        "common/scripted_triggers",
+        "history/countries",
+    ],
+    "scripted_effects": [
+        "common/scripted_effects",
+        "common/scripted_triggers",
+        "common/national_focus",
+        "events",
+        "common/decisions",
+        "common/ideas",
+        "common/on_actions",
+        "history/countries",
+    ],
+    "scripted_triggers": [
+        "common/scripted_triggers",
+        "common/scripted_effects",
+        "common/national_focus",
+        "events",
+        "common/decisions",
+        "common/ideas",
+        "common/on_actions",
+        "history/countries",
+    ],
 }
 
 _EXTENSIONS = {
+    "country_tag": (".txt",),
+    "character": (".txt",),
+    "trait": (".txt",),
+    "scripted_effect": (".txt",),
+    "scripted_trigger": (".txt",),
+    "tag": (".txt",),
+    "scripted_effects": (".txt",),
+    "scripted_triggers": (".txt",),
     # Loc keys appear in both the defining .yml files and as bare identifiers in
     # script (.txt) files used as titles / descriptions / tooltip targets.
     "loc": (".yml", ".txt"),

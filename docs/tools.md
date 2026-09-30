@@ -1,6 +1,6 @@
 # Tool & Resource Reference
 
-30 tools and 6 resources, grouped by purpose. Output shapes show the
+40 tools and 6 resources, grouped by purpose. Output shapes show the
 **default** behaviour — most tools have detail-tier or `limit` knobs.
 
 All tools return either `{"ok": True, ...}` or `{"ok": False, "error": "..."}`.
@@ -69,6 +69,27 @@ Returns `{id, category, file, line}`.
 Returns `{id, category, slot, file, line}`. `slot` is the ideas group
 (country, political_advisor, mobilization_laws, etc.).
 
+### `resolve_country_tag(tag: str) -> dict`
+
+Look up a country tag in `common/country_tags/`. Returns `{tag, country_file,
+file, line}`.
+
+### `resolve_character(character_id: str) -> dict`
+
+Look up a character in `common/characters/`. Returns `{id, file, line}`.
+
+### `resolve_trait(trait_id: str) -> dict`
+
+Look up a country or unit leader trait. Returns `{id, file, line}`.
+
+### `resolve_scripted_effect(effect_id: str) -> dict`
+
+Look up a scripted effect definition. Returns `{id, file, line}`.
+
+### `resolve_scripted_trigger(trigger_id: str) -> dict`
+
+Look up a scripted trigger definition. Returns `{id, file, line}`.
+
 ### `list_country_content(tag: str, include?: list[str], limit_per_category?: int) -> dict`
 
 Per-country manifest. **Default returns counts + 5-item samples only.** Pass
@@ -77,7 +98,10 @@ Per-country manifest. **Default returns counts + 5-item samples only.** Pass
 `limit_per_category` (default 100).
 
 Categories: `focuses`, `events`, `event_files`, `decisions`, `ideas`,
-`loc_files`, `mio_files`, `history_files`, `oob_files`, `namelist_files`.
+`loc_files`, `mio_files`, `history_files`, `oob_files`, `namelist_files`,
+`country_tags`, `characters`, `character_files`, `traits`, `trait_files`,
+`scripted_effects`, `scripted_effect_files`, `scripted_triggers`, and
+`scripted_trigger_files`.
 
 ```json
 {
@@ -404,12 +428,39 @@ files or indexed records. Valid matches are still returned. `partial_errors`
 contains at most 20 file and reason entries; `partial_errors_truncated` marks
 additional omitted details.
 
+### `find_country_tags(query?, limit?, offset?) -> dict`
+
+Search the country-tag universe by an optional case-insensitive substring. Returns
+paginated `{id, kind, file, line}` matches (country tags also include their country
+file in resolver responses).
+
+### `find_characters(query?, limit?, offset?) -> dict`
+
+Search character definitions by an optional substring.
+
+### `find_traits(query?, limit?, offset?) -> dict`
+
+Search country and unit leader traits by an optional substring.
+
+### `find_scripted_effects(query?, limit?, offset?) -> dict`
+
+Search scripted effect definitions by an optional substring.
+
+### `find_scripted_triggers(query?, limit?, offset?) -> dict`
+
+Search scripted trigger definitions by an optional substring.
+
+All five definition searches return `total`, `returned`, `truncated`, and a
+budget-guarded `matches` page.
+
 ### `find_references(kind, target, limit?, offset?, snippet_chars?, files_only?) -> dict`
 
 Reverse-lookup: every place a focus / event / decision / idea / loc-key /
-sprite / flag / variable is referenced.
+sprite / flag / variable / country tag / character / trait / scripted effect /
+scripted trigger is referenced.
 
-- **`kind`** — one of `focus, event, decision, idea, loc, sprite, flag, variable`.
+- **`kind`** — one of `focus, event, decision, idea, loc, sprite, flag, variable,
+  country_tag, character, trait, scripted_effect, scripted_trigger`.
 - **`limit=100`**, **`offset=0`** — pagination over the match list.
 - **`snippet_chars=120`** — per-match snippet length.
 - **`files_only=True`** — collapse to a unique file list with hit counts (much
@@ -456,16 +507,27 @@ validators can't be scoped to a file, and `resolve_*` is one id per call.
   news_event), `idea` (add_ideas / remove_ideas and friends), `sprite`
   (icon / picture, tries `GFX_<name>` too; `.dds`/`.tga` file paths are
   skipped), `loc` (`<focus_id>` + `<focus_id>_desc` for every focus defined in
-  scope, plus custom_effect_tooltip), `decision`.
+  scope, plus custom_effect_tooltip), `decision`, `country_tag` (`original_tag`,
+  `tag`, `change_tag`, `target_tag`, `tag_to_check`; scope keywords
+  `ROOT`/`FROM`/`PREV`/`THIS`/`OWNER`/`CONTROLLER` and dotted `var:` /
+  `event_target:` references are skipped — `set_cosmetic_tag` carries a
+  cosmetic-tag *name*, not a country tag), `character` (and friends),
+  `trait` (and friends), `scripted_effect` (only direct calls whose key is
+  in the index), `scripted_trigger` (same caveat).
 - Unresolved refs are deduped by (kind, id) with `count` and up to 3 `sites`
   (`{file, line, via, referrer}`).
 - **`limit=200`**, **`offset=0`** — paginate the unresolved list. `-1` returns
   it in full, guarded only by `enforce_budget`.
-- `not_checked` lists what no index covers yet (country flags, variables,
-  scripted effects); `vanilla_indexed: false` warns that vanilla-defined ids
-  (ideas especially) will show as unresolved when `HOI4_PATH` isn't
-  configured. `vanilla_manifest: true` means vanilla-only sprite ids were
-  resolved from the committed `vanilla_sprites.txt` manifest instead.
+- `not_checked` lists what no index covers yet: `country_flags`, `variables`,
+  `scripted_effects`, and `scripted_triggers`. The two scripted kinds stay
+  there because a direct scripted call is only audited when its key is
+  already in the index — so misspelled calls can never be flagged, and
+  wrapper forms (`call_scripted_effect`, `evaluate_scripted_trigger`,
+  `run_*`) aren't HOI4 effects/triggers at all. `vanilla_indexed: false`
+  warns that vanilla-defined ids (ideas especially) will show as unresolved
+  when `HOI4_PATH` isn't configured. `vanilla_manifest: true` means
+  vanilla-only sprite ids were resolved from the committed
+  `vanilla_sprites.txt` manifest instead.
 
 Returns `{ok, scope, files_scanned, kinds_checked, not_checked,
 vanilla_indexed, vanilla_manifest, counts: {kind: {checked, unresolved}},

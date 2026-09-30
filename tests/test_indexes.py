@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from md_mcp.indexes import FocusIndex, GenericTxtIndex, IdeaIndex, LocalisationIndex
-from md_mcp.indexes.base import FileSig, IndexCache
+from md_mcp.indexes.base import FileSig, IndexCache, collect_files, roots_for
 
 _DUP_IDEA = "ideas = {\n\tcountry = {\n\t\tTST_dup = { picture = generic_idea }\n\t}\n}\n"
 _DUP_IDEA_3WAY = "ideas = {\n\tcountry = {\n\t\tTST_dup3 = { picture = generic_idea }\n\t}\n}\n"
@@ -89,6 +89,30 @@ def test_focus_index_resolve_returns_path_and_line(fake_mod_root, cache_dir):
     assert rec["file"] == "common/national_focus/test.txt"
     assert rec["kind"] == "focus_tree"
     assert rec["line"] is not None and rec["line"] > 0
+
+
+def test_focus_index_submod_precedence_and_relative_dedupe(fake_mod_root, tmp_path):
+    submod = tmp_path / "SubmodOverlay"
+    focus_dir = submod / "common" / "national_focus"
+    focus_dir.mkdir(parents=True)
+    (focus_dir / "test.txt").write_text(
+        "focus_tree = {\n    focus = { id = TST_root }\n    focus = { id = TST_overlay_only }\n}\n",
+        encoding="utf-8",
+    )
+
+    index = FocusIndex(
+        fake_mod_root,
+        tmp_path / "cache",
+        **{"submod_root": submod, "include_vanilla": False},
+    )
+    index.ensure_fresh()
+
+    assert index.list_files() == ["common/national_focus/test.txt"]
+    overlay = index.resolve("TST_root")
+    assert overlay is not None
+    assert overlay["file"] == "common/national_focus/test.txt"
+    assert index.resolve("TST_overlay_only") is not None
+    assert index.resolve("TST_branch_a") is None
 
 
 def test_focus_index_warm_path_is_noop(fake_mod_root, cache_dir):
@@ -521,3 +545,46 @@ def test_loc_index_against_real_mod(real_mod_root, cache_dir):
 def test_manifest_missing_returns_none(tmp_path):
     cache = IndexCache(tmp_path, "focus", 2)
     assert cache.load_manifest() is None
+
+
+def test_roots_for_orders_submod_mod_vanilla(tmp_path):
+    mod = tmp_path / "Mod"
+    vanilla = tmp_path / "Vanilla"
+    submod = tmp_path / "Overlay"
+
+    assert roots_for(mod, None) == [mod]
+    assert roots_for(mod, vanilla) == [mod, vanilla]
+    assert roots_for(mod, vanilla, submod) == [submod, mod, vanilla]
+    assert roots_for(mod, None, submod) == [submod, mod]
+
+
+def test_collect_files_dedupes_and_skips_predicate_rejects(tmp_path):
+    submod = tmp_path / "Overlay"
+    mod = tmp_path / "Mod"
+    for root in (submod, mod):
+        d = root / "common" / "decisions"
+        d.mkdir(parents=True)
+        (d / "shared.txt").write_text("shared", encoding="utf-8")
+    (mod / "common" / "decisions" / "only_mod.txt").write_text("mod", encoding="utf-8")
+    (mod / "common" / "decisions" / "drop_me.txt").write_text("drop", encoding="utf-8")
+
+    got = collect_files(
+        [submod, mod],
+        "common/decisions",
+        "*.txt",
+        predicate=lambda p: p.name != "drop_me.txt",
+    )
+    names = [p.name for p in got]
+    assert names == ["shared.txt", "only_mod.txt"]
+
+
+def test_collect_files_records_absolute_path_for_out_of_root_subdir(tmp_path):
+    outside = tmp_path / "Outside"
+    outside.mkdir()
+    (outside / "stray.txt").write_text("x", encoding="utf-8")
+
+    got = collect_files([tmp_path / "Mod"], str(outside), "*.txt")
+
+    # Path("mod" / "/abs") collapses to the absolute dir, so the walk leaves the
+    # root; the ValueError fallback records the absolute path instead of raising.
+    assert [str(p) for p in got] == [str(outside / "stray.txt")]

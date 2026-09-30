@@ -359,6 +359,7 @@ def find_references(
     *,
     vanilla_path: Optional[Path] = None,
     include_vanilla: bool = False,
+    submod_root: Optional[Path] = None,
     limit: int = 100,
     offset: int = 0,
     snippet_chars: int = 120,
@@ -370,6 +371,8 @@ def find_references(
     which is far smaller than a full match list for hot loc keys or sprites.
     `offset` + `limit` paginate the match list. The scan still runs to
     completion so `total` is accurate; only the returned slice is bounded.
+    A file whose relative path exists in a higher-priority root (submod, then
+    mod, then vanilla) is hidden and not scanned.
     """
     from ..util.response import enforce_budget  # local import; avoids cycle
 
@@ -383,7 +386,9 @@ def find_references(
     exts = _EXTENSIONS.get(kind, (".txt",))
     scan_dirs = _SCAN_DIRS[kind]
 
-    roots = [mod_root] + ([vanilla_path] if include_vanilla and vanilla_path else [])
+    roots = ([submod_root] if submod_root else []) + [mod_root]
+    if include_vanilla and vanilla_path:
+        roots.append(vanilla_path)
 
     matches: list[dict] = []
     file_hits: dict[str, int] = {}
@@ -392,9 +397,11 @@ def find_references(
     scan_cap = max(limit + offset, 100) * 50 if not files_only else 100_000
 
     scan_truncated = False
+    seen: set[str] = set()  # relative paths owned by a higher-priority root
     for base in roots:
         if scan_truncated:
             break
+        shadowed = frozenset(seen)
         for sub in scan_dirs:
             if scan_truncated:
                 break
@@ -410,17 +417,19 @@ def find_references(
                     if not path.is_file():
                         continue
                     try:
+                        rel = str(path.relative_to(base))
+                    except ValueError:
+                        rel = str(path)
+                    seen.add(rel)
+                    if rel in shadowed:
+                        continue
+                    try:
                         text = path.read_bytes().decode("utf-8", errors="replace")
                     except OSError:
                         continue
 
                     if text.startswith("﻿"):
                         text = text[1:]
-
-                    try:
-                        rel = str(path.relative_to(base))
-                    except ValueError:
-                        rel = str(path)
 
                     for m in pattern.finditer(text):
                         if files_only:

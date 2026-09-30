@@ -102,6 +102,7 @@ def diff_summary(
     kinds: Optional[list[str]] = None,
     with_ids: bool = True,
     limit: int = 200,
+    submod_root: Optional[Path] = None,
 ) -> dict:
     """Structured branch diff vs `base`.
 
@@ -118,7 +119,8 @@ def diff_summary(
     except _GitRevError as exc:
         return {"ok": False, "error": f"invalid base revision: {exc}"}
 
-    diff_records = _git_diff_files(mod_root, base)
+    git_root = submod_root or mod_root
+    diff_records = _git_diff_files(git_root, base)
     if isinstance(diff_records, dict) and not diff_records.get("ok", True):
         return diff_records
 
@@ -162,7 +164,7 @@ def diff_summary(
             head_text: str = ""
             base_text: str = ""
 
-            head_text_r = _read_at(mod_root, "HEAD", new_path)
+            head_text_r = _read_at(git_root, "HEAD", new_path)
             if _is_read_error(head_text_r):
                 head_err = head_text_r.error
             else:
@@ -171,7 +173,7 @@ def diff_summary(
             if head_err is None and status != "A":
                 # For renames/copies, compare against the OLD path at base.
                 compare_path = old_path if status in ("R", "C") else new_path
-                base_text_r = _read_at(mod_root, base, compare_path)
+                base_text_r = _read_at(git_root, base, compare_path)
                 if _is_read_error(base_text_r):
                     base_err = base_text_r.error
                 else:

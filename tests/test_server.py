@@ -327,6 +327,31 @@ def test_call_check_encoding_with_pagination(server, fake_mod_root):
     assert payload["truncated"] is False
 
 
+def test_call_review_branch_forwards_submod_root(fake_mod_root, cache_dir, tmp_path):
+    submod = tmp_path / "Overlay"
+    submod.mkdir()
+    overlay_server = build_server(
+        Settings(
+            mod_root=fake_mod_root,
+            vanilla_path=None,
+            cache_dir=cache_dir,
+            validator_mode="in_process",
+            default_lang="en",
+            submod_root=submod,
+        )
+    )
+
+    async def go():
+        return await overlay_server.call_tool("review_branch", {"base": "main"})
+
+    result = asyncio.new_event_loop().run_until_complete(go())
+    payload = json.loads(_text(result))
+    # review_branch.py doesn't exist in the fake mod; the error must still shape
+    # a valid payload, proving the tool wired submod_root through.
+    assert payload["ok"] is False
+    assert "review_branch.py not found" in payload["error"]
+
+
 def test_call_generate_gfx_merge(server, fake_mod_root):
     tex = fake_mod_root / "gfx" / "test"
     tex.mkdir(parents=True)

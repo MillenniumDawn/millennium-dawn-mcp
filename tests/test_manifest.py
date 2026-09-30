@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from md_mcp.analysis.manifest import list_country_content
+from md_mcp.analysis.manifest import _scan_files, list_country_content
 from md_mcp.indexes import (
     DecisionIndex,
     EventIndex,
@@ -75,3 +75,31 @@ def test_manifest_limit_per_category(fake_mod_root, cache_dir):
     )
     assert len(result["focuses"]) == 1
     assert result.get("focuses_truncated") is True
+
+
+def test_scan_files_walks_submod_then_mod_with_dedupe(tmp_path):
+    submod = tmp_path / "Overlay"
+    mod = tmp_path / "Mod"
+    for root in (submod, mod):
+        d = root / "history" / "countries"
+        d.mkdir(parents=True)
+        (d / "TST_shared.txt").write_text("shared", encoding="utf-8")
+    countries = mod / "history" / "countries"
+    (countries / "TST_extra.txt").write_text("extra", encoding="utf-8")
+    (countries / "history_TST.txt").write_text("suffix match", encoding="utf-8")
+    (countries / "unrelated.txt").write_text("no match", encoding="utf-8")
+    (countries / "TST_empty.txt").mkdir()  # rglob yields dirs; only files count
+
+    out = _scan_files(mod, "history/countries", ("*.txt",), prefix="TST", submod_root=submod)
+
+    assert out == [
+        "history/countries/TST_extra.txt",
+        "history/countries/TST_shared.txt",
+        "history/countries/history_TST.txt",
+    ]
+
+
+def test_scan_files_skips_missing_roots(tmp_path):
+    mod = tmp_path / "Mod"
+    out = _scan_files(mod, "history/countries", ("*.txt",), prefix="TST")
+    assert out == []

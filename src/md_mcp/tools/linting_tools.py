@@ -150,6 +150,7 @@ def lint_common_mistakes_tool(
     *,
     mode: str = "staged",
     files: Optional[list[str]] = None,
+    submod_root: Optional[Path] = None,
 ) -> dict:
     """Run `tools/linting/check_common_mistakes.py` and return structured issues.
 
@@ -192,10 +193,13 @@ def lint_common_mistakes_tool(
             "mode": "files" if files else mode,
             "stderr": proc.stderr[-2000:] if proc.stderr else "",
         },
+        cwd=submod_root,
     )
 
 
-def review_branch_tool(mod_root: Path, base: str = "main") -> dict:
+def review_branch_tool(
+    mod_root: Path, base: str = "main", *, submod_root: Optional[Path] = None
+) -> dict:
     """Run `tools/analysis/review_branch.py` and return a bounded text summary.
 
     The script produces a human-readable digest (commits, file diffs, content
@@ -203,7 +207,7 @@ def review_branch_tool(mod_root: Path, base: str = "main") -> dict:
     sizes exposed so callers can request a narrower review when needed.
     """
     script = mod_root / "tools" / "analysis" / "review_branch.py"
-    proc, err = _run_script(script, mod_root, [base])
+    proc, err = _run_script(script, mod_root, [base], cwd=submod_root)
     if proc is None:
         return _review_payload(base, error=err)
     return _review_payload(base, proc=proc)
@@ -215,6 +219,7 @@ def _run_script(
     args: list[str],
     *,
     timeout: int = 120,
+    cwd: Optional[Path] = None,
 ) -> "tuple[Optional[subprocess.CompletedProcess], Optional[str]]":
     """Subprocess a tools/ script. Returns (proc, error_msg). One of them is None."""
     if not script.exists():
@@ -222,7 +227,7 @@ def _run_script(
     try:
         proc = run_in_group(
             [sys.executable, str(script), *args],
-            cwd=str(mod_root),
+            cwd=str(cwd or mod_root),
             text=True,
             timeout=timeout,
         )
@@ -243,9 +248,10 @@ def _run_parsed_script(
     combined: bool = True,
     limit: Optional[int] = 200,
     extra: Optional[Callable[[subprocess.CompletedProcess, list[dict]], dict]] = None,
+    cwd: Optional[Path] = None,
 ) -> dict:
     """Run a script, parse its output, and shape its issue response."""
-    proc, err = _run_script(script, mod_root, args, timeout=timeout)
+    proc, err = _run_script(script, mod_root, args, timeout=timeout, cwd=cwd)
     if proc is None:
         return {"ok": False, "error": err}
 
@@ -281,19 +287,30 @@ def _run_parsed_script(
     return enforce_budget(result, heavy_keys=("issues",))
 
 
+def _discover_mod_files(mod_root: Path, submod_root: Optional[Path]) -> list[str]:
+    """List `.mod` arguments overlay first; base-only ones are absolute (cwd is the overlay)."""
+    if submod_root is None:
+        return sorted(p.name for p in mod_root.glob("*.mod") if p.is_file())
+    overlay = sorted(p.name for p in submod_root.glob("*.mod") if p.is_file())
+    base = [str(p) for p in sorted(mod_root.glob("*.mod")) if p.is_file() and p.name not in overlay]
+    return overlay + base
+
+
 def lint_mod_encoding_tool(
     mod_root: Path,
     *,
     files: Optional[list[str]] = None,
     limit: int = 200,
+    submod_root: Optional[Path] = None,
 ) -> dict:
     """Run `tools/linting/validate_mod_encoding.py` against `.mod` files.
 
-    With no `files`, defaults to every `.mod` file under the mod root.
+    With no `files`, defaults to every `.mod` file under the mod root, with
+    overlay descriptors shadowing base ones of the same name.
     """
     script = mod_root / "tools" / "linting" / "validate_mod_encoding.py"
     if files is None:
-        files = [str(p.relative_to(mod_root)) for p in mod_root.glob("*.mod") if p.is_file()]
+        files = _discover_mod_files(mod_root, submod_root)
     if not files:
         return {
             "ok": True,
@@ -327,6 +344,7 @@ def lint_mod_encoding_tool(
         collect,
         limit=limit,
         extra=lambda proc, issues: {"checked": checked + len(issues)},
+        cwd=submod_root,
     )
 
 
@@ -335,6 +353,7 @@ def lint_loc_encoding_tool(
     *,
     files: Optional[list[str]] = None,
     limit: int = 200,
+    submod_root: Optional[Path] = None,
 ) -> dict:
     """Run `tools/linting/validate_localization_encoding.py` (English loc YAML BOM check).
 
@@ -355,7 +374,7 @@ def lint_loc_encoding_tool(
             "severity": "error",
         }
 
-    return _run_parsed_script(script, mod_root, args, collect, limit=limit)
+    return _run_parsed_script(script, mod_root, args, collect, limit=limit, cwd=submod_root)
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +393,7 @@ _ALL_CHECKS: tuple[str, ...] = (
 def lint_tool(
     mod_root: Path,
     *,
+    submod_root: Optional[Path] = None,
     mode: str = "changed",
     files: Optional[list[str]] = None,
     checks: Optional[Sequence[str]] = None,
@@ -439,9 +459,9 @@ def lint_tool(
     elif mode == "all":
         relevant = None
     elif mode == "changed":
-        relevant = _changed_files(mod_root, removed=removed_paths)
+        relevant = _changed_files(mod_root, submod_root, removed=removed_paths)
     else:  # staged
-        relevant = _staged_files(mod_root)
+        relevant = _staged_files(mod_root, submod_root)
 
     relevant_set: Optional[set] = set(relevant) if relevant is not None else None
     removed_variant_paths = [
@@ -455,7 +475,12 @@ def lint_tool(
     # Git includes staged deletions in the scope, but file-based scripts cannot
     # inspect a missing path. Explicit files= keeps its existing behavior.
     present_relevant = (
-        [path for path in relevant if (mod_root / path).is_file()]
+        [
+            path
+            for path in relevant
+            if (mod_root / path).is_file()
+            or (submod_root is not None and (submod_root / path).is_file())
+        ]
         if files is None and relevant is not None
         else relevant
     )
@@ -480,7 +505,7 @@ def lint_tool(
     runner: Optional[ValidatorRunner] = None
     if validator_request:
         try:
-            runner = validator_runner or ValidatorRunner(mod_root)
+            runner = validator_runner or ValidatorRunner(mod_root, submod_root=submod_root)
             available = {v.name for v in runner.list()}
         except Exception as e:
             failed_name = "validator:style" if validators is None else "validator:setup"
@@ -563,13 +588,16 @@ def lint_tool(
                 mod_root,
                 mode="all" if script_files is None else "staged",
                 files=script_files,
+                submod_root=submod_root,
             ),
         ),
         "mod_encoding": lambda: _maybe(
-            mod_files, lambda: lint_mod_encoding_tool(mod_root, files=mod_files)
+            mod_files,
+            lambda: lint_mod_encoding_tool(mod_root, files=mod_files, submod_root=submod_root),
         ),
         "loc_encoding": lambda: _maybe(
-            loc_files, lambda: lint_loc_encoding_tool(mod_root, files=loc_files)
+            loc_files,
+            lambda: lint_loc_encoding_tool(mod_root, files=loc_files, submod_root=submod_root),
         ),
     }
 
@@ -667,12 +695,12 @@ def lint_tool(
     return enforce_budget(summary, heavy_keys=("issues",))
 
 
-def _staged_files(mod_root: Path) -> list[str]:
-    """Files in the git index (staged for commit); renames list both paths."""
+def _staged_files(mod_root: Path, submod_root: Optional[Path] = None) -> list[str]:
+    """Staged files in the active worktree's git index; renames list both paths."""
     try:
         proc = subprocess.run(
             ["git", "diff", "--name-only", "--cached", "--no-renames"],
-            cwd=str(mod_root),
+            cwd=str(submod_root or mod_root),
             capture_output=True,
             text=True,
             timeout=15,
@@ -693,7 +721,12 @@ def _norm_scope_path(path: str) -> str:
     return path
 
 
-def _changed_files(mod_root: Path, *, removed: Optional[list[str]] = None) -> list[str]:
+def _changed_files(
+    mod_root: Path,
+    submod_root: Optional[Path] = None,
+    *,
+    removed: Optional[list[str]] = None,
+) -> list[str]:
     """Every file `git status` reports — staged, unstaged, and untracked.
 
     Parses `git status --porcelain -z` (NUL-terminated, so paths with spaces or
@@ -711,7 +744,7 @@ def _changed_files(mod_root: Path, *, removed: Optional[list[str]] = None) -> li
     try:
         proc = subprocess.run(
             ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
-            cwd=str(mod_root),
+            cwd=str(submod_root or mod_root),
             capture_output=True,
             text=True,
             timeout=15,

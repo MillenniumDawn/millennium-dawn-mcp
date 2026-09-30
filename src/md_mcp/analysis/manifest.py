@@ -21,7 +21,6 @@ default exceeds MCP output caps.
 
 from __future__ import annotations
 
-import contextlib
 import re
 from pathlib import Path
 from typing import Optional, Sequence
@@ -67,6 +66,7 @@ def list_country_content(
     tag: str,
     mod_root: Path,
     *,
+    submod_root: Optional[Path] = None,
     focus_index: Optional[FocusIndex] = None,
     event_index: Optional[EventIndex] = None,
     decision_index: Optional[DecisionIndex] = None,
@@ -102,10 +102,17 @@ def list_country_content(
         "common/military_industrial_organization/organizations",
         ("*.txt",),
         prefix=tag_upper,
+        submod_root=submod_root,
     )
-    history_files = _scan_files(mod_root, "history/countries", ("*.txt",), prefix=tag_upper)
-    oob_files = _scan_files(mod_root, "history/units", ("*.txt",), prefix=tag_upper)
-    namelist_files = _scan_files(mod_root, "common/names", ("*.txt",), prefix=tag_upper)
+    history_files = _scan_files(
+        mod_root, "history/countries", ("*.txt",), prefix=tag_upper, submod_root=submod_root
+    )
+    oob_files = _scan_files(
+        mod_root, "history/units", ("*.txt",), prefix=tag_upper, submod_root=submod_root
+    )
+    namelist_files = _scan_files(
+        mod_root, "common/names", ("*.txt",), prefix=tag_upper, submod_root=submod_root
+    )
     country_tags = _tag_records(country_tag_index, tag_upper)
     characters, character_files = _indexed_country_records(
         character_index, tag_upper, file_prefix=True
@@ -249,20 +256,33 @@ def _indexed_country_records(
     return sorted(set(ids)), sorted(files)
 
 
-def _scan_files(mod_root: Path, subdir: str, patterns: tuple, *, prefix: str) -> list[str]:
+def _scan_files(
+    mod_root: Path,
+    subdir: str,
+    patterns: tuple,
+    *,
+    prefix: str,
+    submod_root: Optional[Path] = None,
+) -> list[str]:
     out: list[str] = []
-    d = mod_root / subdir
-    if not d.is_dir():
-        return out
-    for pat in patterns:
-        for p in d.rglob(pat):
-            if not p.is_file():
-                continue
-            stem = p.stem.upper()
-            matched = stem.startswith(prefix + "_") or stem == prefix
-            if not matched and "_" in stem:
-                matched = stem.split("_")[1] == prefix
-            if matched:
-                with contextlib.suppress(ValueError):
-                    out.append(str(p.relative_to(mod_root)))
+    seen: set[str] = set()
+    roots = [root for root in (submod_root, mod_root) if root is not None]
+    for root in roots:
+        d = root / subdir
+        if not d.is_dir():
+            continue
+        for pat in patterns:
+            for p in d.rglob(pat):
+                if not p.is_file():
+                    continue
+                rel = str(p.relative_to(root))
+                if rel in seen:
+                    continue
+                stem = p.stem.upper()
+                matched = stem.startswith(prefix + "_") or stem == prefix
+                if not matched and "_" in stem:
+                    matched = stem.split("_")[1] == prefix
+                if matched:
+                    seen.add(rel)
+                    out.append(rel)
     return sorted(out)

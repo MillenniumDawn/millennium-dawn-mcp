@@ -111,3 +111,32 @@ def test_parse_file_rejects_empty_and_dot_paths(mod_root):
     for hostile in ["", ".", "./"]:
         out = parse_file_tool(hostile, mod_root)
         assert out["ok"] is False, f"accepted {hostile!r}: {out}"
+
+
+def test_parse_file_relative_falls_back_to_base_and_vanilla_with_submod(
+    mod_root, vanilla_path, tmp_path
+):
+    submod = tmp_path / "submod"
+    submod.mkdir()
+    (mod_root / "base_only.txt").write_text("focus = { id = B cost = 1 }")
+    (vanilla_path / "vanilla_only.txt").write_text("focus = { id = V cost = 1 }")
+    (mod_root / "shared.txt").write_text("focus = { id = BASE cost = 1 }")
+    (submod / "shared.txt").write_text("focus = { id = OVERLAY cost = 1 }")
+
+    base = parse_file_tool("base_only.txt", mod_root, vanilla_path, submod_root=submod)
+    vanilla = parse_file_tool("vanilla_only.txt", mod_root, vanilla_path, submod_root=submod)
+    shared = parse_file_tool("shared.txt", mod_root, vanilla_path, submod_root=submod)
+
+    assert base["path"] == str((mod_root / "base_only.txt").resolve())
+    assert vanilla["path"] == str((vanilla_path / "vanilla_only.txt").resolve())
+    assert shared["path"] == str((submod / "shared.txt").resolve())
+
+
+def test_parse_file_with_submod_still_rejects_traversal(mod_root, tmp_path):
+    submod = tmp_path / "submod"
+    submod.mkdir()
+    (tmp_path / "outside.txt").write_text("focus = { id = X }")
+
+    out = parse_file_tool("../outside.txt", mod_root, submod_root=submod)
+
+    assert out["ok"] is False

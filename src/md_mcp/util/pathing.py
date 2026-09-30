@@ -62,14 +62,19 @@ def _looks_like_mod_root(p: Path) -> bool:
     return p.is_dir() and (p / "descriptor.mod").exists() and (p / "tools" / "validation").is_dir()
 
 
-def resolve_scope_file(relpath: str, mod_root: Path, vanilla_path: Path | None) -> Path | None:
-    """Locate a scope file, falling back to vanilla for files the mod doesn't override.
+def resolve_scope_file(
+    relpath: str,
+    mod_root: Path,
+    vanilla_path: Path | None,
+    submod_root: Path | None = None,
+) -> Path | None:
+    """Locate a scope file, preferring submod, then mod, then vanilla.
 
     `relpath` is caller-supplied (a tool argument), so it must stay inside the
     root it resolves against: absolute paths and `..` traversal are rejected
     rather than read.
     """
-    for root in (mod_root, vanilla_path):
+    for root in (submod_root, mod_root, vanilla_path):
         if root is None:
             continue
         p = contained(root, relpath)
@@ -104,7 +109,8 @@ def validate_user_path(
 ) -> Path:
     """Resolve a user-supplied path against content roots, raising on escape.
 
-    Relative paths resolve against the first root; absolute paths are used as-is.
+    Relative paths resolve against the first root that contains an existing
+    match, falling back to the first root; absolute paths are used as-is.
     The resolved location must land inside at least one of `roots`. With
     `require_file`, the target must be a regular file; with `extensions`, its
     suffix must be in the allowlist.
@@ -114,8 +120,13 @@ def validate_user_path(
     root_list = [roots] if isinstance(roots, Path) else list(roots)
     first = next(r for r in root_list if r is not None)
     p = Path(path)
-    candidate = p if p.is_absolute() else first / p
-    resolved = candidate.resolve()
+    if p.is_absolute():
+        resolved = p.resolve()
+    else:
+        resolved = next(
+            (c for root in root_list if (c := contained(root, p)) is not None and c.exists()),
+            (first / p).resolve(),
+        )
 
     if not any(resolved.is_relative_to(root.resolve()) for root in root_list):
         allowed = " or ".join(str(root) for root in root_list)

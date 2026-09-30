@@ -62,6 +62,19 @@ def test_resolve_scope_file_falls_back_to_vanilla(tmp_path):
     assert got.read_text(encoding="utf-8") == "v"
 
 
+def test_resolve_scope_file_prefers_submod_overlay(tmp_path):
+    mod = tmp_path / "mod"
+    submod = tmp_path / "submod"
+    vanilla = tmp_path / "vanilla"
+    rel = "common/national_focus/shared.txt"
+    for root, text in ((mod, "mod"), (submod, "submod"), (vanilla, "vanilla")):
+        target = root / rel
+        target.parent.mkdir(parents=True)
+        target.write_text(text, encoding="utf-8")
+    got = resolve_scope_file(rel, mod, vanilla, **{"submod_root": submod})
+    assert got == (submod / rel).resolve()
+
+
 def test_resolve_scope_file_rejects_absolute_path(tmp_path):
     outside = tmp_path / "outside.txt"
     outside.write_text("secret", encoding="utf-8")
@@ -223,3 +236,82 @@ def test_unrecognized_validator_mode_fails_loudly(tmp_path, monkeypatch):
     monkeypatch.setenv("MD_MCP_VALIDATOR_MODE", "in-process")
     with pytest.raises(RuntimeError, match="in-process"):
         config.load(str(root))
+
+
+def test_submod_root_loads_from_env_and_moves_default_cache(tmp_path, monkeypatch):
+    root = _make_mod_root(tmp_path / "Mod")
+    submod = tmp_path / "Overlay"
+    submod.mkdir()
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
+    monkeypatch.setenv("MD_MCP_SUBMOD_ROOT", str(submod))
+    settings = config.load(str(root))
+    assert vars(settings)["submod_root"] == submod.resolve()
+    assert settings.cache_dir == submod / config.DEFAULT_CACHE_DIRNAME
+
+
+def test_submod_root_loads_from_toml_without_mod_layout(tmp_path, monkeypatch):
+    root = _make_mod_root(tmp_path / "Mod")
+    submod = tmp_path / "OverlayOnly"
+    submod.mkdir()
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(f'mod_root = "{root}"\nsubmod_root = "{submod}"\n', encoding="utf-8")
+    monkeypatch.setattr(config, "CONFIG_PATH", cfg)
+    monkeypatch.delenv("MD_MCP_SUBMOD_ROOT", raising=False)
+    settings = config.load()
+    assert vars(settings)["submod_root"] == submod.resolve()
+
+
+def test_invalid_submod_root_fails_loudly(tmp_path, monkeypatch):
+    root = _make_mod_root(tmp_path / "Mod")
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
+    with pytest.raises(RuntimeError, match="existing directory"):
+        config.load(str(root), **{"submod_root": str(tmp_path / "missing-overlay")})
+
+
+def test_validate_user_path_prefers_first_root_with_existing_file(tmp_path):
+    submod = tmp_path / "submod"
+    mod = tmp_path / "mod"
+    vanilla = tmp_path / "vanilla"
+    for root, rel in (
+        (submod, "common/shared.txt"),
+        (mod, "common/shared.txt"),
+        (mod, "common/base.txt"),
+        (vanilla, "common/vanilla.txt"),
+    ):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("x", encoding="utf-8")
+    roots = [submod, mod, vanilla]
+
+    assert (
+        validate_user_path("common/shared.txt", roots) == (submod / "common/shared.txt").resolve()
+    )
+    assert validate_user_path("common/base.txt", roots) == (mod / "common/base.txt").resolve()
+    assert (
+        validate_user_path("common/vanilla.txt", roots)
+        == (vanilla / "common/vanilla.txt").resolve()
+    )
+
+
+def test_validate_user_path_missing_everywhere_falls_back_to_first_root(tmp_path):
+    submod = tmp_path / "submod"
+    mod = tmp_path / "mod"
+    submod.mkdir()
+    mod.mkdir()
+
+    got = validate_user_path("nope.txt", [submod, mod])
+    assert got == (submod / "nope.txt").resolve()
+    with pytest.raises(PathAccessError, match="not a regular file"):
+        validate_user_path("nope.txt", [submod, mod], require_file=True)
+
+
+def test_validate_user_path_symlink_escape_in_overlay_is_not_preferred(tmp_path):
+    submod = tmp_path / "submod"
+    mod = tmp_path / "mod"
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+    submod.mkdir()
+    (submod / "a.txt").symlink_to(outside)
+    (mod).mkdir()
+    (mod / "a.txt").write_text("base", encoding="utf-8")
+
+    assert validate_user_path("a.txt", [submod, mod]) == (mod / "a.txt").resolve()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from md_mcp.analysis.refs import _event_pattern, find_references
 from md_mcp.paradox.schema import EVENT_KINDS
 
@@ -83,3 +85,78 @@ def test_find_references_snippet_chars_clip(fake_mod_root):
     r = find_references(fake_mod_root, "focus", "TST_root", snippet_chars=5)
     for m in r["matches"]:
         assert len(m["snippet"]) <= 5
+
+
+def test_find_references_scans_submod_then_vanilla_roots(fake_mod_root, tmp_path):
+    submod = tmp_path / "Overlay"
+    vanilla = tmp_path / "Vanilla"
+    for root, name, filename in (
+        (submod, "submod", "overlay.txt"),
+        (vanilla, "vanilla", "vanilla.txt"),
+    ):
+        focus_dir = root / "common" / "national_focus"
+        focus_dir.mkdir(parents=True)
+        (focus_dir / filename).write_text(f"focus = TST_{name}_ref\n", encoding="utf-8")
+
+    vanilla_hit = find_references(
+        fake_mod_root,
+        "focus",
+        "TST_vanilla_ref",
+        include_vanilla=True,
+        vanilla_path=vanilla,
+        submod_root=submod,
+    )
+    assert vanilla_hit["ok"]
+    assert vanilla_hit["total"] == 1
+    assert vanilla_hit["matches"][0]["file"] == "common/national_focus/vanilla.txt"
+    assert "TST_vanilla_ref" in vanilla_hit["matches"][0]["snippet"]
+
+    without_vanilla = find_references(
+        fake_mod_root,
+        "focus",
+        "TST_vanilla_ref",
+        vanilla_path=vanilla,
+        submod_root=submod,
+    )
+    assert without_vanilla["total"] == 0
+
+
+def test_find_references_skips_files_shadowed_by_higher_priority_root(fake_mod_root, tmp_path):
+    submod = tmp_path / "Overlay"
+    vanilla = tmp_path / "Vanilla"
+    rel = Path("common/national_focus/shadow.txt")
+    for root, text in (
+        (fake_mod_root, "focus = TST_shadow_ref\n"),
+        (submod, "focus = TST_other\n"),
+        (vanilla, "focus = TST_shadow_ref\n"),
+    ):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+
+    for files_only in (False, True):
+        result = find_references(
+            fake_mod_root,
+            "focus",
+            "TST_shadow_ref",
+            include_vanilla=True,
+            vanilla_path=vanilla,
+            submod_root=submod,
+            files_only=files_only,
+        )
+        assert result["ok"]
+        assert result.get("total", result.get("total_files")) == 0
+
+
+def test_find_references_files_only_does_not_merge_shadowed_counts(fake_mod_root, tmp_path):
+    submod = tmp_path / "Overlay"
+    rel = Path("common/national_focus/shadow.txt")
+    for root, text in (
+        (fake_mod_root, "focus = TST_dup\n"),
+        (submod, "focus = TST_dup\nfocus = TST_dup\n"),
+    ):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+
+    result = find_references(fake_mod_root, "focus", "TST_dup", submod_root=submod, files_only=True)
+
+    assert result["files"] == [{"file": str(rel), "hits": 2}]

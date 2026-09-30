@@ -111,24 +111,31 @@ def build_server(settings: Settings):
         ) from e
 
     mcp = FastMCP("md-mcp")
-    focus_index = FocusIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
-    loc_index = LocalisationIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
-    gfx_index = GfxIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
-    event_index = EventIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
-    decision_index = DecisionIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
-    idea_index = IdeaIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
-    country_tag_index = CountryTagIndex(
-        settings.mod_root, settings.cache_dir, settings.vanilla_path
+
+    def _index(cls):
+        return cls(
+            settings.mod_root,
+            settings.cache_dir,
+            settings.vanilla_path,
+            submod_root=settings.submod_root,
+        )
+
+    focus_index = _index(FocusIndex)
+    loc_index = _index(LocalisationIndex)
+    gfx_index = _index(GfxIndex)
+    event_index = _index(EventIndex)
+    decision_index = _index(DecisionIndex)
+    idea_index = _index(IdeaIndex)
+    country_tag_index = _index(CountryTagIndex)
+    character_index = _index(CharacterIndex)
+    trait_index = _index(TraitIndex)
+    scripted_effect_index = _index(ScriptedEffectIndex)
+    scripted_trigger_index = _index(ScriptedTriggerIndex)
+    validator_runner = ValidatorRunner(
+        settings.mod_root,
+        mode=settings.validator_mode,
+        submod_root=settings.submod_root,
     )
-    character_index = CharacterIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
-    trait_index = TraitIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
-    scripted_effect_index = ScriptedEffectIndex(
-        settings.mod_root, settings.cache_dir, settings.vanilla_path
-    )
-    scripted_trigger_index = ScriptedTriggerIndex(
-        settings.mod_root, settings.cache_dir, settings.vanilla_path
-    )
-    validator_runner = ValidatorRunner(settings.mod_root, mode=settings.validator_mode)
     equipment_variant_checker = EquipmentVariantChecker(settings.mod_root)
 
     # Without an HOI4 install the indexes are mod-only; fall back to the mod's
@@ -207,6 +214,7 @@ def build_server(settings: Settings):
             path,
             settings.mod_root,
             settings.vanilla_path,
+            submod_root=settings.submod_root,
             max_bytes=max_bytes,
             top_level_only=top_level_only,
         )
@@ -263,6 +271,7 @@ def build_server(settings: Settings):
             target,
             vanilla_path=settings.vanilla_path,
             include_vanilla=False,
+            submod_root=settings.submod_root,
             limit=limit,
             offset=offset,
             snippet_chars=snippet_chars,
@@ -279,6 +288,7 @@ def build_server(settings: Settings):
         return list_country_content(
             tag,
             settings.mod_root,
+            submod_root=settings.submod_root,
             focus_index=focus_index,
             event_index=event_index,
             decision_index=decision_index,
@@ -348,6 +358,7 @@ def build_server(settings: Settings):
         """Run lint scripts plus style/brace checks for applicable script scopes. mode=changed|staged|all; checks=[...] subsets scripts; omit validators for scoped style, use [] to disable, or select ['auto'|'*'|names]; severity_min/limit/counts_only narrow output."""
         return lint_tool(
             settings.mod_root,
+            submod_root=settings.submod_root,
             mode=mode,
             files=files,
             checks=checks,
@@ -361,7 +372,7 @@ def build_server(settings: Settings):
     @mcp.tool()
     def review_branch(base: str = "main") -> dict:
         """Run review_branch.py: UTF-8-byte-bounded diff summary of the current branch vs `base`."""
-        return review_branch_tool(settings.mod_root, base=base)
+        return review_branch_tool(settings.mod_root, base=base, submod_root=settings.submod_root)
 
     @mcp.tool()
     def fix_lint(
@@ -370,7 +381,13 @@ def build_server(settings: Settings):
         content: Optional[str] = None,
     ) -> dict:
         """Apply an upstream lint fixer in-memory: fixer=styling|loc_yaml|line_endings|log_ids; give content= or mod-relative path= (path required for log_ids; loc_yaml=.yml only, styling=.txt only). Returns {txt, changed, fixes, summary, warnings}; txt omitted when unchanged, clipped with txt_truncated=true when oversized — never write clipped txt back. loc_yaml reports had_bom; preserve it when writing .yml."""
-        return fix_lint_tool(settings.mod_root, fixer=fixer, path=path, content=content)
+        return fix_lint_tool(
+            settings.mod_root,
+            fixer=fixer,
+            path=path,
+            content=content,
+            submod_root=settings.submod_root,
+        )
 
     # ---------- generators (M3) — return file content as strings ----------
 
@@ -405,7 +422,7 @@ def build_server(settings: Settings):
     mcp.tool(
         name="standardize",
         description="Standardize script content in memory using upstream formatters; provide content= with content_type=focus|event|decision|idea|mio|technology|history, or a mod-relative .txt path= to detect the type. Clipped txt must not be written back.",
-    )(_bind_tool(standardize_tool, settings.mod_root))
+    )(_bind_tool(standardize_tool, settings.mod_root, settings.submod_root))
 
     # ---------- M3 analysis ----------
 
@@ -444,6 +461,7 @@ def build_server(settings: Settings):
             settings.mod_root,
             focus_index,
             vanilla_path=settings.vanilla_path,
+            submod_root=settings.submod_root,
             detail=detail,
             focus_ids=focus_ids,
             node_limit=node_limit,
@@ -518,6 +536,7 @@ def build_server(settings: Settings):
             kinds=kinds,
             with_ids=with_ids,
             limit=limit,
+            submod_root=settings.submod_root,
         )
 
     @mcp.tool(name="check_encoding")
@@ -527,7 +546,13 @@ def build_server(settings: Settings):
         offset: int | float | str | None = 0,
     ) -> dict:
         """Verify BOM rules: .txt files must have no BOM, localisation/*.yml must have BOM. Violations are paginated by limit/offset."""
-        return check_encoding(settings.mod_root, files=files, limit=limit, offset=offset)
+        return check_encoding(
+            settings.mod_root,
+            files=files,
+            submod_root=settings.submod_root,
+            limit=limit,
+            offset=offset,
+        )
 
     # ---------- resources ----------
 
@@ -570,13 +595,16 @@ def main() -> None:  # pragma: no cover — entry point
 
     p_serve = sub.add_parser("serve", help="Start the MCP server (stdio transport)")
     p_serve.add_argument("--mod-root", help="Path to Millennium-Dawn checkout")
+    p_serve.add_argument("--submod-root", help="Path to optional submod/worktree overlay")
     p_serve.add_argument("--verbose", "-v", action="count", default=0)
 
     p_doctor = sub.add_parser("doctor", help="Print resolved configuration and exit")
     p_doctor.add_argument("--mod-root", help="Path to Millennium-Dawn checkout")
+    p_doctor.add_argument("--submod-root", help="Path to optional submod/worktree overlay")
 
     p_index = sub.add_parser("build-index", help="Build all indexes and exit")
     p_index.add_argument("--mod-root", help="Path to Millennium-Dawn checkout")
+    p_index.add_argument("--submod-root", help="Path to optional submod/worktree overlay")
 
     args = parser.parse_args()
     logging.basicConfig(
@@ -584,12 +612,17 @@ def main() -> None:  # pragma: no cover — entry point
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    settings = load(getattr(args, "mod_root", None))
+    settings = load(
+        getattr(args, "mod_root", None),
+        getattr(args, "submod_root", None),
+    )
 
     if args.cmd == "doctor":
         # Intentional CLI output, not debug leftovers.
         # pi-lens-ignore: python-print-statement
         print(f"mod_root:       {settings.mod_root}")
+        # pi-lens-ignore: python-print-statement
+        print(f"submod_root:    {settings.submod_root or '(not configured)'}")
         # pi-lens-ignore: python-print-statement
         print(f"vanilla_path:   {settings.vanilla_path or '(not detected)'}")
         # pi-lens-ignore: python-print-statement
@@ -614,7 +647,12 @@ def main() -> None:  # pragma: no cover — entry point
             ScriptedEffectIndex,
             ScriptedTriggerIndex,
         ):
-            idx = cls(settings.mod_root, settings.cache_dir, settings.vanilla_path)
+            idx = cls(
+                settings.mod_root,
+                settings.cache_dir,
+                settings.vanilla_path,
+                submod_root=settings.submod_root,
+            )
             idx.ensure_fresh()
             keys = idx.list_keys()
             file_count = len(getattr(idx, "_by_file", {}))

@@ -11,10 +11,11 @@ from __future__ import annotations
 import inspect
 import json
 from pathlib import Path
+from typing import Any, cast
 
 from md_mcp.tools import linting_tools
 from md_mcp.tools.linting_tools import lint_mod_encoding_tool, review_branch_tool
-from md_mcp.util.response import BUDGET_BYTES
+from md_mcp.util.response import BUDGET_BYTES  # pyright: ignore[reportMissingImports]
 
 
 def _make_script(root: Path, rel: str, body: str) -> Path:
@@ -44,6 +45,42 @@ def test_signatures_lock_api():
 # ---------------------------------------------------------------------------
 # review_branch
 # ---------------------------------------------------------------------------
+
+
+def test_changed_files_uses_submod_worktree_cwd(tmp_path, monkeypatch):
+    submod = tmp_path / "submod"
+    submod.mkdir()
+    calls = []
+
+    class _Result:
+        returncode = 0
+        stdout = " M common/overlay.txt\0"
+
+    def fake_run(*args, **kwargs):
+        calls.append(kwargs["cwd"])
+        return _Result()
+
+    monkeypatch.setattr(vars(linting_tools)["subprocess"], "run", fake_run)
+    assert linting_tools._changed_files(tmp_path, **{"submod_root": submod}) == [
+        "common/overlay.txt"
+    ]
+    assert calls == [str(submod)]
+
+
+def test_review_branch_uses_submod_worktree_cwd(tmp_path):
+    submod = tmp_path / "submod"
+    submod.mkdir()
+    _make_script(
+        tmp_path,
+        "tools/analysis/review_branch.py",
+        "import os\nprint(os.getcwd())\n",
+    )
+
+    call_review_branch = cast(Any, review_branch_tool)
+    out = call_review_branch(tmp_path, submod_root=submod)
+
+    assert out["ok"] is True
+    assert out["report"].strip() == str(submod)
 
 
 def test_review_branch_clips_report_by_utf8_bytes(tmp_path):
@@ -181,3 +218,34 @@ sys.exit(1)
     assert out["returned"] == 10
     assert out["truncated"] is True
     assert len(out["issues"]) == 10
+
+
+def test_lint_mod_encoding_discovers_overlay_first_and_skips_shadowed(tmp_path):
+    base = tmp_path / "base"
+    submod = tmp_path / "submod"
+    (base / "descriptor.mod").parent.mkdir()
+    submod.mkdir()
+    (base / "descriptor.mod").write_text("x", encoding="utf-8")
+    (base / "base_only.mod").write_text("x", encoding="utf-8")
+    (submod / "descriptor.mod").write_text("x", encoding="utf-8")
+    (submod / "overlay_only.mod").write_text("x", encoding="utf-8")
+    _make_script(
+        base,
+        "tools/linting/validate_mod_encoding.py",
+        """import sys
+from pathlib import Path
+for arg in sys.argv[1:]:
+    Path(arg).read_bytes()
+    print(f"{arg}: Valid UTF-8 encoding")
+""",
+    )
+
+    out = lint_mod_encoding_tool(base, submod_root=submod)
+
+    assert out["ok"] is True
+    assert out["checked"] == 3  # descriptor (overlay), overlay_only, base_only
+    assert linting_tools._discover_mod_files(base, submod) == [
+        "descriptor.mod",
+        "overlay_only.mod",
+        str(base / "base_only.mod"),
+    ]

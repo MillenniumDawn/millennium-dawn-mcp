@@ -624,3 +624,42 @@ def test_integration_all_fixers_at_max_txt_bytes_are_clipped(upstream_root):
     assert out["txt_bytes"] > _MAX_TXT_BYTES >= out["txt_returned_bytes"]
     assert "do NOT write clipped content back" in out["note"]
     assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+
+
+def test_path_prefers_submod_copy_over_shadowed_base(tmp_path):
+    base = tmp_path / "base"
+    submod = tmp_path / "submod"
+    _plant_upstream(base)
+    rel = "common/national_focus/x.txt"
+    for root, text in ((base, "a XX base\n"), (submod, "a XX overlay\n")):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+
+    out = fix_lint_tool(base, fixer="styling", path=rel, submod_root=submod)
+
+    assert out["txt"] == "a YY overlay\n"
+
+
+def test_path_reads_overlay_only_and_base_only_files(tmp_path):
+    base = tmp_path / "base"
+    submod = tmp_path / "submod"
+    _plant_upstream(base)
+    submod.mkdir()
+    (base / "base_only.txt").write_text("XX base\n", encoding="utf-8")
+    (submod / "overlay_only.txt").write_text("XX overlay\n", encoding="utf-8")
+
+    overlay = fix_lint_tool(base, fixer="styling", path="overlay_only.txt", submod_root=submod)
+    fallback = fix_lint_tool(base, fixer="styling", path="base_only.txt", submod_root=submod)
+
+    assert overlay["txt"] == "YY overlay\n"
+    assert fallback["txt"] == "YY base\n"
+
+
+def test_content_ignores_submod_root(tmp_path):
+    _plant_upstream(tmp_path)
+    submod = tmp_path / "submod"
+    submod.mkdir()
+
+    out = fix_lint_tool(tmp_path, fixer="styling", content="a XX b\n", submod_root=submod)
+
+    assert out["txt"] == "a YY b\n"

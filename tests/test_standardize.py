@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -317,23 +316,22 @@ def test_path_mode_reports_invalid_utf8(tmp_path: Path):
     assert "Invalid UTF-8" in result["error"]
 
 
-@pytest.mark.skipif(
-    hasattr(os, "geteuid") and os.geteuid() == 0,
-    reason="read permissions are not enforced for root",
-)
-def test_path_mode_reports_unreadable_file(tmp_path: Path):
+def test_path_mode_reports_unreadable_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     source = tmp_path / "common" / "national_focus" / "test.txt"
     source.parent.mkdir(parents=True)
     source.write_text("focus_tree = { }\n", encoding="utf-8")
-    source.chmod(0o000)
     _plant_api(tmp_path)
 
-    try:
-        result = standardize_tool(tmp_path, path="common/national_focus/test.txt")
-        assert result["ok"] is False
-        assert "Permission denied" in result["error"]
-    finally:
-        source.chmod(0o644)
+    def unreadable(path: Path) -> bytes:
+        assert path == source
+        raise PermissionError("Permission denied")
+
+    monkeypatch.setattr(Path, "read_bytes", unreadable)
+
+    result = standardize_tool(tmp_path, path="common/national_focus/test.txt")
+
+    assert result["ok"] is False
+    assert "Permission denied" in result["error"]
 
 
 def test_standardize_text_exception_surfaces(tmp_path: Path):

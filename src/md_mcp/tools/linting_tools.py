@@ -638,7 +638,7 @@ def lint_tool(
         "checks": per_check,
     }
     if suppressed_total:
-        summary["suppressed"] = suppressed_total
+        summary["suppressed_mod_wide"] = suppressed_total
         summary["suppression_source"] = ".claude/docs/known-false-positives.md"
     if not counts_only:
         summary["issues"] = issues_capped

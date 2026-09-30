@@ -312,14 +312,10 @@ for "check this code's quality."
   it — are counted as `unattributed` on the entry. The first few appear in
   `issues` as samples (`scope: "unattributed"`) to avoid flooding the response.
 
-  Suppression: `ValidatorRunner.run()` already drops the manifest-backed
-  `missing-focus-icon` and `missing-decision-icon` findings (same rule
-  `validate()` uses; see below) and reports the count as `suppressed` on the
-  result. The lint bridge reads that count and renames it to
-  `suppressed_mod_wide` on the check entry so the mod-wide scope stays
-  explicit next to the scoped `total`. `total_mod_wide` is the sum of the
-  on-scope count, related findings, and the suppressed count — every real
-  finding the validator reported before suppression.
+  The runner suppresses manifest-backed icon findings before lint sees them.
+  Lint reports the count as `suppressed_mod_wide` on each check and the summary.
+  It is not restricted to the linted files. `total_mod_wide` counts all findings
+  before suppression, including off-scope and unattributed findings.
 - **`severity_min="info"`** — drops issues below `info` / `warning` / `error`.
 - **`limit=500`** — caps the issues array. `truncated` flags details omitted by
   this limit or the response byte budget.

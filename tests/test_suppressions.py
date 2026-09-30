@@ -269,7 +269,7 @@ def test_lint_tool_reports_validator_suppressions_in_summary(tmp_path):
     The FakeRunner simulates a real runner that already dropped the manifest-
     backed issue: its issue list is empty, the suppressed count is reported
     on the result. lint_tool must fold that count into the top-level
-    `suppressed` field for the agent without calling `suppress_issues` again.
+    `suppressed_mod_wide` field without calling `suppress_issues` again.
     """
 
     class Runner(ValidatorRunner):
@@ -303,7 +303,8 @@ def test_lint_tool_reports_validator_suppressions_in_summary(tmp_path):
         validator_runner=Runner(),
     )
 
-    assert result["suppressed"] == 1
+    assert result["suppressed_mod_wide"] == 1
+    assert "suppressed" not in result
     assert result["suppression_source"] == _SOURCE
     assert result["issues"] == []
 
@@ -329,7 +330,7 @@ def test_lint_script_output_matching_upstream_prose_stays_visible(tmp_path):
         validators=[],
     )
 
-    assert "suppressed" not in result
+    assert "suppressed_mod_wide" not in result
     assert len(result["issues"]) == 1
 
 

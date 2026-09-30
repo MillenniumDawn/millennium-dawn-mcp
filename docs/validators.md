@@ -184,10 +184,10 @@ that we deliberately dropped because upstream `.claude/docs/known-false-positive
 covers them (today: `missing-focus-icon` and `missing-decision-icon` matched
 against `tools/validation/vanilla_sprites.txt`). Tools that aggregate per-
 validator totals (`validate`, `lint`) read this count and surface it
-unchanged; `lint` renames it to `suppressed_mod_wide` on the check entry to
-keep the mod-wide scope explicit next to its on-scope `total`. The suppression
-helper ([`analysis/suppressions.py`](../src/md_mcp/analysis/suppressions.py))
-reads the upstream rules and manifest directly from the mod — no shim cache.
+unchanged; `lint` renames it to `suppressed_mod_wide` on each check and the
+summary to distinguish it from on-scope counts. The suppression helper
+([`analysis/suppressions.py`](../src/md_mcp/analysis/suppressions.py)) implements
+this upstream rule using the mod's sprite manifest.
 
 ## Staged-only mode
 

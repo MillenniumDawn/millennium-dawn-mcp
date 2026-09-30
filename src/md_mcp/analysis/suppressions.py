@@ -37,13 +37,7 @@ def suppress_issues(issues: Iterable[dict], mod_root: Path) -> tuple[list[dict],
 
 
 def suppressed_count(result: dict) -> int:
-    """Read a non-negative suppression count from a validator or check entry.
-
-    Prefers ``suppressed_mod_wide`` (the lint-side key that makes the mod-wide
-    scope explicit alongside the scoped ``total``) and falls back to
-    ``suppressed`` for validator results and tool wrappers that haven't been
-    renamed yet.
-    """
+    """Read the count from a validator result or a lint check entry."""
     try:
         value = result.get("suppressed_mod_wide", result.get("suppressed", 0))
         return max(0, int(value or 0))

@@ -29,6 +29,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
+from ..util.pathing import contained
 from ..util.process import run_in_group
 from ..util.response import BUDGET_BYTES, enforce_budget
 from ..validators import SEVERITY_RANK, SLOW_VALIDATORS, ValidatorRunner
@@ -389,8 +390,8 @@ def lint_tool(
                         `staged`  = only files in the git index.
                         `all`     = brute-scan every matching file under mod_root.
                         Ignored when `files=` is given.
-        files         — explicit mod-relative paths. Each checker filters by its
-                        own file pattern (e.g. braces ignores `.yml`).
+        files         — explicit mod-relative or contained absolute paths. Each
+                        checker filters by its own file pattern.
         checks        — subset of `_ALL_CHECKS` to run; omit for all.
         validators    — mod validators to merge into the same output. Omit to
                         run `style` for full-tree mode or scoped script files;
@@ -422,8 +423,18 @@ def lint_tool(
     #   relevant=None means "no filter — let each script do its native --mode all"
     #   relevant=[]   means "user has nothing in scope — every check no-ops"
     removed_paths: list[str] = []
+    relevant: Optional[list[str]]
     if files is not None:
-        relevant: Optional[list[str]] = [_norm_scope_path(f) for f in files]
+        explicit_files: list[str] = []
+        for file in files:
+            normalized = _norm_scope_path(file)
+            if Path(normalized).is_absolute():
+                resolved = contained(mod_root, normalized)
+                if resolved is None:
+                    return {"ok": False, "error": f"{file!r} is outside the mod root"}
+                normalized = resolved.relative_to(mod_root.resolve()).as_posix()
+            explicit_files.append(normalized)
+        relevant = explicit_files
     elif mode == "all":
         relevant = None
     elif mode == "changed":

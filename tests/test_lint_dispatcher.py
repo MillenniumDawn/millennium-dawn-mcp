@@ -538,8 +538,9 @@ def test_lint_empty_files_scope_skips_every_check(tmp_path):
     assert all(c.get("skipped") == "no files in scope" for c in out["checks"])
 
 
-def test_lint_files_scope_normalises_paths(tmp_path):
-    """`./`-prefixed and backslash paths reach the checkers in canonical form."""
+@pytest.mark.parametrize("absolute", [False, True])
+def test_lint_files_scope_normalises_paths(tmp_path, absolute):
+    """Relative and contained absolute paths reach checkers in mod-relative form."""
     _init_repo(tmp_path)
     _seed_all_scripts(
         tmp_path,
@@ -555,9 +556,28 @@ sys.exit(0)
     (tmp_path / "common").mkdir()
     (tmp_path / "common" / "new.txt").write_text("x = 1\n")
 
-    out = lint_tool(tmp_path, checks=["common_mistakes"], validators=[], files=["./common/new.txt"])
+    file = str(tmp_path / "common" / "new.txt") if absolute else "./common/new.txt"
+    out = lint_tool(tmp_path, checks=["common_mistakes"], validators=[], files=[file])
     assert out["mode"] == "files"
     assert {i.get("file") for i in out["issues"]} == {"common/new.txt"}
+
+
+def test_lint_rejects_absolute_path_outside_mod_root(tmp_path):
+    out = lint_tool(tmp_path, files=[str(tmp_path.parent / "outside.txt")], validators=[])
+
+    assert out["ok"] is False
+    assert "outside the mod root" in out["error"]
+
+
+def test_lint_rejects_absolute_symlink_escape(tmp_path):
+    source = tmp_path / "common" / "escape.txt"
+    source.parent.mkdir()
+    source.symlink_to(tmp_path.parent / "outside.txt")
+
+    out = lint_tool(tmp_path, files=[str(source)], validators=[])
+
+    assert out["ok"] is False
+    assert "outside the mod root" in out["error"]
 
 
 def test_lint_common_mistakes_only_gets_script_txt_files(tmp_path):

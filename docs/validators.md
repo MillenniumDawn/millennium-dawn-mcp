@@ -40,7 +40,9 @@ in a child sidesteps it and lets the suite keep its parallelism.
 The child gets `stdin=DEVNULL` so it can never consume the server's JSON-RPC
 input, and a 600 s timeout. The child runs in its own process group and a
 timeout kills the whole group, so its pool workers don't keep running after it
-(`util/process.py`). The lint scripts use the same helper.
+(`util/process.py`). On Windows, `taskkill /T /F` kills the tree. If `taskkill`
+fails or times out, the helper still kills and reaps the direct child, but tree
+cleanup is not guaranteed. The lint scripts use the same helper.
 
 Cost is one interpreter start per call, which is noise next to a multi-second
 validator. Unlike in-process mode there's no module cache across calls.

@@ -6,9 +6,12 @@ import os
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
+from md_mcp.util import process
 from md_mcp.util.process import run_in_group
 
 
@@ -33,6 +36,38 @@ def test_run_in_group_captures_output_and_exit_code(tmp_path):
 
     # stdin is /dev/null, so the read returns at once instead of eating the server's stream.
     assert (proc.returncode, proc.stdout, proc.stderr) == (3, "''\n", "err\n")
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [None, OSError("taskkill unavailable"), subprocess.TimeoutExpired("taskkill", 10)],
+)
+def test_windows_timeout_kills_tree_and_reaps_child(monkeypatch, failure):
+    child = MagicMock()
+    child.pid = 123
+    expired = subprocess.TimeoutExpired("validator", 1)
+    child.communicate.side_effect = expired
+    popen = MagicMock()
+    popen.return_value.__enter__.return_value = child
+    taskkill = MagicMock(side_effect=failure)
+    monkeypatch.setattr(process, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(process.subprocess, "Popen", popen)
+    monkeypatch.setattr(process.subprocess, "run", taskkill)
+
+    with pytest.raises(subprocess.TimeoutExpired) as caught:
+        run_in_group(["validator"], timeout=1)
+
+    assert caught.value is expired
+    taskkill.assert_called_once_with(
+        ["taskkill", "/T", "/F", "/PID", "123"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=10,
+        check=False,
+    )
+    child.kill.assert_called_once_with()
+    child.wait.assert_called_once_with()
 
 
 @pytest.mark.skipif(not hasattr(os, "killpg"), reason="process groups are POSIX-only")

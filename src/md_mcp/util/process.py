@@ -24,8 +24,8 @@ def run_in_group(
 ) -> subprocess.CompletedProcess:
     """``subprocess.run(capture_output=True)`` that kills the child's process group on timeout.
 
-    Raises ``subprocess.TimeoutExpired`` like ``subprocess.run``. Windows has no
-    process groups here, so it falls back to killing the direct child.
+    Raises ``subprocess.TimeoutExpired`` like ``subprocess.run``. Windows uses
+    ``taskkill /T /F`` to terminate the process tree.
     """
     with subprocess.Popen(
         cmd,
@@ -43,7 +43,18 @@ def run_in_group(
                 with contextlib.suppress(OSError):
                     os.killpg(proc.pid, signal.SIGKILL)
             else:
-                proc.kill()
+                if os.name == "nt":
+                    with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+                        subprocess.run(
+                            ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                            stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=10,
+                            check=False,
+                        )
+                with contextlib.suppress(OSError):
+                    proc.kill()
             proc.wait()
             raise
     return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)

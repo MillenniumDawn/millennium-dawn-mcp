@@ -1,6 +1,6 @@
 # Tool & Resource Reference
 
-30 tools and 6 resources, grouped by purpose. Output shapes show the
+40 tools and 6 resources, grouped by purpose. Output shapes show the
 **default** behaviour — most tools have detail-tier or `limit` knobs.
 
 All tools return either `{"ok": True, ...}` or `{"ok": False, "error": "..."}`.
@@ -69,6 +69,27 @@ Returns `{id, category, file, line}`.
 Returns `{id, category, slot, file, line}`. `slot` is the ideas group
 (country, political_advisor, mobilization_laws, etc.).
 
+### `resolve_country_tag(tag: str) -> dict`
+
+Look up a country tag in `common/country_tags/`. Returns `{tag, country_file,
+file, line}`.
+
+### `resolve_character(character_id: str) -> dict`
+
+Look up a character in `common/characters/`. Returns `{id, file, line}`.
+
+### `resolve_trait(trait_id: str) -> dict`
+
+Look up a country or unit leader trait. Returns `{id, file, line}`.
+
+### `resolve_scripted_effect(effect_id: str) -> dict`
+
+Look up a scripted effect definition. Returns `{id, file, line}`.
+
+### `resolve_scripted_trigger(trigger_id: str) -> dict`
+
+Look up a scripted trigger definition. Returns `{id, file, line}`.
+
 ### `list_country_content(tag: str, include?: list[str], limit_per_category?: int) -> dict`
 
 Per-country manifest. **Default returns counts + 5-item samples only.** Pass
@@ -77,7 +98,10 @@ Per-country manifest. **Default returns counts + 5-item samples only.** Pass
 `limit_per_category` (default 100).
 
 Categories: `focuses`, `events`, `event_files`, `decisions`, `ideas`,
-`loc_files`, `mio_files`, `history_files`, `oob_files`, `namelist_files`.
+`loc_files`, `mio_files`, `history_files`, `oob_files`, `namelist_files`,
+`country_tags`, `characters`, `character_files`, `traits`, `trait_files`,
+`scripted_effects`, `scripted_effect_files`, `scripted_triggers`, and
+`scripted_trigger_files`.
 
 ```json
 {
@@ -153,6 +177,12 @@ hull-slot and module-category rules. The text may include enclosing effect
 scopes but must contain exactly one variant with a scalar `type` and a `modules`
 block. `limit` (default 100) and `offset` paginate compatibility issues.
 
+This checks whether the chosen modules fit the hull. It does not check whether
+a variant is consumed before its equipment technology is assured. Use the mod's
+`equipment_variants` validator through `validate(validator="equipment_variants")`
+or `lint(validators=["auto"])` for those availability warnings in mod files.
+That validator does not check individual module technology unlocks.
+
 The upstream compatibility helper intentionally skips equipment types without
 indexed module slots, so a clean result only means no slot/module issue was
 found for a checkable type.
@@ -160,9 +190,10 @@ found for a checkable type.
 Returns `{ok, valid, issues_total, returned, truncated, issues}`. Each issue is
 `{line, severity: "error", kind, message, hull}`.
 
-### `validate(validator?, staged_only?, files?, strict?, severity_min?, limit?, counts_only?) -> dict`
+### `validate(validator?, staged_only?, files?, strict?, severity_min?, limit?, counts_only?, delta?, baseline?) -> dict`
 
-Run one validator or the full fast suite.
+Run one validator or the full fast suite. Set `delta=True` to return only new
+issues compared with a baseline snapshot.
 
 - **`validator`** — name from `validate_list` (`localisation`, `focus_id`,
   etc.). Omit to run all *fast* validators (slow `unused_scripted` and
@@ -174,8 +205,35 @@ Run one validator or the full fast suite.
   `"warning"`, `"error"`.
 - **`limit=500`** — cap issues returned (counts stay accurate). `-1` for no cap.
 - **`counts_only=True`** — return just per-validator counts; skip the issues array.
+- **`delta=True`** — dedupe findings and return only issues absent from the baseline.
+- **`baseline`** — required when `delta=True`. One of: an issue-list JSON
+  file (absolute path, or any path with a separator or `.json` suffix); a
+  sidecar directory containing `baseline-meta.json` plus per-validator
+  `<slug>.json` files (the upstream `baseline_check.py` layout); or a bare
+  ref name resolved under `cache_dir/validator-baselines/<safe-ref>.json`.
+  Ref names may contain slashes (e.g. `origin/main`, `issue/21-...`); a
+  missing or stale sidecar directory whose `baseline-meta.json` carries a
+  `toolshash` that disagrees with the current validator generation errors
+  out instead of producing false NEW findings.
 
 Returns `{ok, validators, counts: {error, warning, info}, issues, issues_total_after_filter, truncated}`.
+
+In delta mode, baseline and current file paths go through the same attribution
+before keys are compared, so a bare `a.txt` in a sidecar matches
+`events/a.txt`. File-level findings (no line, file present) match on
+`(severity, category, file, message)` so they aren't lost in `unclassified`;
+severity stays in the key so an existing warning that escalates to an error
+still reads as NEW. Findings with no resolvable file at all (or an ambiguous
+bare name) cannot be compared, so they are dropped from `issues` and counted
+in an extra `unclassified` field. Each deduped issue is counted once in the
+per-validator `counts`, under the validator that reported its final severity,
+so the breakdown sums to the top-level `counts`.
+
+For line-level findings, the key includes the line number, so unrelated edits
+that shift lines make existing findings on those lines look NEW on the next
+delta run. If a branch shows a long list of "new" findings that
+look like the surrounding context, re-run the delta against a baseline taken
+after the line-shifting change.
 
 ### `validate_list(limit?, offset?) -> dict`
 
@@ -212,8 +270,10 @@ for "check this code's quality."
   - `"changed"` = staged + unstaged + untracked (everything `git status --porcelain` sees). This is what you want mid-edit before anything is committed.
   - `"staged"` = only files in the git index — matches pre-commit's view.
   - `"all"` = brute scan every matching file under the mod root. Slow; use when you want a clean baseline.
-- **`files=[...]`** — explicit mod-relative paths. Overrides `mode`. Each check
-  filters this list by its own file-pattern (e.g. `mod_encoding` only looks at `.mod`).
+- **`files=[...]`** — explicit mod-relative paths or absolute paths inside the mod
+  root. Absolute paths are normalized to mod-relative paths; escapes are errors.
+  Overrides `mode`. Each check filters this list by its own file-pattern (e.g. `mod_encoding` only looks at `.mod`,
+  and `common_mistakes` only at `.txt` under `common/`, `events/`, `history/`, or `music/`).
 - **`checks=[...]`** — subset of:
   - `common_mistakes` (`check_common_mistakes.py` — threat scale, scope, modifiers)
   - `mod_encoding` (`validate_mod_encoding.py` — `.mod` UTF-8 validity)
@@ -234,8 +294,12 @@ for "check this code's quality."
     a change under `common/national_focus/` runs `focus_tree`,
     `scripted_params`, `simplifications`, `modifiers`, and `style`; a change
     under `events/` runs `events`, `on_actions`, and friends; loc `.yml`
-    changes run `localisation`. Global cross-reference validators
-    (`variables`, `set_variables`, `cosmetic_tags`) and the slow two
+    changes run `localisation`. Relevant `.txt` files under `common/`,
+    `events/`, and `history/` also select `equipment_variants`, which reports
+    `equipment-variant-unavailable` warnings at the consuming variant's file
+    and line when equipment technology is not yet assured.
+    Global cross-reference validators (`variables`, `set_variables`,
+    `cosmetic_tags`) and the slow two
     (`unused_scripted`, `unused_textures`) are never auto-selected.
   - `["*"]` — every fast validator (same exclusions as `validate`'s run-all).
   - Explicit names run exactly those; sentinels and names union. For example,
@@ -243,14 +307,29 @@ for "check this code's quality."
 
   Validator issues are attributed back to real mod paths, then post-filtered to
   the file scope. Each `validator:<name>` entry reports the on-scope `total`
-  (equal to the issues it contributes to `issues`) and `total_mod_wide`, so a
-  nonzero mod-wide count is visible even when your files are clean. Issues that
-  can't be attributed to any file — some validators bury the filename in the
-  message, some drop it — report as an `unattributed` count on the entry, with
-  the first few carried into `issues` as a sample (`scope: "unattributed"`)
-  rather than flooding the response.
+  and `total_mod_wide`, so a nonzero mod-wide count is visible even when your
+  files are clean. For `equipment_variants`, a context change may affect an
+  unchanged consumer. Context paths include `.txt` files under
+  `common/technologies/`, `common/technology_tags/`, `common/bookmarks/`,
+  `history/countries/`, `common/decisions/categories/`,
+  `common/national_focus/`, and `events/`, plus `.txt` files under `common/`,
+  `events/`, or `history/` containing event-call tokens. Deleted context files
+  and rename sources also count in changed and staged modes.
+  When one of these files changes, warnings at unchanged consumers may be
+  included at their original file and line with `scope: "related"`. This marks
+  a potentially related warning; the upstream validator provides no dependency
+  metadata to prove the edit caused it. The check entry's `related` count is
+  the full number of such warnings; `total` remains the count on changed
+  files. Overall lint counts include related warnings, and
+  `issues_total_after_filter` includes those
+  passing `severity_min`. The final `issues` array is subject to `limit` and
+  the response byte budget; `truncated` flags omitted details. Issues without
+  a resolvable file — some validators bury the filename in the message or omit
+  it — are counted as `unattributed` on the entry. The first few appear in
+  `issues` as samples (`scope: "unattributed"`) to avoid flooding the response.
 - **`severity_min="info"`** — drops issues below `info` / `warning` / `error`.
-- **`limit=500`** — caps the issues array. `truncated` flags overflow.
+- **`limit=500`** — caps the issues array. `truncated` flags details omitted by
+  this limit or the response byte budget.
 - **`counts_only=True`** — omit the issues array; return per-check + overall counts only.
 
 Returns:
@@ -377,12 +456,39 @@ files or indexed records. Valid matches are still returned. `partial_errors`
 contains at most 20 file and reason entries; `partial_errors_truncated` marks
 additional omitted details.
 
+### `find_country_tags(query?, limit?, offset?) -> dict`
+
+Search the country-tag universe by an optional case-insensitive substring. Returns
+paginated `{id, kind, file, line}` matches (country tags also include their country
+file in resolver responses).
+
+### `find_characters(query?, limit?, offset?) -> dict`
+
+Search character definitions by an optional substring.
+
+### `find_traits(query?, limit?, offset?) -> dict`
+
+Search country and unit leader traits by an optional substring.
+
+### `find_scripted_effects(query?, limit?, offset?) -> dict`
+
+Search scripted effect definitions by an optional substring.
+
+### `find_scripted_triggers(query?, limit?, offset?) -> dict`
+
+Search scripted trigger definitions by an optional substring.
+
+All five definition searches return `total`, `returned`, `truncated`, and a
+budget-guarded `matches` page.
+
 ### `find_references(kind, target, limit?, offset?, snippet_chars?, files_only?) -> dict`
 
 Reverse-lookup: every place a focus / event / decision / idea / loc-key /
-sprite / flag / variable is referenced.
+sprite / flag / variable / country tag / character / trait / scripted effect /
+scripted trigger is referenced.
 
-- **`kind`** — one of `focus, event, decision, idea, loc, sprite, flag, variable`.
+- **`kind`** — one of `focus, event, decision, idea, loc, sprite, flag, variable,
+  country_tag, character, trait, scripted_effect, scripted_trigger`.
 - **`limit=100`**, **`offset=0`** — pagination over the match list.
 - **`snippet_chars=120`** — per-match snippet length.
 - **`files_only=True`** — collapse to a unique file list with hit counts (much
@@ -429,16 +535,27 @@ validators can't be scoped to a file, and `resolve_*` is one id per call.
   news_event), `idea` (add_ideas / remove_ideas and friends), `sprite`
   (icon / picture, tries `GFX_<name>` too; `.dds`/`.tga` file paths are
   skipped), `loc` (`<focus_id>` + `<focus_id>_desc` for every focus defined in
-  scope, plus custom_effect_tooltip), `decision`.
+  scope, plus custom_effect_tooltip), `decision`, `country_tag` (`original_tag`,
+  `tag`, `change_tag`, `target_tag`, `tag_to_check`; scope keywords
+  `ROOT`/`FROM`/`PREV`/`THIS`/`OWNER`/`CONTROLLER` and dotted `var:` /
+  `event_target:` references are skipped — `set_cosmetic_tag` carries a
+  cosmetic-tag *name*, not a country tag), `character` (and friends),
+  `trait` (and friends), `scripted_effect` (only direct calls whose key is
+  in the index), `scripted_trigger` (same caveat).
 - Unresolved refs are deduped by (kind, id) with `count` and up to 3 `sites`
   (`{file, line, via, referrer}`).
 - **`limit=200`**, **`offset=0`** — paginate the unresolved list. `-1` returns
   it in full, guarded only by `enforce_budget`.
-- `not_checked` lists what no index covers yet (country flags, variables,
-  scripted effects); `vanilla_indexed: false` warns that vanilla-defined ids
-  (ideas especially) will show as unresolved when `HOI4_PATH` isn't
-  configured. `vanilla_manifest: true` means vanilla-only sprite ids were
-  resolved from the committed `vanilla_sprites.txt` manifest instead.
+- `not_checked` lists what no index covers yet: `country_flags`, `variables`,
+  `scripted_effects`, and `scripted_triggers`. The two scripted kinds stay
+  there because a direct scripted call is only audited when its key is
+  already in the index — so misspelled calls can never be flagged, and
+  wrapper forms (`call_scripted_effect`, `evaluate_scripted_trigger`,
+  `run_*`) aren't HOI4 effects/triggers at all. `vanilla_indexed: false`
+  warns that vanilla-defined ids (ideas especially) will show as unresolved
+  when `HOI4_PATH` isn't configured. `vanilla_manifest: true` means
+  vanilla-only sprite ids were resolved from the committed
+  `vanilla_sprites.txt` manifest instead.
 
 Returns `{ok, scope, files_scanned, kinds_checked, not_checked,
 vanilla_indexed, vanilla_manifest, counts: {kind: {checked, unresolved}},

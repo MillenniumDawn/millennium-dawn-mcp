@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from md_mcp.analysis.ref_audit import check_refs
+from md_mcp.analysis.ref_audit import _is_scope_reference, check_refs
 from md_mcp.indexes import (
+    CountryTagIndex,
     DecisionIndex,
     EventIndex,
     FocusIndex,
@@ -182,7 +183,11 @@ def test_dedup_counts_occurrences(fake_mod_root, cache_dir):
     assert len(entry["sites"]) == 2
 
 
-def test_vanilla_flag_surfaced(audit_mod):
+def test_not_checked_lists_partial_scripted_coverage(audit_mod):
+    """Direct scripted calls are only audited when their key is already in the
+    index, so we can't flag undefined callers — `scripted_effects` and
+    `scripted_triggers` stay in `not_checked` until that changes.
+    """
     root, cache = audit_mod
     out = check_refs(
         root,
@@ -193,6 +198,7 @@ def test_vanilla_flag_surfaced(audit_mod):
     assert out["vanilla_indexed"] is False
     assert out["vanilla_manifest"] is False
     assert "scripted_effects" in out["not_checked"]
+    assert "scripted_triggers" in out["not_checked"]
 
 
 _MANIFEST_FOCUS = """focus_tree = {
@@ -385,3 +391,133 @@ def test_texture_paths_not_sprite_refs(fake_mod_root, cache_dir):
     )
     assert out["counts"]["sprite"]["checked"] == 0
     assert out["total_unresolved"] == 0
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["ROOT", "FROM", "PREV", "THIS", "OWNER", "CONTROLLER"],
+)
+def test_is_scope_reference_recognises_keywords(value):
+    assert _is_scope_reference(value) is True
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["var:foo", "var:prev.tag", "event_target:owner_target", "event_target:vice_king"],
+)
+def test_is_scope_reference_recognises_dotted_accessors(value):
+    assert _is_scope_reference(value) is True
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["USA", "GER", "SOV", "TST", "TAG", "USA_cosmetic_tag_monarchist", "GER_fourth_reich"],
+)
+def test_is_scope_reference_keeps_real_tag_names(value):
+    assert _is_scope_reference(value) is False
+
+
+def test_country_tag_audit_skips_scope_keywords_and_dotted_refs(fake_mod_root, cache_dir):
+    """`tag = ROOT` and `original_tag = var:prev.tag` aren't references to
+    indexed tags; they must not show up as unresolved dangling refs.
+    """
+    body = """focus_tree = {
+    focus = {
+        id = TST_scope_root
+        x = 1
+        y = 0
+        available = {
+            tag = ROOT
+            tag = FROM
+            tag = { original_tag = var:prev.original_tag }
+            original_tag = event_target:aggressor
+        }
+    }
+}
+"""
+    f = fake_mod_root / "common" / "national_focus" / "TST_scope_root.txt"
+    f.write_text(body, encoding="utf-8")
+    out = check_refs(
+        fake_mod_root,
+        files=["common/national_focus/TST_scope_root.txt"],
+        kinds=["country_tag"],
+        country_tag_index=CountryTagIndex(fake_mod_root, cache_dir, include_vanilla=False),
+        **_indexes(fake_mod_root, cache_dir),
+    )
+    unresolved = {(e["kind"], e["ref"]) for e in out["unresolved"]}
+    assert ("country_tag", "ROOT") not in unresolved
+    assert ("country_tag", "FROM") not in unresolved
+    assert ("country_tag", "var:prev.original_tag") not in unresolved
+    assert ("country_tag", "event_target:aggressor") not in unresolved
+    assert out["counts"]["country_tag"]["checked"] == 0
+
+
+def test_country_tag_audit_drops_set_cosmetic_tag(fake_mod_root, cache_dir):
+    """`set_cosmetic_tag` carries a cosmetic-tag *name*, not a country tag —
+    auditing it against the country-tag index would always be unresolved.
+    """
+    body = """focus_tree = {
+    focus = {
+        id = TST_cosmetic
+        x = 1
+        y = 0
+        completion_reward = {
+            set_cosmetic_tag = TST_cosmetic_monarchist
+        }
+    }
+}
+"""
+    f = fake_mod_root / "common" / "national_focus" / "TST_cosmetic.txt"
+    f.write_text(body, encoding="utf-8")
+    out = check_refs(
+        fake_mod_root,
+        files=["common/national_focus/TST_cosmetic.txt"],
+        kinds=["country_tag"],
+        country_tag_index=CountryTagIndex(fake_mod_root, cache_dir, include_vanilla=False),
+        **_indexes(fake_mod_root, cache_dir),
+    )
+    assert out["counts"]["country_tag"]["checked"] == 0
+    assert out["total_unresolved"] == 0
+
+
+def test_scope_exclusions_only_apply_to_country_tags(fake_mod_root, cache_dir):
+    source = fake_mod_root / "events" / "scope_names.txt"
+    source.write_text("original_tag = TAG\nhas_character = ROOT\nhas_trait = FROM\n")
+    out = check_refs(
+        fake_mod_root,
+        files=["events/scope_names.txt"],
+        kinds=["country_tag", "character", "trait"],
+        **_indexes(fake_mod_root, cache_dir),
+    )
+
+    assert {(entry["kind"], entry["ref"]) for entry in out["unresolved"]} == {
+        ("country_tag", "TAG"),
+        ("character", "ROOT"),
+        ("trait", "FROM"),
+    }
+
+
+def test_country_tag_audit_still_flags_unknown_tag(fake_mod_root, cache_dir):
+    """A real-looking but-unindexed tag id still shows up as unresolved."""
+    body = """focus_tree = {
+    focus = {
+        id = TST_real_unknown
+        x = 1
+        y = 0
+        available = {
+            original_tag = TST_GHOST_TAG
+        }
+    }
+}
+"""
+    f = fake_mod_root / "common" / "national_focus" / "TST_real_unknown.txt"
+    f.write_text(body, encoding="utf-8")
+    out = check_refs(
+        fake_mod_root,
+        files=["common/national_focus/TST_real_unknown.txt"],
+        kinds=["country_tag"],
+        country_tag_index=CountryTagIndex(fake_mod_root, cache_dir, include_vanilla=False),
+        **_indexes(fake_mod_root, cache_dir),
+    )
+    unresolved = {(e["kind"], e["ref"]) for e in out["unresolved"]}
+    assert ("country_tag", "TST_GHOST_TAG") in unresolved

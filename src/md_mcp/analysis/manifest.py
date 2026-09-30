@@ -27,11 +27,16 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from ..indexes import (
+    CharacterIndex,
+    CountryTagIndex,
     DecisionIndex,
     EventIndex,
     FocusIndex,
     IdeaIndex,
     LocalisationIndex,
+    ScriptedEffectIndex,
+    ScriptedTriggerIndex,
+    TraitIndex,
 )
 from ..util.response import enforce_budget
 
@@ -46,6 +51,15 @@ _ALL_CATEGORIES = (
     "history_files",
     "oob_files",
     "namelist_files",
+    "country_tags",
+    "characters",
+    "character_files",
+    "traits",
+    "trait_files",
+    "scripted_effects",
+    "scripted_effect_files",
+    "scripted_triggers",
+    "scripted_trigger_files",
 )
 
 
@@ -58,6 +72,11 @@ def list_country_content(
     decision_index: Optional[DecisionIndex] = None,
     idea_index: Optional[IdeaIndex] = None,
     loc_index: Optional[LocalisationIndex] = None,
+    country_tag_index: Optional[CountryTagIndex] = None,
+    character_index: Optional[CharacterIndex] = None,
+    trait_index: Optional[TraitIndex] = None,
+    scripted_effect_index: Optional[ScriptedEffectIndex] = None,
+    scripted_trigger_index: Optional[ScriptedTriggerIndex] = None,
     include: Optional[Sequence[str]] = None,
     limit_per_category: int = 100,
 ) -> dict:
@@ -87,6 +106,17 @@ def list_country_content(
     history_files = _scan_files(mod_root, "history/countries", ("*.txt",), prefix=tag_upper)
     oob_files = _scan_files(mod_root, "history/units", ("*.txt",), prefix=tag_upper)
     namelist_files = _scan_files(mod_root, "common/names", ("*.txt",), prefix=tag_upper)
+    country_tags = _tag_records(country_tag_index, tag_upper)
+    characters, character_files = _indexed_country_records(
+        character_index, tag_upper, file_prefix=True
+    )
+    traits, trait_files = _indexed_country_records(trait_index, tag_upper, file_prefix=True)
+    scripted_effects, scripted_effect_files = _indexed_country_records(
+        scripted_effect_index, tag_upper, file_prefix=True
+    )
+    scripted_triggers, scripted_trigger_files = _indexed_country_records(
+        scripted_trigger_index, tag_upper, file_prefix=True
+    )
 
     raw: dict[str, list[str]] = {
         "focuses": sorted(focuses),
@@ -99,6 +129,15 @@ def list_country_content(
         "history_files": history_files,
         "oob_files": oob_files,
         "namelist_files": namelist_files,
+        "country_tags": country_tags,
+        "characters": characters,
+        "character_files": character_files,
+        "traits": traits,
+        "trait_files": trait_files,
+        "scripted_effects": scripted_effects,
+        "scripted_effect_files": scripted_effect_files,
+        "scripted_triggers": scripted_triggers,
+        "scripted_trigger_files": scripted_trigger_files,
     }
 
     counts = {cat: len(items) for cat, items in raw.items()}
@@ -176,6 +215,38 @@ def _loc_files(loc_index: Optional[LocalisationIndex], tag_upper: str) -> list[s
     loc_index.ensure_fresh()
     pattern = re.compile(rf"(^|[/_]){re.escape(tag_upper)}(_|/|$)")
     return [f for f in loc_index._by_file if pattern.search(f)]
+
+
+def _tag_records(index: Optional[CountryTagIndex], tag_upper: str) -> list[str]:
+    if index is None:
+        return []
+    rec = index.resolve(tag_upper)
+    return [rec["id"]] if rec is not None else []
+
+
+def _indexed_country_records(
+    index,
+    tag_upper: str,
+    *,
+    file_prefix: bool = False,
+) -> tuple[list[str], list[str]]:
+    if index is None:
+        return [], []
+    prefix = tag_upper + "_"
+    ids: list[str] = []
+    files: set[str] = set()
+    for key in index.list_keys():
+        rec = index.resolve(key)
+        if rec is None:
+            continue
+        file = str(rec["file"])
+        stem = Path(file).stem.upper()
+        if str(key).upper().startswith(prefix) or (
+            file_prefix and (stem == tag_upper or stem.startswith(prefix))
+        ):
+            ids.append(str(key))
+            files.add(file)
+    return sorted(set(ids)), sorted(files)
 
 
 def _scan_files(mod_root: Path, subdir: str, patterns: tuple, *, prefix: str) -> list[str]:

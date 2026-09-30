@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from ..util.process import run_in_group
 from .attribution import IssueAttributor
 
 logger = logging.getLogger(__name__)
@@ -281,20 +282,15 @@ class ValidatorRunner:
                 scope.write_text(json.dumps(files), encoding="utf-8")
                 cmd.extend(["--files", str(scope)])
             try:
-                proc = subprocess.run(
-                    [*cmd, "--out", str(out)],
-                    check=False,
-                    capture_output=True,
-                    stdin=subprocess.DEVNULL,
-                    timeout=600,
-                )
-            except (OSError, subprocess.SubprocessError, ValueError) as e:
-                error = (
-                    "Validator timed out after 600s"
-                    if isinstance(e, subprocess.TimeoutExpired)
-                    else str(e)
-                )
-                return {"ok": False, "validator": info.name, "error": error}
+                proc = run_in_group([*cmd, "--out", str(out)], timeout=600)
+            except subprocess.TimeoutExpired:
+                return {
+                    "ok": False,
+                    "validator": info.name,
+                    "error": "Validator timed out after 600s",
+                }
+            except Exception as e:
+                return {"ok": False, "validator": info.name, "error": str(e)}
 
             # A validator that dies before writing the payload must surface as a
             # failure. Reporting it as zero issues reads as a clean run.

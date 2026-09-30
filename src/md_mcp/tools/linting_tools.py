@@ -22,15 +22,23 @@ and wraps the result in `enforce_budget`.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
+from ..util.pathing import contained
+from ..util.process import run_in_group
 from ..util.response import BUDGET_BYTES, enforce_budget
 from ..validators import SEVERITY_RANK, SLOW_VALIDATORS, ValidatorRunner
-from .lint_validators import STYLE_PREFIXES, run_validators_for_lint, select_validators
+from .lint_validators import (
+    EQUIPMENT_VARIANT_PREFIXES,
+    STYLE_PREFIXES,
+    run_validators_for_lint,
+    select_validators,
+)
 
 _LINT_LINE_RE = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):\s*(?P<msg>.+)$")
 
@@ -211,10 +219,9 @@ def _run_script(
     if not script.exists():
         return None, f"{script.name} not found at {script}"
     try:
-        proc = subprocess.run(
+        proc = run_in_group(
             [sys.executable, str(script), *args],
             cwd=str(mod_root),
-            capture_output=True,
             text=True,
             timeout=timeout,
         )
@@ -383,8 +390,8 @@ def lint_tool(
                         `staged`  = only files in the git index.
                         `all`     = brute-scan every matching file under mod_root.
                         Ignored when `files=` is given.
-        files         — explicit mod-relative paths. Each checker filters by its
-                        own file pattern (e.g. braces ignores `.yml`).
+        files         — explicit mod-relative or contained absolute paths. Each
+                        checker filters by its own file pattern.
         checks        — subset of `_ALL_CHECKS` to run; omit for all.
         validators    — mod validators to merge into the same output. Omit to
                         run `style` for full-tree mode or scoped script files;
@@ -415,25 +422,55 @@ def lint_tool(
     # Resolve the canonical "files of interest" set.
     #   relevant=None means "no filter — let each script do its native --mode all"
     #   relevant=[]   means "user has nothing in scope — every check no-ops"
+    removed_paths: list[str] = []
+    relevant: Optional[list[str]]
     if files is not None:
-        relevant: Optional[list[str]] = [_norm_scope_path(f) for f in files]
+        explicit_files: list[str] = []
+        for file in files:
+            normalized = _norm_scope_path(file)
+            if Path(normalized).is_absolute():
+                resolved = contained(mod_root, normalized)
+                if resolved is None:
+                    return {"ok": False, "error": f"{file!r} is outside the mod root"}
+                normalized = resolved.relative_to(mod_root.resolve()).as_posix()
+            explicit_files.append(normalized)
+        relevant = explicit_files
     elif mode == "all":
         relevant = None
     elif mode == "changed":
-        relevant = _changed_files(mod_root)
+        relevant = _changed_files(mod_root, removed=removed_paths)
     else:  # staged
         relevant = _staged_files(mod_root)
 
     relevant_set: Optional[set] = set(relevant) if relevant is not None else None
+    removed_variant_paths = [
+        path
+        for path in removed_paths
+        if path.endswith(".txt") and path.startswith(EQUIPMENT_VARIANT_PREFIXES)
+    ]
+    validator_relevant_set = (
+        relevant_set | set(removed_variant_paths) if relevant_set is not None else None
+    )
+    # Git includes staged deletions in the scope, but file-based scripts cannot
+    # inspect a missing path. Explicit files= keeps its existing behavior.
+    present_relevant = (
+        [path for path in relevant if (mod_root / path).is_file()]
+        if files is None and relevant is not None
+        else relevant
+    )
+    # Upstream common_mistakes and style scan only these; images and .gfx just cost time.
+    script_files = (
+        [f for f in present_relevant if f.endswith(".txt") and f.startswith(STYLE_PREFIXES)]
+        if present_relevant is not None
+        else None
+    )
 
     # Expand the validators request up front; unknown names land as isolated
     # ok:false entries instead of aborting the whole run.
     # `None` and `[]` differ intentionally: omission keeps style enforcement
     # for script scopes, while an explicit empty list disables all validators.
     if validators is None:
-        style_in_scope = relevant is None or any(
-            f.endswith(".txt") and f.startswith(STYLE_PREFIXES) for f in relevant
-        )
+        style_in_scope = script_files is None or bool(script_files)
         validator_request = ["style"] if style_in_scope else []
     else:
         validator_request = list(validators)
@@ -488,12 +525,16 @@ def lint_tool(
                 expanded -= set(unknown_validators)
                 if "auto" in validator_request:
                     expanded |= set(select_validators(relevant, available))
+                    if removed_variant_paths and "equipment_variants" in available:
+                        expanded.add("equipment_variants")
                 validator_names = sorted(expanded)
 
-    if relevant is not None:
-        mod_files: Optional[list[str]] = [f for f in relevant if f.endswith(".mod")]
+    if present_relevant is not None:
+        mod_files: Optional[list[str]] = [f for f in present_relevant if f.endswith(".mod")]
         loc_files: Optional[list[str]] = [
-            f for f in relevant if f.startswith("localisation/english/") and f.endswith(".yml")
+            f
+            for f in present_relevant
+            if f.startswith("localisation/english/") and f.endswith(".yml")
         ]
     else:
         # mode=all: mod_encoding + loc_encoding auto-discover when files=None.
@@ -516,11 +557,11 @@ def lint_tool(
 
     runners: dict[str, Callable[[], dict]] = {
         "common_mistakes": lambda: _maybe(
-            relevant,
+            script_files,
             lambda: lint_common_mistakes_tool(
                 mod_root,
-                mode="all" if relevant is None else "staged",
-                files=relevant,
+                mode="all" if script_files is None else "staged",
+                files=script_files,
             ),
         ),
         "mod_encoding": lambda: _maybe(
@@ -567,7 +608,7 @@ def lint_tool(
             runner,
             validator_names,
             staged_only=(mode == "staged" and files is None),
-            relevant_set=relevant_set,
+            relevant_set=validator_relevant_set,
             mod_root=mod_root,
         )
         per_check.extend(v_entries)
@@ -596,14 +637,35 @@ def lint_tool(
     if not counts_only:
         summary["issues"] = issues_capped
 
+        # Keep a useful prefix of diagnostics when the byte budget is tighter
+        # than the caller's issue limit. enforce_budget() drops the whole array
+        # once it is oversized, which would hide every consumer location.
+        def fits_budget() -> bool:
+            return (
+                len(json.dumps(summary, ensure_ascii=False, default=str).encode("utf-8"))
+                <= BUDGET_BYTES
+            )
+
+        if not fits_budget():
+            summary["truncated"] = True
+            low, high = 0, len(issues_capped)
+            while low < high:
+                middle = (low + high + 1) // 2
+                summary["issues"] = issues_capped[:middle]
+                if fits_budget():
+                    low = middle
+                else:
+                    high = middle - 1
+            summary["issues"] = issues_capped[:low]
+
     return enforce_budget(summary, heavy_keys=("issues",))
 
 
 def _staged_files(mod_root: Path) -> list[str]:
-    """Files in the git index (staged for commit)."""
+    """Files in the git index (staged for commit); renames list both paths."""
     try:
         proc = subprocess.run(
-            ["git", "diff", "--name-only", "--cached"],
+            ["git", "diff", "--name-only", "--cached", "--no-renames"],
             cwd=str(mod_root),
             capture_output=True,
             text=True,
@@ -625,7 +687,7 @@ def _norm_scope_path(path: str) -> str:
     return path
 
 
-def _changed_files(mod_root: Path) -> list[str]:
+def _changed_files(mod_root: Path, *, removed: Optional[list[str]] = None) -> list[str]:
     """Every file `git status` reports — staged, unstaged, and untracked.
 
     Parses `git status --porcelain -z` (NUL-terminated, so paths with spaces or
@@ -635,7 +697,9 @@ def _changed_files(mod_root: Path) -> list[str]:
     never reach the per-check filters.
     For renames the **new** path is returned (with `-z` it comes first, the old
     path follows as its own NUL-terminated entry).
-    Deletions are skipped — there's nothing to lint for a removed file.
+    Deletions are skipped — there's nothing to lint for a removed file. When
+    `removed` is supplied, deleted paths and rename sources are appended there
+    for validators whose context can change when a file disappears.
     Returns [] when `mod_root` isn't a git repo.
     """
     try:
@@ -661,9 +725,13 @@ def _changed_files(mod_root: Path) -> list[str]:
         status = raw[:2]
         path = raw[3:]
         if "R" in status or "C" in status:
-            next(entries, None)  # drop the old path that follows the new one
+            old_path = next(entries, None)
+            if "R" in status and removed is not None and old_path:
+                removed.append(old_path)
         # Skip deletions; nothing to lint.
         if status.strip() == "D":
+            if removed is not None and path:
+                removed.append(path)
             continue
         if path and path not in seen:
             seen.add(path)

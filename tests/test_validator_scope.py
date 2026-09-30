@@ -583,7 +583,7 @@ def test_isolated_subprocess_failure_reports_error(tmp_path, monkeypatch):
     def _timeout(*a, **k):
         raise subprocess.TimeoutExpired(cmd="x", timeout=600)
 
-    monkeypatch.setattr(subprocess, "run", _timeout)
+    monkeypatch.setattr("md_mcp.validators.runner.run_in_group", _timeout)
     result = runner.run("scope_boom", files=["events/Algeria.txt"])
     assert result["ok"] is False
     assert result["error"] == "Validator timed out after 600s"
@@ -591,7 +591,7 @@ def test_isolated_subprocess_failure_reports_error(tmp_path, monkeypatch):
     def _spawn_error(*a, **k):
         raise OSError("spawn failed")
 
-    monkeypatch.setattr(subprocess, "run", _spawn_error)
+    monkeypatch.setattr("md_mcp.validators.runner.run_in_group", _spawn_error)
     result = runner.run("scope_boom", files=["events/Algeria.txt"])
     assert result["ok"] is False
     assert "spawn failed" in result["error"]

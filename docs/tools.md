@@ -214,8 +214,10 @@ from `interface/*.gfx` is fine when `tools/validation/vanilla_sprites.txt` lists
 it. The `missing-focus-icon` and `missing-decision-icon` findings are dropped
 only when a sprite named in the message is in that manifest (for decisions, any
 of the `X / GFX_decision_X / GFX_X` candidates). Nothing else is suppressed, and
-without the manifest nothing is. The count is reported as `suppressed` next to
-`suppression_source`.
+without the manifest nothing is. The runner drops these before the tool sees
+them; the count is reported as `suppressed` next to `suppression_source` on
+each `validators[]` entry and on the run-all summary, so the suppressed count
+represents hidden real findings, not invented ones.
 
 ### `validate_list(limit?, offset?) -> dict`
 
@@ -309,6 +311,15 @@ for "check this code's quality."
   a resolvable file — some validators bury the filename in the message or omit
   it — are counted as `unattributed` on the entry. The first few appear in
   `issues` as samples (`scope: "unattributed"`) to avoid flooding the response.
+
+  Suppression: `ValidatorRunner.run()` already drops the manifest-backed
+  `missing-focus-icon` and `missing-decision-icon` findings (same rule
+  `validate()` uses; see below) and reports the count as `suppressed` on the
+  result. The lint bridge reads that count and renames it to
+  `suppressed_mod_wide` on the check entry so the mod-wide scope stays
+  explicit next to the scoped `total`. `total_mod_wide` is the sum of the
+  on-scope count, related findings, and the suppressed count — every real
+  finding the validator reported before suppression.
 - **`severity_min="info"`** — drops issues below `info` / `warning` / `error`.
 - **`limit=500`** — caps the issues array. `truncated` flags details omitted by
   this limit or the response byte budget.

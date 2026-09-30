@@ -9,7 +9,7 @@ from md_mcp.analysis.suppressions import suppress_issues, suppressed_count
 from md_mcp.config import Settings
 from md_mcp.tools.lint_validators import run_validators_for_lint
 from md_mcp.tools.linting_tools import lint_tool
-from md_mcp.tools.validation_tools import _apply_suppressions, validate_tool
+from md_mcp.tools.validation_tools import validate_tool
 from md_mcp.validators import (  # pyright: ignore[reportMissingImports]
     ValidatorInfo,
     ValidatorRunner,
@@ -78,8 +78,11 @@ def test_suppressed_count_is_nonnegative_and_best_effort():
     cases: tuple[tuple[dict, int], ...] = (
         ({}, 0),
         ({"suppressed": 3}, 3),
+        ({"suppressed_mod_wide": 3}, 3),
         ({"suppressed": "2"}, 2),
+        ({"suppressed_mod_wide": "2"}, 2),
         ({"suppressed": -1}, 0),
+        ({"suppressed_mod_wide": -1}, 0),
         ({"suppressed": "invalid"}, 0),
     )
     for result, expected in cases:
@@ -171,19 +174,22 @@ def test_validator_suppresses_manifest_backed_finding_and_reports_count(fake_mod
     assert result["counts"] == {"error": 1, "warning": 0, "info": 0}
 
 
-def test_lint_suppresses_fake_runner_issues_and_preserves_scope_counts(tmp_path):
+def test_lint_reports_runner_suppressed_count_without_doing_its_own_pass(tmp_path):
+    """The runner already drops suppressed findings; lint only reads the count.
+
+    A FakeRunner that returns both an empty issue list (suppressed issue was
+    removed) and a `suppressed` count exercises the bridge: lint must not call
+    `suppress_issues` again, and `total_mod_wide` must include the suppressed
+    count so callers can see the mod-wide census.
+    """
+
     class Runner:
         def run(self, name, *, staged_only=False):
             return {
                 "ok": True,
-                "issues": [
-                    {
-                        "file": "common/x.txt",
-                        "message": _FOCUS_MESSAGE,
-                        "category": "missing-focus-icon",
-                        "severity": "warning",
-                    }
-                ],
+                "issues": [],
+                "suppressed": 1,
+                "suppression_source": _SOURCE,
             }
 
     (tmp_path / "common").mkdir()
@@ -204,14 +210,68 @@ def test_lint_suppresses_fake_runner_issues_and_preserves_scope_counts(tmp_path)
             "name": "validator:style",
             "ok": True,
             "total": 0,
-            "suppressed": 1,
+            "suppressed_mod_wide": 1,
             "suppression_source": _SOURCE,
             "total_mod_wide": 1,
         }
     ]
 
 
+def test_lint_does_not_suppress_when_runner_returned_no_count(tmp_path):
+    """Regression for the duplicate-pass fix: if the runner reported zero
+    suppressed findings, lint must not invoke `suppress_issues` itself and
+    invent a count.
+    """
+
+    class Runner:
+        def run(self, name, *, staged_only=False):
+            return {
+                "ok": True,
+                "issues": [
+                    {
+                        "file": "common/x.txt",
+                        "message": _FOCUS_MESSAGE,
+                        "category": "missing-focus-icon",
+                        "severity": "warning",
+                    }
+                ],
+            }
+
+    _write_manifest(tmp_path, "GFX_vanilla_only")
+    (tmp_path / "common").mkdir()
+    (tmp_path / "common" / "x.txt").write_text("x = 1\n", encoding="utf-8")
+
+    # Sanity: manifest is in place; an opportunistic lint pass would match.
+    from md_mcp.analysis.suppressions import suppress_issues
+
+    baseline_kept, baseline_suppressed = suppress_issues([], tmp_path)
+    assert baseline_kept == []
+    assert baseline_suppressed == 0
+
+    entries, issues = run_validators_for_lint(
+        cast(Any, Runner()),
+        ["style"],
+        staged_only=False,
+        relevant_set={"common/x.txt"},
+        mod_root=tmp_path,
+    )
+
+    assert "suppressed_mod_wide" not in entries[0]
+    assert "suppression_source" not in entries[0]
+    assert entries[0]["total"] == 1
+    assert entries[0]["total_mod_wide"] == 1
+    assert len(issues) == 1
+
+
 def test_lint_tool_reports_validator_suppressions_in_summary(tmp_path):
+    """lint_tool rolls up `suppressed_mod_wide` from each validator entry.
+
+    The FakeRunner simulates a real runner that already dropped the manifest-
+    backed issue: its issue list is empty, the suppressed count is reported
+    on the result. lint_tool must fold that count into the top-level
+    `suppressed` field for the agent without calling `suppress_issues` again.
+    """
+
     class Runner(ValidatorRunner):
         def __init__(self) -> None:
             super().__init__(tmp_path)
@@ -226,7 +286,9 @@ def test_lint_tool_reports_validator_suppressions_in_summary(tmp_path):
         def run(self, name, *, staged_only=False, files=None):
             return {
                 "ok": True,
-                "issues": [_issue("missing-focus-icon", _FOCUS_MESSAGE) | {"file": "common/x.txt"}],
+                "issues": [],
+                "suppressed": 1,
+                "suppression_source": _SOURCE,
             }
 
     (tmp_path / "common").mkdir()
@@ -296,31 +358,6 @@ def test_missing_manifest_is_a_graceful_noop(tmp_path):
 
     assert entries == [{"name": "validator:style", "ok": True, "total": 1}]
     assert len(issues) == 1
-
-
-def test_apply_suppressions_skips_already_suppressed_results(tmp_path):
-    result = {"ok": True, "suppressed": 2, "suppression_source": "x", "issues": []}
-
-    assert _apply_suppressions(result, tmp_path) is result
-
-
-def test_apply_suppressions_drops_matching_issues_and_adjusts_counts(tmp_path):
-    _write_manifest(tmp_path, "GFX_vanilla_only")
-    issue = _issue("missing-focus-icon", _FOCUS_MESSAGE)
-    result = {
-        "ok": True,
-        "counts": {"error": 0, "warning": 1, "info": 0},
-        "issues": [issue],
-    }
-
-    updated = _apply_suppressions(result, tmp_path)
-
-    assert updated["suppressed"] == 1
-    assert updated["suppression_source"] == _SOURCE
-    assert updated["issues"] == []
-    assert updated["counts"] == {"error": 0, "warning": 0, "info": 0}
-    # The caller's dict is never mutated.
-    assert result["issues"] == [issue]
 
 
 def test_validate_all_reports_suppressed_findings_in_summary(fake_mod_root):

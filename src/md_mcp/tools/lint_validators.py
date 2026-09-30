@@ -25,15 +25,14 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Sequence
 
-from ..util.encoding import read_text
 from ..analysis.suppressions import suppressed_count
+from ..util.encoding import read_text
 from ..validators import SLOW_VALIDATORS, ValidatorRunner
 from ..validators.attribution import IssueAttributor
 
 # How many unattributable issues carry their detail into the response. The rest
 # survive as a count on the check entry.
 UNATTRIBUTED_SAMPLE = 5
-
 STYLE_PREFIXES: tuple[str, ...] = ("common/", "events/", "history/", "music/")
 EQUIPMENT_VARIANT_PREFIXES: tuple[str, ...] = ("common/", "events/", "history/")
 # Match the paths that make upstream validate_equipment_variants expand its

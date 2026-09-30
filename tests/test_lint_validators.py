@@ -458,6 +458,60 @@ def test_run_equipment_variants_reports_related_warning_for_context_only_edit(tm
     ]
 
 
+def test_run_equipment_variants_related_plus_suppressed_retained_in_census(tmp_path):
+    """Regression: a context-only edit surfaces related findings while the
+    runner also drops manifest-backed ones. `total` stays on-scope (zero),
+    `related` counts the cross-file warning, and `total_mod_wide` reflects
+    the full mod-wide census (related + suppressed). The lint bridge must
+    not re-run suppression; the runner-supplied count is what gets added.
+    """
+    context = "common/technologies/armor.txt"
+    consumer = "history/countries/USA.txt"
+    for rel in (context, consumer):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True)
+        path.write_text("x = 1\n", encoding="utf-8")
+    warning = _issue(
+        consumer,
+        message="variant equipment technology is unavailable",
+        severity="warning",
+        line=17,
+        category="equipment-variant-unavailable",
+    )
+    runner = FakeRunner(
+        results={
+            "equipment_variants": {
+                "ok": True,
+                "issues": [warning],
+                "suppressed": 3,
+                "suppression_source": ".claude/docs/known-false-positives.md",
+            }
+        }
+    )
+
+    entries, issues = run_validators_for_lint(
+        runner,
+        ["equipment_variants"],
+        staged_only=False,
+        relevant_set={context},
+        mod_root=tmp_path,
+    )
+
+    assert entries == [
+        {
+            "name": "validator:equipment_variants",
+            "ok": True,
+            "total": 0,
+            "related": 1,
+            "suppressed_mod_wide": 3,
+            "suppression_source": ".claude/docs/known-false-positives.md",
+            "total_mod_wide": 4,
+        }
+    ]
+    assert len(issues) == 1
+    assert issues[0]["scope"] == "related"
+
+
 @pytest.mark.parametrize("mode", ["changed", "staged"])
 def test_event_pool_without_spaces_reports_related_warning(tmp_path, mode):
     _init_repo(tmp_path)

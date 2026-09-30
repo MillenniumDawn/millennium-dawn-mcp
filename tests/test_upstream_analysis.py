@@ -4,6 +4,9 @@ import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
+
+import pytest
 
 import md_mcp.tools.upstream_analysis as upstream_analysis
 
@@ -197,3 +200,232 @@ def test_subprocess_timeout_is_an_error(monkeypatch, tmp_path):
 
     assert result["ok"] is False
     assert result["error"].startswith("tick_audit timed out after 120s:")
+
+
+def test_subprocess_spawn_failure_is_an_error(monkeypatch, tmp_path):
+    def spawn_failed(*args, **kwargs):
+        raise OSError("exec failed")
+
+    monkeypatch.setattr(subprocess, "run", spawn_failed)
+
+    result = upstream_analysis.calculate_days_tool(tmp_path, 2000, 1, 1)
+
+    assert result["ok"] is False
+    assert "Could not run calculate_days" in result["error"]
+
+
+def test_shim_nonzero_exit_surfaces_stderr_detail(monkeypatch, tmp_path):
+    def failing_run(*args, **kwargs):
+        return SimpleNamespace(returncode=3, stdout="", stderr="boom upstream\n")
+
+    monkeypatch.setattr(subprocess, "run", failing_run)
+
+    result = upstream_analysis.calculate_days_tool(tmp_path, 2000, 1, 1)
+
+    assert result["ok"] is False
+    assert "exited with code 3: boom upstream" in result["error"]
+
+
+def test_shim_nonzero_exit_without_stderr_falls_back_to_stdout(monkeypatch, tmp_path):
+    def failing_run(*args, **kwargs):
+        return SimpleNamespace(returncode=2, stdout="stdout trace", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", failing_run)
+
+    result = upstream_analysis.calculate_days_tool(tmp_path, 2000, 1, 1)
+
+    assert result["ok"] is False
+    assert "exited with code 2: stdout trace" in result["error"]
+
+
+def test_shim_invalid_json_is_an_error(monkeypatch, tmp_path):
+    def garbage_run(*args, **kwargs):
+        return SimpleNamespace(returncode=0, stdout="not json", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", garbage_run)
+
+    result = upstream_analysis.calculate_days_tool(tmp_path, 2000, 1, 1)
+
+    assert result["ok"] is False
+    assert "returned invalid JSON" in result["error"]
+
+
+def test_shim_non_object_json_is_an_error(monkeypatch, tmp_path):
+    def list_run(*args, **kwargs):
+        return SimpleNamespace(returncode=0, stdout="[1]", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", list_run)
+
+    result = upstream_analysis.calculate_days_tool(tmp_path, 2000, 1, 1)
+
+    assert result["ok"] is False
+    assert "non-object response" in result["error"]
+
+
+def test_tick_audit_rejects_non_integer_pagination(tmp_path):
+    result = upstream_analysis.tick_audit_tool(tmp_path, limit=cast(Any, "lots"))
+
+    assert result["ok"] is False
+    assert "limit must be an integer" in result["error"]
+
+
+def _gdp_returning_none(root: Path) -> None:
+    script = root / "tools" / "analysis" / "estimate_gdp.py"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(
+        """def parse_all_ideas():
+    return {}
+
+def parse_state_file_from_content(content, name=""):
+    return {"owner": content}
+
+def compute_country_gdp(tag, states, idea_db):
+    return None
+""",
+        encoding="utf-8",
+    )
+
+
+def _load_shim():
+    from md_mcp.tools import upstream_analysis_shim
+
+    return upstream_analysis_shim
+
+
+def test_shim_tick_audit_runs_in_process(tmp_path):
+    shim = _load_shim()
+    _write_tick_script(tmp_path)
+
+    tagged = shim.run("tick_audit", tmp_path, {"tag": "USA", "limit": 1, "offset": 1})
+    assert tagged["ok"] is True
+    assert tagged["tag"] == "USA"
+    assert tagged["total"] == 2
+    assert tagged["returned"] == 1
+
+    untagged = shim.run("tick_audit", tmp_path, {"limit": 2, "offset": 0})
+    assert untagged["total"] == 3
+    assert untagged["cadences"]["daily"]["countries_with_own_hook"] == 2
+
+
+def test_shim_tick_audit_rejects_bad_pagination(tmp_path):
+    shim = _load_shim()
+    _write_tick_script(tmp_path)
+
+    result = shim.run("tick_audit", tmp_path, {"limit": "lots"})
+
+    assert result["ok"] is False
+    assert "Invalid pagination values" in result["error"]
+
+
+def test_shim_estimate_gdp_rejects_bad_tag(tmp_path):
+    shim = _load_shim()
+
+    result = shim.run("estimate_gdp", tmp_path, {"tag": "U$A"})
+
+    assert result["ok"] is False
+    assert "tag must be a 2-4 character country tag" in result["error"]
+
+
+def test_shim_estimate_gdp_reports_missing_states_dir(tmp_path):
+    shim = _load_shim()
+    _write_gdp_script(tmp_path)
+
+    result = shim.run("estimate_gdp", tmp_path, {"tag": "USA"})
+
+    assert result["ok"] is False
+    assert "Could not list state history" in result["error"]
+
+
+def test_shim_estimate_gdp_reports_no_states_for_tag(tmp_path):
+    shim = _load_shim()
+    _write_gdp_script(tmp_path)
+    states = tmp_path / "history" / "states"
+    states.mkdir(parents=True)
+    (states / "state_1.txt").write_text("owner = CAN\n", encoding="utf-8")
+    (states / "notes.txt.bak").write_text("owner = USA\n", encoding="utf-8")
+
+    result = shim.run("estimate_gdp", tmp_path, {"tag": "USA"})
+
+    assert result["ok"] is False
+    assert "No states found for USA" in result["error"]
+
+
+def test_shim_estimate_gdp_handles_null_gdp_result(tmp_path):
+    shim = _load_shim()
+    _gdp_returning_none(tmp_path)
+    states = tmp_path / "history" / "states"
+    states.mkdir(parents=True)
+    (states / "state_1.txt").write_text("owner = USA\n", encoding="utf-8")
+
+    result = shim.run("estimate_gdp", tmp_path, {"tag": "USA"})
+
+    assert result["ok"] is False
+    assert "returned no result for USA" in result["error"]
+
+
+def test_shim_estimate_gdp_full_path_in_process(tmp_path):
+    shim = _load_shim()
+    _write_gdp_script(tmp_path)
+    states = tmp_path / "history" / "states"
+    states.mkdir(parents=True)
+    (states / "state_1.txt").write_text("owner = USA\n", encoding="utf-8")
+
+    result = shim.run("estimate_gdp", tmp_path, {"tag": "USA"})
+
+    assert result["ok"] is True
+    assert result["tag"] == "USA"
+    assert result["states"] == 1
+    assert result["gdp_total"] == 12.35
+
+
+def test_shim_calculate_days_validates_types_and_ranges():
+    shim = _load_shim()
+
+    assert shim.run("calculate_days", Path("/x"), {"year": 2004, "month": 3, "day": 1}) == {
+        "ok": True,
+        "days": 1519,
+    }
+    bool_year = shim.run("calculate_days", Path("/x"), {"year": True, "month": 1, "day": 1})
+    assert bool_year["ok"] is False
+    assert "must be integers" in bool_year["error"]
+    assert (
+        shim.run("calculate_days", Path("/x"), {"year": "2000", "month": 1, "day": 1})["ok"]
+        is False
+    )
+
+
+def test_shim_unknown_operation_is_an_error():
+    shim = _load_shim()
+
+    result = shim.run("teleport", Path("/x"), {})
+
+    assert result["ok"] is False
+    assert "Unknown operation: teleport" in result["error"]
+
+
+def test_shim_main_writes_json_and_reports_load_failures(tmp_path, monkeypatch, capsys):
+    shim = _load_shim()
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["shim", "calculate_days", str(tmp_path), json.dumps({"year": 2004, "month": 3, "day": 1})],
+    )
+    assert shim.main() == 0
+    out = capsys.readouterr().out
+    assert json.loads(out.strip()) == {"ok": True, "days": 1519}
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["shim", "tick_audit", str(tmp_path), json.dumps({})],
+    )
+    shim.main()
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload["ok"] is False
+    assert payload["error"]
+
+
+def test_shim_load_module_raises_for_directory(tmp_path):
+    shim = _load_shim()
+
+    with pytest.raises(ImportError, match="Could not load"):
+        shim._load_module(tmp_path, "nope")

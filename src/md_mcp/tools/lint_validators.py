@@ -4,9 +4,11 @@ Maps changed-file paths to the validators whose domain covers them, runs the
 selected validators through `ValidatorRunner.run()` (the single adapter point
 for the brittle upstream API), and normalises issues into the lint shape.
 
-Validators scan their whole domain regardless of scope; we post-filter issues
-by the relevant-file set and report both on-scope and mod-wide totals so scope
-filtering never silently hides cross-file breakage.
+Compatible collectors scope primary inputs to the relevant files before they
+scan; definition lookups that pass `ignore_staged=True` still see the full repo.
+`total_mod_wide` is the pre-filter count from the scan that ran; when a check
+entry has `scoped: true`, that count is not a full-mod census. Collectors that
+cannot take a file scope still scan their domain and are post-filtered.
 
 `Issue.file` can't be compared to the scope set directly — it arrives as a
 mod-relative path, a bare basename, `""`, or `"unknown"` depending on which
@@ -20,17 +22,35 @@ nothing to do with the edit.
 from __future__ import annotations
 
 import os
+import re
+import subprocess
 from pathlib import Path
 from typing import Optional, Sequence
 
+from ..analysis.suppressions import suppressed_count
+from ..util.encoding import read_text
 from ..validators import SLOW_VALIDATORS, ValidatorRunner
 from ..validators.attribution import IssueAttributor
 
 # How many unattributable issues carry their detail into the response. The rest
 # survive as a count on the check entry.
 UNATTRIBUTED_SAMPLE = 5
-
 STYLE_PREFIXES: tuple[str, ...] = ("common/", "events/", "history/", "music/")
+EQUIPMENT_VARIANT_PREFIXES: tuple[str, ...] = ("common/", "events/", "history/")
+# Match the paths that make upstream validate_equipment_variants expand its
+# staged consumer scan. These files can change the assurance at an unchanged
+# create_equipment_variant statement.
+EQUIPMENT_VARIANT_CONTEXT_PREFIXES: tuple[str, ...] = (
+    "common/technologies/",
+    "common/technology_tags/",
+    "common/bookmarks/",
+    "history/countries/",
+    "common/decisions/categories/",
+    "common/national_focus/",
+    "events/",
+)
+_EVENT_CALL_TOKENS = ("country_event", "news_event", "random_events")
+_EVENT_LIST_ASSIGNMENT = re.compile(r"\bevents\s*=")
 AUTO_ROUTING_EXCLUDED = frozenset({"common_mistakes"})
 
 # Path-prefix -> validators whose scan domain covers that directory. A file can
@@ -43,9 +63,9 @@ AUTO_ROUTING_EXCLUDED = frozenset({"common_mistakes"})
 # recursively in addition to their "obvious" subdirectory — e.g. gfx_references
 # resolves GFX references out of every script file, not just interface/. Those
 # get their own broad row here and compose with the narrower rows via union.
-# style's equally broad common/events/history/music domain and localisation's
-# *.yml domain are already handled as extension-keyed special cases below, so
-# they don't need a row here too.
+# style and equipment_variants have broad script domains but only inspect .txt
+# files. Localisation's *.yml domain is extension-keyed too. These are handled
+# as special cases below so non-script files don't select them.
 #
 # Deliberately absent: common_mistakes (lint_tool runs its dedicated checker),
 # variables, set_variables, cosmetic_tags (global cross-reference scans,
@@ -215,6 +235,7 @@ def _scan_prefixes() -> dict[str, tuple[str, ...]]:
             out.setdefault(v, set()).add(prefix)
     out.setdefault("localisation", set()).add("localisation/")
     out.setdefault("style", set()).update(STYLE_PREFIXES)
+    out.setdefault("equipment_variants", set()).update(EQUIPMENT_VARIANT_PREFIXES)
     return {k: tuple(sorted(v)) for k, v in out.items()}
 
 
@@ -223,6 +244,15 @@ SCAN_PREFIXES: dict[str, tuple[str, ...]] = _scan_prefixes()
 
 def _validators_for_path(path: str) -> set[str]:
     names: set[str] = set()
+    if (
+        path.startswith("localisation/")
+        and path.endswith(".yml")
+        and not path.startswith("localisation/english/")
+    ):
+        # Upstream intentionally audits English localisation only. Explicit
+        # validators remain an opt-in escape hatch; auto routing must not flag
+        # expected non-English drift.
+        return names
     for prefix, vals in VALIDATOR_AUTO_MAP:
         if path.startswith(prefix):
             names.update(vals)
@@ -235,7 +265,57 @@ def _validators_for_path(path: str) -> set[str]:
     # gets a style pass.
     if path.endswith(".txt") and path.startswith(STYLE_PREFIXES):
         names.add("style")
+    if path.endswith(".txt") and path.startswith(EQUIPMENT_VARIANT_PREFIXES):
+        names.add("equipment_variants")
     return names
+
+
+def _has_event_call(text: str) -> bool:
+    return any(token in text for token in _EVENT_CALL_TOKENS) or bool(
+        _EVENT_LIST_ASSIGNMENT.search(text)
+    )
+
+
+def _equipment_variant_context_changed(relevant: set, mod_root: Optional[Path]) -> bool:
+    """Whether a scoped edit can change availability at an unchanged consumer."""
+    for path in relevant:
+        path = path.replace("\\", "/")
+        if not path.endswith(".txt") or not path.startswith(EQUIPMENT_VARIANT_PREFIXES):
+            continue
+        if path.startswith(EQUIPMENT_VARIANT_CONTEXT_PREFIXES):
+            return True
+        if mod_root is None:
+            continue
+        relative = Path(path)
+        if relative.is_absolute() or ".." in relative.parts:
+            continue
+        try:
+            text = read_text(mod_root / relative)
+            if _has_event_call(text):
+                return True
+        except OSError:
+            pass
+        # A removed final event call still changes context, although the
+        # current file no longer contains a token for the check above to find.
+        try:
+            diff = subprocess.run(
+                ["git", "diff", "--no-ext-diff", "--unified=0", "HEAD", "--", path],
+                cwd=mod_root,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=15,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if diff.returncode == 0 and any(
+            line.startswith("-") and not line.startswith("---") and _has_event_call(line)
+            for line in diff.stdout.splitlines()
+        ):
+            return True
+    return False
 
 
 def select_validators(relevant: Optional[list[str]], available: set[str]) -> list[str]:
@@ -264,24 +344,42 @@ def run_validators_for_lint(
 
     Returns (check_entries, issues). Check entries are named `validator:<name>`
     and carry `total` (on-scope only), plus `total_mod_wide` and, when any
-    survive, `unattributed`. The returned issue list also appends up to
-    `UNATTRIBUTED_SAMPLE` unattributed issues (tagged `scope="unattributed"`),
-    and `lint_tool` folds those into its top-level counts, so when unattributed
-    issues exist `total` is the on-scope count, not the length of the returned
-    list. Per-validator failures are isolated, same as lint checks.
+    survive, `related` or `unattributed`. A `scoped: true` entry means the
+    collector limited primary inputs, so `total_mod_wide` is not a full-mod
+    census. The returned issue list also appends up to `UNATTRIBUTED_SAMPLE`
+    unattributed issues (tagged `scope="unattributed"`), and `lint_tool` folds
+    those into its top-level counts, so when unattributed issues exist `total`
+    is the on-scope count, not the length of the returned list. Per-validator
+    failures are isolated, same as lint checks.
 
     Without `mod_root` there's nothing to resolve partial paths against, so
     matching degrades to exact comparison.
     """
     wanted = {os.path.normpath(f) for f in relevant_set} if relevant_set is not None else None
     attributor = IssueAttributor(mod_root) if mod_root is not None else None
+    context_changed = (
+        _equipment_variant_context_changed(relevant_set, mod_root)
+        if relevant_set is not None and "equipment_variants" in names
+        else False
+    )
 
     check_entries: list[dict] = []
     issues_out: list[dict] = []
+    related_out: list[dict] = []
     for name in names:
         label = f"validator:{name}"
         try:
-            result = runner.run(name, staged_only=staged_only)
+            # Upstream's staged shortcut only detects event tokens still in the
+            # edited file. Full scan also catches removed event-call context,
+            # so file scoping is skipped too: the related issues live elsewhere.
+            full_scan = name == "equipment_variants" and context_changed
+            use_staged = staged_only and not full_scan
+            if wanted is not None and not full_scan:
+                result = runner.run(
+                    name, staged_only=use_staged, files=sorted(wanted), post_filter=False
+                )
+            else:
+                result = runner.run(name, staged_only=use_staged)
         except Exception as e:
             check_entries.append({"name": label, "ok": False, "error": str(e)})
             continue
@@ -289,9 +387,11 @@ def run_validators_for_lint(
             check_entries.append({"name": label, "ok": False, "error": result.get("error")})
             continue
 
-        raw = result.get("issues", []) or []
+        raw = list(result.get("issues", []) or [])
+        suppressed = suppressed_count(result)
         prefixes = SCAN_PREFIXES.get(name, ())
         on_scope: list[dict] = []
+        related: list[dict] = []
         unattributed: list[dict] = []
         if wanted is not None:
             for i in raw:
@@ -300,22 +400,33 @@ def run_validators_for_lint(
                     unattributed.append(i)
                 elif os.path.normpath(resolved) in wanted:
                     on_scope.append(dict(i, file=resolved))
+                elif name == "equipment_variants" and context_changed:
+                    related.append(dict(i, file=resolved))
         else:
             on_scope = raw
 
         entry = {"name": label, "ok": True, "total": len(on_scope)}
+        if suppressed:
+            entry["suppressed_mod_wide"] = suppressed
+            entry["suppression_source"] = ".claude/docs/known-false-positives.md"
         if wanted is not None:
-            entry["total_mod_wide"] = len(raw)
+            entry["total_mod_wide"] = len(raw) + suppressed
+            if result.get("scoped"):
+                entry["scoped"] = True
+            if related:
+                entry["related"] = len(related)
             if unattributed:
                 entry["unattributed"] = len(unattributed)
         check_entries.append(entry)
 
         for i in on_scope:
             issues_out.append(_normalise(i, label))
+        for i in related:
+            related_out.append({**_normalise(i, label), "scope": "related"})
         for i in unattributed[:UNATTRIBUTED_SAMPLE]:
             issues_out.append({**_normalise(i, label), "scope": "unattributed"})
 
-    return check_entries, issues_out
+    return check_entries, issues_out + related_out
 
 
 def _resolve(

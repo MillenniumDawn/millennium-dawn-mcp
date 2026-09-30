@@ -40,7 +40,10 @@ def _parse_root(abs_path: str, relpath: str) -> tuple[Optional[Node], Optional[s
     try:
         text = read_text(abs_path)
     except OSError as exc:
-        logger.warning("definition index: cannot read %s", abs_path, exc)
+        # Format string carries one %s per arg; the previous single-%s form
+        # left `exc` as a stray positional that logging rendered as a
+        # "--- Logging error ---" traceback instead of the real warning.
+        logger.warning("definition index: cannot read %s: %s", abs_path, exc)
         return None, None
     try:
         return parse_string(text, error_prefix=f"In file {relpath}:\n"), text

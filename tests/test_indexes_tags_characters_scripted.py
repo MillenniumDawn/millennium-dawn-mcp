@@ -43,11 +43,16 @@ def _indexes(root, cache):
 def test_definition_indexes_resolve_fixture_records(fake_mod_root, cache_dir):
     tags, characters, traits, effects, triggers = _indexes(fake_mod_root, cache_dir)
 
-    assert tags.resolve("TST")["country_file"] == "countries/Testland.txt"
-    assert characters.resolve("TST_test_character")["kind"] == "character"
-    assert traits.resolve("TST_test_trait")["kind"] == "trait"
-    assert effects.resolve("TST_test_effect")["kind"] == "scripted_effect"
-    assert triggers.resolve("TST_test_trigger")["kind"] == "scripted_trigger"
+    tag = tags.resolve("TST")
+    character = characters.resolve("TST_test_character")
+    trait = traits.resolve("TST_test_trait")
+    effect = effects.resolve("TST_test_effect")
+    trigger = triggers.resolve("TST_test_trigger")
+    assert tag is not None and tag["country_file"] == "countries/Testland.txt"
+    assert character is not None and character["kind"] == "character"
+    assert trait is not None and trait["kind"] == "trait"
+    assert effect is not None and effect["kind"] == "scripted_effect"
+    assert trigger is not None and trigger["kind"] == "scripted_trigger"
 
 
 @pytest.mark.integration
@@ -139,12 +144,16 @@ def test_check_refs_resolves_new_definition_kinds(fake_mod_root, cache_dir):
     [
         ("TST_test_effect = yes", "scripted_effect"),
         ("hidden_effect = { TST_test_effect = yes }", "scripted_effect"),
-        ("call_scripted_effect = TST_test_effect", "scripted_effect"),
         ("TST_test_trigger = yes", "scripted_trigger"),
-        ("evaluate_scripted_trigger = TST_test_trigger", "scripted_trigger"),
+        ("hidden_trigger = { TST_test_trigger = yes }", "scripted_trigger"),
     ],
 )
 def test_check_refs_resolves_scripted_calls_as_one_kind(fake_mod_root, cache_dir, text, kind):
+    """A scripted call resolves when the call key matches the index — we audit
+    the *key*, not the scalar value, so `TST_test_effect = yes` doesn't read
+    as a dangling reference to `yes`. `hidden_effect` is a built-in HOI4
+    effect wrapper; only the inner scripted call is audited.
+    """
     result = _audit(fake_mod_root, cache_dir, text, _SCRIPTED_KINDS)
 
     assert result["total_unresolved"] == 0
@@ -154,14 +163,27 @@ def test_check_refs_resolves_scripted_calls_as_one_kind(fake_mod_root, cache_dir
     }
 
 
-def test_check_refs_reports_dangling_wrapped_effect_only_as_effect(fake_mod_root, cache_dir):
+def test_check_refs_does_not_audit_fake_wrapper_calls(fake_mod_root, cache_dir):
+    """`call_scripted_effect` / `evaluate_scripted_trigger` aren't HOI4 effect
+    or trigger names — they're not audited at all, so neither a defined nor a
+    missing scripted effect shows up under them. The dangling test_effect
+    is reported only if it appears as a direct call by key.
+    """
+    body = (
+        "call_scripted_effect = TST_missing_effect\n"
+        "evaluate_scripted_trigger = TST_missing_trigger"
+    )
     result = _audit(
-        fake_mod_root, cache_dir, "call_scripted_effect = TST_missing_effect", _SCRIPTED_KINDS
+        fake_mod_root,
+        cache_dir,
+        body,
+        _SCRIPTED_KINDS,
     )
 
-    assert [(e["kind"], e["ref"]) for e in result["unresolved"]] == [
-        ("scripted_effect", "TST_missing_effect")
-    ]
+    assert result["total_unresolved"] == 0
+    # Neither fake wrapper contributes a checked reference.
+    assert result["counts"]["scripted_effect"]["checked"] == 0
+    assert result["counts"]["scripted_trigger"]["checked"] == 0
 
 
 def test_manifest_includes_new_definition_categories(fake_mod_root, cache_dir):

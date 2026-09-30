@@ -480,16 +480,27 @@ validators can't be scoped to a file, and `resolve_*` is one id per call.
   news_event), `idea` (add_ideas / remove_ideas and friends), `sprite`
   (icon / picture, tries `GFX_<name>` too; `.dds`/`.tga` file paths are
   skipped), `loc` (`<focus_id>` + `<focus_id>_desc` for every focus defined in
-  scope, plus custom_effect_tooltip), `decision`.
+  scope, plus custom_effect_tooltip), `decision`, `country_tag` (`original_tag`,
+  `tag`, `change_tag`, `target_tag`, `tag_to_check`; scope keywords
+  `ROOT`/`FROM`/`PREV`/`THIS`/`OWNER`/`CONTROLLER` and dotted `var:` /
+  `event_target:` references are skipped — `set_cosmetic_tag` carries a
+  cosmetic-tag *name*, not a country tag), `character` (and friends),
+  `trait` (and friends), `scripted_effect` (only direct calls whose key is
+  in the index), `scripted_trigger` (same caveat).
 - Unresolved refs are deduped by (kind, id) with `count` and up to 3 `sites`
   (`{file, line, via, referrer}`).
 - **`limit=200`**, **`offset=0`** — paginate the unresolved list. `-1` returns
   it in full, guarded only by `enforce_budget`.
-- `not_checked` lists what no index covers yet (country flags and variables);
-  `vanilla_indexed: false` warns that vanilla-defined ids
-  (ideas especially) will show as unresolved when `HOI4_PATH` isn't
-  configured. `vanilla_manifest: true` means vanilla-only sprite ids were
-  resolved from the committed `vanilla_sprites.txt` manifest instead.
+- `not_checked` lists what no index covers yet: `country_flags`, `variables`,
+  `scripted_effects`, and `scripted_triggers`. The two scripted kinds stay
+  there because a direct scripted call is only audited when its key is
+  already in the index — so misspelled calls can never be flagged, and
+  wrapper forms (`call_scripted_effect`, `evaluate_scripted_trigger`,
+  `run_*`) aren't HOI4 effects/triggers at all. `vanilla_indexed: false`
+  warns that vanilla-defined ids (ideas especially) will show as unresolved
+  when `HOI4_PATH` isn't configured. `vanilla_manifest: true` means
+  vanilla-only sprite ids were resolved from the committed
+  `vanilla_sprites.txt` manifest instead.
 
 Returns `{ok, scope, files_scanned, kinds_checked, not_checked,
 vanilla_indexed, vanilla_manifest, counts: {kind: {checked, unresolved}},

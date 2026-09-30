@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -149,3 +150,222 @@ def test_clips_oversized_text_and_warns_not_to_write(fake_mod_root: Path, monkey
     assert result["txt_truncated"] is True
     assert "do NOT write clipped content back" in result["note"]
     assert len(json.dumps(result, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+
+
+# ---------------------------------------------------------------------------
+# Unit-level coverage with a synthetic upstream API — the real one lives in a
+# Millennium-Dawn checkout, so the loader and its error branches only run in
+# the integration suite otherwise.
+# ---------------------------------------------------------------------------
+
+_FAKE_API_SOURCE = """
+MARKER = "first"
+
+
+def kind_for_path(path):
+    return {
+        "common/national_focus/test.txt": "focus",
+        "events/test.txt": "event",
+        "misc/test.txt": None,
+    }.get(path)
+
+
+def standardize_text(kind, text, mod_root):
+    return text.upper() if kind == "focus" else None
+"""
+
+_FAKE_API_SOURCE_V2 = _FAKE_API_SOURCE.replace('MARKER = "first"', 'MARKER = "second"')
+
+_FAKE_API_BAD_KIND_SOURCE = """
+def kind_for_path(path):
+    return "localisation"
+
+
+def standardize_text(kind, text, mod_root):
+    return None
+"""
+
+_FAKE_API_RAISING_SOURCE = """
+def kind_for_path(path):
+    return "focus"
+
+
+def standardize_text(kind, text, mod_root):
+    raise ValueError("upstream exploded")
+"""
+
+
+@pytest.fixture(autouse=True)
+def _reset_upstream_loader_state():
+    saved_path = sys.path.copy()
+    saved_modules = {name: sys.modules.get(name) for name in standardize_tools._UPSTREAM_MODULES}
+    yield
+    sys.path[:] = saved_path
+    for name, module in saved_modules.items():
+        if module is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
+    standardize_tools._loaded_mod_root = None
+    standardize_tools._loaded_api = None
+    standardize_tools._inserted_dirs = []
+
+
+def _plant_api(root: Path, source: str = _FAKE_API_SOURCE) -> Path:
+    api_dir = root / "tools" / "standardization"
+    api_dir.mkdir(parents=True, exist_ok=True)
+    (api_dir / "standardize_api.py").write_text(source, encoding="utf-8")
+    return api_dir
+
+
+def test_loader_plants_sys_path_and_caches_per_root(tmp_path: Path):
+    root_one = tmp_path / "mod_one"
+    root_two = tmp_path / "mod_two"
+    _plant_api(root_one, _FAKE_API_SOURCE)
+    _plant_api(root_two, _FAKE_API_SOURCE_V2)
+
+    first = standardize_tools._load_standardize_api(root_one)
+    assert first.MARKER == "first"
+    assert standardize_tools._loaded_api is first
+    assert standardize_tools._load_standardize_api(root_one) is first
+
+    second = standardize_tools._load_standardize_api(root_two)
+    assert second is not first
+    assert second.MARKER == "second"
+    assert str(root_one.resolve() / "tools") not in sys.path
+    assert str(root_two.resolve() / "tools" / "standardization") in sys.path
+
+
+def test_content_mode_reports_missing_upstream_api(tmp_path: Path):
+    result = standardize_tool(tmp_path, content="event", content_type="event")
+
+    assert result["ok"] is False
+    assert "Upstream standardization API not found" in result["error"]
+    assert "tools/standardization" in result["error"]
+
+
+def test_path_mode_reports_missing_upstream_api(tmp_path: Path):
+    source = tmp_path / "common" / "national_focus" / "test.txt"
+    source.parent.mkdir(parents=True)
+    source.write_text("focus_tree = { }\n", encoding="utf-8")
+
+    result = standardize_tool(tmp_path, path="common/national_focus/test.txt")
+
+    assert result["ok"] is False
+    assert "Upstream standardization API not found" in result["error"]
+
+
+def test_loader_dedupes_preexisting_sys_path_entries(tmp_path: Path):
+    root = tmp_path / "mod"
+    _plant_api(root)
+    tools_dir = str(root.resolve() / "tools")
+    sys.path.insert(0, tools_dir)
+    standardize_tools._loaded_mod_root = None
+    standardize_tools._loaded_api = None
+    standardize_tools._inserted_dirs = []
+
+    api = standardize_tools._load_standardize_api(root)
+
+    assert api.MARKER == "first"
+    assert sys.path.count(tools_dir) == 1
+
+
+def test_path_mode_reports_path_validation_errors(tmp_path: Path):
+    escape = standardize_tool(tmp_path, path="../evil.txt")
+    assert escape["ok"] is False
+    assert "outside" in escape["error"]
+
+    missing = standardize_tool(tmp_path, path="events/missing.txt")
+    assert missing["ok"] is False
+    assert "not a regular file" in missing["error"]
+
+
+def test_path_mode_reports_undetected_kind(tmp_path: Path):
+    source = tmp_path / "misc" / "test.txt"
+    source.parent.mkdir(parents=True)
+    source.write_text("unrouted = { }\n", encoding="utf-8")
+    _plant_api(tmp_path)
+
+    result = standardize_tool(tmp_path, path="misc/test.txt")
+
+    assert result["ok"] is False
+    assert "Could not detect" in result["error"]
+
+
+def test_path_mode_rejects_kind_outside_supported_set(tmp_path: Path):
+    source = tmp_path / "common" / "national_focus" / "test.txt"
+    source.parent.mkdir(parents=True)
+    source.write_text("focus_tree = { }\n", encoding="utf-8")
+    _plant_api(tmp_path, _FAKE_API_BAD_KIND_SOURCE)
+
+    result = standardize_tool(tmp_path, path="common/national_focus/test.txt")
+
+    assert result["ok"] is False
+    assert "Could not detect a standardizer kind" in result["error"]
+
+
+def test_path_mode_reports_invalid_utf8(tmp_path: Path):
+    source = tmp_path / "common" / "national_focus" / "test.txt"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"\xff\xfe focus_tree")
+    _plant_api(tmp_path)
+
+    result = standardize_tool(tmp_path, path="common/national_focus/test.txt")
+
+    assert result["ok"] is False
+    assert "Invalid UTF-8" in result["error"]
+
+
+def test_path_mode_reports_unreadable_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    source = tmp_path / "common" / "national_focus" / "test.txt"
+    source.parent.mkdir(parents=True)
+    source.write_text("focus_tree = { }\n", encoding="utf-8")
+    _plant_api(tmp_path)
+
+    def unreadable(path: Path) -> bytes:
+        assert path == source
+        raise PermissionError("Permission denied")
+
+    monkeypatch.setattr(Path, "read_bytes", unreadable)
+
+    result = standardize_tool(tmp_path, path="common/national_focus/test.txt")
+
+    assert result["ok"] is False
+    assert "Permission denied" in result["error"]
+
+
+def test_standardize_text_exception_surfaces(tmp_path: Path):
+    _plant_api(tmp_path, _FAKE_API_RAISING_SOURCE)
+
+    result = standardize_tool(
+        tmp_path,
+        content="focus_tree = { }\n",
+        content_type="focus",
+    )
+
+    assert result["ok"] is False
+    assert result["kind"] == "focus"
+    assert "upstream exploded" in result["error"]
+
+
+def test_clip_txt_binary_search_trims_txt_to_fit():
+    junk = "y" * 99_000
+    out = standardize_tools._clip_txt(
+        {"ok": True, "kind": "focus", "changed": False, "junk": junk},
+        "x" * 2_000,
+    )
+
+    assert out["txt_truncated"] is True
+    assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+    assert len(out["txt"]) < 2_000
+
+
+def test_clip_txt_returns_bounded_fallback_when_nothing_fits():
+    junk = "y" * 99_900
+    out = standardize_tools._clip_txt(
+        {"ok": True, "kind": "focus", "changed": False, "junk": junk},
+        "x" * 2_000,
+    )
+
+    assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+    assert "exceeded byte budget" in out["error"]

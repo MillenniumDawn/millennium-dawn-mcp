@@ -38,7 +38,11 @@ rule 6, one layer out, and it isn't ours to fix upstream. Running the validator
 in a child sidesteps it and lets the suite keep its parallelism.
 
 The child gets `stdin=DEVNULL` so it can never consume the server's JSON-RPC
-input, and a 600 s timeout.
+input, and a 600 s timeout. The child runs in its own process group and a
+timeout kills the whole group, so its pool workers don't keep running after it
+(`util/process.py`). On Windows, `taskkill /T /F` kills the tree. If `taskkill`
+fails or times out, the helper still kills and reaps the direct child, but tree
+cleanup is not guaranteed. The lint scripts use the same helper.
 
 Cost is one interpreter start per call, which is noise next to a multi-second
 validator. Unlike in-process mode there's no module cache across calls.
@@ -183,6 +187,17 @@ the lint response as `validator:<name>` checks with both on-scope and mod-wide
 totals. See the lint section of [`docs/tools.md`](./tools.md). The bridge
 consumes `ValidatorRunner.run()` output only, so the coupling caveat above still
 has a single adapter point.
+
+`lint(validators=["auto"])` also selects `equipment_variants` for `.txt` changes
+under `common/`, `events/`, or `history/`. It warns when a created variant is
+consumed before its equipment technology is assured. A technology, country, or
+event context edit may affect an unchanged consumer. Lint can therefore include
+off-scope warnings at their original consumer file and line with
+`scope: "related"`; this is a potential relationship, not a proven dependency.
+The check's `total` counts on-scope issues and `related` counts all potentially
+related warnings. Overall lint counts include related warnings; the final
+`issues` array may be truncated by the response limits. The separate
+`check_equipment_variant` tool checks hull slots and module categories.
 
 Scoping can't compare `Issue.file` to the changed-file set directly, because
 that field isn't uniform (mod-relative, basename, `""`, `"unknown"`, and it

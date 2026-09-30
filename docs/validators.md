@@ -162,6 +162,33 @@ you want them:
 validate(validator="unused_textures")
 ```
 
+## Suppression
+
+The runner applies upstream-documented false-positive suppressions in both
+`_run_inprocess` and `_run_isolated` before returning, so callers always see
+the post-suppression issue list with a count alongside it:
+
+```json
+{
+  "ok": true,
+  "validator": "focus_tree",
+  "issues": [],
+  "counts": {"error": 0, "warning": 0, "info": 0},
+  "suppressed": 12,
+  "suppression_source": ".claude/docs/known-false-positives.md"
+}
+```
+
+The count represents **hidden real findings**: issues the validator reported
+that we deliberately dropped because upstream `.claude/docs/known-false-positives.md`
+covers them (today: `missing-focus-icon` and `missing-decision-icon` matched
+against `tools/validation/vanilla_sprites.txt`). Tools that aggregate per-
+validator totals (`validate`, `lint`) read this count and surface it
+unchanged; `lint` renames it to `suppressed_mod_wide` on each check and the
+summary to distinguish it from on-scope counts. The suppression helper
+([`analysis/suppressions.py`](../src/md_mcp/analysis/suppressions.py)) implements
+this upstream rule using the mod's sprite manifest.
+
 ## Staged-only mode
 
 ```python

@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ..analysis.issue_delta import new_issue_dicts, prepare_baseline
+from ..analysis.suppressions import suppressed_count
 from ..config import Settings
 from ..util.response import coerce_int, enforce_budget, paginate
 from ..validators import SEVERITY_RANK, SLOW_VALIDATORS, ValidatorRunner, available_validators
@@ -109,6 +110,24 @@ def validate_tool(
         except (FileNotFoundError, ImportError, ValueError) as exc:
             return enforce_budget({"ok": False, "error": str(exc)})
 
+    validation_files = files
+    if validator is None and files is not None:
+        validation_files = [path for path in files if not _is_non_english_loc(path)]
+        if files and not validation_files:
+            skipped = {
+                "ok": True,
+                "skipped": "non-English localisation is excluded by default",
+                "skipped_files": len(files),
+                "skipped_slow": sorted(SLOW_VALIDATORS),
+                "validators": [],
+                "counts": {"error": 0, "warning": 0, "info": 0},
+                "issues_total_after_filter": 0,
+                "truncated": False,
+            }
+            if not counts_only:
+                skipped["issues"] = []
+            return enforce_budget(skipped, heavy_keys=("issues",))
+
     if validator is not None:
         result = runner.run(validator, staged_only=staged_only, files=files)
         if not result.get("ok"):
@@ -148,7 +167,7 @@ def validate_tool(
     overall = {"error": 0, "warning": 0, "info": 0}
 
     for v in targets:
-        result = runner.run(v.name, staged_only=staged_only, files=files)
+        result = runner.run(v.name, staged_only=staged_only, files=validation_files)
         per_validator.append(
             {
                 "name": v.name,
@@ -159,6 +178,14 @@ def validate_tool(
                 # reach back into the runner's own result.
                 "counts": dict(result.get("counts", {})),
                 "error": result.get("error"),
+                **(
+                    {
+                        "suppressed": result["suppressed"],
+                        "suppression_source": result["suppression_source"],
+                    }
+                    if result.get("suppressed")
+                    else {}
+                ),
             }
         )
         if result.get("ok"):
@@ -202,6 +229,7 @@ def validate_tool(
                 entry["counts"] = _apply_strict(entry["counts"])
 
     kept, truncated, total = _filter_and_cap(aggregated, severity_min=severity_min, limit=limit)
+    suppressed = sum(suppressed_count(v) for v in per_validator)
 
     summary: dict = {
         "ok": all(v["ok"] for v in per_validator),
@@ -211,9 +239,21 @@ def validate_tool(
         "issues_total_after_filter": total,
         "truncated": truncated,
     }
+    if suppressed:
+        summary["suppressed"] = suppressed
+        summary["suppression_source"] = ".claude/docs/known-false-positives.md"
     if unclassified is not None:
         summary["unclassified"] = unclassified
     if not counts_only:
         summary["issues"] = kept
 
     return enforce_budget(summary, heavy_keys=("issues",))
+
+
+def _is_non_english_loc(path: str) -> bool:
+    normalized = path.replace("\\", "/").casefold()
+    return (
+        normalized.startswith("localisation/")
+        and normalized.endswith(".yml")
+        and not normalized.startswith("localisation/english/")
+    )

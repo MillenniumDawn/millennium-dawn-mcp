@@ -151,7 +151,9 @@ where `value` is `null | str | num | {symbol: str} | [Node, ...]` (block) — se
 
 Look up an exact effect, trigger, or modifier key in the matching
 `resources/documentation/*_documentation.md` file. Omit `key` to page the
-available keys. `kind` is `effect`, `trigger`, or `modifier`; key matching is
+available keys. `kind` is `effect`, `trigger`, or `modifier`, or `doc` or
+`rule` for the Markdown files in `.claude/docs` and `.claude/rules` (aliases
+`docs`, `claude_docs`, `rules`, `claude_rules`); key matching is
 case-sensitive. Missing keys return up to five close-match `suggestions`,
 paginated by `limit` and `offset`.
 
@@ -217,6 +219,16 @@ issues compared with a baseline snapshot.
   out instead of producing false NEW findings.
 
 Returns `{ok, validators, counts: {error, warning, info}, issues, issues_total_after_filter, truncated}`.
+
+Suppression: upstream `known-false-positives.md` says a `GFX_*` sprite absent
+from `interface/*.gfx` is fine when `tools/validation/vanilla_sprites.txt` lists
+it. The `missing-focus-icon` and `missing-decision-icon` findings are dropped
+only when a sprite named in the message is in that manifest (for decisions, any
+of the `X / GFX_decision_X / GFX_X` candidates). Nothing else is suppressed, and
+without the manifest nothing is. The runner drops these before the tool sees
+them; the count is reported as `suppressed` next to `suppression_source` on
+each `validators[]` entry and on the run-all summary, so the suppressed count
+represents hidden real findings, not invented ones.
 
 In delta mode, baseline and current file paths go through the same attribution
 before keys are compared, so a bare `a.txt` in a sidecar matches
@@ -327,6 +339,11 @@ for "check this code's quality."
   a resolvable file — some validators bury the filename in the message or omit
   it — are counted as `unattributed` on the entry. The first few appear in
   `issues` as samples (`scope: "unattributed"`) to avoid flooding the response.
+
+  The runner suppresses manifest-backed icon findings before lint sees them.
+  Lint reports the count as `suppressed_mod_wide` on each check and the summary.
+  It is not restricted to the linted files. `total_mod_wide` counts all findings
+  before suppression, including off-scope and unattributed findings.
 - **`severity_min="info"`** — drops issues below `info` / `warning` / `error`.
 - **`limit=500`** — caps the issues array. `truncated` flags details omitted by
   this limit or the response byte budget.

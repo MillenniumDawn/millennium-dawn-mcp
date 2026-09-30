@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from ..analysis.suppressions import suppress_issues
 from ..util.process import run_in_group
 from .attribution import IssueAttributor
 
@@ -248,7 +249,10 @@ class ValidatorRunner:
             kept, unattributed = _filter_by_files(issues, files, self._attributor())
         else:
             kept, unattributed = issues, 0
-        return _summarise(info, kept, unattributed=unattributed, scoped=scoped)
+        kept, suppressed = suppress_issues(kept, self.mod_root)
+        return _summarise(
+            info, kept, unattributed=unattributed, suppressed=suppressed, scoped=scoped
+        )
 
     # ------------------------------------------------------------------
     # isolated mode (default)
@@ -314,7 +318,14 @@ class ValidatorRunner:
             kept, unattributed = _filter_by_files(issues, files, self._attributor())
         else:
             kept, unattributed = issues, 0
-        return _summarise(info, kept, unattributed=unattributed, scoped=bool(payload.get("scoped")))
+        kept, suppressed = suppress_issues(kept, self.mod_root)
+        return _summarise(
+            info,
+            kept,
+            unattributed=unattributed,
+            suppressed=suppressed,
+            scoped=bool(payload.get("scoped")),
+        )
 
 
 # Upstream passes that build repo-wide sets from plain collector calls.
@@ -423,7 +434,12 @@ def _filter_by_files(
 
 
 def _summarise(
-    info: ValidatorInfo, issues: list[dict], *, unattributed: int = 0, scoped: bool = False
+    info: ValidatorInfo,
+    issues: list[dict],
+    *,
+    unattributed: int = 0,
+    suppressed: int = 0,
+    scoped: bool = False,
 ) -> dict:
     counts = {"error": 0, "warning": 0, "info": 0}
     for i in issues:
@@ -438,6 +454,9 @@ def _summarise(
     }
     if unattributed:
         result["unattributed"] = unattributed
+    if suppressed:
+        result["suppressed"] = suppressed
+        result["suppression_source"] = ".claude/docs/known-false-positives.md"
     if scoped:
         result["scoped"] = True
     return result

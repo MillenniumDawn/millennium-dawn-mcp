@@ -225,23 +225,23 @@ def build_server(settings: Settings):
     mcp.tool(
         name="find_country_tags",
         description="Search indexed country tags by substring with paginated id, country-file, and source details.",
-    )(_bind_tool(find_indexed_tool, country_tag_index))
+    )(_bind_tool(find_indexed_tool, country_tag_index, None))
     mcp.tool(
         name="find_characters",
         description="Search indexed character definitions by substring with paginated source details.",
-    )(_bind_tool(find_indexed_tool, character_index, kind="character"))
+    )(_bind_tool(find_indexed_tool, character_index, "character"))
     mcp.tool(
         name="find_traits",
         description="Search indexed country and unit leader traits by substring with paginated source details.",
-    )(_bind_tool(find_indexed_tool, trait_index, kind="trait"))
+    )(_bind_tool(find_indexed_tool, trait_index, "trait"))
     mcp.tool(
         name="find_scripted_effects",
         description="Search indexed scripted effects by substring with paginated source details.",
-    )(_bind_tool(find_indexed_tool, scripted_effect_index, kind="scripted_effect"))
+    )(_bind_tool(find_indexed_tool, scripted_effect_index, "scripted_effect"))
     mcp.tool(
         name="find_scripted_triggers",
         description="Search indexed scripted triggers by substring with paginated source details.",
-    )(_bind_tool(find_indexed_tool, scripted_trigger_index, kind="scripted_trigger"))
+    )(_bind_tool(find_indexed_tool, scripted_trigger_index, "scripted_trigger"))
     mcp.tool(
         name="lookup_docs",
         description="Look up an effect, trigger, or modifier in resources/documentation; pass key for exact docs or omit it for a paginated key list, with close-match suggestions on misses.",

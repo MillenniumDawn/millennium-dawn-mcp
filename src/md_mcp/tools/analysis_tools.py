@@ -101,9 +101,9 @@ def _all_records(focus_index: FocusIndex):
 
 def find_indexed_tool(
     index,
+    kind: Optional[str] = None,
     *,
     query: Optional[str] = None,
-    kind: Optional[str] = None,
     limit: int | float | str | None = 200,
     offset: int | float | str | None = 0,
 ) -> dict:

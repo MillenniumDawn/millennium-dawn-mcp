@@ -25,18 +25,11 @@ Reference kinds and where they're harvested:
   character — character fields such as `character` and `has_character`
   trait — leader-trait fields such as `add_trait` and `has_trait`
 
-Scripted definitions are *partially* covered: only direct calls whose key is
-already in the scripted index are recorded, so a known definition always
-resolves and a misspelled one (e.g. `my_efect = yes`) is **never** reported
-unresolved. That isn't full undefined-call coverage — `scripted_effects` and
-`scripted_triggers` stay in `not_checked` until callers can actually be
-flagged for being undefined. Wrapper forms (`call_scripted_effect`,
-`evaluate_scripted_trigger`, `run_*`) are not HOI4 effect/trigger names and
-are also excluded. Reported in `not_checked` so absence of findings isn't
-mistaken for coverage. If the vanilla install isn't configured, ids defined
-in vanilla (ideas especially) will show as unresolved — `vanilla_indexed`
-flags this; passing `vanilla_sprites` (the committed manifest) resolves
-vanilla-only sprite ids without an install, surfaced via `vanilla_manifest`.
+Only known direct scripted calls are counted; undefined calls are not detected.
+`not_checked` lists scripted calls, country flags, and variables. If vanilla is
+not configured, vanilla-defined ids may show as unresolved (`vanilla_indexed`).
+The committed `vanilla_sprites` manifest resolves vanilla-only sprites without
+an install (`vanilla_manifest`).
 """
 
 from __future__ import annotations
@@ -101,10 +94,7 @@ _COUNTRY_TAG_NODES = frozenset(
         "tag_to_check",
     }
 )
-# Scope keywords and dotted accessors that look like tag names in
-# `tag = ROOT`, `tag = { original_tag = var:prev.tag }`, etc. They aren't
-# references to defined country tags, so they're skipped on emit.
-_SCOPE_KEYWORDS = frozenset({"ROOT", "FROM", "PREV", "THIS", "OWNER", "CONTROLLER", "TAG"})
+_SCOPE_KEYWORDS = frozenset({"ROOT", "FROM", "PREV", "THIS", "OWNER", "CONTROLLER"})
 _DOTTED_SCOPE_PREFIXES = ("var:", "event_target:")
 _CHARACTER_NODES = frozenset(
     {
@@ -117,11 +107,6 @@ _CHARACTER_NODES = frozenset(
     }
 )
 _TRAIT_NODES = frozenset({"trait", "has_trait", "add_trait", "remove_trait", "remove_leader_trait"})
-# Scripted-effect / scripted-trigger calls have no first-class HOI4 wrapper:
-# `call_scripted_effect`, `evaluate_scripted_trigger`, and `run_*` are not in
-# the upstream effect/trigger documentation and have zero uses in the mod.
-# Auditing them against the scripted indexes would always flag any real
-# caller as missing, so they're intentionally not recognised here.
 _FOCUS_DEF_NODES = frozenset({"focus", "shared_focus", "joint_focus"})
 
 # Kinds whose refs are a plain symbol under one of the listed node names. The
@@ -313,11 +298,6 @@ def check_refs(
         "not_checked": [
             "country_flags",
             "variables",
-            # Direct scripted calls are audited only when their key is already
-            # in the index (see module docstring), so we can't flag undefined
-            # ones. Wrapper forms (`call_scripted_effect`,
-            # `evaluate_scripted_trigger`, `run_*`) aren't HOI4 effects and
-            # aren't audited either.
             "scripted_effects",
             "scripted_triggers",
         ],
@@ -419,7 +399,7 @@ def _walk(
                         )
                     else:
                         ref = _symbol_or_str(_child_get(child, kind))
-                if ref and not _is_scope_reference(ref):
+                if ref and (kind != "country_tag" or not _is_scope_reference(ref)):
                     refs.append(_ref(kind, ref, name, relpath, child, starts, ctx))
 
         for kind, defined in (
@@ -430,11 +410,7 @@ def _walk(
                 continue
             if name not in defined:
                 continue
-            # Direct scripted call: `child.name` is the effect/trigger id and
-            # `child.value` is the argument (`yes`, a block, ...). Audit the
-            # *key* (not the value) so a scalar-yes direct call doesn't read
-            # as a dangling reference to `yes`. The resolver only ever sees
-            # keys that resolve, which is why these kinds stay in `not_checked`.
+            # The key names the scripted definition; the value holds its arguments.
             refs.append(_ref(kind, name, name, relpath, child, starts, ctx))
 
         if isinstance(child.value, list):
@@ -476,17 +452,8 @@ def _is_texture_path(value: str) -> bool:
 
 
 def _is_scope_reference(value: str) -> bool:
-    """Skip HOI4 scope keywords and dynamic accessors that aren't country tags.
-
-    `tag = ROOT`, `original_tag = FROM`, or `tag = { original_tag = var:prev.tag }`
-    reach the parser looking like a tag reference but aren't — they're either
-    scope targets (`ROOT`/`FROM`/`PREV`/`THIS`/`OWNER`/`CONTROLLER`/`TAG`) or
-    indirect lookups (`var:...`, `event_target:...`). Auditing them produces
-    false positives on every file that scopes a tag reference.
-    """
-    if value in _SCOPE_KEYWORDS:
-        return True
-    return any(value.startswith(prefix) for prefix in _DOTTED_SCOPE_PREFIXES)
+    """Country scope names and dynamic accessors are not tag ids."""
+    return value in _SCOPE_KEYWORDS or value.startswith(_DOTTED_SCOPE_PREFIXES)
 
 
 def _child_get(node: Node, name: str) -> Optional[Node]:

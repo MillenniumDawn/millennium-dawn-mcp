@@ -104,6 +104,33 @@ def test_list_tools(server):
     assert names == EXPECTED_TOOLS
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "find_country_tags",
+        "find_characters",
+        "find_traits",
+        "find_scripted_effects",
+        "find_scripted_triggers",
+    ],
+)
+def test_definition_finder_schema_keeps_kind_server_owned(server, name):
+    tools = asyncio.new_event_loop().run_until_complete(server.list_tools())
+    tool = next(tool for tool in tools if tool.name == name)
+
+    assert set(tool.inputSchema["properties"]) == {"query", "limit", "offset"}
+
+
+def test_definition_finder_ignores_client_kind_override(server):
+    result = asyncio.new_event_loop().run_until_complete(
+        server.call_tool("find_characters", {"kind": "trait", "query": "test"})
+    )
+    payload = json.loads(_text(result))
+
+    assert payload["total"] == 1
+    assert payload["matches"][0]["kind"] == "character"
+
+
 def test_call_resolve_focus(server):
     async def go():
         return await server.call_tool("resolve_focus", {"focus_id": "TST_root"})

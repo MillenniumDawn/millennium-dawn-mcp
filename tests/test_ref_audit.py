@@ -395,7 +395,7 @@ def test_texture_paths_not_sprite_refs(fake_mod_root, cache_dir):
 
 @pytest.mark.parametrize(
     "value",
-    ["ROOT", "FROM", "PREV", "THIS", "OWNER", "CONTROLLER", "TAG"],
+    ["ROOT", "FROM", "PREV", "THIS", "OWNER", "CONTROLLER"],
 )
 def test_is_scope_reference_recognises_keywords(value):
     assert _is_scope_reference(value) is True
@@ -411,7 +411,7 @@ def test_is_scope_reference_recognises_dotted_accessors(value):
 
 @pytest.mark.parametrize(
     "value",
-    ["USA", "GER", "SOV", "TST", "USA_cosmetic_tag_monarchist", "GER_fourth_reich"],
+    ["USA", "GER", "SOV", "TST", "TAG", "USA_cosmetic_tag_monarchist", "GER_fourth_reich"],
 )
 def test_is_scope_reference_keeps_real_tag_names(value):
     assert _is_scope_reference(value) is False
@@ -478,6 +478,23 @@ def test_country_tag_audit_drops_set_cosmetic_tag(fake_mod_root, cache_dir):
     )
     assert out["counts"]["country_tag"]["checked"] == 0
     assert out["total_unresolved"] == 0
+
+
+def test_scope_exclusions_only_apply_to_country_tags(fake_mod_root, cache_dir):
+    source = fake_mod_root / "events" / "scope_names.txt"
+    source.write_text("original_tag = TAG\nhas_character = ROOT\nhas_trait = FROM\n")
+    out = check_refs(
+        fake_mod_root,
+        files=["events/scope_names.txt"],
+        kinds=["country_tag", "character", "trait"],
+        **_indexes(fake_mod_root, cache_dir),
+    )
+
+    assert {(entry["kind"], entry["ref"]) for entry in out["unresolved"]} == {
+        ("country_tag", "TAG"),
+        ("character", "ROOT"),
+        ("trait", "FROM"),
+    }
 
 
 def test_country_tag_audit_still_flags_unknown_tag(fake_mod_root, cache_dir):

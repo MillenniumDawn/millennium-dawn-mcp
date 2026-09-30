@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from ..util.process import run_in_group
 from .attribution import IssueAttributor
 
 logger = logging.getLogger(__name__)
@@ -262,13 +263,7 @@ class ValidatorRunner:
         with tempfile.TemporaryDirectory(prefix="md-mcp-validator-") as td:
             out = Path(td) / "issues.json"
             try:
-                proc = subprocess.run(
-                    [*cmd, "--out", str(out)],
-                    check=False,
-                    capture_output=True,
-                    stdin=subprocess.DEVNULL,
-                    timeout=600,
-                )
+                proc = run_in_group([*cmd, "--out", str(out)], timeout=600)
             except subprocess.TimeoutExpired:
                 return {
                     "ok": False,

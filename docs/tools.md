@@ -218,8 +218,10 @@ for "check this code's quality."
   - `"changed"` = staged + unstaged + untracked (everything `git status --porcelain` sees). This is what you want mid-edit before anything is committed.
   - `"staged"` = only files in the git index — matches pre-commit's view.
   - `"all"` = brute scan every matching file under the mod root. Slow; use when you want a clean baseline.
-- **`files=[...]`** — explicit mod-relative paths. Overrides `mode`. Each check
-  filters this list by its own file-pattern (e.g. `mod_encoding` only looks at `.mod`).
+- **`files=[...]`** — explicit mod-relative paths or absolute paths inside the mod
+  root. Absolute paths are normalized to mod-relative paths; escapes are errors.
+  Overrides `mode`. Each check filters this list by its own file-pattern (e.g. `mod_encoding` only looks at `.mod`,
+  and `common_mistakes` only at `.txt` under `common/`, `events/`, `history/`, or `music/`).
 - **`checks=[...]`** — subset of:
   - `common_mistakes` (`check_common_mistakes.py` — threat scale, scope, modifiers)
   - `mod_encoding` (`validate_mod_encoding.py` — `.mod` UTF-8 validity)

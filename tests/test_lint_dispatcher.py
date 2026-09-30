@@ -111,7 +111,7 @@ def test_lint_aggregates_issues_from_multiple_checks(tmp_path):
         tmp_path,
         {
             "tools/linting/check_common_mistakes.py": """import sys
-print("sub/a.txt:1: is_in_faction = TAG is not valid")
+print("common/a.txt:1: is_in_faction = TAG is not valid")
 sys.exit(1)
 """,
             "tools/linting/validate_mod_encoding.py": """import sys
@@ -123,7 +123,7 @@ sys.exit(1)
     out = lint_tool(
         tmp_path,
         checks=["common_mistakes", "mod_encoding"],
-        files=["sub/a.txt", "descriptor.mod"],
+        files=["common/a.txt", "descriptor.mod"],
         validators=[],
     )
     assert out["ok"] is True
@@ -139,8 +139,8 @@ def test_lint_severity_floor_filters_warnings(tmp_path):
         tmp_path,
         {
             "tools/linting/check_common_mistakes.py": """import sys
-print("sub/a.txt:1: foo")
-print("sub/a.txt:2: bar")
+print("common/a.txt:1: foo")
+print("common/a.txt:2: bar")
 sys.exit(1)
 """,
             "tools/linting/validate_mod_encoding.py": """import sys
@@ -152,7 +152,7 @@ sys.exit(1)
     out = lint_tool(
         tmp_path,
         checks=["common_mistakes", "mod_encoding"],
-        files=["sub/a.txt", "descriptor.mod"],
+        files=["common/a.txt", "descriptor.mod"],
         severity_min="error",
         validators=[],
     )
@@ -168,7 +168,7 @@ def test_lint_counts_only_omits_issues(tmp_path):
         tmp_path,
         {
             "tools/linting/check_common_mistakes.py": """import sys
-print("sub/a.txt:1: foo")
+print("common/a.txt:1: foo")
 sys.exit(1)
 """,
         },
@@ -176,7 +176,7 @@ sys.exit(1)
     out = lint_tool(
         tmp_path,
         checks=["common_mistakes"],
-        files=["sub/a.txt"],
+        files=["common/a.txt"],
         counts_only=True,
         validators=[],
     )
@@ -193,7 +193,7 @@ def test_lint_common_mistakes_reports_total_per_check(tmp_path):
         tmp_path,
         {
             "tools/linting/check_common_mistakes.py": """import sys
-print("sub/a.txt:1: foo")
+print("common/a.txt:1: foo")
 sys.exit(1)
 """,
         },
@@ -201,7 +201,7 @@ sys.exit(1)
     out = lint_tool(
         tmp_path,
         checks=["common_mistakes"],
-        files=["sub/a.txt"],
+        files=["common/a.txt"],
         validators=[],
     )
     cm = next(c for c in out["checks"] if c["name"] == "common_mistakes")
@@ -210,7 +210,7 @@ sys.exit(1)
 
 
 def test_lint_limit_truncates(tmp_path):
-    body = "\n".join(f'print("sub/a.txt:{i}: msg{i}")' for i in range(1, 21))
+    body = "\n".join(f'print("common/a.txt:{i}: msg{i}")' for i in range(1, 21))
     _seed_all_scripts(
         tmp_path,
         {
@@ -220,7 +220,7 @@ def test_lint_limit_truncates(tmp_path):
     out = lint_tool(
         tmp_path,
         checks=["common_mistakes"],
-        files=["sub/a.txt"],
+        files=["common/a.txt"],
         limit=5,
         validators=[],
     )
@@ -324,7 +324,7 @@ def test_lint_negative_exit_code_is_a_failure(tmp_path, monkeypatch):
             stderr="terminated\n",
         )
 
-    monkeypatch.setattr("md_mcp.tools.linting_tools.subprocess.run", killed)
+    monkeypatch.setattr("md_mcp.tools.linting_tools.run_in_group", killed)
     out = lint_tool(
         tmp_path,
         checks=["common_mistakes"],
@@ -388,7 +388,7 @@ def test_lint_traceback_exit_0_is_a_failure(tmp_path, monkeypatch):
             stderr='Traceback (most recent call last):\n  File "x", line 1\nRuntimeError: boom\n',
         )
 
-    monkeypatch.setattr("md_mcp.tools.linting_tools.subprocess.run", traced)
+    monkeypatch.setattr("md_mcp.tools.linting_tools.run_in_group", traced)
     out = lint_tool(
         tmp_path,
         checks=["common_mistakes"],
@@ -505,13 +505,13 @@ sys.exit(0)
         },
     )
     # Untracked .txt — should be picked up by `changed`.
-    (tmp_path / "sub").mkdir()
-    (tmp_path / "sub" / "new.txt").write_text("focus = { }\n")
+    (tmp_path / "common").mkdir()
+    (tmp_path / "common" / "new.txt").write_text("focus = { }\n")
 
     out = lint_tool(tmp_path, checks=["common_mistakes"], validators=[])  # no mode → default
     assert out["mode"] == "changed"
     files_in_issues = {i.get("file") for i in out["issues"]}
-    assert "sub/new.txt" in files_in_issues
+    assert "common/new.txt" in files_in_issues
 
 
 def test_lint_changed_mode_no_changes_is_clean_run(tmp_path):
@@ -538,8 +538,9 @@ def test_lint_empty_files_scope_skips_every_check(tmp_path):
     assert all(c.get("skipped") == "no files in scope" for c in out["checks"])
 
 
-def test_lint_files_scope_normalises_paths(tmp_path):
-    """`./`-prefixed and backslash paths reach the checkers in canonical form."""
+@pytest.mark.parametrize("absolute", [False, True])
+def test_lint_files_scope_normalises_paths(tmp_path, absolute):
+    """Relative and contained absolute paths reach checkers in mod-relative form."""
     _init_repo(tmp_path)
     _seed_all_scripts(
         tmp_path,
@@ -552,12 +553,72 @@ sys.exit(0)
 """,
         },
     )
-    (tmp_path / "sub").mkdir()
-    (tmp_path / "sub" / "new.txt").write_text("x = 1\n")
+    (tmp_path / "common").mkdir()
+    (tmp_path / "common" / "new.txt").write_text("x = 1\n")
 
-    out = lint_tool(tmp_path, checks=["common_mistakes"], validators=[], files=["./sub/new.txt"])
+    file = str(tmp_path / "common" / "new.txt") if absolute else "./common/new.txt"
+    out = lint_tool(tmp_path, checks=["common_mistakes"], validators=[], files=[file])
     assert out["mode"] == "files"
-    assert {i.get("file") for i in out["issues"]} == {"sub/new.txt"}
+    assert {i.get("file") for i in out["issues"]} == {"common/new.txt"}
+
+
+def test_lint_rejects_absolute_path_outside_mod_root(tmp_path):
+    out = lint_tool(tmp_path, files=[str(tmp_path.parent / "outside.txt")], validators=[])
+
+    assert out["ok"] is False
+    assert "outside the mod root" in out["error"]
+
+
+def test_lint_rejects_absolute_symlink_escape(tmp_path):
+    source = tmp_path / "common" / "escape.txt"
+    source.parent.mkdir()
+    source.symlink_to(tmp_path.parent / "outside.txt")
+
+    out = lint_tool(tmp_path, files=[str(source)], validators=[])
+
+    assert out["ok"] is False
+    assert "outside the mod root" in out["error"]
+
+
+def test_lint_common_mistakes_only_gets_script_txt_files(tmp_path):
+    """Images, .gfx, loc, and .txt outside the script folders never reach the checker."""
+    _seed_all_scripts(
+        tmp_path,
+        {
+            "tools/linting/check_common_mistakes.py": """import sys
+for f in sys.argv[1:]:
+    if not f.startswith("--"):
+        print(f"{f}:1: saw arg")
+sys.exit(0)
+""",
+        },
+    )
+
+    out = lint_tool(
+        tmp_path,
+        checks=["common_mistakes"],
+        validators=[],
+        files=[
+            "common/a.txt",
+            "events/b.txt",
+            "interface/goals_shine.gfx",
+            "gfx/flags/ISR.tga",
+            "map/buildings.txt",
+            "localisation/english/x_l_english.yml",
+        ],
+    )
+    assert {i.get("file") for i in out["issues"]} == {"common/a.txt", "events/b.txt"}
+
+
+def test_lint_non_script_scope_skips_common_mistakes(tmp_path):
+    _seed_all_scripts(tmp_path, {})
+    out = lint_tool(
+        tmp_path,
+        checks=["common_mistakes"],
+        validators=[],
+        files=["interface/goals_shine.gfx"],
+    )
+    assert out["checks"][0]["skipped"] == "no files in scope"
 
 
 def test_lint_invalid_mode_rejected(tmp_path):

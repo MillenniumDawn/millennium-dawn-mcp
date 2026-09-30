@@ -206,21 +206,34 @@ issues compared with a baseline snapshot.
 - **`limit=500`** — cap issues returned (counts stay accurate). `-1` for no cap.
 - **`counts_only=True`** — return just per-validator counts; skip the issues array.
 - **`delta=True`** — dedupe findings and return only issues absent from the baseline.
-- **`baseline`** — an issue-list JSON file, a sidecar directory, or a git ref
-  (default `main`). Git refs use `cache_dir/validator-baselines/<safe-ref>.json`;
-  pass a snapshot file or directory if that cached snapshot is missing. Snapshot
-  paths must be absolute, contain a slash or backslash, or end in `.json`;
-  bare names are treated as git refs.
+- **`baseline`** — required when `delta=True`. One of: an issue-list JSON
+  file (absolute path, or any path with a separator or `.json` suffix); a
+  sidecar directory containing `baseline-meta.json` plus per-validator
+  `<slug>.json` files (the upstream `baseline_check.py` layout); or a bare
+  ref name resolved under `cache_dir/validator-baselines/<safe-ref>.json`.
+  Ref names may contain slashes (e.g. `origin/main`, `issue/21-...`); a
+  missing or stale sidecar directory whose `baseline-meta.json` carries a
+  `toolshash` that disagrees with the current validator generation errors
+  out instead of producing false NEW findings.
 
 Returns `{ok, validators, counts: {error, warning, info}, issues, issues_total_after_filter, truncated}`.
 
 In delta mode, baseline and current file paths go through the same attribution
 before keys are compared, so a bare `a.txt` in a sidecar matches
-`events/a.txt`. Findings with no resolvable file or line (or an ambiguous bare
-name) cannot be compared, so they are left out of `issues` and counted in an
-extra `unclassified` field. Each deduped issue is counted once in the
+`events/a.txt`. File-level findings (no line, file present) match on
+`(severity, category, file, message)` so they aren't lost in `unclassified`;
+severity stays in the key so an existing warning that escalates to an error
+still reads as NEW. Findings with no resolvable file at all (or an ambiguous
+bare name) cannot be compared, so they are dropped from `issues` and counted
+in an extra `unclassified` field. Each deduped issue is counted once in the
 per-validator `counts`, under the validator that reported its final severity,
 so the breakdown sums to the top-level `counts`.
+
+For line-level findings, the key includes the line number, so unrelated edits
+that shift lines make existing findings on those lines look NEW on the next
+delta run. If a branch shows a long list of "new" findings that
+look like the surrounding context, re-run the delta against a baseline taken
+after the line-shifting change.
 
 ### `validate_list(limit?, offset?) -> dict`
 

@@ -312,7 +312,7 @@ def build_server(settings: Settings):
         delta: bool = False,
         baseline: Optional[str] = None,
     ) -> dict:
-        """Run validators and optionally return only new issues since a baseline; severity_min filters and limit caps issues."""
+        """Run validators, or only new issues with delta=True and explicit baseline; severity_min/limit narrow output."""
         return validate_tool(
             settings,
             validator_runner,

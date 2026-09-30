@@ -100,7 +100,7 @@ def validate_tool(
       limit         — cap issues returned (counts remain accurate). Use -1 for no cap.
       counts_only   — skip the issues array entirely, return just per-validator counts
       delta         — return only issues absent from a baseline snapshot
-      baseline      — snapshot file/directory or git ref; defaults to main in delta mode
+      baseline      — snapshot file/directory or cached ref; required in delta mode
     """
     prepared_baseline = None
     if delta:

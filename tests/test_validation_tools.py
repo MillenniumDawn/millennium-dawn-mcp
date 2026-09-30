@@ -336,7 +336,7 @@ def _patch_fake_baseline(monkeypatch, baseline_issues):
     monkeypatch.setitem(
         helper_globals,
         "_load_baseline_issues",
-        lambda _settings, _baseline, _lib: baseline_issues,
+        lambda _settings, _baseline, _lib: (list(baseline_issues), {}),
     )
 
 
@@ -449,19 +449,15 @@ def test_validate_delta_does_not_invent_counts_for_failed_validator(fake_mod_roo
     assert broken["counts"] == {}
 
 
-def test_validate_delta_missing_default_snapshot_returns_actionable_error(
-    fake_mod_root, monkeypatch
-):
+def test_validate_delta_requires_explicit_baseline(fake_mod_root, monkeypatch):
     settings = _delta_settings(fake_mod_root)
     _patch_fake_report_lib(monkeypatch)
 
     runner = _FakeRunner([])
     result = _validate_tool_with_delta(settings, runner, validator="synthetic", delta=True)
 
-    expected_path = settings.cache_dir / "validator-baselines" / "main.json"
     assert result["ok"] is False
-    assert str(expected_path) in result["error"]
-    assert "snapshot file or directory" in result["error"]
+    assert "Delta mode requires an explicit `baseline`" in result["error"]
     assert runner.calls == []
 
 
@@ -603,7 +599,8 @@ _REAL_REPORT_LIB = Path("/mnt/Linux/github-projects/Millennium-Dawn/tools/report
 @pytest.mark.skipif(
     not _REAL_REPORT_LIB.is_dir(), reason="sibling Millennium Dawn checkout unavailable"
 )
-def test_validate_delta_uses_real_sibling_report_lib(tmp_path):
+@pytest.mark.parametrize("line", [0, 3])
+def test_validate_delta_uses_real_sibling_report_lib(tmp_path, line):
     mod_root = _REAL_REPORT_LIB.parent.parent
     settings = Settings(mod_root=mod_root, vanilla_path=None, cache_dir=tmp_path / "cache")
     baseline_file = tmp_path / "baseline.json"
@@ -615,7 +612,7 @@ def test_validate_delta_uses_real_sibling_report_lib(tmp_path):
                     "category": "synthetic",
                     "message": "known",
                     "file": "events/synthetic.txt",
-                    "line": 3,
+                    "line": line,
                 }
             ]
         ),
@@ -628,7 +625,7 @@ def test_validate_delta_uses_real_sibling_report_lib(tmp_path):
                 "category": "synthetic",
                 "message": "known",
                 "file": "events/synthetic.txt",
-                "line": 3,
+                "line": line,
             },
             "synthetic",
         ),
@@ -651,7 +648,21 @@ def test_validate_delta_uses_real_sibling_report_lib(tmp_path):
     (baseline_dir / "synthetic.json").write_text(
         baseline_file.read_text(encoding="utf-8"), encoding="utf-8"
     )
+    toolshash = importlib.import_module("md_mcp.analysis.issue_delta")._compute_toolshash(mod_root)
+    (baseline_dir / "baseline-meta.json").write_text(
+        json.dumps({"toolshash": toolshash}), encoding="utf-8"
+    )
     sidecar_new_issues = delta_helper(settings, records, str(baseline_dir)).issues
 
-    assert [issue["message"] for issue in new_issues] == ["new"]
-    assert [issue["message"] for issue in sidecar_new_issues] == ["new"]
+    assert new_issues == [
+        {
+            "severity": "warning",
+            "category": "synthetic",
+            "message": "new",
+            "file": "events/synthetic.txt",
+            "line": 4,
+            "validator": "synthetic",
+            "detected_by": [],
+        }
+    ]
+    assert sidecar_new_issues == new_issues

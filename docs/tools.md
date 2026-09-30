@@ -219,7 +219,8 @@ for "check this code's quality."
   - `"staged"` = only files in the git index — matches pre-commit's view.
   - `"all"` = brute scan every matching file under the mod root. Slow; use when you want a clean baseline.
 - **`files=[...]`** — explicit mod-relative paths. Overrides `mode`. Each check
-  filters this list by its own file-pattern (e.g. `mod_encoding` only looks at `.mod`).
+  filters this list by its own file-pattern (e.g. `mod_encoding` only looks at `.mod`,
+  and `common_mistakes` only at `.txt` under `common/`, `events/`, `history/`, or `music/`).
 - **`checks=[...]`** — subset of:
   - `common_mistakes` (`check_common_mistakes.py` — threat scale, scope, modifiers)
   - `mod_encoding` (`validate_mod_encoding.py` — `.mod` UTF-8 validity)

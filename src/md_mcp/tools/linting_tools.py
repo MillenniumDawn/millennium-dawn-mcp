@@ -29,6 +29,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
+from ..util.process import run_in_group
 from ..util.response import BUDGET_BYTES, enforce_budget
 from ..validators import SEVERITY_RANK, SLOW_VALIDATORS, ValidatorRunner
 from .lint_validators import (
@@ -217,10 +218,9 @@ def _run_script(
     if not script.exists():
         return None, f"{script.name} not found at {script}"
     try:
-        proc = subprocess.run(
+        proc = run_in_group(
             [sys.executable, str(script), *args],
             cwd=str(mod_root),
-            capture_output=True,
             text=True,
             timeout=timeout,
         )
@@ -447,15 +447,19 @@ def lint_tool(
         if files is None and relevant is not None
         else relevant
     )
+    # Upstream common_mistakes and style scan only these; images and .gfx just cost time.
+    script_files = (
+        [f for f in present_relevant if f.endswith(".txt") and f.startswith(STYLE_PREFIXES)]
+        if present_relevant is not None
+        else None
+    )
 
     # Expand the validators request up front; unknown names land as isolated
     # ok:false entries instead of aborting the whole run.
     # `None` and `[]` differ intentionally: omission keeps style enforcement
     # for script scopes, while an explicit empty list disables all validators.
     if validators is None:
-        style_in_scope = present_relevant is None or any(
-            f.endswith(".txt") and f.startswith(STYLE_PREFIXES) for f in present_relevant
-        )
+        style_in_scope = script_files is None or bool(script_files)
         validator_request = ["style"] if style_in_scope else []
     else:
         validator_request = list(validators)
@@ -542,11 +546,11 @@ def lint_tool(
 
     runners: dict[str, Callable[[], dict]] = {
         "common_mistakes": lambda: _maybe(
-            present_relevant,
+            script_files,
             lambda: lint_common_mistakes_tool(
                 mod_root,
-                mode="all" if present_relevant is None else "staged",
-                files=present_relevant,
+                mode="all" if script_files is None else "staged",
+                files=script_files,
             ),
         ),
         "mod_encoding": lambda: _maybe(

@@ -7,14 +7,19 @@ localisation YAML directly via regex rather than `js-yaml`/`pyyaml` for three re
   * Direct regex parse preserves exact line numbers, which we need for the resolver
   * Same approach the validator suite uses internally
 
-Cache layout (JSON, under <cache_dir>/v2/loc.data.json):
+Only the languages in `langs` (default: English) are indexed — the real mod ships ~10
+languages and indexing all of them multiplies cache size, startup, and edit latency by
+the language count. Other languages still resolve through an on-demand scan (see
+`LocalisationIndex._scan_lang`).
+
+Cache layout (sharded: one JSON file per contributing .yml under
+<cache_dir>/v3/loc.data/<name>-<digest>.json; manifest in loc.manifest.json):
     {
-        "files": {
-            "<relpath>": [
-                {"lang": "l_english", "key": "FOO", "value": "Bar", "line": 12},
-                ...
-            ]
-        }
+        "relpath": "<relpath>",
+        "records": [
+            {"lang": "l_english", "key": "FOO", "value": "Bar", "line": 12},
+            ...
+        ]
     }
 """
 
@@ -23,14 +28,22 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from ..util.encoding import read_text
-from .base import GenericTxtIndex
+from .base import (
+    FileSig,
+    GenericTxtIndex,
+    StaleCheck,
+    collect_files,
+    resolve_root,
+    signatures_for,
+)
 
 logger = logging.getLogger(__name__)
 
-LOC_CACHE_VERSION = 2
+# v3: only the configured languages are indexed, and data is sharded per file.
+LOC_CACHE_VERSION = 3
 LOC_SUBDIR = "localisation"
 
 # ISO code → file suffix
@@ -62,6 +75,50 @@ def _is_localisation_file(path: Path) -> bool:
     return bool(_FILENAME_LANG_RE.search(path.name))
 
 
+def _file_lang_suffix(path: Path) -> Optional[str]:
+    """The `l_<language>` suffix of a loc filename, lower-cased, or None."""
+    m = _FILENAME_LANG_RE.search(path.name)
+    return m.group(1).lower() if m else None
+
+
+def normalise_loc_langs(
+    value: str | Iterable[str] | None,
+    *,
+    default: str = "en",
+    strict: bool = False,
+) -> tuple[str, ...]:
+    """Normalise a `loc_langs` setting to a tuple of known lower-case ISO codes.
+
+    `None`/empty gives `(default,)`; `"*"` gives every known language; a string is
+    split on commas. Unknown codes raise ValueError when `strict`, otherwise they are
+    dropped with a warning (so a bad `default_lang` can't stop the server starting).
+    """
+    if value is None:
+        items: list[str] = []
+    elif isinstance(value, str):
+        items = value.split(",")
+    else:
+        items = [str(v) for v in value]
+    codes = [c.strip().lower() for c in items if c.strip()]
+    if not codes:
+        codes = [default.strip().lower() or "en"]
+    if "*" in codes:
+        return tuple(LANG_ISO_TO_SUFFIX)
+    result: list[str] = []
+    for code in codes:
+        if code not in LANG_ISO_TO_SUFFIX:
+            if strict:
+                raise ValueError(
+                    f"unknown language {code!r}; expected one of "
+                    f"{', '.join(LANG_ISO_TO_SUFFIX)} or '*'"
+                )
+            logger.warning("loc index: ignoring unknown language %r", code)
+            continue
+        if code not in result:
+            result.append(code)
+    return tuple(result)
+
+
 def _parse_loc_worker(abs_path: str, relpath: str) -> Optional[list[dict]]:
     """Top-level worker for ProcessPoolExecutor (reads file then dispatches the parse)."""
     try:
@@ -76,31 +133,66 @@ def _parse_loc_worker(abs_path: str, relpath: str) -> Optional[list[dict]]:
     return [{"lang": lang, **entry} for entry in payload.get("keys", [])]
 
 
+class _LangScan:
+    """In-memory result of scanning one non-indexed language."""
+
+    def __init__(self) -> None:
+        self.stale_check = StaleCheck()
+        self.sigs: dict[str, FileSig] = {}
+        self.files: dict[str, list[dict]] = {}
+        self.by_key: dict[str, dict] = {}
+        self.loaded = False
+
+
 class LocalisationIndex(GenericTxtIndex):
-    """Localisation index with ISO-language lookup and English fallback."""
+    """Localisation index with ISO-language lookup and English fallback.
+
+    `langs` (ISO codes, see `normalise_loc_langs`) picks the languages that are
+    persisted and held in memory; default is English only. Lookups for any other
+    language are served by an on-demand per-language scan, cached in memory and
+    invalidated when that language's files change.
+    """
 
     cache_version = LOC_CACHE_VERSION
     cache_name = "loc"
     subdir = LOC_SUBDIR
     pattern = "*.yml"
-    file_predicate = staticmethod(_is_localisation_file)
     primary_key = ("lang", "key")
     parse_chunksize = 8
     warn_on_duplicates = False
+    sharded = True
     parser_fn = staticmethod(_parse_loc_worker)
 
+    def __init__(
+        self,
+        *args,
+        langs: str | Iterable[str] | None = None,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.langs: tuple[str, ...] = normalise_loc_langs(langs)
+        self._indexed_suffixes: frozenset[str] = frozenset(
+            LANG_ISO_TO_SUFFIX[code] for code in self.langs
+        )
+        # Instance attribute shadows the class-level `file_predicate` hook.
+        self.file_predicate = self._is_indexed_file
+        # suffix -> scan state for languages that are not indexed.
+        self._scans: dict[str, _LangScan] = {}
+
+    def _is_indexed_file(self, path: Path) -> bool:
+        return _file_lang_suffix(path) in self._indexed_suffixes
+
     def resolve(self, key: str, lang: str = "en") -> Optional[dict]:
-        self.ensure_fresh()
         suffix = LANG_ISO_TO_SUFFIX.get(lang.lower())
         if suffix is None:
             return None
-        hit = self._by_key.get((suffix, key))
+        hit = self._lookup(suffix, key)
         if hit is not None:
             return {**hit, "key": key, "lang": lang}
 
         # English fallback per VSCode extension behaviour.
         if lang.lower() != "en":
-            fallback = self._by_key.get(("l_english", key))
+            fallback = self._lookup("l_english", key)
             if fallback is not None:
                 return {**fallback, "key": key, "lang": "en"}
 
@@ -108,11 +200,63 @@ class LocalisationIndex(GenericTxtIndex):
 
     def list_keys(self, lang: str = "en") -> list[str]:
         """Return every loc key for a language. Default English; pass `lang` ISO code for others."""
-        self.ensure_fresh()
         suffix = LANG_ISO_TO_SUFFIX.get(lang.lower())
         if suffix is None:
             return []
-        return sorted(key for language, key in self._by_key if language == suffix)
+        if suffix in self._indexed_suffixes:
+            self.ensure_fresh()
+            return sorted(key for language, key in self._by_key if language == suffix)
+        return sorted(self._scan_lang(suffix).by_key)
+
+    # ---------- internals ----------
+
+    def _lookup(self, suffix: str, key: str) -> Optional[dict]:
+        if suffix in self._indexed_suffixes:
+            self.ensure_fresh()
+            return self._by_key.get((suffix, key))
+        return self._scan_lang(suffix).by_key.get(key)
+
+    def _scan_lang(self, suffix: str) -> _LangScan:
+        """On-demand scan of `localisation/**/*_<suffix>.yml` for a non-indexed language.
+
+        Nothing is persisted. Parsed files are kept in memory keyed by their
+        `(mtime, size)` signature, so a refresh re-parses only files that moved. The
+        stat walk is debounced like `ensure_fresh`. Parsing is always serial: this runs
+        inside tool calls, where forking would deadlock the stdio server.
+        """
+        scan = self._scans.get(suffix)
+        if scan is None:
+            scan = self._scans[suffix] = _LangScan()
+            scan.stale_check.should_check()  # arm the debounce window for the scan below
+        elif not scan.stale_check.should_check():
+            return scan
+
+        def wanted(path: Path) -> bool:
+            return _file_lang_suffix(path) == suffix
+
+        roots = self._roots()
+        files = collect_files(roots, self._subdirs, self._patterns, wanted)
+        sigs = signatures_for(files, roots)
+        if scan.loaded and sigs == scan.sigs:
+            return scan
+
+        kept = {rel: scan.files[rel] for rel, sig in sigs.items() if scan.sigs.get(rel) == sig}
+        for rel in sorted(sigs):
+            if rel in kept:
+                continue
+            base = resolve_root(roots, rel)
+            records = _parse_loc_worker(str(base / rel), rel) if base is not None else None
+            if records is not None:
+                kept[rel] = [{**rec, "file": rel} for rec in records]
+        by_key: dict[str, dict] = {}
+        for rel in sorted(kept):
+            for rec in kept[rel]:
+                by_key[rec["key"]] = rec
+        scan.sigs = sigs
+        scan.files = kept
+        scan.by_key = by_key
+        scan.loaded = True
+        return scan
 
 
 def _parse_loc_file(text: str, relpath: str) -> dict:

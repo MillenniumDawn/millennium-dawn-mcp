@@ -42,7 +42,9 @@ where any one satisfies that requirement.
 ### `resolve_loc(key: str, lang?: str) -> dict`
 
 Look up a localisation key. Falls back to English if missing in the requested
-language. Returns `{value, file, line, lang}`.
+language. Returns `{value, file, line, lang}`. Only the configured `loc_langs`
+(default: just `default_lang`) are indexed; any other language is answered by a
+slower on-demand scan of that language's files.
 
 ### `resolve_sprite(name: str) -> dict`
 

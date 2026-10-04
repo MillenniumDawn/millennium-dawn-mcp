@@ -97,6 +97,14 @@ def _bind_tool(
     return bound
 
 
+def _make_index(cls, settings: Settings):
+    """Instantiate an index class from settings (localisation also gets `loc_langs`)."""
+    kwargs: dict = {"submod_root": settings.submod_root}
+    if issubclass(cls, LocalisationIndex):
+        kwargs["langs"] = settings.loc_langs
+    return cls(settings.mod_root, settings.cache_dir, settings.vanilla_path, **kwargs)
+
+
 def build_server(settings: Settings):
     """Construct the FastMCP server with all tools and resources registered.
 
@@ -113,12 +121,7 @@ def build_server(settings: Settings):
     mcp = FastMCP("md-mcp")
 
     def _index(cls):
-        return cls(
-            settings.mod_root,
-            settings.cache_dir,
-            settings.vanilla_path,
-            submod_root=settings.submod_root,
-        )
+        return _make_index(cls, settings)
 
     focus_index = _index(FocusIndex)
     loc_index = _index(LocalisationIndex)
@@ -631,6 +634,9 @@ def main() -> None:  # pragma: no cover — entry point
         print(f"validator_mode: {settings.validator_mode}")
         # pi-lens-ignore: python-print-statement
         print(f"default_lang:   {settings.default_lang}")
+        # Intentional CLI output, not debug leftovers.
+        # pi-lens-ignore: python-print-statement
+        print(f"loc_langs:      {','.join(settings.loc_langs)}")
         sys.exit(0)
 
     if args.cmd == "build-index":
@@ -647,12 +653,7 @@ def main() -> None:  # pragma: no cover — entry point
             ScriptedEffectIndex,
             ScriptedTriggerIndex,
         ):
-            idx = cls(
-                settings.mod_root,
-                settings.cache_dir,
-                settings.vanilla_path,
-                submod_root=settings.submod_root,
-            )
+            idx = _make_index(cls, settings)
             idx.ensure_fresh()
             keys = idx.list_keys()
             file_count = len(getattr(idx, "_by_file", {}))

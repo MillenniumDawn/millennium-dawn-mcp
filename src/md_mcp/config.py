@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from .indexes.localisation import normalise_loc_langs
 from .util.pathing import find_mod_root
 
 CONFIG_PATH = Path.home() / ".config" / "md-mcp" / "config.toml"
@@ -27,6 +28,12 @@ class Settings:
     validator_mode: str = "isolated"  # or "in_process"
     default_lang: str = "en"
     submod_root: Optional[Path] = None
+    # ISO codes of the loc languages to index. Empty means "just `default_lang`".
+    loc_langs: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.loc_langs:
+            self.loc_langs = (self.default_lang.lower(),)
 
 
 def load(mod_root: str | Path | None = None, submod_root: str | Path | None = None) -> Settings:
@@ -72,13 +79,21 @@ def load(mod_root: str | Path | None = None, submod_root: str | Path | None = No
             f"{', '.join(sorted(VALIDATOR_MODES))}"
         )
 
+    default_lang = os.environ.get("MD_MCP_DEFAULT_LANG") or file_cfg.get("default_lang", "en")
+    loc_langs_setting = os.environ.get("MD_MCP_LOC_LANGS") or file_cfg.get("loc_langs")
+    try:
+        loc_langs = normalise_loc_langs(loc_langs_setting, default=default_lang, strict=True)
+    except ValueError as e:
+        raise RuntimeError(f"Invalid loc_langs: {e}") from e
+
     return Settings(
         mod_root=root,
         vanilla_path=v,
         cache_dir=cache_dir,
         submod_root=submod,
         validator_mode=validator_mode,
-        default_lang=os.environ.get("MD_MCP_DEFAULT_LANG") or file_cfg.get("default_lang", "en"),
+        default_lang=default_lang,
+        loc_langs=loc_langs,
     )
 
 

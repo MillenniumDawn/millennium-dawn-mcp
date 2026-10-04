@@ -42,6 +42,7 @@ md-mcp doctor --mod-root /path/to/Millennium-Dawn
 # cache_dir:      /Users/.../Millennium-Dawn/.md-mcp-cache
 # validator_mode: isolated
 # default_lang:   en
+# loc_langs:      en
 ```
 
 Prime the indexes (cold build is ~6 s on a modern Mac, ~30 s under fully
@@ -129,6 +130,7 @@ Full env-var reference:
 | `MD_MCP_CACHE_DIR` | Override the cache location (use this for read-only checkouts). |
 | `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process` (faster, but deadlocks the server; `serve` forces `isolated` regardless). |
 | `MD_MCP_DEFAULT_LANG` | Default loc language for `resolve_loc` (defaults to `en`). |
+| `MD_MCP_LOC_LANGS` | Loc languages to index, e.g. `en,de` or `*` for all (defaults to just `default_lang`). Other languages still resolve, through a slower on-demand scan. |
 
 Example `~/.config/md-mcp/config.toml`:
 
@@ -138,6 +140,7 @@ submod_root   = "/Users/me/Programming/MD/my-submod"
 hoi4_path     = "/Users/me/Programming/MD/Hearts of Iron IV"
 validator_mode = "isolated"
 default_lang   = "en"
+loc_langs      = "en"   # or ["en", "de"], or "*"
 ```
 
 ### Submods and worktree overlays

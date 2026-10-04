@@ -7,8 +7,9 @@ Mirrors the proven design from `MD-VSCode-Utility-Tool/src/util/indexCache.ts`:
   * Per-index manifest stores `{relative_path: [mtime_ns, size]}` for every contributing
     file. On startup we stat the current files and reparse only the ones whose
     `(mtime, size)` moved.
-  * Data is stored as JSON (one file per index) so cross-language inspection and corruption
-    diagnosis are trivial.
+  * Data is stored as JSON so cross-language inspection and corruption diagnosis are trivial.
+    Small indexes keep one `<name>.data.json`; large ones (`sharded = True`) keep one JSON shard
+    per contributing file under `<name>.data/` so a one-file edit rewrites one shard.
 
 Size is tracked alongside mtime — guards against the rare same-second rewrite that
 mtime alone would miss.
@@ -16,10 +17,13 @@ mtime alone would miss.
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import json
 import logging
 import multiprocessing
 import os
+import re
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
@@ -96,18 +100,37 @@ def _atomic_write_text(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
+_SHARD_STEM_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def shard_filename(relpath: str) -> str:
+    """Stable, filesystem-safe shard name for a contributing file's relpath.
+
+    A readable stem keeps `ls` useful when diagnosing a cache; the digest of the full
+    relpath keeps names unique. The relpath is also stored inside the shard and
+    checked on load, so a digest collision reads as a corrupt shard (re-parse), not
+    as another file's data.
+    """
+    digest = hashlib.sha256(relpath.encode("utf-8")).hexdigest()[:16]
+    stem = _SHARD_STEM_RE.sub("_", Path(relpath).name)[:60].strip("._") or "file"
+    return f"{stem}-{digest}.json"
+
+
 class IndexCache:
     """Versioned on-disk cache backing a single index.
 
     Layout:
         <cache_dir>/v<version>/<name>.manifest.json   — {file: [mtime_ns, size]}
-        <cache_dir>/v<version>/<name>.data.json       — index-specific payload
+        <cache_dir>/v<version>/<name>.data.json       — monolithic payload (default)
+        <cache_dir>/v<version>/<name>.data/<shard>    — one shard per contributing file
+                                                        (indexes with `sharded = True`)
     """
 
     def __init__(self, cache_dir: Path, name: str, version: int):
         self.dir = cache_dir / f"v{version}"
         self.manifest_path = self.dir / f"{name}.manifest.json"
         self.data_path = self.dir / f"{name}.data.json"
+        self.shard_dir = self.dir / f"{name}.data"
         self.name = name
         self.version = version
 
@@ -132,7 +155,7 @@ class IndexCache:
         payload = {path: sig.to_json() for path, sig in sigs.items()}
         _atomic_write_text(self.manifest_path, json.dumps(payload))
 
-    # ----- data -------------------------------------------------------------
+    # ----- data (monolithic) ------------------------------------------------
 
     def load_data(self) -> dict | None:
         if not self.data_path.exists():
@@ -148,6 +171,66 @@ class IndexCache:
     def save_data(self, payload: dict) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
         _atomic_write_text(self.data_path, json.dumps(payload))
+
+    # ----- data (sharded, one shard per contributing file) -------------------
+
+    def shard_path(self, relpath: str) -> Path:
+        return self.shard_dir / shard_filename(relpath)
+
+    def load_shard(self, relpath: str) -> tuple[list[dict] | None, str | None] | None:
+        """Return `(records, error)` for one file, or None when the shard is missing or corrupt.
+
+        `records` is None for a file whose parse failed (`error` then says why when
+        the index tracks parse errors). A None return means "re-parse this file".
+        """
+        path = self.shard_path(relpath)
+        try:
+            # shard paths are derived from a digest under cache_dir, not caller input.
+            # pi-lens-ignore: python-path-traversal
+            with open(path, encoding="utf-8") as fh:
+                raw = json.loads(fh.read())
+        except (OSError, ValueError):
+            return None
+        if not isinstance(raw, dict) or raw.get("relpath") != relpath:
+            return None
+        records = raw.get("records")
+        error = raw.get("error")
+        if records is not None and (
+            not isinstance(records, list) or not set(map(type, records)) <= {dict}
+        ):
+            return None
+        if error is not None and not isinstance(error, str):
+            return None
+        return records, error
+
+    def save_shard(self, relpath: str, records: list[dict] | None, error: str | None) -> None:
+        self.shard_dir.mkdir(parents=True, exist_ok=True)
+        payload: dict[str, Any] = {"relpath": relpath, "records": records}
+        if error is not None:
+            payload["error"] = error
+        _atomic_write_text(self.shard_path(relpath), json.dumps(payload))
+
+    def delete_shard(self, relpath: str) -> None:
+        with contextlib.suppress(OSError):
+            self.shard_path(relpath).unlink()
+
+    def prune_shards(self, keep: Iterable[str]) -> int:
+        """Delete every file in the shard dir that isn't a shard of `keep` (orphans, `.tmp`)."""
+        wanted = {shard_filename(rel) for rel in keep}
+        removed = 0
+        try:
+            entries = list(self.shard_dir.iterdir())
+        except OSError:
+            return 0
+        for entry in entries:
+            if entry.name in wanted:
+                continue
+            try:
+                entry.unlink()
+                removed += 1
+            except OSError:
+                pass
+        return removed
 
 
 def signatures_for(paths: Iterable[Path], roots: Path | list[Path]) -> dict[str, FileSig]:
@@ -327,6 +410,9 @@ class GenericTxtIndex:
     missing_result: Any = None
     track_parse_errors: bool = False
     warn_on_duplicates: bool = True
+    # One cache shard per contributing file instead of a single `data.json`; a one-file
+    # edit then rewrites one shard, and a corrupt shard costs one re-parse.
+    sharded: bool = False
 
     def __init__(
         self,
@@ -347,6 +433,7 @@ class GenericTxtIndex:
         self._subdirs = _normalise_specs(self.subdirs or self.subdir)
         self._patterns = _normalise_specs(self.patterns or self.pattern)
 
+        self._key_fn = self._build_key_fn()
         self._by_file: dict[str, list[dict]] = {}
         self._by_key: dict[Any, dict] = {}
         self._duplicates: dict[Any, list[str]] = {}
@@ -414,42 +501,74 @@ class GenericTxtIndex:
         plan = plan_rebuild(self._cache, self._collect_files(), self._roots(), self._loaded)
         if plan is None:
             return
-
         if self._loaded:
-            cached_data = {"files": self._by_file, "parse_errors": self._parse_errors}
+            self._rebuild_incremental(plan)
         else:
-            cached_data = self._cache.load_data() or {}
-        cached_files = cached_data.get("files", {})
-        if not isinstance(cached_files, dict):
-            cached_files = {}
+            self._rebuild_full(plan)
 
+    def _parse_results(
+        self, relpaths: list[str]
+    ) -> dict[str, tuple[Optional[list[dict]], Optional[str]]]:
+        """Parse `relpaths` and normalise each result to `(records, error)`."""
+        parsed: dict[str, tuple[Optional[list[dict]], Optional[str]]] = {}
+        if not relpaths:
+            return parsed
+        results = self._parse_parallel(relpaths)
+        for relpath, result in zip(relpaths, results, strict=False):
+            parsed[relpath] = (getattr(result, "records", result), getattr(result, "error", None))
+        return parsed
+
+    @staticmethod
+    def _failure_message(error: Optional[str]) -> str:
+        return error or "parser worker failed"
+
+    def _rebuild_full(self, plan: RebuildPlan) -> None:
+        """First load: reuse whatever the persistent cache still holds, parse the rest."""
         new_by_file: dict[str, list[dict]] = {}
-        for relpath in plan.staleness.unchanged:
-            if relpath in cached_files:
-                new_by_file[relpath] = cached_files[relpath]
-
         new_parse_errors: dict[str, str] = {}
-        if self.track_parse_errors:
-            cached_errors = cached_data.get("parse_errors", {})
-            if not isinstance(cached_errors, dict):
-                cached_errors = {}
-            new_parse_errors = {
-                relpath: cached_errors[relpath]
-                for relpath in plan.staleness.unchanged
-                if relpath in cached_errors
-            }
-            for relpath in new_parse_errors:
-                new_by_file.pop(relpath, None)
+        to_parse = list(plan.to_parse)
 
-        if plan.to_parse:
-            results = self._parse_parallel(plan.to_parse)
-            for relpath, result in zip(plan.to_parse, results, strict=False):
-                records = getattr(result, "records", result)
-                error = getattr(result, "error", None)
+        if self.sharded:
+            for relpath in plan.staleness.unchanged:
+                shard = self._cache.load_shard(relpath)
+                if shard is None:
+                    # Missing or corrupt shard: re-parse just this file.
+                    logger.info(
+                        "%s index: re-parsing %s (shard unavailable)", self.cache_name, relpath
+                    )
+                    to_parse.append(relpath)
+                    continue
+                records, error = shard
                 if records is not None:
                     new_by_file[relpath] = records
                 elif self.track_parse_errors:
-                    new_parse_errors[relpath] = error or "parser worker failed"
+                    new_parse_errors[relpath] = self._failure_message(error)
+        else:
+            cached_data = self._cache.load_data() or {}
+            cached_files = cached_data.get("files", {})
+            if not isinstance(cached_files, dict):
+                cached_files = {}
+            for relpath in plan.staleness.unchanged:
+                if relpath in cached_files:
+                    new_by_file[relpath] = cached_files[relpath]
+            if self.track_parse_errors:
+                cached_errors = cached_data.get("parse_errors", {})
+                if not isinstance(cached_errors, dict):
+                    cached_errors = {}
+                new_parse_errors = {
+                    relpath: cached_errors[relpath]
+                    for relpath in plan.staleness.unchanged
+                    if relpath in cached_errors
+                }
+                for relpath in new_parse_errors:
+                    new_by_file.pop(relpath, None)
+
+        parsed = self._parse_results(to_parse)
+        for relpath, (records, error) in parsed.items():
+            if records is not None:
+                new_by_file[relpath] = records
+            elif self.track_parse_errors:
+                new_parse_errors[relpath] = self._failure_message(error)
 
         # Last-write-wins in canonical relpath order, regardless of how files were
         # discovered, loaded from the manifest, or reparsed.
@@ -465,13 +584,7 @@ class GenericTxtIndex:
                 if existing is not None:
                     shadowed_file = existing["file"]
                     if self.warn_on_duplicates and k not in new_duplicates:
-                        logger.warning(
-                            "Duplicate key %r in %s: %s shadowed by %s",
-                            k,
-                            self.cache_name,
-                            shadowed_file,
-                            relpath,
-                        )
+                        self._warn_duplicate(k, shadowed_file, relpath)
                     new_duplicates.setdefault(k, []).append(shadowed_file)
                 new_by_key[k] = {**rec, "file": relpath}
 
@@ -480,19 +593,164 @@ class GenericTxtIndex:
         self._duplicates = new_duplicates
         self._parse_errors = new_parse_errors
 
+        if plan.should_save or len(to_parse) > len(plan.to_parse):
+            self._persist(plan, parsed, full=True)
+
+    def _rebuild_incremental(self, plan: RebuildPlan) -> None:
+        """Warm refresh: patch the in-process maps for just the files that moved.
+
+        Only keys that appear in a changed file (before or after) can change winner or
+        duplicate state, so only those keys are recomputed; every other entry of
+        `_by_key` / `_duplicates` is reused as-is. The result is identical to a full
+        rebuild over the same files.
+        """
+        st = plan.staleness
+        dropped = set(st.stale) | set(st.removed) | set(st.added)
+        old_by_file = self._by_file
+        old_by_key = self._by_key
+        old_duplicates = self._duplicates
+
+        parsed = self._parse_results(plan.to_parse)
+
+        new_by_file = {rel: recs for rel, recs in old_by_file.items() if rel not in dropped}
+        new_parse_errors = {
+            rel: err for rel, err in self._parse_errors.items() if rel not in dropped
+        }
+        for relpath, (records, error) in parsed.items():
+            if records is not None:
+                new_by_file[relpath] = records
+            elif self.track_parse_errors:
+                new_parse_errors[relpath] = self._failure_message(error)
+        new_by_file = dict(sorted(new_by_file.items()))
+
+        # Keys touched by a changed file, and the files that now contribute each.
+        touched: set[Any] = set()
+        for relpath in dropped:
+            for rec in old_by_file.get(relpath, ()):
+                k = self._record_key(rec)
+                if k is not None:
+                    touched.add(k)
+        added_contributors: dict[Any, list[str]] = {}
+        for relpath in plan.to_parse:
+            for rec in new_by_file.get(relpath, ()):
+                k = self._record_key(rec)
+                if k is not None:
+                    touched.add(k)
+                    added_contributors.setdefault(k, []).append(relpath)
+
+        new_by_key = dict(old_by_key)
+        new_duplicates = dict(old_duplicates)
+        last_record_by_file: dict[str, dict[Any, dict]] = {}
+
+        def last_record(relpath: str, key: Any) -> dict:
+            per_file = last_record_by_file.get(relpath)
+            if per_file is None:
+                per_file = {}
+                for rec in new_by_file[relpath]:
+                    rk = self._record_key(rec)
+                    if rk is not None:
+                        per_file[rk] = rec
+                last_record_by_file[relpath] = per_file
+            return per_file[key]
+
+        for k in touched:
+            old_winner = old_by_key.get(k)
+            # Contributing files in canonical order, one entry per record (a file may
+            # define a key more than once). `_duplicates[k]` holds all but the winner.
+            contributors: list[str] = list(old_duplicates.get(k, ()))
+            if old_winner is not None:
+                contributors.append(old_winner["file"])
+            contributors = [rel for rel in contributors if rel not in dropped]
+            contributors.extend(added_contributors.get(k, ()))
+            contributors.sort()
+
+            if not contributors:
+                new_by_key.pop(k, None)
+                new_duplicates.pop(k, None)
+                continue
+
+            winner_file = contributors[-1]
+            if (
+                old_winner is not None
+                and old_winner["file"] == winner_file
+                and winner_file not in dropped
+            ):
+                new_by_key[k] = old_winner
+            else:
+                new_by_key[k] = {**last_record(winner_file, k), "file": winner_file}
+
+            shadowed = contributors[:-1]
+            if shadowed:
+                if self.warn_on_duplicates and k not in old_duplicates:
+                    self._warn_duplicate(k, shadowed[-1], winner_file)
+                new_duplicates[k] = shadowed
+            else:
+                new_duplicates.pop(k, None)
+
+        self._by_file = new_by_file
+        self._by_key = new_by_key
+        self._duplicates = new_duplicates
+        self._parse_errors = new_parse_errors
+
         if plan.should_save:
-            payload: dict[str, Any] = {"files": new_by_file}
+            self._persist(plan, parsed, full=False)
+
+    def _warn_duplicate(self, key: Any, shadowed_file: str, winner_file: str) -> None:
+        logger.warning(
+            "Duplicate key %r in %s: %s shadowed by %s",
+            key,
+            self.cache_name,
+            shadowed_file,
+            winner_file,
+        )
+
+    def _persist(
+        self,
+        plan: RebuildPlan,
+        parsed: dict[str, tuple[Optional[list[dict]], Optional[str]]],
+        *,
+        full: bool,
+    ) -> None:
+        """Write data then manifest. Data first: a crash in between leaves a manifest
+        that still reads as stale, so the next start re-parses instead of trusting
+        half-written state."""
+        if self.sharded:
+            for relpath, (records, error) in parsed.items():
+                self._cache.save_shard(relpath, records, error if self.track_parse_errors else None)
+            for relpath in plan.staleness.removed:
+                self._cache.delete_shard(relpath)
+            if full:
+                self._cache.prune_shards(plan.current_sigs)
+        else:
+            payload: dict[str, Any] = {"files": self._by_file}
             if self.track_parse_errors:
-                payload["parse_errors"] = new_parse_errors
+                payload["parse_errors"] = self._parse_errors
             self._cache.save_data(payload)
-            self._cache.save_manifest(plan.current_sigs)
+        self._cache.save_manifest(plan.current_sigs)
 
     def _record_key(self, record: dict) -> Any:
+        return self._key_fn(record)
+
+    def _build_key_fn(self) -> Callable[[dict], Any]:
+        """Specialised key extractor — it runs once per record (hundreds of thousands for loc)."""
         primary_key = self.primary_key
-        if not isinstance(primary_key, str):
+        if isinstance(primary_key, str):
+            return lambda record: record.get(primary_key)
+        if len(primary_key) == 2:
+            first, second = primary_key
+
+            def pair_key(record: dict) -> Any:
+                a = record.get(first)
+                b = record.get(second)
+                return None if a is None or b is None else (a, b)
+
+            return pair_key
+
+        def tuple_key(record: dict) -> Any:
             values = tuple(record.get(field) for field in primary_key)
             return values if all(value is not None for value in values) else None
-        return record.get(primary_key)
+
+        return tuple_key
 
     def _parse_parallel(self, relpaths: list[str]) -> list[Any]:
         fn = type(self).parser_fn

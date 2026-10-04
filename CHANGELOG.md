@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- `loc_langs` setting (`MD_MCP_LOC_LANGS`, config.toml `loc_langs`; comma-separated ISO codes or
+  `*`). The localisation index now covers only these languages, default just `default_lang`.
+  `resolve_loc` / `list_keys` for any other language fall back to an on-demand, in-memory scan of
+  that language's files, invalidated by file signature. `md-mcp doctor` prints `loc_langs`.
+- Sharded index cache: an index with `sharded = True` stores one JSON shard per contributing file
+  under `<name>.data/`. A corrupt or missing shard re-parses only that file; removed files' shards
+  are deleted. Enabled for localisation.
+
 ### Changed
 
 - `line_starts` (and the GFX index's line-offset table) now scans with a `str.find` loop instead of
@@ -19,8 +29,13 @@
   (`MD_MCP_AST_CACHE_SIZE`). `resolve_focus`, `focus_graph`, the scope walkers behind
   `focus_layout` / `check_refs` / deep `find_focuses` filters, and the `md://` resources share it,
   so a repeat call on `05_usa.txt` drops from ~700 ms to ~30 ms. Parse errors are not cached.
-- `line_starts` scans with `str.find` instead of a per-character Python loop (~5x faster on large
-  files).
+- `GenericTxtIndex._rebuild` is incremental after the first load: only keys in changed files are
+  recomputed (winner/duplicate state matches a full rebuild, including un-shadowing on removal)
+  instead of rebuilding every map and rewriting the whole payload. English loc, 232 k keys:
+  one-file edit 1.0-1.9 s -> 25-60 ms, startup ~1.0 s -> ~0.65 s.
+- Localisation cache version 2 -> 3 (language-scoped, sharded). Old `v2/` caches are ignored.
+  `list_country_content` loc files and `LocalisationIndex.list_files()` now cover indexed
+  languages only.
 
 ## 1.0.0 - 2026-09-02
 

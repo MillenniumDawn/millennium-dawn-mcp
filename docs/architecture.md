@@ -83,6 +83,8 @@ class Settings:
     cache_dir: Path
     validator_mode: str = "isolated"
     default_lang: str = "en"
+    submod_root: Optional[Path] = None
+    loc_langs: tuple[str, ...] = ()  # empty -> (default_lang,)
 ```
 
 Resolution order: CLI flag > env var > `~/.config/md-mcp/config.toml` >
@@ -98,7 +100,9 @@ Each index inherits `GenericTxtIndex` (`indexes/base.py`):
 
 - **In-process state**: `self._by_file` (relpath → records) and `self._by_key`
   (id → record) dicts, lazily built on first call.
-- **Persistent state**: `<cache_dir>/v<N>/<name>.{data,manifest}.json`.
+- **Persistent state**: `<cache_dir>/v<N>/<name>.manifest.json` plus either
+  `<name>.data.json` or, for sharded indexes (localisation), one shard per file
+  under `<name>.data/`. Warm refreshes patch the maps incrementally.
 - **Staleness**: `StaleCheck` debounces re-stat for 2 seconds inside a single
   agent turn. Past that, `ensure_fresh()` stats the contributing files and
   diffs against the on-disk manifest.

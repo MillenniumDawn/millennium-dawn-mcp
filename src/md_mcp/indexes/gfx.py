@@ -42,11 +42,6 @@ _BRACE_TOKEN_RE = re.compile(r'"(?:\\.|[^"\\])*"|#[^\n]*|[{}]')
 _SPRITE_TYPES_OPEN_RE = re.compile(r"\bspriteTypes\w*\s*=\s*\{", re.IGNORECASE)
 
 
-def _build_line_offsets(text: str) -> list[int]:
-    """Cumulative offset of each line start. O(n) once, O(log n) lookups."""
-    return line_starts(text)
-
-
 def _line_at(line_offsets: list[int], pos: int) -> int:
     """Binary search line index for the given position. 1-based line number."""
     # bisect_right gives the insertion point; line index is that - 1, 1-based becomes that.
@@ -65,7 +60,7 @@ def _scan_sprite_blocks(text: str) -> list[dict]:
 
     Roughly O(n) in characters, no Python-level char-by-char loop.
     """
-    line_offsets = _build_line_offsets(text)
+    line_offsets = line_starts(text)
 
     # Find brace positions (skipping strings and comments).
     open_positions: list[int] = []

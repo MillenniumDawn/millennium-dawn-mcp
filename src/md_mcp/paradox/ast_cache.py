@@ -15,9 +15,12 @@ Rules for callers:
 * `error_prefix` only decorates `ParseError` messages. It is not part of the key;
   the root is stored under whatever prefix the first caller used. Failed parses are
   never cached, so every failure re-raises with the caller's own prefix.
-* The cache holds at most `MD_MCP_AST_CACHE_SIZE` files (default 32). Each entry
-  keeps the decoded text plus the AST, so very large trees cost tens of MB each;
-  lower the size on memory-constrained hosts.
+* The cache holds at most `MD_MCP_AST_CACHE_SIZE` files (default 32) and at most
+  `MD_MCP_AST_CACHE_BYTES` of source text (default 8 MB, measured in characters).
+  An AST is roughly 30x its source size (`05_usa.txt`: 1.5 MB of text, ~41 MB of
+  nodes), so the byte bound is what keeps a scope walk over hundreds of files from
+  pinning a gigabyte of trees. A file larger than the byte bound is parsed but not
+  cached.
 """
 
 from __future__ import annotations
@@ -32,23 +35,35 @@ from .nodes import Node
 from .parser import parse_string
 
 DEFAULT_CACHE_SIZE = 32
+DEFAULT_CACHE_BYTES = 8_000_000
 _ENV_SIZE = "MD_MCP_AST_CACHE_SIZE"
+_ENV_BYTES = "MD_MCP_AST_CACHE_BYTES"
 
 _Key = tuple[str, int, int]
 
 _lock = threading.Lock()
 _cache: "OrderedDict[_Key, tuple[str, Node]]" = OrderedDict()
+_total_chars = 0
 
 
-def max_entries() -> int:
-    """Configured LRU capacity; invalid or negative env values fall back to the default."""
-    raw = os.environ.get(_ENV_SIZE)
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
     if raw is None or not raw.strip():
-        return DEFAULT_CACHE_SIZE
+        return default
     try:
         return max(0, int(raw))
     except ValueError:
-        return DEFAULT_CACHE_SIZE
+        return default
+
+
+def max_entries() -> int:
+    """Configured LRU capacity in files; invalid or negative env values fall back to the default."""
+    return _env_int(_ENV_SIZE, DEFAULT_CACHE_SIZE)
+
+
+def max_bytes() -> int:
+    """Configured bound on cached source text (characters); invalid values fall back."""
+    return _env_int(_ENV_BYTES, DEFAULT_CACHE_BYTES)
 
 
 def parse_cached(abs_path: Path, *, error_prefix: str = "") -> tuple[str, Node]:
@@ -77,20 +92,34 @@ def parse_cached(abs_path: Path, *, error_prefix: str = "") -> tuple[str, Node]:
     text = read_text(path)
     root = parse_string(text, error_prefix=error_prefix)
 
+    global _total_chars
     limit = max_entries()
-    if limit > 0:
+    byte_limit = max_bytes()
+    if limit > 0 and len(text) <= byte_limit:
         with _lock:
+            old = _cache.pop(key, None)
+            if old is not None:
+                _total_chars -= len(old[0])
             _cache[key] = (text, root)
-            _cache.move_to_end(key)
-            while len(_cache) > limit:
-                _cache.popitem(last=False)
+            _total_chars += len(text)
+            while _cache and (len(_cache) > limit or _total_chars > byte_limit):
+                _, (evicted_text, _) = _cache.popitem(last=False)
+                _total_chars -= len(evicted_text)
     return text, root
 
 
 def clear() -> None:
     """Drop every cached entry (tests, or a caller that knows files changed)."""
+    global _total_chars
     with _lock:
         _cache.clear()
+        _total_chars = 0
+
+
+def total_chars() -> int:
+    """Characters of source text currently held."""
+    with _lock:
+        return _total_chars
 
 
 def size() -> int:

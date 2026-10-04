@@ -82,9 +82,16 @@ def load(mod_root: str | Path | None = None, submod_root: str | Path | None = No
     default_lang = os.environ.get("MD_MCP_DEFAULT_LANG") or file_cfg.get("default_lang", "en")
     loc_langs_setting = os.environ.get("MD_MCP_LOC_LANGS") or file_cfg.get("loc_langs")
     try:
-        loc_langs = normalise_loc_langs(loc_langs_setting, default=default_lang, strict=True)
-    except ValueError as e:
+        # An explicit loc_langs must be valid; a derived one (just default_lang) is
+        # lenient so an unknown MD_MCP_DEFAULT_LANG cannot stop the server starting.
+        loc_langs = normalise_loc_langs(
+            loc_langs_setting, default=default_lang, strict=loc_langs_setting is not None
+        )
+    except (TypeError, ValueError) as e:
         raise RuntimeError(f"Invalid loc_langs: {e}") from e
+    if not loc_langs:
+        # default_lang is not a known code: index English rather than nothing.
+        loc_langs = ("en",)
 
     return Settings(
         mod_root=root,

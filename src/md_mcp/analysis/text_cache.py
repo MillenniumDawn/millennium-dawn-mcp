@@ -20,10 +20,10 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
+from ..util.encoding import read_text as decode_text
+
 DEFAULT_MAX_BYTES = 128 * 1024 * 1024
 ENV_VAR = "MD_MCP_TEXT_CACHE_BYTES"
-
-_BOM = "\ufeff"
 
 
 def _env_max_bytes() -> int:
@@ -82,12 +82,10 @@ class TextCache:
                 return entry[2]
 
         try:
-            text = Path(key).read_bytes().decode("utf-8", errors="replace")
+            text = decode_text(key)
         except OSError:
             self._drop(key)
             return None
-        if text.startswith(_BOM):
-            text = text[1:]
 
         with self._lock:
             self.misses += 1

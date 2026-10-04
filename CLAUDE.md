@@ -257,6 +257,7 @@ The ISR focus_graph probe in the git history is a useful template.
 | `MD_MCP_SERIAL_PARSE` | `1` forces serial parsing — auto-set by `md-mcp serve`. |
 | `MD_MCP_TEXT_CACHE_BYTES` | Byte bound for `find_references`' in-memory file-text cache (default 134217728 = 128 MB; `0` disables caching). |
 | `MD_MCP_AST_CACHE_SIZE` | Parsed-AST LRU capacity in files (default 32, `0` disables). |
+| `MD_MCP_AST_CACHE_BYTES` | Bound on source text held by the parsed-AST cache (default 8000000; ASTs are ~30x their source). |
 
 Config-file equivalents in `~/.config/md-mcp/config.toml`. CLI flag > env >
 file > computed default.

@@ -96,7 +96,7 @@ def list_country_content(
     decisions: list[str] = _ids_with_prefix(decision_index, prefix)
     ideas: list[str] = _ids_with_prefix(idea_index, prefix)
     events, event_files = _events(event_index, tag_upper, prefix)
-    loc_files: list[str] = _loc_files(loc_index, tag_upper)
+    loc_files: list[str] = _loc_files(mod_root, tag_upper, submod_root=submod_root)
     mio_files = _scan_files(
         mod_root,
         "common/military_industrial_organization/organizations",
@@ -216,12 +216,27 @@ def _events(
     return events, files
 
 
-def _loc_files(loc_index: Optional[LocalisationIndex], tag_upper: str) -> list[str]:
-    if loc_index is None:
-        return []
-    loc_index.ensure_fresh()
+def _loc_files(mod_root: Path, tag_upper: str, *, submod_root: Optional[Path] = None) -> list[str]:
+    """Every localisation file named for the tag, in every language.
+
+    Walks the filesystem rather than the loc index: the index covers only the
+    configured `loc_langs`, and a country manifest must list every translation.
+    """
     pattern = re.compile(rf"(^|[/_]){re.escape(tag_upper)}(_|/|$)")
-    return [f for f in loc_index._by_file if pattern.search(f)]
+    out: set[str] = set()
+    for root in (submod_root, mod_root):
+        if root is None:
+            continue
+        d = root / "localisation"
+        if not d.is_dir():
+            continue
+        for p in d.rglob("*.yml"):
+            if not p.is_file():
+                continue
+            rel = str(p.relative_to(root))
+            if pattern.search(rel):
+                out.add(rel)
+    return sorted(out)
 
 
 def _tag_records(index: Optional[CountryTagIndex], tag_upper: str) -> list[str]:

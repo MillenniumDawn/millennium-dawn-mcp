@@ -181,8 +181,11 @@ most every 2 s, and only the files that moved are re-parsed. Nothing is written 
 disk, and parsing is always serial (no fork inside the server). The first lookup
 in a language costs about as much as a cold build of that language alone (~2 s for
 English); later ones are dict lookups. The English fallback uses the same path, so
-it works even when `en` is not indexed. `list_files()` and the per-country loc
-file list in `list_country_content` cover indexed languages only.
+it works even when `en` is not indexed. `list_files()` covers indexed languages
+only; `list_country_content` walks `localisation/` itself so a country manifest
+still lists every translation. A file whose `l_<lang>:` header disagrees with its
+filename suffix is selected by the suffix, so it is indexed (or scanned) under the
+filename's language rather than the header's.
 
 ## What the cache stores (and doesn't)
 

@@ -25,8 +25,9 @@
   drop from about 1.1-1.5 s to 50-90 ms; the directory walk still runs per call so added, edited, and
   removed files are always seen.
 - Parsed ASTs are now cached across tool and resource calls (`paradox/ast_cache.py`): a
-  process-wide LRU keyed by `(path, mtime_ns, size)`, 32 files by default
-  (`MD_MCP_AST_CACHE_SIZE`). `resolve_focus`, `focus_graph`, the scope walkers behind
+  process-wide LRU keyed by `(path, mtime_ns, size)`, bounded to 32 files
+  (`MD_MCP_AST_CACHE_SIZE`) and 8 MB of source text (`MD_MCP_AST_CACHE_BYTES`; ASTs are
+  ~30x their source). `resolve_focus`, `focus_graph`, the scope walkers behind
   `focus_layout` / `check_refs` / deep `find_focuses` filters, and the `md://` resources share it,
   so a repeat call on `05_usa.txt` drops from ~700 ms to ~30 ms. Parse errors are not cached.
 - `GenericTxtIndex._rebuild` is incremental after the first load: only keys in changed files are
@@ -34,8 +35,8 @@
   instead of rebuilding every map and rewriting the whole payload. English loc, 232 k keys:
   one-file edit 1.0-1.9 s -> 25-60 ms, startup ~1.0 s -> ~0.65 s.
 - Localisation cache version 2 -> 3 (language-scoped, sharded). Old `v2/` caches are ignored.
-  `list_country_content` loc files and `LocalisationIndex.list_files()` now cover indexed
-  languages only.
+  `LocalisationIndex.list_files()` now covers indexed languages only; `list_country_content`
+  still lists a country's loc files in every language (it walks `localisation/` directly).
 
 ## 1.0.0 - 2026-09-02
 

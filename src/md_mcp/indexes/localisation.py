@@ -71,10 +71,6 @@ _HEADER_RE = re.compile(r"^\s*(l_[a-z_]+)\s*:\s*$")
 _ENTRY_RE = re.compile(r"^\s*([^:#\s][^:#]*?)\s*:\s*\d*\s*\"((?:\\.|[^\"\\])*)\"\s*(?:#.*)?$")
 
 
-def _is_localisation_file(path: Path) -> bool:
-    return bool(_FILENAME_LANG_RE.search(path.name))
-
-
 def _file_lang_suffix(path: Path) -> Optional[str]:
     """The `l_<language>` suffix of a loc filename, lower-cased, or None."""
     m = _FILENAME_LANG_RE.search(path.name)
@@ -240,7 +236,13 @@ class LocalisationIndex(GenericTxtIndex):
         if scan.loaded and sigs == scan.sigs:
             return scan
 
-        kept = {rel: scan.files[rel] for rel, sig in sigs.items() if scan.sigs.get(rel) == sig}
+        # A file whose last parse failed has a signature but no records; it is
+        # re-parsed below rather than looked up.
+        kept = {
+            rel: scan.files[rel]
+            for rel, sig in sigs.items()
+            if scan.sigs.get(rel) == sig and rel in scan.files
+        }
         for rel in sorted(sigs):
             if rel in kept:
                 continue

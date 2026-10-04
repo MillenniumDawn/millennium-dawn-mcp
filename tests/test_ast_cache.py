@@ -102,6 +102,39 @@ def test_cache_disabled_with_size_zero(tmp_path, monkeypatch, parse_counter):
 def test_invalid_size_env_falls_back_to_default(monkeypatch):
     monkeypatch.setenv("MD_MCP_AST_CACHE_SIZE", "lots")
     assert ast_cache.max_entries() == ast_cache.DEFAULT_CACHE_SIZE
+    monkeypatch.setenv("MD_MCP_AST_CACHE_BYTES", "many")
+    assert ast_cache.max_bytes() == ast_cache.DEFAULT_CACHE_BYTES
+
+
+def test_byte_bound_evicts_oldest(tmp_path, monkeypatch, parse_counter):
+    # Room for two copies of SRC, not three.
+    monkeypatch.setenv("MD_MCP_AST_CACHE_BYTES", str(2 * len(SRC)))
+    a, b, c = (_write(tmp_path / f"{n}.txt", SRC) for n in "abc")
+
+    ast_cache.parse_cached(a)
+    ast_cache.parse_cached(b)
+    assert ast_cache.size() == 2
+    assert ast_cache.total_chars() == 2 * len(SRC)
+
+    ast_cache.parse_cached(c)  # evicts a
+    assert ast_cache.size() == 2
+    assert ast_cache.total_chars() == 2 * len(SRC)
+    ast_cache.parse_cached(b)  # still cached
+    assert parse_counter["n"] == 3
+    ast_cache.parse_cached(a)  # evicted, re-parsed
+    assert parse_counter["n"] == 4
+
+
+def test_file_larger_than_byte_bound_is_not_cached(tmp_path, monkeypatch, parse_counter):
+    monkeypatch.setenv("MD_MCP_AST_CACHE_BYTES", str(len(SRC) - 1))
+    f = _write(tmp_path / "a.txt", SRC)
+
+    ast_cache.parse_cached(f)
+    ast_cache.parse_cached(f)
+
+    assert parse_counter["n"] == 2
+    assert ast_cache.size() == 0
+    assert ast_cache.total_chars() == 0
 
 
 def test_parse_error_not_cached(tmp_path, parse_counter):

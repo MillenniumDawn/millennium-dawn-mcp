@@ -5,6 +5,8 @@ Every site delegates here, so an off-by-one breaks all line numbers.
 
 from __future__ import annotations
 
+import pytest
+
 from md_mcp.paradox import parse_string
 from md_mcp.paradox.schema import extract_focus_records, to_json_with_lines
 from md_mcp.util.line_numbers import line_and_column, line_starts, pos_to_line
@@ -54,6 +56,47 @@ def test_line_starts_non_ascii_uses_str_indices():
     assert pos_to_line(0, starts) == 1
     assert pos_to_line(1, starts) == 1
     assert pos_to_line(2, starts) == 2
+
+
+def _reference_line_starts(text: str) -> list[int]:
+    """The original char-by-char implementation, kept as the oracle."""
+    starts = [0]
+    for i, ch in enumerate(text):
+        if ch == "\n":
+            starts.append(i + 1)
+    return starts
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "abc",
+        "abc\n",
+        "a\nb\nc",
+        "a\r\nb\r\nc\r\n",
+        "a\rb\r\n\r\n",
+        "\n\n\na\n\n",
+        "é\n日本語\n😀\nx",
+    ],
+    ids=[
+        "empty",
+        "no-trailing-newline",
+        "trailing-newline",
+        "multi-line",
+        "crlf",
+        "bare-cr-and-crlf",
+        "consecutive-newlines",
+        "multibyte",
+    ],
+)
+def test_line_starts_matches_reference_implementation(text):
+    assert line_starts(text) == _reference_line_starts(text)
+
+
+def test_line_starts_matches_reference_on_large_generated_text():
+    text = "".join(f"line {i} = {{ x = {i} }}\n" if i % 7 else "\n" for i in range(2000))
+    assert line_starts(text) == _reference_line_starts(text)
 
 
 # ---------------------------------------------------------------------------
@@ -205,3 +248,39 @@ def test_line_numbers_agree_with_lexer_for_offsets():
     id_tok = tok.next()
     assert id_tok.value == "id"
     assert pos_to_line(id_tok.start, starts) == 2
+
+
+def test_tokenizer_line_table_is_lazy_and_error_position_is_correct():
+    """The line table is built on first error, not in __init__."""
+    from md_mcp.paradox.lexer import LexError, Tokenizer
+
+    src = "a = 1\r\nb = 2\r\nc = $"
+    tok = Tokenizer(src)
+    assert tok._line_starts is None  # not computed eagerly
+    tok.next()  # a
+    tok.next()  # =
+    assert tok._line_starts is None  # still not built by normal tokenizing
+    with pytest.raises(LexError) as excinfo:
+        while True:
+            tok.next()
+    assert (excinfo.value.line, excinfo.value.column) == (
+        3,
+        4,
+    )  # failed match begins right after `c =`
+    assert tok._line_starts == _reference_line_starts(src)  # built on first error
+
+
+def test_tokenizer_error_position_with_multibyte_text_before_error():
+    from md_mcp.paradox.lexer import LexError, Tokenizer
+
+    src = "# é 日本\n\n  x = $"
+    tok = Tokenizer(src)
+    with pytest.raises(LexError) as excinfo:
+        while True:
+            tok.next()
+    # Error offset is where the failed match began (right after `x =`).
+    err_pos = src.index("$") - 1
+    assert (excinfo.value.line, excinfo.value.column) == line_and_column(
+        err_pos, _reference_line_starts(src)
+    )
+    assert (excinfo.value.line, excinfo.value.column) == (3, 6)

@@ -22,6 +22,7 @@ from typing import Optional
 from ..paradox import parse_string
 from ..paradox.schema import SPRITE_KINDS, extract_sprite_records
 from ..util.encoding import read_text
+from ..util.line_numbers import line_starts
 from .base import GenericTxtIndex
 
 logger = logging.getLogger(__name__)
@@ -42,12 +43,8 @@ _SPRITE_TYPES_OPEN_RE = re.compile(r"\bspriteTypes\w*\s*=\s*\{", re.IGNORECASE)
 
 
 def _build_line_offsets(text: str) -> list[int]:
-    """Precompute cumulative byte offset of each line start. O(n) once, O(log n) lookups."""
-    offsets = [0]
-    for i, c in enumerate(text):
-        if c == "\n":
-            offsets.append(i + 1)
-    return offsets
+    """Cumulative offset of each line start. O(n) once, O(log n) lookups."""
+    return line_starts(text)
 
 
 def _line_at(line_offsets: list[int], pos: int) -> int:

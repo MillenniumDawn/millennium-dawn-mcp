@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `line_starts` (and the GFX index's line-offset table) now scans with a `str.find` loop instead of
+  a per-character Python loop, and the tokenizer builds its line table lazily on the first parse
+  error rather than in `Tokenizer.__init__`. Output is unchanged; `parse_string` on `05_usa.txt` is
+  noticeably faster.
+
 ## 1.0.0 - 2026-09-02
 
 First tagged release. Cumulative changes from the initial commit through PR #120. Read-only MCP

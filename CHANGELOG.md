@@ -8,6 +8,12 @@
   a per-character Python loop, and the tokenizer builds its line table lazily on the first parse
   error rather than in `Tokenizer.__init__`. Output is unchanged; `parse_string` on `05_usa.txt` is
   noticeably faster.
+- `find_references` is much faster: files that do not contain the target as a literal substring skip
+  the regex (every reference pattern embeds the escaped target, so results are identical), and decoded
+  file contents are kept in a stat-keyed in-process LRU cache (`analysis/text_cache.py`, default 128 MB,
+  override with `MD_MCP_TEXT_CACHE_BYTES`). On the real mod, warm `focus` / `sprite` / `flag` lookups
+  drop from about 1.1-1.5 s to 50-90 ms; the directory walk still runs per call so added, edited, and
+  removed files are always seen.
 
 ## 1.0.0 - 2026-09-02
 

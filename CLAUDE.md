@@ -254,6 +254,7 @@ The ISR focus_graph probe in the git history is a useful template.
 | `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process`. `in_process` is unsafe under `serve`; see rule 6. |
 | `MD_MCP_DEFAULT_LANG` | Default loc language for `resolve_loc` (default `en`). |
 | `MD_MCP_SERIAL_PARSE` | `1` forces serial parsing — auto-set by `md-mcp serve`. |
+| `MD_MCP_TEXT_CACHE_BYTES` | Byte bound for `find_references`' in-memory file-text cache (default 134217728 = 128 MB; `0` disables caching). |
 
 Config-file equivalents in `~/.config/md-mcp/config.toml`. CLI flag > env >
 file > computed default.

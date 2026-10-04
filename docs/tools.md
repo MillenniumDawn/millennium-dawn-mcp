@@ -514,6 +514,15 @@ scripted trigger is referenced.
 Returns `{ok, kind, target, total, returned, truncated, scan_truncated, matches}` or, with
 `files_only`, `{..., mode: "files_only", total_files, files_returned, files}`.
 
+**Performance.** Each call re-walks the kind's scan directories (so added and
+removed files are always seen) but reads file contents through a stat-keyed
+in-process cache (`analysis/text_cache.py`): a file is re-read only when its
+`(mtime_ns, size)` changes. The cache is memory-only, LRU-evicted, and bounded by
+`MD_MCP_TEXT_CACHE_BYTES` (default 128 MB; `0` disables it). Files that do not
+contain `target` as a literal substring skip the regex entirely, which is exact
+because every pattern embeds the escaped target. Short, hot targets (a loc key like
+`USA`) hit many files, so they benefit least.
+
 The internal **scan budget** caps how many matches the scanner accumulates
 before bailing. `scan_truncated=True` means the response is incomplete; raise
 `limit` or set `files_only=True` for hot targets.

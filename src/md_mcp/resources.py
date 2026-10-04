@@ -19,6 +19,7 @@ from .indexes import (
     LocalisationIndex,
 )
 from .paradox import parse_string
+from .paradox.ast_cache import parse_cached
 from .paradox.nodes import Node, SymbolNode
 from .paradox.schema import (
     find_decision_nodes,
@@ -26,7 +27,6 @@ from .paradox.schema import (
     find_idea_nodes,
     find_sprite_nodes,
 )
-from .util.encoding import read_text
 from .util.line_numbers import line_starts, pos_to_line
 from .util.pathing import resolve_scope_file
 
@@ -42,8 +42,8 @@ def focus_resource(focus_id: str, settings: Settings, focus_index: FocusIndex) -
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {cached['file']}")
 
-    text = read_text(abs_path)
-    return _extract_focus_block(text, focus_id)
+    text, root = parse_cached(abs_path)
+    return _extract_focus_block(text, focus_id, root)
 
 
 def loc_resource(
@@ -66,8 +66,7 @@ def sprite_resource(name: str, settings: Settings, gfx_index: GfxIndex) -> str:
     )
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
-    text = read_text(abs_path)
-    root = parse_string(text)
+    text, root = parse_cached(abs_path)
     candidates = find_sprite_nodes(root, name)
     node = _anchor(candidates, text, rec, kind="Sprite", ident=name)
     return _slice_node(text, node)
@@ -83,8 +82,7 @@ def event_resource(event_id: str, settings: Settings, event_index: EventIndex) -
     )
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
-    text = read_text(abs_path)
-    root = parse_string(text)
+    text, root = parse_cached(abs_path)
     candidates = find_event_nodes(root, event_id)
     node = _anchor(candidates, text, rec, kind="Event", ident=event_id)
     return _slice_node(text, node)
@@ -100,8 +98,7 @@ def decision_resource(decision_id: str, settings: Settings, decision_index: Deci
     )
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
-    text = read_text(abs_path)
-    root = parse_string(text)
+    text, root = parse_cached(abs_path)
     candidates = find_decision_nodes(root, decision_id)
     node = _anchor(candidates, text, rec, kind="Decision", ident=decision_id)
     return _slice_node(text, node)
@@ -117,8 +114,7 @@ def idea_resource(idea_id: str, settings: Settings, idea_index: IdeaIndex) -> st
     )
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
-    text = read_text(abs_path)
-    root = parse_string(text)
+    text, root = parse_cached(abs_path)
     candidates = find_idea_nodes(root, idea_id)
     node = _anchor(candidates, text, rec, kind="Idea", ident=idea_id)
     return _slice_node(text, node)
@@ -166,14 +162,15 @@ def _slice_node(text: str, node: Node) -> str:
     return text[start : node.value_end_token.end]
 
 
-def _extract_focus_block(text: str, focus_id: str) -> str:
+def _extract_focus_block(text: str, focus_id: str, root: Optional[Node] = None) -> str:
     """Find `focus = { id = <id> ... }` (or `shared_focus`/`joint_focus`) and return raw text.
 
     Uses the parser to locate the block by line, then slices the text by brace
     matching from there — this preserves comments and original whitespace, which
     parsing-then-rendering would strip.
     """
-    root = parse_string(text)
+    if root is None:
+        root = parse_string(text)
 
     candidates: list = []
     for top in root.children():

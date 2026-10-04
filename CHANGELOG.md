@@ -14,6 +14,13 @@
   override with `MD_MCP_TEXT_CACHE_BYTES`). On the real mod, warm `focus` / `sprite` / `flag` lookups
   drop from about 1.1-1.5 s to 50-90 ms; the directory walk still runs per call so added, edited, and
   removed files are always seen.
+- Parsed ASTs are now cached across tool and resource calls (`paradox/ast_cache.py`): a
+  process-wide LRU keyed by `(path, mtime_ns, size)`, 32 files by default
+  (`MD_MCP_AST_CACHE_SIZE`). `resolve_focus`, `focus_graph`, the scope walkers behind
+  `focus_layout` / `check_refs` / deep `find_focuses` filters, and the `md://` resources share it,
+  so a repeat call on `05_usa.txt` drops from ~700 ms to ~30 ms. Parse errors are not cached.
+- `line_starts` scans with `str.find` instead of a per-character Python loop (~5x faster on large
+  files).
 
 ## 1.0.0 - 2026-09-02
 

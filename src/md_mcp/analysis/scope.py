@@ -11,9 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
 
-from ..paradox import parse_string
+from ..paradox.ast_cache import parse_cached
 from ..paradox.nodes import Node
-from ..util.encoding import read_text
 from ..util.pathing import resolve_scope_file
 
 _MAX_ERROR_CHARS = 200
@@ -45,8 +44,7 @@ def iter_scope_files(
         try:
             # abs_path is constrained to the configured content roots.
             # pi-lens-ignore: python-path-traversal
-            text = read_text(abs_path)
-            root = parse_string(text)
+            text, root = parse_cached(abs_path)
         except Exception as exc:
             _record_error(errors, failed_files, relpath, str(exc)[:_MAX_ERROR_CHARS])
             continue

@@ -23,9 +23,8 @@ from ..indexes import (
     ScriptedTriggerIndex,
     TraitIndex,
 )
-from ..paradox import parse_string
+from ..paradox.ast_cache import parse_cached
 from ..paradox.schema import extract_focus_records
-from ..util.encoding import read_text
 from ..util.pathing import resolve_scope_file
 from ..util.response import enforce_budget
 
@@ -57,8 +56,7 @@ def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusInde
     try:
         # abs_path is constrained to the configured content roots.
         # pi-lens-ignore: python-path-traversal
-        text = read_text(abs_path)
-        root = parse_string(text, error_prefix=f"In file {cached['file']}:\n")
+        text, root = parse_cached(abs_path, error_prefix=f"In file {cached['file']}:\n")
         records = extract_focus_records(root, source=text)
     except Exception as e:
         return {

@@ -36,9 +36,8 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from ..indexes import FocusIndex
-from ..paradox import parse_string
+from ..paradox.ast_cache import parse_cached
 from ..paradox.schema import extract_focus_records
-from ..util.encoding import read_text
 from ..util.pathing import resolve_scope_file
 from ..util.response import enforce_budget, paginate
 
@@ -84,8 +83,7 @@ def focus_graph(
         if abs_path is None:
             continue
         try:
-            text = read_text(abs_path)
-            root = parse_string(text)
+            text, root = parse_cached(abs_path)
         except Exception:
             continue
 

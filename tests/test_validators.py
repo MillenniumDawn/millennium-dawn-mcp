@@ -286,6 +286,21 @@ def test_collect_raises_where_run_returns_an_error(fake_mod_root):
         _collect(str(fake_mod_root), "validate_raises_inproc", False)
 
 
+def test_in_process_failure_preserves_validator_stderr(fake_mod_root):
+    source = _PLAIN.replace(
+        'print("stdout chatter the runner must swallow")',
+        'print("validator diagnostic", file=__import__("sys").stderr)\n'
+        '        raise RuntimeError("boom from validator")',
+    )
+    _plant(fake_mod_root, "raises_with_stderr_inproc", source)
+
+    result = ValidatorRunner(fake_mod_root, mode="in_process").run("raises_with_stderr_inproc")
+
+    assert result["ok"] is False
+    assert result["error"] == "RuntimeError: boom from validator"
+    assert result["stderr"] == "validator diagnostic\n"
+
+
 @pytest.mark.integration
 def test_validator_list_against_real_mod(real_mod_root):
     infos = available_validators(real_mod_root)

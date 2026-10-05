@@ -69,8 +69,9 @@ the same validator skip startup cost (a single import is multi-second on
 some validators — they pull pandas, openpyxl, etc.).
 
 **Output capture**: validators are chatty. The wrapper redirects their stdout
-and stderr into `io.StringIO()` buffers and discards them. Only the structured
-issues come back to the agent.
+and stderr into `io.StringIO()` buffers. On success, only the structured issues
+come back to the agent; if validator execution raises, the error result also
+includes the last 2,000 characters of captured stderr for diagnosis.
 
 **`SystemExit` guard**: some validators call `sys.exit(N)` to signal failure.
 That would kill the server. The wrapper catches `SystemExit` and logs it as

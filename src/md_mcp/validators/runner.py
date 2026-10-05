@@ -176,10 +176,19 @@ class ValidatorRunner:
         files: Optional[builtins.list[str]],
         post_filter: bool,
     ) -> dict:
+        stderr_on_failure: list[str] = []
         try:
-            payload = _collect(str(self.mod_root), info.module_name, staged_only, files=files)
+            payload = _collect(
+                str(self.mod_root),
+                info.module_name,
+                staged_only,
+                files=files,
+                stderr_on_failure=stderr_on_failure,
+            )
         except Exception as e:
             payload = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+            if stderr_on_failure:
+                payload["stderr"] = stderr_on_failure[-1]
         return self._finish(info, payload, files=files, post_filter=post_filter)
 
     def _finish(
@@ -192,7 +201,10 @@ class ValidatorRunner:
     ) -> dict:
         """Shared tail: turn a `_collect` payload into the filtered, summarised result."""
         if not payload.get("ok"):
-            return {"ok": False, "validator": info.name, "error": payload.get("error")}
+            result = {"ok": False, "validator": info.name, "error": payload.get("error")}
+            if "stderr" in payload:
+                result["stderr"] = payload["stderr"]
+            return result
 
         issues = payload.get("issues", [])
         if post_filter:
@@ -356,12 +368,19 @@ def _ensure_sys_path(mod_root: str) -> None:
 
 
 def _collect(
-    mod_root: str, module_name: str, staged_only: bool, files: Optional[list[str]] = None
+    mod_root: str,
+    module_name: str,
+    staged_only: bool,
+    files: Optional[list[str]] = None,
+    *,
+    stderr_on_failure: Optional[list[str]] = None,
 ) -> dict:
     """Import, build, scope, and run one validator, then harvest its `_issues`.
 
     The only copy of that sequence: `_run_inprocess` calls it directly and the
-    isolated child (`_shim.py`) calls it after the exec. Raises on any failure.
+    isolated child (`_shim.py`) calls it after the exec. Raises on any failure;
+    when supplied, `stderr_on_failure` receives the captured stderr tail if
+    validator execution raises.
     """
     _ensure_sys_path(mod_root)
     module = importlib.import_module(module_name)
@@ -380,6 +399,10 @@ def _collect(
             inst.run_all_validations()
         except SystemExit as e:
             logger.info("validator %s called sys.exit(%s); continuing", module_name, e.code)
+        except Exception:
+            if stderr_on_failure is not None:
+                stderr_on_failure.append(buf_err.getvalue()[-2000:])
+            raise
 
     payload = {"ok": True, "issues": [i.to_dict() for i in getattr(inst, "_issues", [])]}
     if scoped:

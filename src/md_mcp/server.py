@@ -7,12 +7,12 @@ validator wrapper.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import os
 import sys
 from dataclasses import replace
 from functools import partial
-from threading import Lock
 from typing import Callable, Optional
 
 from .analysis.diff_summary import diff_summary
@@ -142,13 +142,10 @@ def build_server(settings: Settings):
         mode=settings.validator_mode,
         submod_root=settings.submod_root,
     )
-    validator_tools_lock = Lock()
-
-    def _run_validator_tool(call: Callable[[], dict]) -> dict:
-        # lint and validate share a ValidatorRunner with lazy module/attributor
-        # caches. Keep its state serialized while allowing unrelated MCP calls.
-        with validator_tools_lock:
-            return call()
+    # lint and validate share a ValidatorRunner with lazy module/attributor
+    # caches. The offloader waits on this lock before submitting, so cancelled
+    # waiters don't occupy workers; a running worker keeps it until completion.
+    validator_tools_lock = asyncio.Lock()
 
     equipment_variant_checker = EquipmentVariantChecker(settings.mod_root)
 
@@ -337,21 +334,20 @@ def build_server(settings: Settings):
         baseline: Optional[str] = None,
     ) -> dict:
         """Run validators, or only new issues with delta=True and explicit baseline; severity_min/limit narrow output."""
-        return await blocking_tools.run(
-            _run_validator_tool,
-            lambda: validate_tool(
-                settings,
-                validator_runner,
-                validator=validator,
-                staged_only=staged_only,
-                files=files,
-                strict=strict,
-                severity_min=severity_min,
-                limit=limit,
-                counts_only=counts_only,
-                delta=delta,
-                baseline=baseline,
-            ),
+        return await blocking_tools.run_serialized(
+            validator_tools_lock,
+            validate_tool,
+            settings,
+            validator_runner,
+            validator=validator,
+            staged_only=staged_only,
+            files=files,
+            strict=strict,
+            severity_min=severity_min,
+            limit=limit,
+            counts_only=counts_only,
+            delta=delta,
+            baseline=baseline,
         )
 
     @mcp.tool()
@@ -373,20 +369,19 @@ def build_server(settings: Settings):
         counts_only: bool = False,
     ) -> dict:
         """Run lint scripts plus style/brace checks for applicable script scopes. mode=changed|staged|all; checks=[...] subsets scripts; omit validators for scoped style, use [] to disable, or select ['auto'|'*'|names]; severity_min/limit/counts_only narrow output."""
-        return await blocking_tools.run(
-            _run_validator_tool,
-            lambda: lint_tool(
-                settings.mod_root,
-                submod_root=settings.submod_root,
-                mode=mode,
-                files=files,
-                checks=checks,
-                validators=validators,
-                severity_min=severity_min,
-                limit=limit,
-                counts_only=counts_only,
-                validator_runner=validator_runner,
-            ),
+        return await blocking_tools.run_serialized(
+            validator_tools_lock,
+            lint_tool,
+            settings.mod_root,
+            submod_root=settings.submod_root,
+            mode=mode,
+            files=files,
+            checks=checks,
+            validators=validators,
+            severity_min=severity_min,
+            limit=limit,
+            counts_only=counts_only,
+            validator_runner=validator_runner,
         )
 
     @mcp.tool()

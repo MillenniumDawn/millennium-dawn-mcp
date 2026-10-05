@@ -28,18 +28,55 @@ class BoundedOffloader:
 
     async def run(self, function: Callable[..., T], /, *args: Any, **kwargs: Any) -> T:
         """Await a blocking function without occupying the event-loop thread."""
+        return await self._run(None, function, *args, **kwargs)
+
+    async def run_serialized(
+        self,
+        lock: asyncio.Lock,
+        function: Callable[..., T],
+        /,
+        *args: Any,
+        **kwargs: Any,
+    ) -> T:
+        """Run work under an async lock without tying up a worker while waiting.
+
+        The lock is acquired before submission and released only when the
+        underlying future completes. If the awaiting task is cancelled while
+        the worker is running, the worker still owns the lock until it exits.
+        """
+        return await self._run(lock, function, *args, **kwargs)
+
+    async def _run(
+        self,
+        lock: asyncio.Lock | None,
+        function: Callable[..., T],
+        /,
+        *args: Any,
+        **kwargs: Any,
+    ) -> T:
         await self._capacity.acquire()
         loop = asyncio.get_running_loop()
+        lock_acquired = False
         try:
+            if lock is not None:
+                await lock.acquire()
+                lock_acquired = True
             future: Future[T] = self._executor.submit(partial(function, *args, **kwargs))
         except BaseException:
+            if lock is not None and lock_acquired:
+                lock.release()
             self._capacity.release()
             raise
 
         def release_slot(_: Future[T]) -> None:
+            def release() -> None:
+                self._capacity.release()
+                if lock is not None:
+                    lock.release()
+
             # The server loop may close after a cancelled call leaves this worker running.
             with suppress(RuntimeError):
-                loop.call_soon_threadsafe(self._capacity.release)
+                loop.call_soon_threadsafe(release)
 
         future.add_done_callback(release_slot)
         return await asyncio.wrap_future(future, loop=loop)

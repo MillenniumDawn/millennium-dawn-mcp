@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -147,23 +148,37 @@ def test_cache_miss_on_size_change(tmp_path):
     assert cache.misses == 2
 
 
-def test_cache_evicts_lru_when_over_byte_bound(tmp_path):
-    cache = TextCache(max_bytes=25)
+def test_cache_stops_inserting_when_full_instead_of_evicting(tmp_path):
     files = []
     for name in ("a", "b", "c"):
         f = tmp_path / f"{name}.txt"
-        f.write_text(name * 10, encoding="utf-8")
+        f.write_bytes((name * 10).encode("utf-8"))
         files.append(f)
     a, b, c = files
+    one = sys.getsizeof("a" * 10)
+    cache = TextCache(max_bytes=2 * one)
+
     cache.read(a)
     cache.read(b)
-    cache.read(a)  # touch a -> b is now least recently used
-    cache.read(c)  # 30 bytes > 25 -> evict b
-    assert cache.total_bytes <= 25
-    assert a in cache and c in cache and b not in cache
-    misses = cache.misses
-    cache.read(b)
-    assert cache.misses == misses + 1
+    assert cache.total_bytes == 2 * one
+    cache.read(c)  # no room: read but not cached, nothing evicted
+    assert a in cache and b in cache and c not in cache
+    assert cache.total_bytes == 2 * one
+
+    # A scan set larger than the bound still gets hits on the part that fits.
+    hits = cache.hits
+    for f in (a, b, c):
+        cache.read(f)
+    assert cache.hits == hits + 2
+
+
+def test_cache_accounts_decoded_size_not_disk_size(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_bytes("hello".encode("utf-8"))
+    cache = TextCache(max_bytes=1024)
+    cache.read(f)
+    assert cache.total_bytes == sys.getsizeof("hello")
+    assert cache.total_bytes > 5
 
 
 def test_cache_skips_file_larger_than_bound(tmp_path):

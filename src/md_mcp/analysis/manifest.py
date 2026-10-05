@@ -37,6 +37,7 @@ from ..indexes import (
     ScriptedTriggerIndex,
     TraitIndex,
 )
+from ..indexes.localisation import has_lang_suffix
 from ..util.response import enforce_budget
 
 _ALL_CATEGORIES = (
@@ -96,7 +97,7 @@ def list_country_content(
     decisions: list[str] = _ids_with_prefix(decision_index, prefix)
     ideas: list[str] = _ids_with_prefix(idea_index, prefix)
     events, event_files = _events(event_index, tag_upper, prefix)
-    loc_files: list[str] = _loc_files(mod_root, tag_upper, submod_root=submod_root)
+    loc_files: list[str] = _loc_files(loc_index, tag_upper)
     mio_files = _scan_files(
         mod_root,
         "common/military_industrial_organization/organizations",
@@ -216,25 +217,27 @@ def _events(
     return events, files
 
 
-def _loc_files(mod_root: Path, tag_upper: str, *, submod_root: Optional[Path] = None) -> list[str]:
-    """Every localisation file named for the tag, in every language.
+def _loc_files(loc_index: Optional[LocalisationIndex], tag_upper: str) -> list[str]:
+    """Every `*_l_<lang>.yml` named for the tag, in every language, over the index's roots.
 
-    Walks the filesystem rather than the loc index: the index covers only the
-    configured `loc_langs`, and a country manifest must list every translation.
+    Walks the filesystem rather than the index's records: the index holds only
+    the configured `loc_langs`, and a country manifest must list every
+    translation. The roots (submod, mod, vanilla) come from the index so the
+    listing matches what the index would see.
     """
+    if loc_index is None:
+        return []
     pattern = re.compile(rf"(^|[/_]){re.escape(tag_upper)}(_|/|$)")
     out: set[str] = set()
-    for root in (submod_root, mod_root):
-        if root is None:
-            continue
+    for root in loc_index._roots():
         d = root / "localisation"
         if not d.is_dir():
             continue
         for p in d.rglob("*.yml"):
-            if not p.is_file():
+            if not p.is_file() or not has_lang_suffix(p):
                 continue
             rel = str(p.relative_to(root))
-            if pattern.search(rel):
+            if rel not in out and pattern.search(rel):
                 out.add(rel)
     return sorted(out)
 

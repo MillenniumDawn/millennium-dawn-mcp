@@ -117,8 +117,8 @@ directories are simply ignored; users can blow them away manually.
 ├── v3/                           (focus v3, loc v3 — each index has its own N)
 │   ├── focus.data.json
 │   ├── focus.manifest.json
-│   ├── loc.manifest.json
-│   └── loc.data/                 sharded: one JSON file per contributing .yml
+│   ├── loc-en.manifest.json      one cache per language set (loc-en, loc-en_de, ...)
+│   └── loc-en.data/              sharded: one JSON file per contributing .yml
 │       ├── MD_GCC_membership_l_english.yml-3fa9c1…json
 │       └── ...
 └── ...
@@ -166,7 +166,7 @@ cached, so indexing all of them multiplies cache size, startup, and edit latency
 
 | Source | Example |
 |---|---|
-| default | `default_lang` only (`en`) |
+| default | `default_lang` plus `en` (the fallback is always indexed) |
 | env `MD_MCP_LOC_LANGS` | `en,de` or `*` (all) |
 | `config.toml` `loc_langs` | `"en,de"` or `["en", "de"]` |
 

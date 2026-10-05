@@ -29,11 +29,15 @@ class Settings:
     default_lang: str = "en"
     submod_root: Optional[Path] = None
     # ISO codes of the loc languages to index. Empty means "just `default_lang`".
+    # English is always included: every miss falls back to it, and an unindexed
+    # fallback would cost a serial scan of the whole English tree per server start.
     loc_langs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if not self.loc_langs:
-            self.loc_langs = (self.default_lang.lower(),)
+        langs = tuple(self.loc_langs) or (self.default_lang.lower(),)
+        if "en" not in langs:
+            langs = (*langs, "en")
+        self.loc_langs = langs
 
 
 def load(mod_root: str | Path | None = None, submod_root: str | Path | None = None) -> Settings:

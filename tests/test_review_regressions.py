@@ -103,8 +103,11 @@ def test_manifest_loc_files_cover_every_language(tmp_path):
     _write_loc(root, "localisation/english/MD_focus_USA_l_english.yml", "l_english", "K", "v")
     _write_loc(root, "localisation/german/MD_focus_USA_l_german.yml", "l_german", "K", "v")
     _write_loc(root, "localisation/english/MD_focus_ISR_l_english.yml", "l_english", "K", "v")
+    # No language suffix: HOI4 never loads it, so the manifest must not list it.
+    _write_loc(root, "localisation/english/MD_focus_USA_I_english.yml", "l_english", "K", "v")
+    index = LocalisationIndex(root, tmp_path / "cache", None, langs=("en",))
 
-    files = _loc_files(root, "USA")
+    files = _loc_files(index, "USA")
 
     assert files == sorted(
         [
@@ -112,6 +115,50 @@ def test_manifest_loc_files_cover_every_language(tmp_path):
             str(Path("localisation/german/MD_focus_USA_l_german.yml")),
         ]
     )
+    assert _loc_files(None, "USA") == []
+
+
+def test_manifest_loc_files_include_vanilla_root(tmp_path):
+    root = _mod_root(tmp_path)
+    vanilla = tmp_path / "hoi4"
+    _write_loc(root, "localisation/english/MD_focus_USA_l_english.yml", "l_english", "K", "v")
+    _write_loc(vanilla, "localisation/english/USA_l_english.yml", "l_english", "K", "v")
+    index = LocalisationIndex(root, tmp_path / "cache", vanilla, langs=("en",))
+
+    assert _loc_files(index, "USA") == sorted(
+        [
+            str(Path("localisation/english/MD_focus_USA_l_english.yml")),
+            str(Path("localisation/english/USA_l_english.yml")),
+        ]
+    )
+
+
+def test_language_sets_do_not_share_a_cache(tmp_path):
+    """A process with fewer languages must not delete another's shards."""
+    root = _mod_root(tmp_path)
+    cache = tmp_path / "cache"
+    _write_loc(root, "localisation/english/a_l_english.yml", "l_english", "K_EN", "e")
+    _write_loc(root, "localisation/german/a_l_german.yml", "l_german", "K_DE", "d")
+    both = LocalisationIndex(root, cache, None, langs=("en", "de"))
+    both.ensure_fresh()
+    shards_before = sorted(p.name for p in both._cache.shard_dir.iterdir())
+    assert len(shards_before) == 2
+
+    LocalisationIndex(root, cache, None, langs=("en",)).ensure_fresh()
+    assert sorted(p.name for p in both._cache.shard_dir.iterdir()) == shards_before
+
+    again = LocalisationIndex(root, cache, None, langs=("en", "de"))
+    parsed: list[list[str]] = []
+    real = again._parse_results
+
+    def spy(relpaths):
+        parsed.append(list(relpaths))
+        return real(relpaths)
+
+    again._parse_results = spy  # type: ignore[method-assign]
+    again.ensure_fresh()
+    assert parsed in ([], [[]])
+    assert again.resolve("K_DE", "de") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +200,7 @@ def test_file_removed_by_another_process_is_dropped_on_refresh(tmp_path):
 
     assert a.resolve("K_Z") is None
     assert a.resolve("K_X")["value"] == "x2"
-    assert "localisation/english/z_l_english.yml" not in a._by_file
+    assert str(Path("localisation/english/z_l_english.yml")) not in a._by_file
 
 
 def test_file_removed_by_another_process_is_dropped_even_with_no_other_edit(tmp_path):

@@ -7,14 +7,18 @@ decoded text is kept in memory keyed by absolute path and validated by
 re-read on the next call. Directory walks stay per-call so added/removed files
 are always seen; only contents are cached.
 
-Total cached size is bounded (default 128 MB, override with
-``MD_MCP_TEXT_CACHE_BYTES``) with least-recently-used eviction. Memory only —
+Total cached size is bounded (default 128 MB of decoded text as held in memory,
+override with ``MD_MCP_TEXT_CACHE_BYTES``). Once the bound is reached further
+files are read but not cached: evicting during a scan whose working set exceeds
+the bound would churn every entry and never hit, so the cache keeps what it has
+and only drops an entry when its file changes or disappears. Memory only —
 nothing is ever written to disk. Thread-safe.
 """
 
 from __future__ import annotations
 
 import os
+import sys
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -37,11 +41,17 @@ def _env_max_bytes() -> int:
 
 
 class TextCache:
-    """LRU cache of ``path -> (mtime_ns, size, text)`` bounded by total file bytes."""
+    """Cache of ``path -> (mtime_ns, size, text)`` bounded by total decoded text size.
+
+    ``total_bytes`` counts ``sys.getsizeof(text)`` (what the strings cost in
+    memory), not the on-disk size. Entries are never evicted to make room; see the
+    module docstring.
+    """
 
     def __init__(self, max_bytes: Optional[int] = None) -> None:
         self.max_bytes = _env_max_bytes() if max_bytes is None else max_bytes
         self._entries: OrderedDict[str, tuple[int, int, str]] = OrderedDict()
+        self._sizes: dict[str, int] = {}
         self._total = 0
         self._lock = threading.Lock()
         self.hits = 0
@@ -60,6 +70,7 @@ class TextCache:
     def clear(self) -> None:
         with self._lock:
             self._entries.clear()
+            self._sizes.clear()
             self._total = 0
             self.hits = 0
             self.misses = 0
@@ -87,22 +98,20 @@ class TextCache:
             self._drop(key)
             return None
 
+        cost = sys.getsizeof(text)
         with self._lock:
             self.misses += 1
             self._evict_key(key)
-            # Account by on-disk size; a file larger than the whole budget is not cached.
-            if stamp[1] <= self.max_bytes:
+            # Cache only while it fits; never push other entries out for it.
+            if self._total + cost <= self.max_bytes:
                 self._entries[key] = (stamp[0], stamp[1], text)
-                self._total += stamp[1]
-                while self._total > self.max_bytes and self._entries:
-                    _, (_, old_size, _) = self._entries.popitem(last=False)
-                    self._total -= old_size
+                self._sizes[key] = cost
+                self._total += cost
         return text
 
     def _evict_key(self, key: str) -> None:
-        old = self._entries.pop(key, None)
-        if old is not None:
-            self._total -= old[1]
+        if self._entries.pop(key, None) is not None:
+            self._total -= self._sizes.pop(key, 0)
 
     def _drop(self, key: str) -> None:
         with self._lock:

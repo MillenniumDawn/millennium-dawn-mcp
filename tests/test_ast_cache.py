@@ -30,7 +30,9 @@ def parse_counter(monkeypatch):
 
 
 def _write(path, text):
-    path.write_text(text, encoding="utf-8")
+    # write_bytes: write_text would turn \n into \r\n on Windows and break the
+    # text and byte-bound asserts.
+    path.write_bytes(text.encode("utf-8"))
     return path
 
 
@@ -123,6 +125,19 @@ def test_byte_bound_evicts_oldest(tmp_path, monkeypatch, parse_counter):
     assert parse_counter["n"] == 3
     ast_cache.parse_cached(a)  # evicted, re-parsed
     assert parse_counter["n"] == 4
+
+
+def test_edit_replaces_the_stale_entry_for_the_same_path(tmp_path, monkeypatch, parse_counter):
+    monkeypatch.setenv("MD_MCP_AST_CACHE_BYTES", str(10 * len(SRC)))
+    f = _write(tmp_path / "a.txt", SRC)
+    for n in range(5):
+        _write(f, SRC + f"# edit {n}\n")
+        st = os.stat(f)
+        os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns + (n + 1) * 1_000_000_000))
+        ast_cache.parse_cached(f)
+        assert ast_cache.size() == 1
+        assert ast_cache.total_chars() == len(SRC + f"# edit {n}\n")
+    assert parse_counter["n"] == 5
 
 
 def test_file_larger_than_byte_bound_is_not_cached(tmp_path, monkeypatch, parse_counter):

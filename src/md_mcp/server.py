@@ -655,11 +655,16 @@ def main() -> None:  # pragma: no cover — entry point
         ):
             idx = _make_index(cls, settings)
             idx.ensure_fresh()
-            keys = idx.list_keys()
+            if isinstance(idx, LocalisationIndex):
+                # list_keys() alone would count English only (and scan it when
+                # it is not indexed); count every indexed language instead.
+                key_count = sum(len(idx.list_keys(code)) for code in idx.langs)
+            else:
+                key_count = len(idx.list_keys())
             file_count = len(getattr(idx, "_by_file", {}))
             # Intentional CLI output, not debug leftovers.
             # pi-lens-ignore: python-print-statement
-            print(f"{cls.__name__:20s}  {len(keys):7d} keys  {file_count:4d} files")
+            print(f"{cls.__name__:20s}  {key_count:7d} keys  {file_count:4d} files")
         sys.exit(0)
 
     if args.cmd == "serve":

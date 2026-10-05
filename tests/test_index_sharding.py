@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import random
@@ -82,9 +83,9 @@ def _shard_mtimes(idx) -> dict[str, int]:
 
 
 def test_shard_filename_is_stable_safe_and_unique():
-    a = shard_filename("localisation/english/a_l_english.yml")
-    assert a == shard_filename("localisation/english/a_l_english.yml")
-    assert a != shard_filename("localisation/german/a_l_english.yml")
+    a = shard_filename(str(Path("localisation/english/a_l_english.yml")))
+    assert a == shard_filename(str(Path("localisation/english/a_l_english.yml")))
+    assert a != shard_filename(str(Path("localisation/german/a_l_english.yml")))
     assert "/" not in a and a.endswith(".json")
     assert shard_filename("x/ünï cödé?.yml").isascii()
 
@@ -130,14 +131,14 @@ def test_one_file_edit_rewrites_exactly_one_shard(loc_root, cache_dir):
     after = _shard_mtimes(idx)
     assert set(after) == set(before)
     changed = {name for name in after if after[name] != before[name]}
-    assert changed == {shard_filename("localisation/english/b_l_english.yml")}
+    assert changed == {shard_filename(str(Path("localisation/english/b_l_english.yml")))}
     assert idx.resolve("K_only_b")["value"] == "b2"  # type: ignore[index]
 
 
 def test_removed_file_deletes_its_shard(loc_root, cache_dir):
     idx = _mk(loc_root, cache_dir)
     idx.ensure_fresh()
-    shard = idx._cache.shard_path("localisation/english/d_l_english.yml")
+    shard = idx._cache.shard_path(str(Path("localisation/english/d_l_english.yml")))
     assert shard.exists()
 
     _loc(loc_root, "d").unlink()
@@ -160,11 +161,25 @@ def test_removed_file_while_server_down_deletes_shard_on_next_start(loc_root, ca
 def test_orphan_shards_are_pruned_on_rebuild(loc_root, cache_dir):
     idx = _mk(loc_root, cache_dir)
     idx.ensure_fresh()
-    orphan = idx._cache.shard_dir / "stale-0000.json.tmp"
+    orphan = idx._cache.shard_dir / "stale-0000.json"
     orphan.write_text("junk", encoding="utf-8")
+    # Another process's in-flight write must not be pruned out from under it.
+    in_flight = idx._cache.shard_dir / "other-0000.json.4242.tmp"
+    in_flight.write_text("partial", encoding="utf-8")
     _write(_loc(loc_root, "a"), _loc_text({"K_only_a": "edited"}), 20)
     _mk(loc_root, cache_dir).ensure_fresh()
     assert not orphan.exists()
+    assert in_flight.exists()
+
+
+def test_atomic_write_leaves_no_tmp_and_uses_a_per_process_name(cache_dir):
+    from md_mcp.indexes.base import _atomic_write_text
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    target = cache_dir / "x.json"
+    _atomic_write_text(target, "{}")
+    assert target.read_text(encoding="utf-8") == "{}"
+    assert not list(cache_dir.glob("*.tmp"))
 
 
 @pytest.mark.parametrize(
@@ -174,38 +189,48 @@ def test_orphan_shards_are_pruned_on_rebuild(loc_root, cache_dir):
         "",
         "[]",
         '{"relpath": "some/other/file.yml", "records": []}',
-        '{"relpath": "localisation/english/c_l_english.yml", "records": "nope"}',
-        '{"relpath": "localisation/english/c_l_english.yml", "records": [1, 2]}',
-        '{"relpath": "localisation/english/c_l_english.yml", "records": [], "error": 5}',
+        json.dumps(
+            {"relpath": str(Path("localisation/english/c_l_english.yml")), "records": "nope"}
+        ),
+        json.dumps(
+            {"relpath": str(Path("localisation/english/c_l_english.yml")), "records": [1, 2]}
+        ),
+        json.dumps(
+            {
+                "relpath": str(Path("localisation/english/c_l_english.yml")),
+                "records": [],
+                "error": 5,
+            }
+        ),
     ],
 )
 def test_corrupt_shard_reparses_only_that_file(loc_root, cache_dir, tmp_path, garbage, monkeypatch):
     first = _mk(loc_root, cache_dir)
     first.ensure_fresh()
-    victim = first._cache.shard_path("localisation/english/c_l_english.yml")
+    victim = first._cache.shard_path(str(Path("localisation/english/c_l_english.yml")))
     victim.write_text(garbage, encoding="utf-8")
 
     second = _mk(loc_root, cache_dir)
     parsed = _spy_parse(second, monkeypatch)
     second.ensure_fresh()
 
-    assert parsed == [["localisation/english/c_l_english.yml"]]
+    assert parsed == [[str(Path("localisation/english/c_l_english.yml"))]]
     assert _state(second) == _scratch_state(LocalisationIndex, loc_root, tmp_path, "corrupt")
     # The shard was healed, so the next start parses nothing.
     third = _mk(loc_root, cache_dir)
-    assert third._cache.load_shard("localisation/english/c_l_english.yml") is not None
+    assert third._cache.load_shard(str(Path("localisation/english/c_l_english.yml"))) is not None
     assert _state(third) == _state(second)
 
 
 def test_missing_shard_reparses_only_that_file(loc_root, cache_dir, tmp_path, monkeypatch):
     first = _mk(loc_root, cache_dir)
     first.ensure_fresh()
-    first._cache.shard_path("localisation/english/a_l_english.yml").unlink()
+    first._cache.shard_path(str(Path("localisation/english/a_l_english.yml"))).unlink()
 
     second = _mk(loc_root, cache_dir)
     parsed = _spy_parse(second, monkeypatch)
     assert _state(second) == _scratch_state(LocalisationIndex, loc_root, tmp_path, "missing")
-    assert parsed == [["localisation/english/a_l_english.yml"]]
+    assert parsed == [[str(Path("localisation/english/a_l_english.yml"))]]
 
 
 def test_shard_round_trips_records_and_errors(cache_dir):
@@ -237,7 +262,7 @@ def test_sharded_parse_errors_survive_restart(tmp_path, cache_dir):
 
     first = ShardedFocus(root, cache_dir, include_vanilla=False)
     first.ensure_fresh()
-    assert [e["file"] for e in first.parse_errors()] == ["common/national_focus/bad.txt"]
+    assert [e["file"] for e in first.parse_errors()] == [str(Path("common/national_focus/bad.txt"))]
 
     second = ShardedFocus(root, cache_dir, include_vanilla=False)
     assert second.parse_errors() == first.parse_errors()
@@ -255,7 +280,9 @@ def test_edit_one_file_matches_scratch_rebuild(loc_root, cache_dir, tmp_path):
     assert _state(idx) == _scratch_state(LocalisationIndex, loc_root, tmp_path, "edit")
     # c stopped defining K_shared, so b now wins it and a is the only shadowed file.
     assert idx.resolve("K_shared")["file"].endswith("b_l_english.yml")  # type: ignore[index]
-    assert idx.duplicates()[("l_english", "K_shared")] == ["localisation/english/a_l_english.yml"]
+    assert idx.duplicates()[("l_english", "K_shared")] == [
+        str(Path("localisation/english/a_l_english.yml"))
+    ]
 
 
 def test_incremental_does_not_reload_or_rewrite_unrelated_state(loc_root, cache_dir, monkeypatch):
@@ -297,9 +324,9 @@ def test_adding_a_later_file_shadows_existing_key(loc_root, cache_dir, tmp_path)
     assert idx.resolve("K_shared")["value"] == "from z"  # type: ignore[index]
     assert _state(idx) == _scratch_state(LocalisationIndex, loc_root, tmp_path, "add")
     assert idx.duplicates()[("l_english", "K_shared")] == [
-        "localisation/english/a_l_english.yml",
-        "localisation/english/b_l_english.yml",
-        "localisation/english/c_l_english.yml",
+        str(Path("localisation/english/a_l_english.yml")),
+        str(Path("localisation/english/b_l_english.yml")),
+        str(Path("localisation/english/c_l_english.yml")),
     ]
 
 
@@ -372,13 +399,13 @@ def test_incremental_equals_scratch_for_monolithic_index(tmp_path, cache_dir):
     _write(ideas / "b.txt", idea("TST_dup", "TST_b"), 2)
     idx = IdeaIndex(root, cache_dir, include_vanilla=False)
     idx.ensure_fresh()
-    assert idx.duplicates() == {"TST_dup": ["common/ideas/a.txt"]}
+    assert idx.duplicates() == {"TST_dup": [str(Path("common/ideas/a.txt"))]}
 
     _write(ideas / "b.txt", idea("TST_b"), 10)
     idx._stale_check.force_next()
     assert _state(idx) == _scratch_state(IdeaIndex, root, tmp_path, "m1")
     assert idx.duplicates() == {}
-    assert idx.resolve("TST_dup")["file"] == "common/ideas/a.txt"  # type: ignore[index]
+    assert idx.resolve("TST_dup")["file"] == str(Path("common/ideas/a.txt"))  # type: ignore[index]
 
     (ideas / "a.txt").unlink()
     idx._stale_check.force_next()
@@ -416,7 +443,7 @@ def test_incremental_tracks_parse_errors(tmp_path, cache_dir):
 
     _write(focus_dir / "a.txt", "focus_tree = { focus = { id = TST_a x = {{{", 10)
     idx._stale_check.force_next()
-    assert [e["file"] for e in idx.parse_errors()] == ["common/national_focus/a.txt"]
+    assert [e["file"] for e in idx.parse_errors()] == [str(Path("common/national_focus/a.txt"))]
     assert idx.resolve("TST_a") is None
 
     _write(focus_dir / "a.txt", "focus_tree = { focus = { id = TST_a x = 1 y = 0 } }", 20)

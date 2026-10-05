@@ -53,14 +53,14 @@ def _settings(tmp_path: Path, monkeypatch, toml: str | None = None) -> Settings:
 
 def test_settings_default_loc_langs_is_default_lang():
     assert Settings(Path("."), None, Path(".")).loc_langs == ("en",)
-    assert Settings(Path("."), None, Path("."), default_lang="DE").loc_langs == ("de",)
+    assert Settings(Path("."), None, Path("."), default_lang="DE").loc_langs == ("de", "en")
 
 
 def test_load_defaults_loc_langs_to_default_lang(tmp_path, monkeypatch):
     assert _settings(tmp_path, monkeypatch).loc_langs == ("en",)
     monkeypatch.setenv("MD_MCP_DEFAULT_LANG", "fr")
     root = _make_mod_root(tmp_path / "Mod2")
-    assert config.load(str(root)).loc_langs == ("fr",)
+    assert config.load(str(root)).loc_langs == ("fr", "en")
 
 
 def test_load_reads_loc_langs_from_env(tmp_path, monkeypatch):
@@ -76,7 +76,7 @@ def test_load_reads_loc_langs_from_toml_string_and_list(tmp_path, monkeypatch):
     cfg = tmp_path / "config3.toml"
     cfg.write_text('loc_langs = ["fr", "pt-br"]\n', encoding="utf-8")
     monkeypatch.setattr(config, "CONFIG_PATH", cfg)
-    assert config.load(str(root)).loc_langs == ("fr", "pt-br")
+    assert config.load(str(root)).loc_langs == ("fr", "pt-br", "en")
 
 
 def test_env_loc_langs_wins_over_toml(tmp_path, monkeypatch):
@@ -85,7 +85,7 @@ def test_env_loc_langs_wins_over_toml(tmp_path, monkeypatch):
     cfg.write_text('loc_langs = "de"\n', encoding="utf-8")
     monkeypatch.setattr(config, "CONFIG_PATH", cfg)
     monkeypatch.setenv("MD_MCP_LOC_LANGS", "fr")
-    assert config.load(str(root)).loc_langs == ("fr",)
+    assert config.load(str(root)).loc_langs == ("fr", "en")
 
 
 def test_loc_langs_star_means_all(tmp_path, monkeypatch):
@@ -116,15 +116,15 @@ def test_normalise_loc_langs_dedupes_and_lowercases():
 
 def test_default_indexes_only_english(multi_lang_root, cache_dir):
     li = LocalisationIndex(multi_lang_root, cache_dir, include_vanilla=False)
-    assert li.list_files() == ["localisation/english/test_l_english.yml"]
+    assert li.list_files() == [str(Path("localisation/english/test_l_english.yml"))]
     assert {lang for lang, _ in li._by_key} == {"l_english"}
 
 
 def test_langs_en_de_indexes_both(multi_lang_root, cache_dir):
     li = LocalisationIndex(multi_lang_root, cache_dir, include_vanilla=False, langs="en,de")
     assert li.list_files() == [
-        "localisation/english/test_l_english.yml",
-        "localisation/german/test_l_german.yml",
+        str(Path("localisation/english/test_l_english.yml")),
+        str(Path("localisation/german/test_l_german.yml")),
     ]
     assert {lang for lang, _ in li._by_key} == {"l_english", "l_german"}
     hit = li.resolve("TST_root", "de")
@@ -140,23 +140,26 @@ def test_langs_star_indexes_all(multi_lang_root, cache_dir):
 
 def test_langs_without_english_still_falls_back_to_english(multi_lang_root, cache_dir):
     li = LocalisationIndex(multi_lang_root, cache_dir, include_vanilla=False, langs=["de"])
-    assert li.list_files() == ["localisation/german/test_l_german.yml"]
+    assert li.list_files() == [str(Path("localisation/german/test_l_german.yml"))]
     # Key only English has: found through the English on-demand fallback.
     hit = li.resolve("TST_branch_a", "de")
     assert hit is not None and hit["value"] == "Branch A" and hit["lang"] == "en"
 
 
-def test_changing_langs_reuses_cache_and_drops_removed_language(multi_lang_root, cache_dir):
+def test_changing_langs_uses_a_separate_cache_per_language_set(multi_lang_root, cache_dir):
     en = LocalisationIndex(multi_lang_root, cache_dir, include_vanilla=False)
     en.ensure_fresh()
     both = LocalisationIndex(multi_lang_root, cache_dir, include_vanilla=False, langs="en,de")
     assert len(both.list_files()) == 2
-    shard_dir = both._cache.shard_dir
-    assert len(list(shard_dir.iterdir())) == 2
+    assert both._cache.shard_dir != en._cache.shard_dir
+    assert len(list(both._cache.shard_dir.iterdir())) == 2
 
+    # Going back to English alone neither touches nor trusts the en+de cache.
     back = LocalisationIndex(multi_lang_root, cache_dir, include_vanilla=False)
-    assert back.list_files() == ["localisation/english/test_l_english.yml"]
-    assert len(list(shard_dir.iterdir())) == 1
+    assert back.list_files() == [str(Path("localisation/english/test_l_english.yml"))]
+    assert back._cache.shard_dir == en._cache.shard_dir
+    assert len(list(both._cache.shard_dir.iterdir())) == 2
+    assert len(list(back._cache.shard_dir.iterdir())) == 1
 
 
 # ----- on-demand fallback ----------------------------------------------------
@@ -168,10 +171,10 @@ def test_resolve_unindexed_language_via_scan(multi_lang_root, cache_dir):
     assert hit is not None
     assert hit["value"] == "Die Wurzel"
     assert hit["lang"] == "de"
-    assert hit["file"] == "localisation/german/test_l_german.yml"
+    assert hit["file"] == str(Path("localisation/german/test_l_german.yml"))
     assert hit["line"] == 2
     # Not persisted and not in the index.
-    assert li.list_files() == ["localisation/english/test_l_english.yml"]
+    assert li.list_files() == [str(Path("localisation/english/test_l_english.yml"))]
     assert not any("german" in p.name for p in li._cache.shard_dir.iterdir())
 
 
@@ -207,14 +210,14 @@ def test_scan_picks_up_new_and_removed_files_and_reuses_unchanged(multi_lang_roo
     li = LocalisationIndex(multi_lang_root, cache_dir, include_vanilla=False)
     li.resolve("TST_root", "de")
     scan = li._scans["l_german"]
-    first_records = scan.files["localisation/german/test_l_german.yml"]
+    first_records = scan.files[str(Path("localisation/german/test_l_german.yml"))]
 
     extra = multi_lang_root / "localisation" / "german" / "extra_l_german.yml"
     extra.write_text('l_german:\n TST_extra: "Extra"\n', encoding="utf-8")
     scan.stale_check.force_next()
     assert li.resolve("TST_extra", "de")["value"] == "Extra"  # type: ignore[index]
     # Unchanged file was not re-parsed.
-    assert scan.files["localisation/german/test_l_german.yml"] is first_records
+    assert scan.files[str(Path("localisation/german/test_l_german.yml"))] is first_records
 
     extra.unlink()
     scan.stale_check.force_next()

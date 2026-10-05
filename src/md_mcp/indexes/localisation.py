@@ -12,8 +12,9 @@ languages and indexing all of them multiplies cache size, startup, and edit late
 the language count. Other languages still resolve through an on-demand scan (see
 `LocalisationIndex._scan_lang`).
 
-Cache layout (sharded: one JSON file per contributing .yml under
-<cache_dir>/v3/loc.data/<name>-<digest>.json; manifest in loc.manifest.json):
+Cache layout (sharded, one cache per language set: one JSON file per contributing
+.yml under <cache_dir>/v3/loc-<langs>.data/<name>-<digest>.json; manifest in
+loc-<langs>.manifest.json, e.g. `loc-en`, `loc-en_de`):
     {
         "relpath": "<relpath>",
         "records": [
@@ -75,6 +76,21 @@ def _file_lang_suffix(path: Path) -> Optional[str]:
     """The `l_<language>` suffix of a loc filename, lower-cased, or None."""
     m = _FILENAME_LANG_RE.search(path.name)
     return m.group(1).lower() if m else None
+
+
+def has_lang_suffix(path: Path) -> bool:
+    """True for `*_l_<language>.yml`, the only loc files HOI4 loads."""
+    return _file_lang_suffix(path) is not None
+
+
+def cache_name_for(langs: Iterable[str]) -> str:
+    """Per-language-set cache name, e.g. `loc-en`, `loc-en_de`.
+
+    Every language set gets its own manifest and shard directory. One shared
+    `loc` cache let a process with fewer languages (a `build-index` run without
+    `MD_MCP_LOC_LANGS`) treat the others' files as removed and delete their shards.
+    """
+    return "loc-" + "_".join(code.replace("-", "") for code in langs)
 
 
 def normalise_loc_langs(
@@ -165,8 +181,11 @@ class LocalisationIndex(GenericTxtIndex):
         langs: str | Iterable[str] | None = None,
         **kwargs,
     ):
-        super().__init__(*args, **kwargs)
         self.langs: tuple[str, ...] = normalise_loc_langs(langs)
+        # Instance attribute shadows the class-level cache_name before the base
+        # class builds its IndexCache from it.
+        self.cache_name = cache_name_for(self.langs)
+        super().__init__(*args, **kwargs)
         self._indexed_suffixes: frozenset[str] = frozenset(
             LANG_ISO_TO_SUFFIX[code] for code in self.langs
         )

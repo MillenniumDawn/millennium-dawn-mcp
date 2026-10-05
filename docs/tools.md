@@ -43,7 +43,7 @@ where any one satisfies that requirement.
 
 Look up a localisation key. Falls back to English if missing in the requested
 language. Returns `{value, file, line, lang}`. Only the configured `loc_langs`
-(default: just `default_lang`) are indexed; any other language is answered by a
+(default: `default_lang` plus `en`) are indexed; any other language is answered by a
 slower on-demand scan of that language's files.
 
 ### `resolve_sprite(name: str) -> dict`
@@ -519,7 +519,7 @@ Returns `{ok, kind, target, total, returned, truncated, scan_truncated, matches}
 **Performance.** Each call re-walks the kind's scan directories (so added and
 removed files are always seen) but reads file contents through a stat-keyed
 in-process cache (`analysis/text_cache.py`): a file is re-read only when its
-`(mtime_ns, size)` changes. The cache is memory-only, LRU-evicted, and bounded by
+`(mtime_ns, size)` changes. The cache is memory-only, stops inserting when full, and is bounded by
 `MD_MCP_TEXT_CACHE_BYTES` (default 128 MB; `0` disables it). Files that do not
 contain `target` as a literal substring skip the regex entirely, which is exact
 because every pattern embeds the escaped target. Short, hot targets (a loc key like

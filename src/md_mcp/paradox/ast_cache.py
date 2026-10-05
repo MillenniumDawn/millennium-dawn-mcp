@@ -19,8 +19,9 @@ Rules for callers:
   `MD_MCP_AST_CACHE_BYTES` of source text (default 8 MB, measured in characters).
   An AST is roughly 30x its source size (`05_usa.txt`: 1.5 MB of text, ~41 MB of
   nodes), so the byte bound is what keeps a scope walk over hundreds of files from
-  pinning a gigabyte of trees. A file larger than the byte bound is parsed but not
-  cached.
+  pinning a gigabyte of trees: 8 MB of source pinned ~232 MB on the real mod. A
+  file larger than the byte bound is parsed but not cached, and an edited file
+  replaces its own stale entry rather than sitting beside it.
 """
 
 from __future__ import annotations
@@ -43,6 +44,9 @@ _Key = tuple[str, int, int]
 
 _lock = threading.Lock()
 _cache: "OrderedDict[_Key, tuple[str, Node]]" = OrderedDict()
+# path -> the key currently cached for it, so an edit replaces the old tree
+# instead of leaving a dead (path, old mtime, old size) entry to hold memory.
+_by_path: dict[str, _Key] = {}
 _total_chars = 0
 
 
@@ -97,14 +101,19 @@ def parse_cached(abs_path: Path, *, error_prefix: str = "") -> tuple[str, Node]:
     byte_limit = max_bytes()
     if limit > 0 and len(text) <= byte_limit:
         with _lock:
-            old = _cache.pop(key, None)
-            if old is not None:
-                _total_chars -= len(old[0])
+            stale_key = _by_path.get(key[0])
+            if stale_key is not None:
+                old = _cache.pop(stale_key, None)
+                if old is not None:
+                    _total_chars -= len(old[0])
             _cache[key] = (text, root)
+            _by_path[key[0]] = key
             _total_chars += len(text)
             while _cache and (len(_cache) > limit or _total_chars > byte_limit):
-                _, (evicted_text, _) = _cache.popitem(last=False)
+                evicted_key, (evicted_text, _) = _cache.popitem(last=False)
                 _total_chars -= len(evicted_text)
+                if _by_path.get(evicted_key[0]) == evicted_key:
+                    del _by_path[evicted_key[0]]
     return text, root
 
 
@@ -113,6 +122,7 @@ def clear() -> None:
     global _total_chars
     with _lock:
         _cache.clear()
+        _by_path.clear()
         _total_chars = 0
 
 

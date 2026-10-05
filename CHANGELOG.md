@@ -5,7 +5,9 @@
 ### Added
 
 - `loc_langs` setting (`MD_MCP_LOC_LANGS`, config.toml `loc_langs`; comma-separated ISO codes or
-  `*`). The localisation index now covers only these languages, default just `default_lang`.
+  `*`). The localisation index now covers only these languages, default `default_lang` plus
+  `en` (the fallback is always indexed). Each language set has its own cache (`loc-en`,
+  `loc-en_de`), so a process with fewer languages never deletes another's shards.
   `resolve_loc` / `list_keys` for any other language fall back to an on-demand, in-memory scan of
   that language's files, invalidated by file signature. `md-mcp doctor` prints `loc_langs`.
 - Sharded index cache: an index with `sharded = True` stores one JSON shard per contributing file
@@ -20,7 +22,8 @@
   noticeably faster.
 - `find_references` is much faster: files that do not contain the target as a literal substring skip
   the regex (every reference pattern embeds the escaped target, so results are identical), and decoded
-  file contents are kept in a stat-keyed in-process LRU cache (`analysis/text_cache.py`, default 128 MB,
+  file contents are kept in a stat-keyed in-process cache (`analysis/text_cache.py`, default 128 MB
+  of decoded text; once full, further files are read but not cached rather than churning the cache,
   override with `MD_MCP_TEXT_CACHE_BYTES`). On the real mod, warm `focus` / `sprite` / `flag` lookups
   drop from about 1.1-1.5 s to 50-90 ms; the directory walk still runs per call so added, edited, and
   removed files are always seen.

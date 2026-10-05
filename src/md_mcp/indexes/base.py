@@ -92,7 +92,10 @@ def compute_staleness(manifest: dict[str, FileSig], current: dict[str, FileSig])
 
 
 def _atomic_write_text(path: Path, text: str) -> None:
-    tmp = path.with_suffix(".json.tmp")
+    # Per-process temp name: several warm servers (or a build-index beside one)
+    # may write the same cache file, and a shared `<file>.tmp` collides on
+    # Windows and can be pruned out from under another writer.
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     # IndexCache files are always under cache_dir.
     # pi-lens-ignore: python-path-traversal
     with open(tmp, "w", encoding="utf-8") as fh:
@@ -215,7 +218,10 @@ class IndexCache:
             self.shard_path(relpath).unlink()
 
     def prune_shards(self, keep: Iterable[str]) -> int:
-        """Delete every file in the shard dir that isn't a shard of `keep` (orphans, `.tmp`)."""
+        """Delete every orphan shard: files in the shard dir that are not a shard of `keep`.
+
+        `*.tmp` files are left alone; one may be another process's in-flight write.
+        """
         wanted = {shard_filename(rel) for rel in keep}
         removed = 0
         try:
@@ -223,7 +229,7 @@ class IndexCache:
         except OSError:
             return 0
         for entry in entries:
-            if entry.name in wanted:
+            if entry.name in wanted or entry.name.endswith(".tmp"):
                 continue
             try:
                 entry.unlink()

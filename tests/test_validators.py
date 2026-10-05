@@ -245,6 +245,30 @@ def test_in_process_mode_still_available(fake_mod_root):
     assert len(result["issues"]) == 2
 
 
+# In-process imports stay in sys.modules for the session, so these use names no
+# other test plants.
+def test_in_process_keeps_issues_when_validator_exits(fake_mod_root):
+    _plant(fake_mod_root, "exits_inproc", _EXITS)
+    result = ValidatorRunner(fake_mod_root, mode="in_process").run("exits_inproc")
+    assert result["ok"] is True
+    assert [i["message"] for i in result["issues"]] == ["found before exit"]
+
+
+def test_in_process_reports_broken_validator(fake_mod_root):
+    _plant(fake_mod_root, "broken_inproc", "this is not valid python (\n")
+    result = ValidatorRunner(fake_mod_root, mode="in_process").run("broken_inproc")
+    assert result["ok"] is False
+    assert result["validator"] == "broken_inproc"
+    assert result["error"].startswith("SyntaxError: ")
+
+
+def test_in_process_reports_missing_validator_class(fake_mod_root):
+    _plant(fake_mod_root, "classless_inproc", "X = 1\n")
+    result = ValidatorRunner(fake_mod_root, mode="in_process").run("classless_inproc")
+    assert result["ok"] is False
+    assert "Validator" in result["error"]
+
+
 @pytest.mark.integration
 def test_validator_list_against_real_mod(real_mod_root):
     infos = available_validators(real_mod_root)

@@ -113,9 +113,10 @@ it for edits, copies, or commits.
 `ValidatorRunner` imports `Millennium-Dawn/tools/validation/validate_*.py` and
 reads `validator._issues` — that underscore means it's not a public API. A
 refactor in `Millennium-Dawn/tools` can break us. The import/read sequence
-lives in two mirrored places: `_shim.py` (`_collect`, the default isolated
-path) and `_run_inprocess` in `runner.py`. **Patch both** and consider whether
-the change should also tolerate older `Millennium-Dawn` checkouts.
+lives in one place: `_collect` in `runner.py`. `_run_inprocess` calls it
+directly and the isolated child (`_shim.py`) calls it after the exec. Patch it
+there and consider whether the change should also tolerate older
+`Millennium-Dawn` checkouts.
 
 `Issue.file` is not uniform: mod-relative path, bare basename, `""`, or the
 literal `"unknown"`, sometimes several within one validator. Anything keying on

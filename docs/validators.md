@@ -110,8 +110,8 @@ do, in-process mode breaks until we update `runner.py`.
 Mitigations:
 
 1. **Single adapter point.** All version-sensitive behaviour lives in
-   `_shim.py` and `_run_inprocess`, which run the same sequence. One place to
-   patch, mirrored in two.
+   `_collect` in `runner.py`. `_run_inprocess` calls it directly and `_shim.py`
+   calls it in the child, so there is one place to patch.
 2. **`in_process` for triage.** When isolated mode reports a failure and you
    want the traceback in your own process, rerun with
    `MD_MCP_VALIDATOR_MODE=in_process` outside the server.
@@ -127,8 +127,8 @@ When you encounter a breakage:
 - First check whether `BaseValidator._issues` or `Issue.to_dict()` signatures
   changed in [`validator_common.py`](../../Millennium-Dawn/tools/validation/validator_common.py).
 - Run the validator's own CLI directly to confirm it still works at all.
-- Patch `_collect` in `_shim.py` (and `_run_inprocess` to match) to handle both
-  the old and new shape during the rollout window.
+- Patch `_collect` in `runner.py` to handle both the old and new shape during
+  the rollout window.
 
 ## Validator output shape
 
@@ -164,9 +164,9 @@ validate(validator="unused_textures")
 
 ## Suppression
 
-The runner applies upstream-documented false-positive suppressions in both
-`_run_inprocess` and `_run_isolated` before returning, so callers always see
-the post-suppression issue list with a count alongside it:
+The runner applies upstream-documented false-positive suppressions in the tail
+shared by both modes (`_finish`) before returning, so callers always see the
+post-suppression issue list with a count alongside it:
 
 ```json
 {
@@ -287,7 +287,7 @@ automatically — no MCP-server code changes needed, as long as:
 4. `instance.run_all_validations()` populates `instance._issues`.
 
 If any of these change for a specific validator, special-case it in
-`_run_inprocess` rather than weakening the general adapter.
+`_collect` rather than weakening the general adapter.
 
 ## Debugging
 
@@ -308,5 +308,4 @@ print(result["counts"], len(result["issues"]))
 ```
 
 This bypasses the MCP framing — exceptions surface directly, and you can
-inspect the validator instance after the run via the in-process
-`runner._modules` cache.
+inspect the validator module after the run through `sys.modules`.

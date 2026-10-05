@@ -59,7 +59,7 @@ class IssueAttributor:
     def resolve(self, issue: dict, scan_prefixes: Sequence[str] = ()) -> Optional[str]:
         """Return the mod-relative path this issue belongs to, or None."""
         raw = (issue.get("file") or "").strip()
-        candidate = _normalise(raw)
+        candidate = normalize_path(raw)
 
         if candidate and candidate.lower() not in _PLACEHOLDERS:
             if candidate in self._paths():
@@ -73,7 +73,7 @@ class IssueAttributor:
             return candidate if "/" in candidate else None
 
         for token in _FILENAME_RE.findall(issue.get("message") or ""):
-            hit = self._match_suffix(_normalise(token), scan_prefixes)
+            hit = self._match_suffix(normalize_path(token), scan_prefixes)
             if hit:
                 return hit
         return None
@@ -104,7 +104,8 @@ class IssueAttributor:
         return self._path_set
 
 
-def _normalise(value: str) -> str:
+def normalize_path(value: str) -> str:
+    """Posix separators, no `./` prefix — the shape the prefix matchers expect."""
     value = value.replace("\\", "/").strip()
     while value.startswith("./"):
         value = value[2:]

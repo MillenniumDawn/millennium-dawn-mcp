@@ -9,10 +9,16 @@ from __future__ import annotations
 from typing import Optional
 
 from ..analysis.issue_delta import new_issue_dicts, prepare_baseline
-from ..analysis.suppressions import suppressed_count
+from ..analysis.suppressions import SUPPRESSION_SOURCE, suppressed_count
 from ..config import Settings
 from ..util.response import coerce_int, enforce_budget, paginate
-from ..validators import SEVERITY_RANK, SLOW_VALIDATORS, ValidatorRunner, available_validators
+from ..validators import (
+    SEVERITY_RANK,
+    SLOW_VALIDATORS,
+    ValidatorRunner,
+    available_validators,
+    count_severities,
+)
 
 
 def validate_list_tool(
@@ -53,15 +59,7 @@ def _apply_strict(counts: dict) -> dict:
     return counts
 
 
-def _counts_for_issues(issues: list[dict]) -> dict:
-    counts = {"error": 0, "warning": 0, "info": 0}
-    for issue in issues:
-        severity = issue.get("severity", "info")
-        counts[severity] = counts.get(severity, 0) + 1
-    return counts
-
-
-def _filter_and_cap(
+def filter_and_cap(
     issues: list[dict],
     *,
     severity_min: str,
@@ -144,11 +142,11 @@ def validate_tool(
             except (FileNotFoundError, ImportError, ValueError) as exc:
                 return enforce_budget({"ok": False, "error": str(exc)})
             issues = delta_result.issues
-            result["counts"] = _counts_for_issues(issues)
+            result["counts"] = count_severities(issues)
             result["unclassified"] = delta_result.unclassified
         if strict and "counts" in result:
             result["counts"] = _apply_strict(result["counts"])
-        kept, truncated, total = _filter_and_cap(issues, severity_min=severity_min, limit=limit)
+        kept, truncated, total = filter_and_cap(issues, severity_min=severity_min, limit=limit)
         result["issues_total_after_filter"] = total
         result["truncated"] = truncated
         if counts_only:
@@ -204,7 +202,7 @@ def validate_tool(
             return enforce_budget({"ok": False, "error": str(exc)})
         aggregated = delta_result.issues
         unclassified = delta_result.unclassified
-        overall = _counts_for_issues(aggregated)
+        overall = count_severities(aggregated)
         # One owner per deduped issue keeps the breakdown summing to `overall`.
         for entry in per_validator:
             if not entry["ok"]:
@@ -214,7 +212,7 @@ def validate_tool(
                 for issue, owner in zip(aggregated, delta_result.owners, strict=True)
                 if owner == entry["name"]
             ]
-            entry["counts"] = _counts_for_issues(owned)
+            entry["counts"] = count_severities(owned)
 
     if strict:
         overall = _apply_strict(overall)
@@ -228,7 +226,7 @@ def validate_tool(
             if entry["counts"]:
                 entry["counts"] = _apply_strict(entry["counts"])
 
-    kept, truncated, total = _filter_and_cap(aggregated, severity_min=severity_min, limit=limit)
+    kept, truncated, total = filter_and_cap(aggregated, severity_min=severity_min, limit=limit)
     suppressed = sum(suppressed_count(v) for v in per_validator)
 
     summary: dict = {
@@ -241,7 +239,7 @@ def validate_tool(
     }
     if suppressed:
         summary["suppressed"] = suppressed
-        summary["suppression_source"] = ".claude/docs/known-false-positives.md"
+        summary["suppression_source"] = SUPPRESSION_SOURCE
     if unclassified is not None:
         summary["unclassified"] = unclassified
     if not counts_only:

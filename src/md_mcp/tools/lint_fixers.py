@@ -28,16 +28,13 @@ from typing import Optional
 
 from ..util.encoding import UTF8_BOM
 from ..util.pathing import PathAccessError, validate_user_path
-from ..util.response import BUDGET_BYTES, enforce_budget
-from .linting_tools import _clip_utf8, _norm_scope_path
+from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget
+from ..validators.attribution import normalize_path
 
 FIXERS: tuple[str, ...] = ("styling", "loc_yaml", "line_endings", "log_ids")
 
 # fix_log_ids only rewrites inside these directories (upstream _finder_for).
 LOG_ID_SCOPES: tuple[str, ...] = ("common/national_focus/", "common/decisions/")
-
-# Leave room for status fields and warnings within the response budget.
-_MAX_TXT_BYTES = max(1, BUDGET_BYTES - 12_000)
 
 _UPSTREAM_MODULES: tuple[str, ...] = (
     "shared_utils",
@@ -117,7 +114,7 @@ def fix_lint_tool(
     if fixer not in FIXERS:
         return {"ok": False, "error": f"Unknown fixer '{fixer}'. Valid: {list(FIXERS)}"}
 
-    norm_path = _norm_scope_path(path) if path else None
+    norm_path = normalize_path(path) if path else None
     if content is None and norm_path is None:
         return {"ok": False, "error": "Provide content= or path=."}
     if fixer == "log_ids" and norm_path is None:
@@ -355,7 +352,7 @@ def _fix_log_ids(
 
 
 def _emit_txt(result: dict, txt: str) -> dict:
-    txt, total, returned, truncated = _clip_utf8(txt, _MAX_TXT_BYTES)
+    txt, total, returned, truncated = clip_utf8(txt, MAX_TEXT_BYTES)
     result.update(
         {
             "txt": txt,

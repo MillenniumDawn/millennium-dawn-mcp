@@ -11,7 +11,7 @@ from typing import Optional
 
 from ..util.encoding import UTF8_BOM
 from ..util.pathing import PathAccessError, validate_user_path
-from ..util.response import BUDGET_BYTES, enforce_budget
+from ..util.response import BUDGET_BYTES, MAX_TEXT_BYTES, clip_utf8, enforce_budget
 
 SUPPORTED_KINDS: tuple[str, ...] = (
     "focus",
@@ -23,7 +23,6 @@ SUPPORTED_KINDS: tuple[str, ...] = (
     "history",
 )
 
-_MAX_TXT_BYTES = max(1, BUDGET_BYTES - 12_000)
 _UPSTREAM_MODULES: tuple[str, ...] = (
     "standardize_api",
     "_common",
@@ -69,53 +68,41 @@ def _load_standardize_api(mod_root: Path) -> ModuleType:
 
 def _clip_txt(result: dict, txt: str) -> dict:
     """Fit `txt` to the JSON output budget and report any content clipping."""
-    encoded = txt.encode("utf-8")
-    if len(encoded) > _MAX_TXT_BYTES:
-        txt = encoded[:_MAX_TXT_BYTES].decode("utf-8", "ignore")
+    note = "txt clipped to fit the response budget; do NOT write clipped content back"
+    txt, total, returned, truncated = clip_utf8(txt, MAX_TEXT_BYTES)
     result.update(
         {
             "txt": txt,
-            "txt_bytes": len(encoded),
-            "txt_returned_bytes": len(txt.encode("utf-8")),
-            "txt_truncated": len(txt.encode("utf-8")) < len(encoded),
+            "txt_bytes": total,
+            "txt_returned_bytes": returned,
+            "txt_truncated": truncated,
         }
     )
-    if result["txt_truncated"]:
-        result["note"] = "txt clipped to fit the response budget; do NOT write clipped content back"
+    if truncated:
+        result["note"] = note
 
     if len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > BUDGET_BYTES:
+        # Escaping can inflate txt past the budget; find the longest prefix that fits.
         original = txt
-        low = 0
-        high = len(original)
-        best: Optional[dict] = None
-        while low <= high:
-            middle = (low + high) // 2
-            candidate_txt = original[:middle]
-            candidate = {
+
+        def shrunk(chars: int) -> dict:
+            prefix = original[:chars]
+            return {
                 **result,
-                "txt": candidate_txt,
-                "txt_returned_bytes": len(candidate_txt.encode("utf-8")),
+                "txt": prefix,
+                "txt_returned_bytes": len(prefix.encode("utf-8")),
                 "txt_truncated": True,
-                "note": (
-                    "txt clipped to fit the response budget; do NOT write clipped content back"
-                ),
+                "note": note,
             }
-            if len(json.dumps(candidate, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES:
-                best = candidate
-                low = middle + 1
+
+        low, high = 0, len(original)
+        while low < high:
+            middle = (low + high + 1) // 2
+            if len(json.dumps(shrunk(middle), ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES:
+                low = middle
             else:
                 high = middle - 1
-        if best is None:
-            best = {
-                **result,
-                "txt": "",
-                "txt_returned_bytes": 0,
-                "txt_truncated": True,
-                "note": (
-                    "txt clipped to fit the response budget; do NOT write clipped content back"
-                ),
-            }
-        result = best
+        result = shrunk(low)
 
     return enforce_budget(result, heavy_keys=("txt",))
 

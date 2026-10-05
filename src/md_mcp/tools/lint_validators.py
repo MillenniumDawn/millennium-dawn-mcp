@@ -27,7 +27,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Sequence
 
-from ..analysis.suppressions import suppressed_count
+from ..analysis.suppressions import SUPPRESSION_SOURCE, suppressed_count
 from ..util.encoding import read_text
 from ..validators import SLOW_VALIDATORS, ValidatorRunner
 from ..validators.attribution import IssueAttributor
@@ -408,7 +408,7 @@ def run_validators_for_lint(
         entry = {"name": label, "ok": True, "total": len(on_scope)}
         if suppressed:
             entry["suppressed_mod_wide"] = suppressed
-            entry["suppression_source"] = ".claude/docs/known-false-positives.md"
+            entry["suppression_source"] = SUPPRESSION_SOURCE
         if wanted is not None:
             entry["total_mod_wide"] = len(raw) + suppressed
             if result.get("scoped"):

@@ -12,6 +12,7 @@ added without duplicating the parse.
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 from typing import Optional
 
@@ -25,6 +26,10 @@ _MANIFEST_FILES = {
     "vanilla_sprites.txt": ("tools", "validation", "vanilla_sprites.txt"),
 }
 
+# Parsed entries per manifest path, valid while (st_mtime_ns, st_size) holds.
+# Lint and validate load the sprite manifest once per validator.
+_parsed: dict[Path, tuple[tuple[int, int], frozenset[str]]] = {}
+
 
 def load_manifest(mod_root: Path, filename: str) -> Optional[frozenset[str]]:
     """Return the manifest entries as a set, or None if the manifest is absent.
@@ -37,8 +42,14 @@ def load_manifest(mod_root: Path, filename: str) -> Optional[frozenset[str]]:
     if relpath is None:
         raise ValueError(f"unknown vanilla manifest {filename!r}")
     path = mod_root.joinpath(*relpath)
-    if not path.is_file():
+    try:
+        stat = path.stat()
+    except OSError:
         return None
+    stamp = (stat.st_mtime_ns, stat.st_size)
+    cached = _parsed.get(path)
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
     entries: set[str] = set()
     try:
         # utf-8-sig strips a UTF-8 BOM so a BOM'd first comment line isn't
@@ -52,7 +63,9 @@ def load_manifest(mod_root: Path, filename: str) -> Optional[frozenset[str]]:
                 entries.add(line)
     except OSError:
         return None
-    return frozenset(entries)
+    result = frozenset(entries)
+    _parsed[path] = (stamp, result)
+    return result
 
 
 def load_sprite_manifest(mod_root: Path) -> Optional[frozenset[str]]:
@@ -64,4 +77,10 @@ def load_sprite_manifest(mod_root: Path) -> Optional[frozenset[str]]:
     entries = load_manifest(mod_root, "vanilla_sprites.txt")
     if entries is None:
         return None
+    return _sprite_names(entries)
+
+
+# Keyed on the memoized entries object, so an unchanged file reuses the result.
+@functools.lru_cache(maxsize=1)
+def _sprite_names(entries: frozenset[str]) -> frozenset[str]:
     return frozenset(entry.split(maxsplit=1)[0] for entry in entries)

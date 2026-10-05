@@ -259,7 +259,7 @@ def test_scoped_collect_does_not_leave_staged_only_enabled(tmp_path):
     target = "events/Algeria.txt"
 
     result = runner.run("staged_guard", files=[target], post_filter=False)
-    validator = runner._modules["validate_staged_guard"].last_instance
+    validator = sys.modules["validate_staged_guard"].last_instance
 
     assert result["scoped"] is True
     assert [issue["file"] for issue in result["issues"]] == [target]

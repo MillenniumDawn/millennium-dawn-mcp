@@ -60,6 +60,20 @@ def test_load_manifest_missing_returns_none(tmp_path: Path) -> None:
     assert load_sprite_manifest(root) is None
 
 
+def test_load_manifest_sees_rewrite_and_removal(tmp_path: Path) -> None:
+    """The parsed manifest is memoized by stat, so a changed file must miss."""
+    root = tmp_path / "Mod"
+    (root / "tools" / "validation").mkdir(parents=True)
+    manifest = root / "tools" / "validation" / "vanilla_sprites.txt"
+    manifest.write_text("GFX_old\n", encoding="utf-8")
+    assert load_sprite_manifest(root) == frozenset({"GFX_old"})
+    assert load_sprite_manifest(root) == frozenset({"GFX_old"})
+    manifest.write_text("GFX_new\nGFX_newer\n", encoding="utf-8")
+    assert load_sprite_manifest(root) == frozenset({"GFX_new", "GFX_newer"})
+    manifest.unlink()
+    assert load_sprite_manifest(root) is None
+
+
 def test_load_manifest_generalises_to_other_manifests(tmp_path: Path) -> None:
     root = tmp_path / "Mod"
     (root / "tools" / "validation").mkdir(parents=True)

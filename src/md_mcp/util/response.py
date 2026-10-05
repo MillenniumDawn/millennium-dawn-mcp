@@ -21,6 +21,9 @@ from typing import Any, Iterable, Sequence
 
 BUDGET_BYTES = 100_000
 
+# Cap for a text payload (report, fixed file); leaves room for status fields and warnings.
+MAX_TEXT_BYTES = BUDGET_BYTES - 12_000
+
 
 def coerce_int(value: Any, *, name: str, default: int) -> int:
     """Coerce a pagination bound (`limit`/`offset`) to `int`.
@@ -157,6 +160,16 @@ def _bounded_fallback(result: dict, budget: int) -> dict:
         "size_truncated": True,
         "budget": budget,
     }
+
+
+def clip_utf8(text: str, max_bytes: int) -> tuple[str, int, int, bool]:
+    """Return text clipped at a UTF-8 boundary plus size metadata."""
+    raw = text.encode("utf-8")
+    total = len(raw)
+    if total <= max_bytes:
+        return text, total, total, False
+    clipped = raw[:max_bytes].decode("utf-8", "ignore")
+    return clipped, total, len(clipped.encode("utf-8")), True
 
 
 def clip_strings(items: Iterable[dict], key: str, max_bytes: int) -> list[dict]:

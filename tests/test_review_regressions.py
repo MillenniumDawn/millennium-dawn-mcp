@@ -7,10 +7,11 @@ from pathlib import Path
 
 from md_mcp import config
 from md_mcp.analysis.manifest import _loc_files
+from md_mcp.indexes import FocusIndex
 from md_mcp.indexes import localisation as loc_mod
 from md_mcp.indexes.localisation import LocalisationIndex
 
-_LOC = '\ufeffl_{lang}:\n {key}:0 "{value}"\n'
+_LOC = '\ufeff{lang}:\n {key}:0 "{value}"\n'
 
 
 def _mod_root(tmp_path: Path) -> Path:
@@ -111,3 +112,94 @@ def test_manifest_loc_files_cover_every_language(tmp_path):
             str(Path("localisation/german/MD_focus_USA_l_german.yml")),
         ]
     )
+
+
+# ---------------------------------------------------------------------------
+# Two processes sharing one cache dir (review of #194): the shared manifest is
+# not a description of *this* process's memory once another writer has updated
+# it, so the warm refresh must diff disk against what it loaded, not the manifest.
+
+
+def _refresh(index) -> None:
+    index._stale_check.force_next()
+    index.ensure_fresh()
+
+
+def _two_loc_indexes(tmp_path):
+    root = _mod_root(tmp_path)
+    cache = tmp_path / "cache"
+    _write_loc(root, "localisation/english/x_l_english.yml", "l_english", "K_X", "x1")
+    _write_loc(root, "localisation/english/z_l_english.yml", "l_english", "K_Z", "z1")
+    a = LocalisationIndex(root, cache, None, langs=("en",))
+    b = LocalisationIndex(root, cache, None, langs=("en",))
+    a.ensure_fresh()
+    b.ensure_fresh()
+    assert a.resolve("K_Z") is not None and b.resolve("K_Z") is not None
+    return root, a, b
+
+
+def test_file_removed_by_another_process_is_dropped_on_refresh(tmp_path):
+    root, a, b = _two_loc_indexes(tmp_path)
+    (root / "localisation/english/z_l_english.yml").unlink()
+    _refresh(b)  # B rewrites the shared manifest without Z
+    assert b.resolve("K_Z") is None
+
+    # X is edited so A has something to refresh; Z must not be carried forward.
+    x = root / "localisation/english/x_l_english.yml"
+    _write_loc(root, "localisation/english/x_l_english.yml", "l_english", "K_X", "x2")
+    st = os.stat(x)
+    os.utime(x, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+    _refresh(a)
+
+    assert a.resolve("K_Z") is None
+    assert a.resolve("K_X")["value"] == "x2"
+    assert "localisation/english/z_l_english.yml" not in a._by_file
+
+
+def test_file_removed_by_another_process_is_dropped_even_with_no_other_edit(tmp_path):
+    root, a, b = _two_loc_indexes(tmp_path)
+    (root / "localisation/english/z_l_english.yml").unlink()
+    _refresh(b)
+    _refresh(a)  # nothing else changed; the manifest already matches disk
+    assert a.resolve("K_Z") is None
+
+
+def test_file_added_by_another_process_is_picked_up(tmp_path):
+    root, a, b = _two_loc_indexes(tmp_path)
+    _write_loc(root, "localisation/english/w_l_english.yml", "l_english", "K_W", "w1")
+    _refresh(b)  # B parses W and writes it into the shared manifest
+    assert b.resolve("K_W") is not None
+    _refresh(a)
+    assert a.resolve("K_W") is not None
+
+
+def test_file_edited_by_another_process_is_reparsed(tmp_path):
+    root, a, b = _two_loc_indexes(tmp_path)
+    x = root / "localisation/english/x_l_english.yml"
+    _write_loc(root, "localisation/english/x_l_english.yml", "l_english", "K_X", "x2")
+    st = os.stat(x)
+    os.utime(x, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+    _refresh(b)  # B re-indexes X and updates the manifest
+    assert b.resolve("K_X")["value"] == "x2"
+    _refresh(a)
+    assert a.resolve("K_X")["value"] == "x2"
+
+
+def test_file_removed_by_another_process_monolithic_index(tmp_path):
+    root = _mod_root(tmp_path)
+    cache = tmp_path / "cache"
+    d = root / "common" / "national_focus"
+    d.mkdir(parents=True)
+    (d / "x.txt").write_text("focus_tree = {\n\tfocus = { id = X_a }\n}\n", encoding="utf-8")
+    (d / "z.txt").write_text("focus_tree = {\n\tfocus = { id = Z_a }\n}\n", encoding="utf-8")
+    a = FocusIndex(root, cache, None)
+    b = FocusIndex(root, cache, None)
+    a.ensure_fresh()
+    b.ensure_fresh()
+    assert a.resolve("Z_a") is not None
+
+    (d / "z.txt").unlink()
+    _refresh(b)
+    _refresh(a)
+    assert a.resolve("Z_a") is None
+    assert a.list_files() == [str(Path("common/national_focus/x.txt"))]

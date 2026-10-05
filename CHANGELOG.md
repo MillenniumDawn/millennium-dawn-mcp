@@ -30,7 +30,9 @@
   ~30x their source). `resolve_focus`, `focus_graph`, the scope walkers behind
   `focus_layout` / `check_refs` / deep `find_focuses` filters, and the `md://` resources share it,
   so a repeat call on `05_usa.txt` drops from ~700 ms to ~30 ms. Parse errors are not cached.
-- `GenericTxtIndex._rebuild` is incremental after the first load: only keys in changed files are
+- `GenericTxtIndex._rebuild` is incremental after the first load: the refresh diffs disk against
+  the signatures this process loaded (not the shared manifest, which another server or
+  `build-index` may have rewritten), and only keys in changed files are
   recomputed (winner/duplicate state matches a full rebuild, including un-shadowing on removal)
   instead of rebuilding every map and rewriting the whole payload. English loc, 232 k keys:
   one-file edit 1.0-1.9 s -> 25-60 ms, startup ~1.0 s -> ~0.65 s.

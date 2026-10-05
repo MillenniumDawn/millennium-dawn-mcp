@@ -333,17 +333,31 @@ class RebuildPlan:
 
 
 def plan_rebuild(
-    cache: IndexCache, files: list[Path], roots: list[Path], loaded: bool
+    cache: IndexCache,
+    files: list[Path],
+    roots: list[Path],
+    loaded: bool,
+    known: Optional[dict[str, FileSig]] = None,
 ) -> Optional[RebuildPlan]:
-    """Diff the current files against the manifest.
+    """Diff the current files against what the caller already holds.
 
-    Returns None on the fast path — nothing moved on disk and in-process state is
-    already populated, so the caller can leave its maps alone. A missing or
-    unreadable manifest reads as empty, which forces a full rebuild and rewrite.
+    On first load the baseline is the persistent manifest. Once loaded, the caller
+    passes `known`, the signatures of the files its in-memory maps were built from,
+    and the diff runs against that instead: the manifest is shared with every other
+    process on the same cache dir (a second `md-mcp serve`, a `build-index` run), so
+    after one of them rewrites it the manifest no longer describes this process's
+    maps. Diffing against memory means a file another process removed, added or
+    re-indexed still shows up as removed, added or stale here.
+
+    Returns None on the fast path — nothing moved relative to the baseline and
+    in-process state is already populated, so the caller can leave its maps alone.
+    A missing or unreadable manifest reads as empty, which forces a full rebuild
+    and rewrite.
     """
     current_sigs = signatures_for(files, roots)
     manifest = cache.load_manifest() or {}
-    staleness = compute_staleness(manifest, current_sigs)
+    baseline = known if loaded and known is not None else manifest
+    staleness = compute_staleness(baseline, current_sigs)
 
     if loaded and not staleness.stale and not staleness.added and not staleness.removed:
         return None
@@ -438,6 +452,9 @@ class GenericTxtIndex:
         self._by_key: dict[Any, dict] = {}
         self._duplicates: dict[Any, list[str]] = {}
         self._parse_errors: dict[str, str] = {}
+        # Signatures of the files the in-memory maps were built from. The warm
+        # refresh diffs disk against these, not against the shared manifest.
+        self._sigs: dict[str, FileSig] = {}
         self._loaded = False
 
     # ---------- public API ----------
@@ -498,13 +515,20 @@ class GenericTxtIndex:
         return collect_files(self._roots(), self._subdirs, self._patterns, self.file_predicate)
 
     def _rebuild(self) -> None:
-        plan = plan_rebuild(self._cache, self._collect_files(), self._roots(), self._loaded)
+        plan = plan_rebuild(
+            self._cache,
+            self._collect_files(),
+            self._roots(),
+            self._loaded,
+            known=self._sigs if self._loaded else None,
+        )
         if plan is None:
             return
         if self._loaded:
             self._rebuild_incremental(plan)
         else:
             self._rebuild_full(plan)
+        self._sigs = plan.current_sigs
 
     def _parse_results(
         self, relpaths: list[str]

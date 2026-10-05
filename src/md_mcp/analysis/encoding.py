@@ -13,9 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from ..util.encoding import UTF8_BOM
 from ..util.response import coerce_int, enforce_budget, paginate
-
-UTF8_BOM = b"\xef\xbb\xbf"
 
 # Subdirectories to walk. Other paths (resources/, .claude/, tools/) are excluded
 # because they're not subject to the engine's encoding rules.

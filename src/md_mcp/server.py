@@ -465,7 +465,7 @@ def build_server(settings: Settings):
     @mcp.tool(name="calculate_days")
     def _calculate_days(year: int, month: int, day: int) -> dict:
         """Calculate days since 2000 using fixed non-leap years; validates year, month, and day."""
-        return calculate_days_tool(settings.mod_root, year, month, day)
+        return calculate_days_tool(year, month, day)
 
     @mcp.tool(name="focus_graph")
     def _focus_graph(

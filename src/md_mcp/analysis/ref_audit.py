@@ -50,9 +50,10 @@ from ..indexes import (
     ScriptedTriggerIndex,
     TraitIndex,
 )
-from ..paradox.nodes import Node, SymbolNode
-from ..util.line_numbers import line_starts, pos_to_line
+from ..paradox.nodes import Node, node_line, symbol_or_str
+from ..util.line_numbers import line_starts
 from ..util.response import enforce_budget
+from .refs import KIND_ALIASES
 from .scope import iter_scope_files
 
 _ALL_KINDS: tuple = (
@@ -68,11 +69,6 @@ _ALL_KINDS: tuple = (
     "scripted_effect",
     "scripted_trigger",
 )
-_KIND_ALIASES = {
-    "tag": "country_tag",
-    "scripted_effects": "scripted_effect",
-    "scripted_triggers": "scripted_trigger",
-}
 _MAX_FILES = 200
 
 _EVENT_NODES = frozenset({"country_event", "news_event"})
@@ -155,7 +151,7 @@ def check_refs(
         return {"ok": False, "error": "Pass tag= or files=[...] (mod-relative paths)."}
 
     selected = list(kinds) if kinds else list(_ALL_KINDS)
-    selected = [_KIND_ALIASES.get(kind, kind) for kind in selected]
+    selected = [KIND_ALIASES.get(kind, kind) for kind in selected]
     unknown = [k for k in selected if k not in _ALL_KINDS]
     if unknown:
         return {"ok": False, "error": f"Unknown kind(s): {unknown}. Valid: {list(_ALL_KINDS)}"}
@@ -342,7 +338,7 @@ def _walk(
             fid = _symbol_or_str(_child_get(child, "id"))
             if fid:
                 ctx = fid
-                focus_defs.append({"id": fid, "file": relpath, "line": _line(child, starts)})
+                focus_defs.append({"id": fid, "file": relpath, "line": node_line(child, starts)})
 
         if "focus" in kinds and name in ("prerequisite", "mutually_exclusive"):
             for m in child.children():
@@ -441,7 +437,7 @@ def _ref(
         "ref": ref,
         "via": via,
         "file": relpath,
-        "line": _line(node, starts),
+        "line": node_line(node, starts),
         "referrer": referrer,
     }
 
@@ -464,18 +460,4 @@ def _child_get(node: Node, name: str) -> Optional[Node]:
 
 
 def _symbol_or_str(node: Optional[Node]) -> Optional[str]:
-    if node is None:
-        return None
-    v = node.value
-    if isinstance(v, SymbolNode):
-        return v.name
-    if isinstance(v, str) and v:
-        return v
-    return None
-
-
-def _line(node: Node, starts: list[int]) -> Optional[int]:
-    tok = node.name_token
-    if tok is None:
-        return None
-    return pos_to_line(tok.start, starts)
+    return symbol_or_str(node) or None

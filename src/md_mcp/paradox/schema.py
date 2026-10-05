@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from typing import Any, Iterator, Optional
 
-from ..util.line_numbers import line_starts, pos_to_line
-from .nodes import Node, SymbolNode
+from ..util.line_numbers import line_starts
+from .nodes import Node, SymbolNode, node_line, symbol_or_str
 
 
 def _starts(source: str | None) -> list[int] | None:
@@ -45,20 +45,17 @@ def to_json_with_lines(node: Node, source: str) -> dict:
     return _node_to_json(node, line_starts(source))
 
 
-def _node_to_json(node: Node, starts: Optional[list[int]]) -> dict:
-    """Serialise one node. `starts=None` means no source text, so every `line` is null."""
+def _node_to_json(node: Node, starts: list[int]) -> dict:
     return {
         "name": node.name,
         "operator": node.operator,
         "value": _value_to_json(node.value, starts),
         "value_attachment": node.value_attachment.name if node.value_attachment else None,
-        "line": (
-            pos_to_line(node.name_token.start, starts) if node.name_token and starts else None
-        ),
+        "line": node_line(node, starts),
     }
 
 
-def _value_to_json(value: Any, starts: Optional[list[int]]) -> Any:
+def _value_to_json(value: Any, starts: list[int]) -> Any:
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, SymbolNode):
@@ -88,23 +85,36 @@ def extract_focus_records(root: Node, source: str | None = None) -> list[dict]:
     starts = _starts(source)
     records: list[dict] = []
 
+    for node, kind in _iter_focus_definitions(root):
+        rec = _focus_record(node, kind, starts)
+        if rec:
+            records.append(rec)
+
+    return records
+
+
+def _iter_focus_definitions(root: Node) -> Iterator[tuple[Node, str]]:
+    """Yield `(node, kind)` for every node satisfying the focus hierarchy.
+
+    `focus` blocks inside a top-level `focus_tree` have kind `focus_tree`;
+    top-level `shared_focus` and `joint_focus` blocks are their own kind.
+    """
     for top in root.children():
         if top.name == "focus_tree":
             for sub in top.children():
                 if sub.name == "focus":
-                    rec = _focus_record(sub, "focus_tree", starts)
-                    if rec:
-                        records.append(rec)
-        elif top.name == "shared_focus":
-            rec = _focus_record(top, "shared_focus", starts)
-            if rec:
-                records.append(rec)
-        elif top.name == "joint_focus":
-            rec = _focus_record(top, "joint_focus", starts)
-            if rec:
-                records.append(rec)
+                    yield sub, "focus_tree"
+        elif top.name in ("shared_focus", "joint_focus"):
+            yield top, top.name
 
-    return records
+
+def find_focus_nodes(root: Node, focus_id: str) -> list[Node]:
+    """Return every node in the AST satisfying the focus hierarchy for `focus_id`.
+
+    Mirrors `extract_focus_records`'s walk so resource handlers can locate the
+    same nodes the index was built from, instead of matching on name alone.
+    """
+    return [node for node, _kind in _iter_focus_definitions(root) if _get_id(node) == focus_id]
 
 
 def _focus_record(node: Node, kind: str, starts: list[int] | None) -> dict | None:
@@ -131,11 +141,7 @@ def _focus_record(node: Node, kind: str, starts: list[int] | None) -> dict | Non
     return {
         "id": fid,
         "kind": kind,
-        "line": (
-            pos_to_line(node.name_token.start, starts)
-            if starts is not None and node.name_token
-            else None
-        ),
+        "line": node_line(node, starts),
         "x": _scalar(node.get("x")),
         "y": _scalar(node.get("y")),
         "cost": _scalar(node.get("cost")),
@@ -165,15 +171,7 @@ def _ai_will_do_summary(node: Node) -> dict | None:
 
 def _get_id(node: Node) -> str | None:
     """Pull the `id = X` value as a string; X is typically a SymbolNode but may be a string."""
-    id_node = node.get("id")
-    if id_node is None:
-        return None
-    v = id_node.value
-    if isinstance(v, SymbolNode):
-        return v.name
-    if isinstance(v, str):
-        return v
-    return None
+    return symbol_or_str(node.get("id"))
 
 
 # ---------------------------------------------------------------------------
@@ -206,11 +204,9 @@ def _file_namespaces(root: Node) -> list[str]:
     namespaces: list[str] = []
     for top in root.children():
         if top.name == "add_namespace":
-            ns_val = top.value
-            if isinstance(ns_val, SymbolNode):
-                namespaces.append(ns_val.name)
-            elif isinstance(ns_val, str):
-                namespaces.append(ns_val)
+            namespace = symbol_or_str(top)
+            if namespace is not None:
+                namespaces.append(namespace)
     return namespaces
 
 
@@ -228,11 +224,7 @@ def extract_event_records(root: Node, source: str | None = None) -> list[dict]:
             "id": id_str,
             "kind": node.name,
             "namespace": id_str.partition(".")[0],
-            "line": (
-                pos_to_line(node.name_token.start, starts)
-                if starts is not None and node.name_token
-                else None
-            ),
+            "line": node_line(node, starts),
             "file_namespaces": list(namespaces),
         }
         for node, id_str in _iter_event_definitions(root)
@@ -301,11 +293,7 @@ def extract_decision_records(root: Node, source: str | None = None) -> list[dict
         {
             "id": node.name,
             "category": category,
-            "line": (
-                pos_to_line(node.name_token.start, starts)
-                if starts is not None and node.name_token
-                else None
-            ),
+            "line": node_line(node, starts),
         }
         for node, category in _iter_decision_definitions(root)
     ]
@@ -381,11 +369,7 @@ def extract_idea_records(root: Node, source: str | None = None) -> list[dict]:
             "id": node.name,
             "category": category,
             "slot": slot,
-            "line": (
-                pos_to_line(node.name_token.start, starts)
-                if starts is not None and node.name_token
-                else None
-            ),
+            "line": node_line(node, starts),
         }
         for node, category, slot in _iter_idea_definitions(root)
     ]
@@ -478,15 +462,8 @@ def _iter_sprite_definitions(root: Node) -> Iterator[tuple[Node, str, str]]:
         for sprite in top.children():
             if sprite.name not in SPRITE_KINDS:
                 continue
-            name_node = sprite.get("name")
-            if name_node is None:
-                continue
-            name_val = name_node.value
-            if isinstance(name_val, SymbolNode):
-                name = name_val.name
-            elif isinstance(name_val, str):
-                name = name_val
-            else:
+            name = symbol_or_str(sprite.get("name"))
+            if name is None:
                 continue
             yield sprite, name, top.name
 
@@ -500,11 +477,7 @@ def extract_sprite_records(root: Node, source: str | None = None) -> list[dict]:
             "kind": node.name,
             "texturefile": _scalar(node.get("texturefile")),
             "parent": parent,
-            "line": (
-                pos_to_line(node.name_token.start, starts)
-                if starts is not None and node.name_token
-                else None
-            ),
+            "line": node_line(node, starts),
         }
         for node, name, parent in _iter_sprite_definitions(root)
     ]

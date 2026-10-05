@@ -217,6 +217,11 @@ def _events(
     return events, files
 
 
+def _tag_file_pattern(tag_upper: str) -> re.Pattern[str]:
+    """Match `TAG` as a path or name segment; `\\` is a separator too (Windows relpaths)."""
+    return re.compile(rf"(^|[\\/_]){re.escape(tag_upper)}(_|[\\/]|$)")
+
+
 def _loc_files(loc_index: Optional[LocalisationIndex], tag_upper: str) -> list[str]:
     """Every `*_l_<lang>.yml` named for the tag, in every language, over the index's roots.
 
@@ -227,7 +232,7 @@ def _loc_files(loc_index: Optional[LocalisationIndex], tag_upper: str) -> list[s
     """
     if loc_index is None:
         return []
-    pattern = re.compile(rf"(^|[/_]){re.escape(tag_upper)}(_|/|$)")
+    pattern = _tag_file_pattern(tag_upper)
     out: set[str] = set()
     for root in loc_index._roots():
         d = root / "localisation"

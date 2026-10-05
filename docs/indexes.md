@@ -117,7 +117,7 @@ directories are simply ignored; users can blow them away manually.
 ├── v3/                           (focus v3, loc v3 — each index has its own N)
 │   ├── focus.data.json
 │   ├── focus.manifest.json
-│   ├── loc-en.manifest.json      one cache per language set (loc-en, loc-en_de, ...)
+│   ├── loc-en.manifest.json      one cache per language set (loc-en, loc-de_en, ...)
 │   └── loc-en.data/              sharded: one JSON file per contributing .yml
 │       ├── MD_GCC_membership_l_english.yml-3fa9c1…json
 │       └── ...

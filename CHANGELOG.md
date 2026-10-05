@@ -7,7 +7,7 @@
 - `loc_langs` setting (`MD_MCP_LOC_LANGS`, config.toml `loc_langs`; comma-separated ISO codes or
   `*`). The localisation index now covers only these languages, default `default_lang` plus
   `en` (the fallback is always indexed). Each language set has its own cache (`loc-en`,
-  `loc-en_de`), so a process with fewer languages never deletes another's shards.
+  `loc-de_en`), so a process with fewer languages never deletes another's shards.
   `resolve_loc` / `list_keys` for any other language fall back to an on-demand, in-memory scan of
   that language's files, invalidated by file signature. `md-mcp doctor` prints `loc_langs`.
 - Sharded index cache: an index with `sharded = True` stores one JSON shard per contributing file

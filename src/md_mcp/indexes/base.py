@@ -743,20 +743,33 @@ class GenericTxtIndex:
     ) -> None:
         """Write data then manifest. Data first: a crash in between leaves a manifest
         that still reads as stale, so the next start re-parses instead of trusting
-        half-written state."""
-        if self.sharded:
-            for relpath, (records, error) in parsed.items():
-                self._cache.save_shard(relpath, records, error if self.track_parse_errors else None)
-            for relpath in plan.staleness.removed:
-                self._cache.delete_shard(relpath)
-            if full:
-                self._cache.prune_shards(plan.current_sigs)
-        else:
-            payload: dict[str, Any] = {"files": self._by_file}
-            if self.track_parse_errors:
-                payload["parse_errors"] = self._parse_errors
-            self._cache.save_data(payload)
-        self._cache.save_manifest(plan.current_sigs)
+        half-written state.
+
+        The cache is best-effort: the in-memory maps are already correct, so a write
+        that fails (another process holding a shard or the manifest open on Windows,
+        a read-only cache dir) is logged and otherwise ignored. The manifest is then
+        not updated, and the next start re-parses whatever it did not persist.
+        """
+        try:
+            if self.sharded:
+                for relpath, (records, error) in parsed.items():
+                    self._cache.save_shard(
+                        relpath, records, error if self.track_parse_errors else None
+                    )
+                for relpath in plan.staleness.removed:
+                    self._cache.delete_shard(relpath)
+                if full:
+                    self._cache.prune_shards(plan.current_sigs)
+            else:
+                payload: dict[str, Any] = {"files": self._by_file}
+                if self.track_parse_errors:
+                    payload["parse_errors"] = self._parse_errors
+                self._cache.save_data(payload)
+            self._cache.save_manifest(plan.current_sigs)
+        except OSError as exc:
+            logger.warning(
+                "%s cache: could not persist (%s); will re-parse next start", self.cache_name, exc
+            )
 
     def _record_key(self, record: dict) -> Any:
         return self._key_fn(record)

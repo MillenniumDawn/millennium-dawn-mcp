@@ -6,10 +6,10 @@ import os
 from pathlib import Path
 
 from md_mcp import config
-from md_mcp.analysis.manifest import _loc_files
+from md_mcp.analysis.manifest import _loc_files, _tag_file_pattern
 from md_mcp.indexes import FocusIndex
 from md_mcp.indexes import localisation as loc_mod
-from md_mcp.indexes.localisation import LocalisationIndex
+from md_mcp.indexes.localisation import LocalisationIndex, cache_name_for
 
 _LOC = '\ufeff{lang}:\n {key}:0 "{value}"\n'
 
@@ -250,3 +250,48 @@ def test_file_removed_by_another_process_monolithic_index(tmp_path):
     _refresh(a)
     assert a.resolve("Z_a") is None
     assert a.list_files() == [str(Path("common/national_focus/x.txt"))]
+
+
+# ---------------------------------------------------------------------------
+# Second approval round.
+
+
+def test_tag_pattern_accepts_windows_separators():
+    pattern = _tag_file_pattern("USA")
+    assert pattern.search("localisation\\english\\USA_l_english.yml")
+    assert pattern.search("localisation/english/MD_focus_USA_l_english.yml")
+    assert pattern.search("localisation\\english\\MD_focus_USA_l_english.yml")
+    assert not pattern.search("localisation/english/MD_focus_USAX_l_english.yml")
+    assert not pattern.search("localisation/english/MUSA_l_english.yml")
+
+
+def test_cache_name_is_independent_of_language_order():
+    assert cache_name_for(("en", "de")) == cache_name_for(("de", "en")) == "loc-de_en"
+    assert cache_name_for(("pt-br", "en")) == "loc-en_ptbr"
+
+
+def test_failed_cache_write_does_not_fail_the_refresh(tmp_path, monkeypatch, caplog):
+    import logging
+
+    from md_mcp.indexes import base as base_mod
+
+    root = _mod_root(tmp_path)
+    _write_loc(root, "localisation/english/a_l_english.yml", "l_english", "K_A", "a")
+    index = LocalisationIndex(root, tmp_path / "cache", None, langs=("en",))
+
+    def refuse(path, text):
+        raise PermissionError(f"locked: {path}")
+
+    monkeypatch.setattr(base_mod, "_atomic_write_text", refuse)
+    with caplog.at_level(logging.WARNING, logger="md_mcp.indexes.base"):
+        index.ensure_fresh()
+    assert index.resolve("K_A")["value"] == "a"  # type: ignore[index]
+    assert any("could not persist" in rec.message for rec in caplog.records)
+    assert not index._cache.manifest_path.exists()
+
+    # Nothing was persisted, so a fresh instance parses again rather than trusting a manifest.
+    monkeypatch.undo()
+    again = LocalisationIndex(root, tmp_path / "cache", None, langs=("en",))
+    again.ensure_fresh()
+    assert again.resolve("K_A") is not None
+    assert again._cache.manifest_path.exists()

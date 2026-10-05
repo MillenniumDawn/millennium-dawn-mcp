@@ -14,7 +14,7 @@ the language count. Other languages still resolve through an on-demand scan (see
 
 Cache layout (sharded, one cache per language set: one JSON file per contributing
 .yml under <cache_dir>/v3/loc-<langs>.data/<name>-<digest>.json; manifest in
-loc-<langs>.manifest.json, e.g. `loc-en`, `loc-en_de`):
+loc-<langs>.manifest.json, e.g. `loc-en`, `loc-de_en`):
     {
         "relpath": "<relpath>",
         "records": [
@@ -84,13 +84,14 @@ def has_lang_suffix(path: Path) -> bool:
 
 
 def cache_name_for(langs: Iterable[str]) -> str:
-    """Per-language-set cache name, e.g. `loc-en`, `loc-en_de`.
+    """Per-language-set cache name, e.g. `loc-en`, `loc-de_en`.
 
     Every language set gets its own manifest and shard directory. One shared
     `loc` cache let a process with fewer languages (a `build-index` run without
     `MD_MCP_LOC_LANGS`) treat the others' files as removed and delete their shards.
     """
-    return "loc-" + "_".join(code.replace("-", "") for code in langs)
+    # Sorted so `en,de` and `de,en` (e.g. default_lang=de) share one cache.
+    return "loc-" + "_".join(code.replace("-", "") for code in sorted(langs))
 
 
 def normalise_loc_langs(

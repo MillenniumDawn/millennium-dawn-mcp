@@ -12,6 +12,7 @@ import os
 import sys
 from dataclasses import replace
 from functools import partial
+from threading import Lock
 from typing import Callable, Optional
 
 from .analysis.diff_summary import diff_summary
@@ -79,6 +80,7 @@ from .tools.upstream_analysis import (
     tick_audit_tool,
 )
 from .tools.validation_tools import validate_list_tool, validate_tool
+from .util.offload import BoundedOffloader
 from .validators import ValidatorRunner
 
 logger = logging.getLogger("md_mcp")
@@ -111,6 +113,7 @@ def build_server(settings: Settings):
         ) from e
 
     mcp = FastMCP("md-mcp")
+    blocking_tools = BoundedOffloader()
 
     def _index(cls):
         return cls(
@@ -136,6 +139,14 @@ def build_server(settings: Settings):
         mode=settings.validator_mode,
         submod_root=settings.submod_root,
     )
+    validator_tools_lock = Lock()
+
+    def _run_validator_tool(call: Callable[[], dict]) -> dict:
+        # lint and validate share a ValidatorRunner with lazy module/attributor
+        # caches. Keep its state serialized while allowing unrelated MCP calls.
+        with validator_tools_lock:
+            return call()
+
     equipment_variant_checker = EquipmentVariantChecker(settings.mod_root)
 
     # Without an HOI4 install the indexes are mod-only; fall back to the mod's
@@ -311,7 +322,7 @@ def build_server(settings: Settings):
     )(_bind_tool(check_equipment_variant_tool, equipment_variant_checker))
 
     @mcp.tool()
-    def validate(
+    async def validate(
         validator: Optional[str] = None,
         staged_only: bool = False,
         files: Optional[list] = None,
@@ -323,18 +334,21 @@ def build_server(settings: Settings):
         baseline: Optional[str] = None,
     ) -> dict:
         """Run validators, or only new issues with delta=True and explicit baseline; severity_min/limit narrow output."""
-        return validate_tool(
-            settings,
-            validator_runner,
-            validator=validator,
-            staged_only=staged_only,
-            files=files,
-            strict=strict,
-            severity_min=severity_min,
-            limit=limit,
-            counts_only=counts_only,
-            delta=delta,
-            baseline=baseline,
+        return await blocking_tools.run(
+            _run_validator_tool,
+            lambda: validate_tool(
+                settings,
+                validator_runner,
+                validator=validator,
+                staged_only=staged_only,
+                files=files,
+                strict=strict,
+                severity_min=severity_min,
+                limit=limit,
+                counts_only=counts_only,
+                delta=delta,
+                baseline=baseline,
+            ),
         )
 
     @mcp.tool()
@@ -346,7 +360,7 @@ def build_server(settings: Settings):
         return validate_list_tool(settings, limit=limit, offset=offset)
 
     @mcp.tool()
-    def lint(
+    async def lint(
         mode: str = "changed",
         files: Optional[list] = None,
         checks: Optional[list] = None,
@@ -356,23 +370,28 @@ def build_server(settings: Settings):
         counts_only: bool = False,
     ) -> dict:
         """Run lint scripts plus style/brace checks for applicable script scopes. mode=changed|staged|all; checks=[...] subsets scripts; omit validators for scoped style, use [] to disable, or select ['auto'|'*'|names]; severity_min/limit/counts_only narrow output."""
-        return lint_tool(
-            settings.mod_root,
-            submod_root=settings.submod_root,
-            mode=mode,
-            files=files,
-            checks=checks,
-            validators=validators,
-            severity_min=severity_min,
-            limit=limit,
-            counts_only=counts_only,
-            validator_runner=validator_runner,
+        return await blocking_tools.run(
+            _run_validator_tool,
+            lambda: lint_tool(
+                settings.mod_root,
+                submod_root=settings.submod_root,
+                mode=mode,
+                files=files,
+                checks=checks,
+                validators=validators,
+                severity_min=severity_min,
+                limit=limit,
+                counts_only=counts_only,
+                validator_runner=validator_runner,
+            ),
         )
 
     @mcp.tool()
-    def review_branch(base: str = "main") -> dict:
+    async def review_branch(base: str = "main") -> dict:
         """Run review_branch.py: UTF-8-byte-bounded diff summary of the current branch vs `base`."""
-        return review_branch_tool(settings.mod_root, base=base, submod_root=settings.submod_root)
+        return await blocking_tools.run(
+            review_branch_tool, settings.mod_root, base=base, submod_root=settings.submod_root
+        )
 
     @mcp.tool()
     def fix_lint(

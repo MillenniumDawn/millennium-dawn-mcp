@@ -275,7 +275,9 @@ framing layer.
 
 If `validate` starts failing after an upstream change:
 
-1. Try `MD_MCP_VALIDATOR_MODE=in_process` outside the server for the raw traceback.
+1. Call `_collect` from `validators/runner.py` outside the server for the raw
+   traceback (snippet in [validators.md](./validators.md#debugging)). Does it
+   fail while building the validator or reading `_issues`?
 2. If yes: `Issue.to_dict()` or `_issues` semantics changed. Patch
    `_collect` in `runner.py`.
 3. If no: the validator script itself is broken. File against

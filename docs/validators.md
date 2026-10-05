@@ -54,8 +54,8 @@ a crashed validator as a clean run.
 ## In-process mode
 
 `md-mcp doctor` only prints settings — it runs no validators. To exercise a
-validator in-process with a real traceback, use the runner directly (full
-snippet in [Debugging](#debugging) below).
+validator in your own process, use the runner directly. For a real traceback,
+call `_collect` (both snippets are in [Debugging](#debugging) below).
 
 **Not safe under `md-mcp serve`.** A forking validator deadlocks the stdio
 loop, so the `serve` subcommand logs a warning and overrides this back to
@@ -105,16 +105,16 @@ want the module cache. The server picks isolated for you either way.
 
 The wrapper reads `validator._issues` — that leading underscore means it's
 not a public API. The Millennium-Dawn team can refactor it freely. When they
-do, in-process mode breaks until we update `runner.py`.
+do, both modes break until we update `runner.py`.
 
 Mitigations:
 
 1. **Single adapter point.** All version-sensitive behaviour lives in
    `_collect` in `runner.py`. `_run_inprocess` calls it directly and `_shim.py`
    calls it in the child, so there is one place to patch.
-2. **`in_process` for triage.** When isolated mode reports a failure and you
-   want the traceback in your own process, rerun with
-   `MD_MCP_VALIDATOR_MODE=in_process` outside the server.
+2. **`_collect` for triage.** `run()` reports a failure as `{ok: false, error}`
+   in both modes. When you want the traceback, call `_collect` yourself outside
+   the server (see [Debugging](#debugging)).
 3. **CI nightly check** runs every fast validator wrapper against
    `Millennium-Dawn` `main` and opens an issue on breakage. Wired:
    `.github/workflows/nightly.yml` runs `pytest -m integration` against a fresh
@@ -307,5 +307,17 @@ result = runner.run("localisation", staged_only=False)
 print(result["counts"], len(result["issues"]))
 ```
 
-This bypasses the MCP framing — exceptions surface directly, and you can
-inspect the validator module after the run through `sys.modules`.
+This bypasses the MCP framing, and you can inspect the validator module after
+the run through `sys.modules`. The runner still catches whatever the validator
+raises and returns `{ok: false, error}`. For the traceback, call the run
+sequence itself:
+
+```python
+from md_mcp.validators.runner import _collect
+
+payload = _collect(str(settings.mod_root), "validate_localisation", staged_only=False)
+print(len(payload["issues"]))
+```
+
+Most validators fork a `Pool`, so run this from a script or a REPL, never from
+inside `md-mcp serve`.

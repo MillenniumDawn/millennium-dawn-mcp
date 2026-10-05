@@ -124,21 +124,23 @@ it must go through `IssueAttributor`
 resolves by shape against the real file list — never compare `issue["file"]` to
 a scope set directly.
 
-To debug a validator failure with a real traceback, run it outside the server:
+To debug a validator failure with a real traceback, call `_collect` outside the
+server. `ValidatorRunner.run()` catches every exception and returns
+`{ok: false, error}` in both modes; `_collect` raises:
 
 ```python
 from md_mcp.config import load
-from md_mcp.validators import ValidatorRunner
+from md_mcp.validators.runner import _collect
 
 settings = load("/path/to/Millennium-Dawn")
-result = ValidatorRunner(settings.mod_root, mode="in_process").run("events")
-print(result)
+payload = _collect(str(settings.mod_root), "validate_events", staged_only=False)
+print(len(payload["issues"]))
 ```
 
-(`in_process` deadlocks under `serve` — see rule 6 — so `serve` overrides it
-back to isolated. `md-mcp doctor` only prints settings; it runs no validators.
-See [`docs/validators.md`](./docs/validators.md) for the fuller debugging
-snippet.)
+(`_collect` and `in_process` both deadlock under `serve` — see rule 6 — so
+`serve` overrides the mode back to isolated. `md-mcp doctor` only prints
+settings; it runs no validators. See
+[`docs/validators.md`](./docs/validators.md) for the fuller debugging snippet.)
 
 ### 5. BOM rules on emitted files
 

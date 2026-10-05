@@ -35,7 +35,6 @@ _NAME_RE = re.compile(r'\bname\s*=\s*"([^"\\]*(?:\\.[^"\\]*)*)"', re.IGNORECASE)
 _NAME_BARE_RE = re.compile(r"\bname\s*=\s*([A-Za-z_][\w.]*)", re.IGNORECASE)
 _TEXTUREFILE_RE = re.compile(r'\btexturefile\s*=\s*"([^"]+)"', re.IGNORECASE)
 _TEXTUREFILE_BARE_RE = re.compile(r"\btexturefile\s*=\s*([^\s{}]+)", re.IGNORECASE)
-_LINE_COUNT_PER_FILE = 50_000  # cap on lines we compute per match (perf safety net)
 
 
 _BRACE_TOKEN_RE = re.compile(r'"(?:\\.|[^"\\])*"|#[^\n]*|[{}]')

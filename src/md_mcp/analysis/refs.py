@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from ..paradox.schema import EVENT_KINDS
+from ..util.response import enforce_budget
 from .text_cache import read_text
 
 logger = logging.getLogger(__name__)
@@ -383,8 +384,6 @@ def find_references(
     or alternation branch that omits it), so a file lacking the raw target
     cannot match. `prefilter=False` disables the shortcut (equivalence tests).
     """
-    from ..util.response import enforce_budget  # local import; avoids cycle
-
     if kind not in _PATTERNS:
         return {
             "ok": False,
@@ -425,10 +424,7 @@ def find_references(
                         break
                     if not path.is_file():
                         continue
-                    try:
-                        rel = str(path.relative_to(base))
-                    except ValueError:
-                        rel = str(path)
+                    rel = str(path.relative_to(base))
                     seen.add(rel)
                     if rel in shadowed:
                         continue

@@ -6,7 +6,6 @@ from md_mcp.paradox import parse_string
 from md_mcp.paradox.schema import (
     extract_decision_records,
     extract_event_records,
-    extract_focus_ids,
     extract_focus_records,
     extract_idea_records,
     extract_sprite_records,
@@ -47,11 +46,6 @@ def test_is_focus_file_content_detects_all_three_kinds():
     assert is_focus_file_content("shared_focus = {}")
     assert is_focus_file_content("joint_focus = {}")
     assert not is_focus_file_content("idea = {}")
-
-
-def test_extract_focus_ids_all_kinds():
-    root = parse_string(SAMPLE)
-    assert extract_focus_ids(root) == ["A", "B", "S"]
 
 
 def test_extract_focus_records_includes_metadata():

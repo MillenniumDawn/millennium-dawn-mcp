@@ -130,18 +130,6 @@ re-walking in each consumer.
 index layer skip files that obviously don't contain the kind of record it's
 looking for, before paying the parse cost.
 
-## Writer (AST → text)
-
-`paradox/writer.py` reverses the parse direction. Used by generators to emit
-canonically-formatted blocks rather than building strings with f-strings.
-
-Indentation: tabs. Whitespace within a block matches the mod's prevailing
-style (see `Millennium-Dawn/.claude/rules/`).
-
-The writer does **not** preserve original comments — they're stripped during
-parse. If you need round-trip preservation, slice the original source by
-token byte offsets directly (the `resources.py` pattern).
-
 ## Differential testing
 
 There is no automated parity suite against the TS parser (a `differential`

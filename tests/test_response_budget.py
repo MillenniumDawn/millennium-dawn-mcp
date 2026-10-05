@@ -7,7 +7,7 @@ import json
 import pytest
 
 from md_mcp.tools.validation_tools import filter_and_cap
-from md_mcp.util.response import BUDGET_BYTES, clip_strings, coerce_int, enforce_budget, paginate
+from md_mcp.util.response import BUDGET_BYTES, coerce_int, enforce_budget, paginate
 
 
 def _byte_size(obj: object) -> int:
@@ -215,29 +215,6 @@ def test_enforce_budget_does_not_mutate_caller_dict_when_over():
     assert "items" in result
     assert "size_truncated" not in result
     assert out is not result
-
-
-def test_clip_strings():
-    items = [{"snippet": "abcdefghij"}, {"snippet": "xy"}]
-    out = clip_strings(items, "snippet", 3)
-    assert out[0]["snippet"] == "abc"
-    assert out[1]["snippet"] == "xy"
-
-
-def test_clip_strings_counts_utf8_bytes_not_chars():
-    # Each euro sign is three UTF-8 bytes. Clipping to 4 bytes keeps one euro
-    # sign (3 bytes) and drops the partial second one instead of emitting
-    # invalid UTF-8 or overshooting to 4 characters (12 bytes).
-    items = [{"snippet": "€€€"}]
-    out = clip_strings(items, "snippet", 4)
-    assert out[0]["snippet"] == "€"
-    assert len(out[0]["snippet"].encode("utf-8")) <= 4
-
-
-def test_clip_strings_leaves_short_multibyte_untouched():
-    items = [{"snippet": "€"}]
-    out = clip_strings(items, "snippet", 3)
-    assert out[0]["snippet"] == "€"
 
 
 def test_validate_filter_and_cap_severity():

@@ -90,7 +90,7 @@ def test_scan_files_walks_submod_then_mod_with_dedupe(tmp_path):
     (countries / "unrelated.txt").write_text("no match", encoding="utf-8")
     (countries / "TST_empty.txt").mkdir()  # rglob yields dirs; only files count
 
-    out = _scan_files(mod, "history/countries", ("*.txt",), prefix="TST", submod_root=submod)
+    out = _scan_files(mod, "history/countries", prefix="TST", submod_root=submod)
 
     assert out == [
         "history/countries/TST_extra.txt",
@@ -101,5 +101,5 @@ def test_scan_files_walks_submod_then_mod_with_dedupe(tmp_path):
 
 def test_scan_files_skips_missing_roots(tmp_path):
     mod = tmp_path / "Mod"
-    out = _scan_files(mod, "history/countries", ("*.txt",), prefix="TST")
+    out = _scan_files(mod, "history/countries", prefix="TST")
     assert out == []

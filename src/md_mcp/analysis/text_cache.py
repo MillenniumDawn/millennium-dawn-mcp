@@ -20,7 +20,6 @@ from __future__ import annotations
 import os
 import sys
 import threading
-from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
@@ -50,7 +49,7 @@ class TextCache:
 
     def __init__(self, max_bytes: Optional[int] = None) -> None:
         self.max_bytes = _env_max_bytes() if max_bytes is None else max_bytes
-        self._entries: OrderedDict[str, tuple[int, int, str]] = OrderedDict()
+        self._entries: dict[str, tuple[int, int, str]] = {}
         self._sizes: dict[str, int] = {}
         self._total = 0
         self._lock = threading.Lock()
@@ -88,7 +87,6 @@ class TextCache:
         with self._lock:
             entry = self._entries.get(key)
             if entry is not None and (entry[0], entry[1]) == stamp:
-                self._entries.move_to_end(key)
                 self.hits += 1
                 return entry[2]
 
@@ -129,7 +127,3 @@ def read_text(path: Path) -> Optional[str]:
 def clear() -> None:
     """Empty the process-wide cache (tests)."""
     _CACHE.clear()
-
-
-def get_cache() -> TextCache:
-    return _CACHE

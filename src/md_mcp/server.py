@@ -173,22 +173,22 @@ def build_server(settings: Settings):
     @mcp.tool()
     def resolve_sprite(name: str) -> dict:
         """Get a GFX sprite's .gfx file, line, and texture path by name. Falls back to the committed vanilla sprites manifest when no HOI4 install is configured."""
-        return resolve_sprite_tool(name, settings, gfx_index, vanilla_sprites)
+        return resolve_sprite_tool(name, gfx_index, vanilla_sprites)
 
     @mcp.tool()
     def resolve_event(event_id: str) -> dict:
         """Get an event's file, line, namespace, and the file's other declared namespaces."""
-        return resolve_event_tool(event_id, settings, event_index)
+        return resolve_event_tool(event_id, event_index)
 
     @mcp.tool()
     def resolve_decision(decision_id: str) -> dict:
         """Get a decision's file, line, and category."""
-        return resolve_decision_tool(decision_id, settings, decision_index)
+        return resolve_decision_tool(decision_id, decision_index)
 
     @mcp.tool()
     def resolve_idea(idea_id: str) -> dict:
         """Get an idea's file, line, category, and slot."""
-        return resolve_idea_tool(idea_id, settings, idea_index)
+        return resolve_idea_tool(idea_id, idea_index)
 
     @mcp.tool()
     def resolve_country_tag(tag: str) -> dict:

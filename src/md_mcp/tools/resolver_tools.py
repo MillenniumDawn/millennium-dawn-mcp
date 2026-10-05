@@ -127,7 +127,6 @@ def resolve_loc_tool(
 
 def resolve_sprite_tool(
     name: str,
-    settings: Settings,
     gfx_index: GfxIndex,
     vanilla_sprites: Optional[frozenset[str]] = None,
 ) -> dict:
@@ -160,7 +159,7 @@ def resolve_sprite_tool(
     }
 
 
-def resolve_event_tool(event_id: str, settings: Settings, event_index: EventIndex) -> dict:
+def resolve_event_tool(event_id: str, event_index: EventIndex) -> dict:
     """Get an event's file/line + namespace context (for namespace-mismatch debugging)."""
     rec = event_index.resolve(event_id)
     if rec is None:
@@ -179,9 +178,7 @@ def resolve_event_tool(event_id: str, settings: Settings, event_index: EventInde
     )
 
 
-def resolve_decision_tool(
-    decision_id: str, settings: Settings, decision_index: DecisionIndex
-) -> dict:
+def resolve_decision_tool(decision_id: str, decision_index: DecisionIndex) -> dict:
     """Get a decision's file/line + category."""
     rec = decision_index.resolve(decision_id)
     if rec is None:
@@ -195,7 +192,7 @@ def resolve_decision_tool(
     }
 
 
-def resolve_idea_tool(idea_id: str, settings: Settings, idea_index: IdeaIndex) -> dict:
+def resolve_idea_tool(idea_id: str, idea_index: IdeaIndex) -> dict:
     """Get an idea's file/line + category + slot."""
     rec = idea_index.resolve(idea_id)
     if rec is None:
@@ -227,10 +224,7 @@ def _resolve_definition(index, target: str, *, label: str) -> dict:
 
 def resolve_country_tag_tool(tag: str, country_tag_index: CountryTagIndex) -> dict:
     """Get a country tag's country-history path and source location."""
-    result = _resolve_definition(country_tag_index, tag, label="Country tag")
-    if result.get("ok"):
-        result["tag"] = tag
-    return result
+    return _resolve_definition(country_tag_index, tag, label="Country tag")
 
 
 def resolve_character_tool(character_id: str, character_index: CharacterIndex) -> dict:

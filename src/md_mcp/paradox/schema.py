@@ -3,10 +3,9 @@
 The TS `schema.ts` exposes a full `convertNodeToJson(node, schemaDef)` system. This
 module covers the subset the MCP server needs:
 
-  * `to_json(node)` — convert any Node to a JSON-serialisable dict (used by `parse_file`
-    and `parse_string` MCP tools)
-  * `extract_focus_ids(root)` — port of `extractFocusIds` from `previewdef/focustree/schema.ts`
-  * Extractors for events, decisions, ideas, and sprites, plus the `EVENT_KINDS` /
+  * `to_json_with_lines(node, source)` — convert any Node to a JSON-serialisable dict
+    (used by the `parse_file` and `parse_string` MCP tools)
+  * Extractors for focuses, events, decisions, ideas, and sprites, plus the `EVENT_KINDS` /
     `SPRITE_KINDS` container-kind lists that `indexes/` reuses to stay in sync.
 """
 
@@ -22,9 +21,10 @@ def _starts(source: str | None) -> list[int] | None:
     return line_starts(source) if source else None
 
 
-def to_json(node: Node) -> dict:
-    """Convert a Node to a JSON-friendly dict.
+def to_json_with_lines(node: Node, source: str) -> dict:
+    """Convert a Node to a JSON-friendly dict, resolving line numbers from `source`.
 
+    Used by parse_file/parse_string MCP tools so the agent can navigate directly.
     Tagged-union representation chosen over TS's overloaded `NodeValue` union — strictly
     simpler when serialised to the agent. Shape:
 
@@ -41,14 +41,6 @@ def to_json(node: Node) -> dict:
         * scalar string / number / bool
         * {"kind": "symbol", "name": "..."}
         * {"kind": "block", "children": [Node, ...]}
-    """
-    return _node_to_json(node, None)
-
-
-def to_json_with_lines(node: Node, source: str) -> dict:
-    """Same as to_json, but resolves line numbers from the source text.
-
-    Used by parse_file/parse_string MCP tools so the agent can navigate directly.
     """
     return _node_to_json(node, line_starts(source))
 
@@ -84,31 +76,6 @@ def _value_to_json(value: Any, starts: Optional[list[int]]) -> Any:
 def is_focus_file_content(text: str) -> bool:
     """Cheap pre-filter mirroring sharedFocusIndex.ts behaviour."""
     return "focus_tree" in text or "shared_focus" in text or "joint_focus" in text
-
-
-def extract_focus_ids(root: Node) -> list[str]:
-    """Return every focus ID defined in a parsed focus file.
-
-    Handles all three forms:
-        focus_tree = { ... focus = { id = X ... } ... }
-        shared_focus = { id = X ... }
-        joint_focus = { id = X ... }
-    """
-    ids: list[str] = []
-
-    for top in root.children():
-        if top.name == "focus_tree":
-            for sub in top.children():
-                if sub.name == "focus":
-                    fid = _get_id(sub)
-                    if fid:
-                        ids.append(fid)
-        elif top.name in ("shared_focus", "joint_focus"):
-            fid = _get_id(top)
-            if fid:
-                ids.append(fid)
-
-    return ids
 
 
 def extract_focus_records(root: Node, source: str | None = None) -> list[dict]:

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from md_mcp.paradox import ParseError, node_to_str, parse_string
+from md_mcp.paradox import ParseError, parse_string
 from md_mcp.paradox.nodes import SymbolNode
+from md_mcp.util.encoding import read_text
 
 
 def test_empty_input():
@@ -89,22 +90,7 @@ def test_parse_error_uses_previous_position_for_invalid_name():
         parse_string("= 1")
 
 
-def test_round_trip_writer():
-    src = "focus = { id = X x = 0 y = 0 }"
-    root = parse_string(src)
-    rendered = node_to_str(root)
-    # Re-parse and compare structurally — exact whitespace can differ.
-    reparsed = parse_string(rendered)
-    [a] = reparsed.children()
-    assert a.name == "focus"
-    [id_node, *_] = a.children()
-    assert id_node.name == "id"
-    assert id_node.value == SymbolNode("X")
-
-
 def test_real_focus_file_parses(fake_mod_root):
-    from md_mcp.paradox import parse_file
-
     path = fake_mod_root / "common" / "national_focus" / "test.txt"
-    root = parse_file(path)
+    root = parse_string(read_text(path))
     assert len(root.children()) == 2  # focus_tree + shared_focus

@@ -42,8 +42,7 @@ src/md_mcp/
 │   ├── lexer.py         Token regexes (verbatim port of hoiparser.ts)
 │   ├── parser.py        Recursive-descent
 │   ├── nodes.py         Node, Token, SymbolNode dataclasses
-│   ├── schema.py        Typed projections (focus/event/decision/idea/sprite)
-│   └── writer.py        AST → text (used by generators)
+│   └── schema.py        Typed projections (focus/event/decision/idea/sprite)
 ├── indexes/             Two-tier cache (in-process + persistent JSONL)
 │   ├── base.py          GenericTxtIndex, IndexCache, staleness checking
 │   └── {focus,event,decision,idea,localisation,gfx}.py
@@ -57,7 +56,7 @@ src/md_mcp/
 │   └── encoding.py      BOM compliance check
 ├── tools/               Thin @mcp.tool() wrappers
 └── util/
-    ├── response.py      paginate, enforce_budget, clip_strings, BUDGET_BYTES
+    ├── response.py      paginate, enforce_budget, BUDGET_BYTES
     ├── encoding.py      BOM-aware read_text
     └── pathing.py       mod_root / vanilla discovery
 ```

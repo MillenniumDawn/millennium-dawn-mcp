@@ -39,6 +39,40 @@ def server(fake_mod_root, cache_dir):
     return build_server(_settings(fake_mod_root, cache_dir))
 
 
+def test_lint_and_validate_serialize_shared_runner(server, monkeypatch):
+    """The two worker-thread handlers share a ValidatorRunner and must not race it."""
+    import threading
+    import time
+
+    state_lock = threading.Lock()
+    active = 0
+    peak_active = 0
+
+    def track_runner_access(*args, **kwargs):
+        nonlocal active, peak_active
+        with state_lock:
+            active += 1
+            peak_active = max(peak_active, active)
+        time.sleep(0.05)
+        with state_lock:
+            active -= 1
+        return {"ok": True}
+
+    monkeypatch.setattr("md_mcp.server.validate_tool", track_runner_access)
+    monkeypatch.setattr("md_mcp.server.lint_tool", track_runner_access)
+
+    async def call_both():
+        return await asyncio.gather(
+            server.call_tool("validate", {}),
+            server.call_tool("lint", {}),
+        )
+
+    results = asyncio.run(call_both())
+
+    assert all(result and result[0].type == "text" for result in results)
+    assert peak_active == 1
+
+
 EXPECTED_TOOLS = {
     # M1
     "resolve_focus",

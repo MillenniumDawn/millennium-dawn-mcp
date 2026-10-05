@@ -253,7 +253,11 @@ The ISR focus_graph probe in the git history is a useful template.
 | `MD_MCP_CACHE_DIR` | Override `.md-mcp-cache/` location (use for read-only checkouts). |
 | `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process`. `in_process` is unsafe under `serve`; see rule 6. |
 | `MD_MCP_DEFAULT_LANG` | Default loc language for `resolve_loc` (default `en`). |
+| `MD_MCP_LOC_LANGS` | Loc languages to index: comma-separated ISO codes (`en,de`) or `*`. Default: `default_lang` plus `en` (the fallback is always indexed). Others resolve via an on-demand scan. Each language set has its own cache (`loc-en`, `loc-de_en`). |
 | `MD_MCP_SERIAL_PARSE` | `1` forces serial parsing — auto-set by `md-mcp serve`. |
+| `MD_MCP_TEXT_CACHE_BYTES` | Bound on decoded text held by `find_references`' in-memory file cache, measured as the strings cost in memory (default 134217728 = 128 MB; `0` disables). Once full, further files are read but not cached. |
+| `MD_MCP_AST_CACHE_SIZE` | Parsed-AST LRU capacity in files (default 32, `0` disables). |
+| `MD_MCP_AST_CACHE_BYTES` | Bound on source text held by the parsed-AST cache (default 8000000). Resident cost is ~30x that: 8 MB of source is ~230 MB of trees on the real mod. |
 
 Config-file equivalents in `~/.config/md-mcp/config.toml`. CLI flag > env >
 file > computed default.

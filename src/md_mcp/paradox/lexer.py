@@ -58,9 +58,8 @@ class Tokenizer:
         self._prev_pos = 0
         self._pending: Optional[Token] = None
         self._error_prefix = error_prefix
-
-        # Precompute line starts for error reporting.
-        self._line_starts = line_starts(input_text)
+        # Line table is only needed to report errors; build it on first use.
+        self._line_starts: Optional[list[int]] = None
 
     def _advance(self) -> Token:
         """Consume the next non-comment token from the input."""
@@ -96,7 +95,10 @@ class Tokenizer:
 
     def _raise(self, message: str, prev: bool = False) -> NoReturn:
         pos = self._prev_pos if prev else self._pos
-        line, column = line_and_column(pos, self._line_starts)
+        starts = self._line_starts
+        if starts is None:
+            starts = self._line_starts = line_starts(self._input)
+        line, column = line_and_column(pos, starts)
 
         snippet = (self._input + "(EOF)")[pos : min(pos + 30, len(self._input) + 5)]
         raise LexError(self._error_prefix + message, line, column, snippet)

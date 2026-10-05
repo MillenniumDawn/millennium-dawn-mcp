@@ -84,3 +84,13 @@ def real_mod_root() -> Path:
     if not (p / "descriptor.mod").exists():
         pytest.skip(f"MD_MOD_ROOT={p} does not look like a mod checkout")
     return p
+
+
+@pytest.fixture(autouse=True)
+def _fresh_ast_cache():
+    """The AST cache is process-wide; keep tests from seeing each other's parses."""
+    from md_mcp.paradox import ast_cache
+
+    ast_cache.clear()
+    yield
+    ast_cache.clear()

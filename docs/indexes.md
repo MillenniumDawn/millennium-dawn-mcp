@@ -11,8 +11,10 @@ mtime+size invalidation, JSONL persistence, lazy build. Same lessons apply.
 **In-process** (RAM): `IndexInstance._by_file` (relpath → records) and
 `_by_key` (id → record). Populated lazily on the first `ensure_fresh()` call.
 
-**Persistent** (disk): `<cache_dir>/v<N>/<name>.data.json` +
-`<name>.manifest.json`. Survives server restarts; rebuilt incrementally.
+**Persistent** (disk): `<cache_dir>/v<N>/<name>.manifest.json` plus the data,
+either one `<name>.data.json` (small indexes) or one shard per contributing
+file under `<name>.data/` (`sharded = True`, used by localisation). Survives
+server restarts; rebuilt incrementally. See [Sharded cache](#sharded-cache).
 
 The cache dir defaults to `<mod_root>/.md-mcp-cache/`. Override via
 `MD_MCP_CACHE_DIR` (use this when the mod checkout is on a read-only mount).
@@ -29,7 +31,23 @@ For each contributing file, the manifest stores `[mtime_ns, size]`. On
    - **added** — new file not in the manifest
    - **unchanged** — safe to reuse
 3. Reparse only `stale + added`. Drop `removed`. Keep `unchanged` from cache.
-4. Write the new data + manifest back, atomically (`.tmp` rename).
+4. Write the new data + manifest back, atomically (`.tmp` rename). Data is
+   written first, manifest last, so a crash in between reads as stale (re-parse)
+   rather than as trusted half-written state.
+
+### Incremental `_rebuild`
+
+The first `ensure_fresh()` of a process builds `_by_file`, `_by_key` and
+`_duplicates` from scratch (from the cache plus whatever was reparsed). Every
+later refresh is **incremental**: only the keys that appear in a changed file —
+in its old records or its new ones — are recomputed. For each such key the
+contributing files are rebuilt from `_duplicates[key] + [winner file]`, minus the
+changed files, plus the changed files' new records, sorted by relpath; the last
+one wins, exactly as in a full rebuild (so removing a shadowing file un-shadows
+the earlier definition). Untouched entries are reused as-is, and the maps are
+swapped in as new dict objects so concurrent readers never see a half-patched
+index. `tests/test_index_sharding.py` checks the result against a from-scratch
+rebuild after random edit/add/remove sequences.
 
 **Why size alongside mtime?** Same-second rewrites can leave mtime unchanged
 on filesystems with second-granularity timestamps; the size check catches
@@ -74,7 +92,7 @@ to `spawn` on Windows.
 | `DecisionIndex` | `common/decisions/` | `id` | Stores category. |
 | `IdeaIndex` | `common/ideas/` | `id` | Stores category + slot. |
 | `GfxIndex` | `interface/` | `name` | Sprite name → texture path. |
-| `LocalisationIndex` | `localisation/<lang>/` | `(lang, key)` | One sub-index per language. |
+| `LocalisationIndex` | `localisation/**/*_l_<lang>.yml` | `(lang, key)` | Only the configured `loc_langs` (default English); see [Localisation languages](#localisation-languages). Sharded cache. |
 
 Each index is independent — they stat their own subdirs and don't coordinate.
 
@@ -96,16 +114,78 @@ directories are simply ignored; users can blow them away manually.
 
 ```
 .md-mcp-cache/
-└── v<N>/
-    ├── focus.data.json
-    ├── focus.manifest.json
-    ├── loc.data.json
-    ├── loc.manifest.json
-    └── ...
+├── v3/                           (focus v3, loc v3 — each index has its own N)
+│   ├── focus.data.json
+│   ├── focus.manifest.json
+│   ├── loc-en.manifest.json      one cache per language set (loc-en, loc-de_en, ...)
+│   └── loc-en.data/              sharded: one JSON file per contributing .yml
+│       ├── MD_GCC_membership_l_english.yml-3fa9c1…json
+│       └── ...
+└── ...
 ```
 
 JSON (not JSONL) was chosen for simplicity — atomic rewrite is straightforward,
 and cross-language inspection / corruption diagnosis with `jq` is trivial.
+
+Loc cache v3 changed meaning twice over (only the configured languages are
+indexed; data is sharded), so v2 caches are ignored.
+
+## Sharded cache
+
+A monolithic `data.json` is rewritten whole on every change. For localisation
+that is 40 MB / 232 k records for English alone, so a one-file edit used to cost
+about 1.8 s and the cache would reach ~400 MB with all 10 languages. An index
+sets `sharded = True` to store one shard per contributing file instead:
+
+```
+<cache_dir>/v<N>/<name>.data/<basename>-<sha256[:16] of relpath>.json
+{"relpath": "localisation/english/x_l_english.yml", "records": [...]}   # + "error" when tracked
+```
+
+- **Edit** — only the shards of `stale + added` files are written; `removed`
+  files' shards are deleted. Other shards keep their mtime.
+- **Startup** — only shards for files present in the manifest are read.
+- **Corrupt or missing shard** — unreadable JSON, wrong shape, or a `relpath`
+  that doesn't match (digest collision) reads as "no data": that one file is
+  re-parsed and its shard rewritten. Nothing else is touched.
+- **Orphans** — a full (first-load) rebuild that saves also prunes any file in the
+  shard dir that isn't a shard of a current file (leftovers from a crash, `.tmp`).
+- **Parse errors** — a shard with `"records": null` is a file whose parse failed
+  (its `error` is kept when the index tracks parse errors).
+
+Indexes that don't opt in keep the single `data.json`. Focus could be sharded the
+same way (it already carries per-file errors) but its payload is small, so it
+stays monolithic.
+
+## Localisation languages
+
+The real mod has ~10 languages at ~297 files each, and every key's `value` is
+cached, so indexing all of them multiplies cache size, startup, and edit latency.
+`LocalisationIndex(langs=...)` therefore indexes only the languages in
+`Settings.loc_langs`:
+
+| Source | Example |
+|---|---|
+| default | `default_lang` plus `en` (the fallback is always indexed) |
+| env `MD_MCP_LOC_LANGS` | `en,de` or `*` (all) |
+| `config.toml` `loc_langs` | `"en,de"` or `["en", "de"]` |
+
+Only files whose `_l_<language>.yml` suffix maps to an indexed ISO code are
+collected (`LANG_ISO_TO_SUFFIX`); switching the setting just adds/removes files
+from the manifest, so shards for languages that were dropped are deleted.
+
+`resolve_loc(lang=X)` for a language that is **not** indexed still works through
+an on-demand scan of `localisation/**/*_l_<X>.yml`: files are parsed with the same
+`_parse_loc_file`, kept in memory keyed by their `(mtime, size)`, stat-checked at
+most every 2 s, and only the files that moved are re-parsed. Nothing is written to
+disk, and parsing is always serial (no fork inside the server). The first lookup
+in a language costs about as much as a cold build of that language alone (~2 s for
+English); later ones are dict lookups. The English fallback uses the same path, so
+it works even when `en` is not indexed. `list_files()` covers indexed languages
+only; `list_country_content` walks `localisation/` itself so a country manifest
+still lists every translation. A file whose `l_<lang>:` header disagrees with its
+filename suffix is selected by the suffix, so it is indexed (or scanned) under the
+filename's language rather than the header's.
 
 ## What the cache stores (and doesn't)
 
@@ -166,7 +246,8 @@ idx.records_for_file("common/national_focus/MD_ISR_focus.txt")
 | Cold build (mod only) | < 6 s | Acceptable one-time cost; runs via `md-mcp build-index`. |
 | Cold build (mod + vanilla) | < 30 s | Vanilla doubles work. |
 | Warm `ensure_fresh()` (no changes) | < 50 ms | Stat-walk only. |
-| Warm `ensure_fresh()` (1 file changed) | < 200 ms | Stat + re-parse one file. |
+| Warm `ensure_fresh()` (1 file changed) | < 200 ms | Stat + re-parse one file + patch the touched keys + rewrite one shard. Loc, English: ~25-60 ms (was 1.0-1.9 s). |
+| Startup from cache, loc (English) | < 1 s | Read ~300 shards. ~0.65 s (was ~0.9-1.1 s). |
 | Single `resolve()` after fresh | < 1 ms | Dict lookup. |
 
 These are asserted as smoke tests in `tests/test_perf.py`. Treat regressions

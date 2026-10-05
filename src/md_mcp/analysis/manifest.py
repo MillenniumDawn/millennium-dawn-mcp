@@ -37,6 +37,7 @@ from ..indexes import (
     ScriptedTriggerIndex,
     TraitIndex,
 )
+from ..indexes.localisation import has_lang_suffix
 from ..util.response import enforce_budget
 
 _ALL_CATEGORIES = (
@@ -216,12 +217,34 @@ def _events(
     return events, files
 
 
+def _tag_file_pattern(tag_upper: str) -> re.Pattern[str]:
+    """Match `TAG` as a path or name segment; `\\` is a separator too (Windows relpaths)."""
+    return re.compile(rf"(^|[\\/_]){re.escape(tag_upper)}(_|[\\/]|$)")
+
+
 def _loc_files(loc_index: Optional[LocalisationIndex], tag_upper: str) -> list[str]:
+    """Every `*_l_<lang>.yml` named for the tag, in every language, over the index's roots.
+
+    Walks the filesystem rather than the index's records: the index holds only
+    the configured `loc_langs`, and a country manifest must list every
+    translation. The roots (submod, mod, vanilla) come from the index so the
+    listing matches what the index would see.
+    """
     if loc_index is None:
         return []
-    loc_index.ensure_fresh()
-    pattern = re.compile(rf"(^|[/_]){re.escape(tag_upper)}(_|/|$)")
-    return [f for f in loc_index._by_file if pattern.search(f)]
+    pattern = _tag_file_pattern(tag_upper)
+    out: set[str] = set()
+    for root in loc_index._roots():
+        d = root / "localisation"
+        if not d.is_dir():
+            continue
+        for p in d.rglob("*.yml"):
+            if not p.is_file() or not has_lang_suffix(p):
+                continue
+            rel = str(p.relative_to(root))
+            if rel not in out and pattern.search(rel):
+                out.add(rel)
+    return sorted(out)
 
 
 def _tag_records(index: Optional[CountryTagIndex], tag_upper: str) -> list[str]:

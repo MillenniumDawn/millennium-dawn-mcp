@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `loc_langs` setting (`MD_MCP_LOC_LANGS`, config.toml `loc_langs`; comma-separated ISO codes or
+  `*`). The localisation index now covers only these languages, default `default_lang` plus
+  `en` (the fallback is always indexed). Each language set has its own cache (`loc-en`,
+  `loc-de_en`), so a process with fewer languages never deletes another's shards.
+  `resolve_loc` / `list_keys` for any other language fall back to an on-demand, in-memory scan of
+  that language's files, invalidated by file signature. `md-mcp doctor` prints `loc_langs`.
+- Sharded index cache: an index with `sharded = True` stores one JSON shard per contributing file
+  under `<name>.data/`. A corrupt or missing shard re-parses only that file; removed files' shards
+  are deleted. Enabled for localisation.
+
+### Changed
+
+- `line_starts` (and the GFX index's line-offset table) now scans with a `str.find` loop instead of
+  a per-character Python loop, and the tokenizer builds its line table lazily on the first parse
+  error rather than in `Tokenizer.__init__`. Output is unchanged; `parse_string` on `05_usa.txt` is
+  noticeably faster.
+- `find_references` is much faster: files that do not contain the target as a literal substring skip
+  the regex (every reference pattern embeds the escaped target, so results are identical), and decoded
+  file contents are kept in a stat-keyed in-process cache (`analysis/text_cache.py`, default 128 MB
+  of decoded text; once full, further files are read but not cached rather than churning the cache,
+  override with `MD_MCP_TEXT_CACHE_BYTES`). On the real mod, warm `focus` / `sprite` / `flag` lookups
+  drop from about 1.1-1.5 s to 50-90 ms; the directory walk still runs per call so added, edited, and
+  removed files are always seen.
+- Parsed ASTs are now cached across tool and resource calls (`paradox/ast_cache.py`): a
+  process-wide LRU keyed by `(path, mtime_ns, size)`, bounded to 32 files
+  (`MD_MCP_AST_CACHE_SIZE`) and 8 MB of source text (`MD_MCP_AST_CACHE_BYTES`; ASTs are
+  ~30x their source). `resolve_focus`, `focus_graph`, the scope walkers behind
+  `focus_layout` / `check_refs` / deep `find_focuses` filters, and the `md://` resources share it,
+  so a repeat call on `05_usa.txt` drops from ~700 ms to ~30 ms. Parse errors are not cached.
+- `GenericTxtIndex._rebuild` is incremental after the first load: the refresh diffs disk against
+  the signatures this process loaded (not the shared manifest, which another server or
+  `build-index` may have rewritten), and only keys in changed files are
+  recomputed (winner/duplicate state matches a full rebuild, including un-shadowing on removal)
+  instead of rebuilding every map and rewriting the whole payload. English loc, 232 k keys:
+  one-file edit 1.0-1.9 s -> 25-60 ms, startup ~1.0 s -> ~0.65 s.
+- Localisation cache version 2 -> 3 (language-scoped, sharded). Old `v2/` caches are ignored.
+  `LocalisationIndex.list_files()` now covers indexed languages only; `list_country_content`
+  still lists a country's loc files in every language (it walks `localisation/` directly).
+
 ## 1.0.0 - 2026-09-02
 
 First tagged release. Cumulative changes from the initial commit through PR #120. Read-only MCP

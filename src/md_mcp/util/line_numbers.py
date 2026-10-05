@@ -30,11 +30,16 @@ def line_starts(text: str) -> list[int]:
     kept as part of the line. Offsets are Python ``str`` indices (``ord``
     units), which matches ``Token.start`` for the ASCII-only sources the
     mod uses.
+
+    Implemented as a ``str.find`` loop: the scan for each newline runs in C,
+    so the Python-level work is one iteration per line instead of per char.
     """
     starts = [0]
-    for i, ch in enumerate(text):
-        if ch == "\n":
-            starts.append(i + 1)
+    find = text.find
+    i = find("\n")
+    while i != -1:
+        starts.append(i + 1)
+        i = find("\n", i + 1)
     return starts
 
 

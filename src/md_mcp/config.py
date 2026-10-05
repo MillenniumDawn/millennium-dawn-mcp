@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from .indexes.localisation import normalise_loc_langs
 from .util.pathing import find_mod_root
 
 CONFIG_PATH = Path.home() / ".config" / "md-mcp" / "config.toml"
@@ -27,6 +28,16 @@ class Settings:
     validator_mode: str = "isolated"  # or "in_process"
     default_lang: str = "en"
     submod_root: Optional[Path] = None
+    # ISO codes of the loc languages to index. Empty means "just `default_lang`".
+    # English is always included: every miss falls back to it, and an unindexed
+    # fallback would cost a serial scan of the whole English tree per server start.
+    loc_langs: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        langs = tuple(self.loc_langs) or (self.default_lang.lower(),)
+        if "en" not in langs:
+            langs = (*langs, "en")
+        self.loc_langs = langs
 
 
 def load(mod_root: str | Path | None = None, submod_root: str | Path | None = None) -> Settings:
@@ -72,13 +83,28 @@ def load(mod_root: str | Path | None = None, submod_root: str | Path | None = No
             f"{', '.join(sorted(VALIDATOR_MODES))}"
         )
 
+    default_lang = os.environ.get("MD_MCP_DEFAULT_LANG") or file_cfg.get("default_lang", "en")
+    loc_langs_setting = os.environ.get("MD_MCP_LOC_LANGS") or file_cfg.get("loc_langs")
+    try:
+        # An explicit loc_langs must be valid; a derived one (just default_lang) is
+        # lenient so an unknown MD_MCP_DEFAULT_LANG cannot stop the server starting.
+        loc_langs = normalise_loc_langs(
+            loc_langs_setting, default=default_lang, strict=loc_langs_setting is not None
+        )
+    except (TypeError, ValueError) as e:
+        raise RuntimeError(f"Invalid loc_langs: {e}") from e
+    if not loc_langs:
+        # default_lang is not a known code: index English rather than nothing.
+        loc_langs = ("en",)
+
     return Settings(
         mod_root=root,
         vanilla_path=v,
         cache_dir=cache_dir,
         submod_root=submod,
         validator_mode=validator_mode,
-        default_lang=os.environ.get("MD_MCP_DEFAULT_LANG") or file_cfg.get("default_lang", "en"),
+        default_lang=default_lang,
+        loc_langs=loc_langs,
     )
 
 

@@ -48,8 +48,10 @@ The arrows are import direction. Lower modules don't know about higher ones.
    - Read the **indexes** (`focus_index.resolve("ISR_x")`). The first call
      `ensure_fresh()`s the index — stat all contributing files, reparse only
      ones whose `(mtime, size)` moved, persist `<mod_root>/.md-mcp-cache/v<N>/`.
-   - Read source text via `util.encoding.read_text` (BOM-aware) and feed it
-     through `paradox.parse_string`.
+   - Read a source file's text and AST through `paradox.ast_cache.parse_cached`
+     (BOM-aware `read_text` + `parse_string` behind a process-wide LRU; see
+     [AST cache](#ast-cache)). Tools that only need raw text still call
+     `util.encoding.read_text` directly.
    - For validators: hand off to `ValidatorRunner` which imports
      `Millennium-Dawn/tools/validation/validate_*.py` in-process.
 4. **Result shaping**: every list-returning tool calls `paginate(...)` (or its
@@ -81,6 +83,8 @@ class Settings:
     cache_dir: Path
     validator_mode: str = "isolated"
     default_lang: str = "en"
+    submod_root: Optional[Path] = None
+    loc_langs: tuple[str, ...] = ()  # empty -> (default_lang,)
 ```
 
 Resolution order: CLI flag > env var > `~/.config/md-mcp/config.toml` >
@@ -96,7 +100,9 @@ Each index inherits `GenericTxtIndex` (`indexes/base.py`):
 
 - **In-process state**: `self._by_file` (relpath → records) and `self._by_key`
   (id → record) dicts, lazily built on first call.
-- **Persistent state**: `<cache_dir>/v<N>/<name>.{data,manifest}.json`.
+- **Persistent state**: `<cache_dir>/v<N>/<name>.manifest.json` plus either
+  `<name>.data.json` or, for sharded indexes (localisation), one shard per file
+  under `<name>.data/`. Warm refreshes patch the maps incrementally.
 - **Staleness**: `StaleCheck` debounces re-stat for 2 seconds inside a single
   agent turn. Past that, `ensure_fresh()` stats the contributing files and
   diffs against the on-disk manifest.
@@ -107,6 +113,36 @@ because forking from inside the MCP stdio loop deadlocks (workers inherit the
 parent's stdin/stdout FDs).
 
 See [`indexes.md`](./indexes.md) for the full design.
+
+## AST cache
+
+`paradox/ast_cache.py` keeps parsed files in a process-wide LRU so the tools that
+re-read the same large file within one agent turn (`resolve_focus`,
+`find_focuses` deep filters, `focus_graph`, `focus_layout`, `check_refs(tag=)`
+via `analysis/scope.py`, and every `md://` resource that locates a block) parse
+it once. `05_usa.txt` is 1.5 MB and costs ~700-850 ms to parse; a repeat read is
+a dict lookup.
+
+- **Key**: `(str(path), st_mtime_ns, st_size)` from `os.stat`. Editing a file
+  changes the key, so the next call misses and re-parses; the stale entry ages
+  out of the LRU. If `stat` fails the call falls through to a plain read and
+  raises the `OSError` as before.
+- **Capacity**: 32 files (`MD_MCP_AST_CACHE_SIZE`, `0` disables) and 8 MB of
+  source text (`MD_MCP_AST_CACHE_BYTES`), whichever bound is hit first. An AST
+  is roughly 30x its source size, so the byte bound caps resident trees at a few
+  hundred MB even when a scope walk streams hundreds of files through the cache.
+  A file larger than the byte bound is parsed but not cached.
+- **Errors are not cached.** A `ParseError` propagates and the next call
+  re-parses. `error_prefix` only decorates error messages and is not part of the
+  key, so it never leaks between callers.
+- **Shared and read-only**: callers get the same `Node` tree and text on every
+  hit and must not mutate them. Lookups are guarded by a lock; parsing runs
+  outside it, so two racing misses may both parse and the last write wins.
+- Tests call `ast_cache.clear()` (an autouse fixture in `tests/conftest.py`).
+
+This is separate from the persistent per-index caches below: those store
+extracted records on disk across processes, the AST cache holds full trees in
+memory for the lifetime of the server.
 
 ## Resources vs tools
 

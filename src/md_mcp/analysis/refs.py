@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from ..paradox.schema import EVENT_KINDS
+from .text_cache import read_text
 
 logger = logging.getLogger(__name__)
 
@@ -364,6 +365,7 @@ def find_references(
     offset: int = 0,
     snippet_chars: int = 120,
     files_only: bool = False,
+    prefilter: bool = True,
 ) -> dict:
     """Return every match of `target` in the files relevant to its reference kind.
 
@@ -373,6 +375,13 @@ def find_references(
     completion so `total` is accurate; only the returned slice is bounded.
     A file whose relative path exists in a higher-priority root (submod, then
     mod, then vanilla) is hidden and not scanned.
+
+    File contents come from a stat-keyed in-process cache (`text_cache`), and
+    files that do not contain `target` as a literal substring skip the regex.
+    That is exact, not a heuristic: every pattern in `_PATTERNS` embeds
+    `re.escape(target)` as a mandatory literal (no IGNORECASE, and no optional
+    or alternation branch that omits it), so a file lacking the raw target
+    cannot match. `prefilter=False` disables the shortcut (equivalence tests).
     """
     from ..util.response import enforce_budget  # local import; avoids cycle
 
@@ -423,13 +432,11 @@ def find_references(
                     seen.add(rel)
                     if rel in shadowed:
                         continue
-                    try:
-                        text = path.read_bytes().decode("utf-8", errors="replace")
-                    except OSError:
+                    text = read_text(path)  # BOM already stripped at cache-fill time
+                    if text is None:
                         continue
-
-                    if text.startswith("﻿"):
-                        text = text[1:]
+                    if prefilter and target not in text:
+                        continue
 
                     for m in pattern.finditer(text):
                         if files_only:

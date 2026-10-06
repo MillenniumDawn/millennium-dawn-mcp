@@ -25,6 +25,7 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--staged-only", action="store_true")
     ap.add_argument("--files")
+    ap.add_argument("--validator-arg", action="append", default=[])
     args = ap.parse_args()
 
     try:
@@ -33,7 +34,13 @@ def main() -> int:
             not isinstance(files, list) or any(not isinstance(f, str) for f in files)
         ):
             raise ValueError("--files payload must be a list of paths")
-        payload = _collect(args.mod_root, args.module, args.staged_only, files=files)
+        payload = _collect(
+            args.mod_root,
+            args.module,
+            args.staged_only,
+            files=files,
+            args=args.validator_arg,
+        )
     except Exception as e:
         payload = {"ok": False, "error": f"{type(e).__name__}: {e}"}
 

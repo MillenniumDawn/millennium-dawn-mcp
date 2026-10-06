@@ -239,6 +239,37 @@ def test_subprocess_mode_is_an_alias_for_isolated(fake_mod_root):
     assert len(result["issues"]) == 2
 
 
+@pytest.mark.parametrize("mode", ["isolated", "in_process"])
+def test_validator_args_reach_instance(fake_mod_root, mode):
+    source = (
+        _ISSUE_CLASS
+        + """
+import argparse
+
+def _add_extra_args(parser):
+    parser.add_argument("--enable-extra-check", action="store_true")
+
+class Validator:
+    TITLE = "Arg-aware"
+
+    def __init__(self, mod_path, output_file=None, use_colors=True, staged_only=False, **kw):
+        self.enabled = kw.get("enable_extra_check", False)
+        self._issues = []
+
+    def run_all_validations(self):
+        self._issues = [_Issue(severity="info", message=str(self.enabled))]
+"""
+    )
+    _plant(fake_mod_root, "arg_aware", source)
+
+    result = ValidatorRunner(fake_mod_root, mode=mode).run(
+        "arg_aware", args=["--enable-extra-check"]
+    )
+
+    assert result["ok"] is True
+    assert result["issues"][0]["message"] == "True"
+
+
 def test_in_process_mode_still_available(fake_mod_root):
     _plant(fake_mod_root, "plain", _PLAIN)
     result = ValidatorRunner(fake_mod_root, mode="in_process").run("plain")

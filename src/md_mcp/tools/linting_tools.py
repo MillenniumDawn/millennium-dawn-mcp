@@ -529,7 +529,7 @@ def lint_tool(
                     )
                 expanded -= set(unknown_validators)
                 if "auto" in validator_request:
-                    expanded |= set(select_validators(relevant, available))
+                    expanded |= set(select_validators(relevant, available, mod_root=mod_root))
                     if removed_variant_paths and "equipment_variants" in available:
                         expanded.add("equipment_variants")
                 validator_names = sorted(expanded)

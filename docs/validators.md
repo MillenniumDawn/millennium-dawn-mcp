@@ -240,13 +240,15 @@ issues (`validate_localisation.py`) were dropped from the scope entirely, and
 fileless issues (`validate_events`, 762 on the real mod) flooded the response
 regardless of scope.
 
-The auto-routing table remains local because upstream has two routing layers:
-the commit-stage `_REGISTRY` in `tools/precommit_validate.py` and the CI batches
-in `tools/validation/validator_batches.py` (groups from `change_groups.py`,
-wired by `test-suite.yml`). The nightly integration suite snapshots both and
-checks that every commit-stage rule reaches the matching auto validator.
-An upstream route change therefore fails nightly until the local scan-domain
-map is reconciled.
+For current Millennium Dawn checkouts, `lint(validators=["auto"])` derives
+content routing from `tools/validation/change_groups.py` and the groups in
+`tools/validation/validator_batches.py`. Changes to validator tooling use
+upstream's `select_for_changed_files`, including its impact exclusions. The
+per-spec CLI arguments are passed to the validator instance in both runner
+modes. Older or partial checkouts without those routing modules retain the
+local scan-domain map as a compatibility fallback. Integration tests compare
+the live adapter behavior with the upstream definitions and check that the
+sparse CI workspace includes its current routing inputs.
 
 ## `lint` and `review_branch`
 

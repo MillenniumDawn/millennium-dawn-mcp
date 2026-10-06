@@ -494,9 +494,7 @@ class GenericTxtIndex:
             return list(self._ids_by_tag.get(canonical, ()))
         prefix = canonical + "_"
         return sorted(
-            key
-            for key in self._by_key
-            if isinstance(key, str) and key.upper().startswith(prefix)
+            key for key in self._by_key if isinstance(key, str) and key.upper().startswith(prefix)
         )
 
     def files_for_tag(self, tag: str) -> list[str]:

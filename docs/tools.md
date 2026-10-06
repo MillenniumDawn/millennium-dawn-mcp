@@ -1,6 +1,6 @@
 # Tool & Resource Reference
 
-40 tools and 6 resources, grouped by purpose. Output shapes show the
+44 tools and 6 resource templates, grouped by purpose. Output shapes show the
 **default** behaviour — most tools have detail-tier or `limit` knobs.
 
 All tools return either `{"ok": True, ...}` or `{"ok": False, "error": "..."}`.

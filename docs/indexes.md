@@ -246,12 +246,49 @@ idx.records_for_file("common/national_focus/MD_ISR_focus.txt")
 | Cold build (mod only) | < 6 s | Acceptable one-time cost; runs via `md-mcp build-index`. |
 | Cold build (mod + vanilla) | < 30 s | Vanilla doubles work. |
 | Warm `ensure_fresh()` (no changes) | < 50 ms | Stat-walk only. |
-| Warm `ensure_fresh()` (1 file changed) | < 200 ms | Stat + re-parse one file + patch the touched keys + rewrite one shard. Loc, English: ~25-60 ms (was 1.0-1.9 s). |
+| Warm `ensure_fresh()` (1 file changed) | Target < 200 ms; current disposable-overlay FocusIndex sample was 208-260 ms | Stat + re-parse one file + patch touched keys + write either a shard or the full cache payload. |
 | Startup from cache, loc (English) | < 1 s | Read ~300 shards. ~0.65 s (was ~0.9-1.1 s). |
 | Single `resolve()` after fresh | < 1 ms | Dict lookup. |
 
-These are asserted as smoke tests in `tests/test_perf.py`. Treat regressions
-as bugs.
+`tests/test_perf.py` exercises cold mod-only builds of six indexes with its own
+per-index and combined budgets; it does not assert the table's exact ceilings
+or cover the mod-plus-vanilla row. The remaining values are performance targets.
+The one-file localisation and focus timings below were measured separately.
+Treat regressions as bugs.
+
+### One-file measurements
+
+On MCP main commit `3a5d68cbb64cc0f2de8fac76ef7986cca087f57d` and
+Millennium-Dawn main commit `b6bea58f93cd416e69fc42e91e77cfe833778b88`, a
+temporary cache and disposable overlay were used while the full MD checkout
+remained read-only. The index used the full checkout as its base corpus, but
+the edited file was a copy in an overlay that shadows the corresponding base
+file. These timings therefore measure an overlay edit, not an edit to a real
+mod file. After its initial build, three update cycles were timed. Before each
+cycle, a comment was appended to the same copied overlay file;
+`StaleCheck.force_next()` forced the next stat pass without waiting for the
+two-second debounce, and `ensure_fresh()` was timed. These were successive edits
+to one overlay copy, not three independent trials. The updated file was
+reparsed; all cache and overlay writes were under `/tmp`.
+
+- **Localisation:** the overlay shadowed
+  `localisation/english/MD_mio_catalog_l_english.yml` (9,377 bytes). The index
+  covered 307 English files and 234,298 records. Initial build: 1.683 s.
+  Incremental update, three runs: 86.1, 67.6, and 68.5 ms.
+- **Focus:** the overlay shadowed `common/national_focus/05_spain.txt`
+  (482,597 bytes). The index covered 114 files and 26,245 records. Initial
+  build: 4.303 s. Incremental update, three runs: 222.0, 208.5, and 260.0 ms.
+  Focus uses a monolithic 1.9 MB cache payload, which is rewritten on update.
+
+Issue #193 records older real-MD benchmark observations: 1,793 ms for
+localisation and 673 ms for focus, on MCP commit `d3de458` with Millennium-Dawn
+commit `7c95d25`. They are distinct from the current disposable-overlay
+measurements above. The commits, environment, and methodology differ, so
+compare them only as separate observations, not as a controlled before/after
+result.
+
+These measurements describe their stated environments and corpora, not a
+general performance guarantee.
 
 ## Debugging stale data
 

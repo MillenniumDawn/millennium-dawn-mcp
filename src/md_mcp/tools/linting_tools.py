@@ -681,10 +681,7 @@ _GIT_SCOPE_STDERR_BYTES = 1_000
 
 def _scope_text(value: object, max_bytes: int, *, tail: bool = False) -> str:
     """Convert subprocess output to a bounded, UTF-8-safe string."""
-    if isinstance(value, bytes):
-        text = value.decode("utf-8", errors="replace")
-    else:
-        text = str(value or "")
+    text = value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value or "")
     if tail:
         tail_text = text.encode("utf-8", errors="replace")[-max_bytes:].decode(
             "utf-8", errors="replace"

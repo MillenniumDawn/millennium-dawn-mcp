@@ -392,12 +392,15 @@ def test_call_analysis_tools_forward_submod_root(fake_mod_root, cache_dir, tmp_p
     focus = submod_root / relpath
     focus.parent.mkdir(parents=True)
     focus.write_text(
-        "focus_tree = {\n"
-        "    focus = {\n"
-        "        id = OVR_overlay_only\n"
-        "        x = 15\n        y = 2\n"
-        "        completion_reward = { country_event = OverlayMissing.1 }\n"
-        "    }\n}\n",
+        """focus_tree = {
+    focus = {
+        id = OVR_overlay_only
+        x = 15
+        y = 2
+        completion_reward = { country_event = OverlayMissing.1 }
+    }
+}
+""",
         encoding="utf-8",
     )
     srv = build_server(
@@ -413,9 +416,7 @@ def test_call_analysis_tools_forward_submod_root(fake_mod_root, cache_dir, tmp_p
 
     async def go():
         return (
-            await srv.call_tool(
-                "focus_layout", {"tag": "OVR", "include_positions": True}
-            ),
+            await srv.call_tool("focus_layout", {"tag": "OVR", "include_positions": True}),
             await srv.call_tool("check_refs", {"tag": "OVR", "kinds": ["event"]}),
         )
 
@@ -424,9 +425,7 @@ def test_call_analysis_tools_forward_submod_root(fake_mod_root, cache_dir, tmp_p
     refs = json.loads(_text(refs_result))
 
     assert layout["focus_count"] == 1
-    assert layout["positions"] == [
-        {"id": "OVR_overlay_only", "x": 15, "y": 2, "relative_to": None}
-    ]
+    assert layout["positions"] == [{"id": "OVR_overlay_only", "x": 15, "y": 2, "relative_to": None}]
     assert refs["files_scanned"] == 1
     assert {entry["ref"] for entry in refs["unresolved"]} == {"OverlayMissing.1"}
 

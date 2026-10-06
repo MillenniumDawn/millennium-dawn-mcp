@@ -413,7 +413,9 @@ def test_call_analysis_tools_forward_submod_root(fake_mod_root, cache_dir, tmp_p
 
     async def go():
         return (
-            await srv.call_tool("focus_layout", {"tag": "OVR", "include_positions": True}),
+            await srv.call_tool(
+                "focus_layout", {"tag": "OVR", "include_positions": True}
+            ),
             await srv.call_tool("check_refs", {"tag": "OVR", "kinds": ["event"]}),
         )
 

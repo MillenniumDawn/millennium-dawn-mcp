@@ -133,6 +133,7 @@ def check_refs(
     files: Optional[list[str]] = None,
     kinds: Optional[Sequence[str]] = None,
     vanilla_path: Optional[Path] = None,
+    submod_root: Optional[Path] = None,
     vanilla_sprites: Optional[frozenset[str]] = None,
     lang: str = "en",
     limit: int = 200,
@@ -198,7 +199,9 @@ def check_refs(
     parse_errors: list[dict] = []
     focus_defs: list[dict] = []  # focus ids defined in scope, for loc coverage
 
-    for parsed in iter_scope_files(scope_files, mod_root, vanilla_path, parse_errors):
+    for parsed in iter_scope_files(
+        scope_files, mod_root, vanilla_path, parse_errors, submod_root=submod_root
+    ):
         starts = line_starts(parsed.text)
         _walk(
             parsed.root,

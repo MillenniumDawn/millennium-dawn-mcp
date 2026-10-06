@@ -519,6 +519,7 @@ def build_server(settings: Settings):
             files=files,
             kinds=kinds,
             vanilla_path=settings.vanilla_path,
+            submod_root=settings.submod_root,
             vanilla_sprites=vanilla_sprites,
             lang=settings.default_lang,
             limit=limit,
@@ -540,6 +541,7 @@ def build_server(settings: Settings):
             tag=tag,
             file=file,
             vanilla_path=settings.vanilla_path,
+            submod_root=settings.submod_root,
             include_positions=include_positions,
             limit=limit,
         )

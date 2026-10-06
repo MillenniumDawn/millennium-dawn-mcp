@@ -22,11 +22,10 @@ from pathlib import Path
 import pytest
 
 from md_mcp.tools.lint_fixers import (
-    _MAX_TXT_BYTES,
     LOG_ID_SCOPES,
     fix_lint_tool,
 )
-from md_mcp.util.response import BUDGET_BYTES
+from md_mcp.util.response import BUDGET_BYTES, MAX_TEXT_BYTES
 
 LINTING = "tools/linting"
 
@@ -621,7 +620,7 @@ def test_integration_all_fixers_at_max_txt_bytes_are_clipped(upstream_root):
     out = fix_lint_tool(upstream_root, fixer="styling", path=rel)
     assert out["ok"] is True
     assert out["txt_truncated"] is True
-    assert out["txt_bytes"] > _MAX_TXT_BYTES >= out["txt_returned_bytes"]
+    assert out["txt_bytes"] > MAX_TEXT_BYTES >= out["txt_returned_bytes"]
     assert "do NOT write clipped content back" in out["note"]
     assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
 

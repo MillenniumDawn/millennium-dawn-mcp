@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ..util.response import enforce_budget
+from ._blocks import block, indent
 
 
 def generate_decision(
@@ -64,35 +65,27 @@ def generate_decision(
     if state_target:
         parts.append("\t\tstate_target = yes")
     if target_root_trigger:
-        parts.append("\t\ttarget_root_trigger = {")
-        parts.extend(_indent(target_root_trigger, 3))
-        parts.append("\t\t}")
+        parts.extend(block("target_root_trigger", target_root_trigger, 2))
     if target_trigger:
-        parts.append("\t\ttarget_trigger = {")
-        parts.extend(_indent(target_trigger, 3))
-        parts.append("\t\t}")
+        parts.extend(block("target_trigger", target_trigger, 2))
     if state_target or target_root_trigger or target_trigger:
         parts.append("")
 
     if allowed or tag:
         parts.append("\t\tallowed = {")
         if allowed:
-            parts.extend(_indent(allowed, 3))
+            parts.extend(indent(allowed, 3))
         else:
             parts.append(f"\t\t\toriginal_tag = {tag}")
         parts.append("\t\t}")
         parts.append("")
 
     if visible:
-        parts.append("\t\tvisible = {")
-        parts.extend(_indent(visible, 3))
-        parts.append("\t\t}")
+        parts.extend(block("visible", visible, 2))
         parts.append("")
 
     if available:
-        parts.append("\t\tavailable = {")
-        parts.extend(_indent(available, 3))
-        parts.append("\t\t}")
+        parts.extend(block("available", available, 2))
         parts.append("")
 
     parts.append(f"\t\tcost = {cost}")
@@ -103,22 +96,18 @@ def generate_decision(
     parts.append("")
 
     if cancel_trigger:
-        parts.append("\t\tcancel_trigger = {")
-        parts.extend(_indent(cancel_trigger, 3))
-        parts.append("\t\t}")
+        parts.extend(block("cancel_trigger", cancel_trigger, 2))
         parts.append("")
 
     parts.append("\t\tcomplete_effect = {")
     parts.append(f'\t\t\tlog = "[GetDateText]: [Root.GetName]: Decision {id} completed"')
     if complete_effect:
-        parts.extend(_indent(complete_effect, 3))
+        parts.extend(indent(complete_effect, 3))
     parts.append("\t\t}")
 
     if remove_effect:
         parts.append("")
-        parts.append("\t\tremove_effect = {")
-        parts.extend(_indent(remove_effect, 3))
-        parts.append("\t\t}")
+        parts.extend(block("remove_effect", remove_effect, 2))
 
     parts.append("\t}")
 
@@ -132,8 +121,3 @@ def generate_decision(
         },
         heavy_keys=("txt", "loc_yml_keys"),
     )
-
-
-def _indent(block: str, tabs: int) -> list[str]:
-    pad = "\t" * tabs
-    return [pad + line if line.strip() else line for line in block.rstrip("\n").splitlines()]

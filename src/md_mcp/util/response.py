@@ -17,9 +17,12 @@ with headroom for the protocol envelope.
 from __future__ import annotations
 
 import json
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 BUDGET_BYTES = 100_000
+
+# Cap for a text payload (report, fixed file); leaves room for status fields and warnings.
+MAX_TEXT_BYTES = BUDGET_BYTES - 12_000
 
 
 def coerce_int(value: Any, *, name: str, default: int) -> int:
@@ -103,18 +106,9 @@ def enforce_budget(
         del result[k]
         result[f"{k}_dropped"] = count
         result["size_truncated"] = True
-        try:
-            if _jsize(result) <= budget:
-                return result
-        except (TypeError, ValueError) as exc:
-            return _unserializable_result(exc, budget)
-
-    result["size_truncated"] = True
-    try:
         if _jsize(result) <= budget:
             return result
-    except (TypeError, ValueError) as exc:
-        return _unserializable_result(exc, budget)
+
     return _bounded_fallback(result, budget)
 
 
@@ -159,22 +153,11 @@ def _bounded_fallback(result: dict, budget: int) -> dict:
     }
 
 
-def clip_strings(items: Iterable[dict], key: str, max_bytes: int) -> list[dict]:
-    """Return a copy of `items` with `item[key]` clipped to `max_bytes` UTF-8 bytes.
-
-    Clipping is by UTF-8 byte length, matching the byte budget the rest of this
-    module works in (see `enforce_budget` and `BUDGET_BYTES`). Counting Unicode
-    characters instead let a clipped multibyte string stay up to four times its
-    intended byte size, so a tool budgeting with `clip_strings` overshot before
-    `enforce_budget` caught it and dropped whole keys. A clip that would fall in
-    the middle of a multi-byte code point drops that partial code point rather
-    than emitting invalid UTF-8.
-    """
-    out: list[dict] = []
-    for it in items:
-        v = it.get(key)
-        if isinstance(v, str) and len(v.encode("utf-8")) > max_bytes:
-            clipped = v.encode("utf-8")[:max_bytes].decode("utf-8", "ignore")
-            it = {**it, key: clipped}
-        out.append(it)
-    return out
+def clip_utf8(text: str, max_bytes: int) -> tuple[str, int, int, bool]:
+    """Return text clipped at a UTF-8 boundary plus size metadata."""
+    raw = text.encode("utf-8")
+    total = len(raw)
+    if total <= max_bytes:
+        return text, total, total, False
+    clipped = raw[:max_bytes].decode("utf-8", "ignore")
+    return clipped, total, len(clipped.encode("utf-8")), True

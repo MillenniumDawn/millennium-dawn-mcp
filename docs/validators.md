@@ -54,8 +54,8 @@ a crashed validator as a clean run.
 ## In-process mode
 
 `md-mcp doctor` only prints settings — it runs no validators. To exercise a
-validator in-process with a real traceback, use the runner directly (full
-snippet in [Debugging](#debugging) below).
+validator in your own process, use the runner directly. For a real traceback,
+call `_collect` (both snippets are in [Debugging](#debugging) below).
 
 **Not safe under `md-mcp serve`.** A forking validator deadlocks the stdio
 loop, so the `serve` subcommand logs a warning and overrides this back to
@@ -69,8 +69,9 @@ the same validator skip startup cost (a single import is multi-second on
 some validators — they pull pandas, openpyxl, etc.).
 
 **Output capture**: validators are chatty. The wrapper redirects their stdout
-and stderr into `io.StringIO()` buffers and discards them. Only the structured
-issues come back to the agent.
+and stderr into `io.StringIO()` buffers. On success, only the structured issues
+come back to the agent; if validator execution raises, the error result also
+includes the last 2,000 characters of captured stderr for diagnosis.
 
 **`SystemExit` guard**: some validators call `sys.exit(N)` to signal failure.
 That would kill the server. The wrapper catches `SystemExit` and logs it as
@@ -105,16 +106,16 @@ want the module cache. The server picks isolated for you either way.
 
 The wrapper reads `validator._issues` — that leading underscore means it's
 not a public API. The Millennium-Dawn team can refactor it freely. When they
-do, in-process mode breaks until we update `runner.py`.
+do, both modes break until we update `runner.py`.
 
 Mitigations:
 
 1. **Single adapter point.** All version-sensitive behaviour lives in
-   `_shim.py` and `_run_inprocess`, which run the same sequence. One place to
-   patch, mirrored in two.
-2. **`in_process` for triage.** When isolated mode reports a failure and you
-   want the traceback in your own process, rerun with
-   `MD_MCP_VALIDATOR_MODE=in_process` outside the server.
+   `_collect` in `runner.py`. `_run_inprocess` calls it directly and `_shim.py`
+   calls it in the child, so there is one place to patch.
+2. **`_collect` for triage.** `run()` reports a failure as `{ok: false, error}`
+   in both modes. When you want the traceback, call `_collect` yourself outside
+   the server (see [Debugging](#debugging)).
 3. **CI nightly check** runs every fast validator wrapper against
    `Millennium-Dawn` `main` and opens an issue on breakage. Wired:
    `.github/workflows/nightly.yml` runs `pytest -m integration` against a fresh
@@ -127,8 +128,8 @@ When you encounter a breakage:
 - First check whether `BaseValidator._issues` or `Issue.to_dict()` signatures
   changed in [`validator_common.py`](../../Millennium-Dawn/tools/validation/validator_common.py).
 - Run the validator's own CLI directly to confirm it still works at all.
-- Patch `_collect` in `_shim.py` (and `_run_inprocess` to match) to handle both
-  the old and new shape during the rollout window.
+- Patch `_collect` in `runner.py` to handle both the old and new shape during
+  the rollout window.
 
 ## Validator output shape
 
@@ -164,9 +165,9 @@ validate(validator="unused_textures")
 
 ## Suppression
 
-The runner applies upstream-documented false-positive suppressions in both
-`_run_inprocess` and `_run_isolated` before returning, so callers always see
-the post-suppression issue list with a count alongside it:
+The runner applies upstream-documented false-positive suppressions in the tail
+shared by both modes (`_finish`) before returning, so callers always see the
+post-suppression issue list with a count alongside it:
 
 ```json
 {
@@ -287,7 +288,7 @@ automatically — no MCP-server code changes needed, as long as:
 4. `instance.run_all_validations()` populates `instance._issues`.
 
 If any of these change for a specific validator, special-case it in
-`_run_inprocess` rather than weakening the general adapter.
+`_collect` rather than weakening the general adapter.
 
 ## Debugging
 
@@ -307,6 +308,17 @@ result = runner.run("localisation", staged_only=False)
 print(result["counts"], len(result["issues"]))
 ```
 
-This bypasses the MCP framing — exceptions surface directly, and you can
-inspect the validator instance after the run via the in-process
-`runner._modules` cache.
+This bypasses the MCP framing, and you can inspect the validator module after
+the run through `sys.modules`. The runner still catches whatever the validator
+raises and returns `{ok: false, error}`. For the traceback, call the run
+sequence itself:
+
+```python
+from md_mcp.validators.runner import _collect
+
+payload = _collect(str(settings.mod_root), "validate_localisation", staged_only=False)
+print(len(payload["issues"]))
+```
+
+Most validators fork a `Pool`, so run this from a script or a REPL, never from
+inside `md-mcp serve`.

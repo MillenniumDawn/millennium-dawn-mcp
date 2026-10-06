@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from md_mcp.validators import SLOW_VALIDATORS, ValidatorRunner, available_validators
+from md_mcp.validators.runner import _collect
 
 _ISSUE_CLASS = """
 class _Issue:
@@ -243,6 +244,61 @@ def test_in_process_mode_still_available(fake_mod_root):
     result = ValidatorRunner(fake_mod_root, mode="in_process").run("plain")
     assert result["ok"] is True
     assert len(result["issues"]) == 2
+
+
+# In-process imports stay in sys.modules for the session, so these use names no
+# other test plants.
+def test_in_process_keeps_issues_when_validator_exits(fake_mod_root):
+    _plant(fake_mod_root, "exits_inproc", _EXITS)
+    result = ValidatorRunner(fake_mod_root, mode="in_process").run("exits_inproc")
+    assert result["ok"] is True
+    assert [i["message"] for i in result["issues"]] == ["found before exit"]
+
+
+def test_in_process_reports_broken_validator(fake_mod_root):
+    _plant(fake_mod_root, "broken_inproc", "this is not valid python (\n")
+    result = ValidatorRunner(fake_mod_root, mode="in_process").run("broken_inproc")
+    assert result["ok"] is False
+    assert result["validator"] == "broken_inproc"
+    assert result["error"].startswith("SyntaxError: ")
+
+
+def test_in_process_reports_missing_validator_class(fake_mod_root):
+    _plant(fake_mod_root, "classless_inproc", "X = 1\n")
+    result = ValidatorRunner(fake_mod_root, mode="in_process").run("classless_inproc")
+    assert result["ok"] is False
+    assert "Validator" in result["error"]
+
+
+def test_collect_raises_where_run_returns_an_error(fake_mod_root):
+    # The docs send people to _collect for a traceback because run() catches.
+    source = _PLAIN.replace(
+        'print("stdout chatter the runner must swallow")',
+        'raise RuntimeError("boom from validator")',
+    )
+    _plant(fake_mod_root, "raises_inproc", source)
+
+    result = ValidatorRunner(fake_mod_root, mode="in_process").run("raises_inproc")
+    assert result["ok"] is False
+    assert result["error"] == "RuntimeError: boom from validator"
+
+    with pytest.raises(RuntimeError, match="boom from validator"):
+        _collect(str(fake_mod_root), "validate_raises_inproc", False)
+
+
+def test_in_process_failure_preserves_validator_stderr(fake_mod_root):
+    source = _PLAIN.replace(
+        'print("stdout chatter the runner must swallow")',
+        'print("validator diagnostic", file=__import__("sys").stderr)\n'
+        '        raise RuntimeError("boom from validator")',
+    )
+    _plant(fake_mod_root, "raises_with_stderr_inproc", source)
+
+    result = ValidatorRunner(fake_mod_root, mode="in_process").run("raises_with_stderr_inproc")
+
+    assert result["ok"] is False
+    assert result["error"] == "RuntimeError: boom from validator"
+    assert result["stderr"] == "validator diagnostic\n"
 
 
 @pytest.mark.integration

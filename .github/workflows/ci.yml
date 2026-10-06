@@ -56,6 +56,24 @@ jobs:
       - run: pip install -e '.[dev]'
       - run: pytest -q -n auto
 
+  runtime-install:
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout v5.1.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      # actions/setup-python v6.3.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      # Every other job installs the dev extra, so a runtime import of a
+      # dev-only package would pass them all. This is the install users get.
+      - run: pip install -e .
+      - run: md-mcp --help
+
   coverage:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

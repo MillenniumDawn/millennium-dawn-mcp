@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from ..paradox.schema import EVENT_KINDS
+from ..util.line_numbers import line_and_column, line_starts
+from ..util.response import enforce_budget
 from .text_cache import read_text
 
 logger = logging.getLogger(__name__)
@@ -178,9 +180,12 @@ _PATTERNS = {
     "trait": _trait_pattern,
     "scripted_effect": _named_definition_pattern,
     "scripted_trigger": _named_definition_pattern,
-    "tag": _country_tag_pattern,
-    "scripted_effects": _named_definition_pattern,
-    "scripted_triggers": _named_definition_pattern,
+}
+
+KIND_ALIASES = {
+    "tag": "country_tag",
+    "scripted_effects": "scripted_effect",
+    "scripted_triggers": "scripted_trigger",
 }
 
 
@@ -305,47 +310,9 @@ _SCAN_DIRS = {
         "common/on_actions",
         "history/countries",
     ],
-    "tag": [
-        "common/country_tags",
-        "common/national_focus",
-        "events",
-        "common/decisions",
-        "common/ideas",
-        "common/scripted_effects",
-        "common/scripted_triggers",
-        "history/countries",
-    ],
-    "scripted_effects": [
-        "common/scripted_effects",
-        "common/scripted_triggers",
-        "common/national_focus",
-        "events",
-        "common/decisions",
-        "common/ideas",
-        "common/on_actions",
-        "history/countries",
-    ],
-    "scripted_triggers": [
-        "common/scripted_triggers",
-        "common/scripted_effects",
-        "common/national_focus",
-        "events",
-        "common/decisions",
-        "common/ideas",
-        "common/on_actions",
-        "history/countries",
-    ],
 }
 
 _EXTENSIONS = {
-    "country_tag": (".txt",),
-    "character": (".txt",),
-    "trait": (".txt",),
-    "scripted_effect": (".txt",),
-    "scripted_trigger": (".txt",),
-    "tag": (".txt",),
-    "scripted_effects": (".txt",),
-    "scripted_triggers": (".txt",),
     # Loc keys appear in both the defining .yml files and as bare identifiers in
     # script (.txt) files used as titles / descriptions / tooltip targets.
     "loc": (".yml", ".txt"),
@@ -383,17 +350,16 @@ def find_references(
     or alternation branch that omits it), so a file lacking the raw target
     cannot match. `prefilter=False` disables the shortcut (equivalence tests).
     """
-    from ..util.response import enforce_budget  # local import; avoids cycle
-
-    if kind not in _PATTERNS:
+    canonical = KIND_ALIASES.get(kind, kind)
+    if canonical not in _PATTERNS:
         return {
             "ok": False,
-            "error": f"Unknown kind '{kind}'. Use one of: {sorted(_PATTERNS)}",
+            "error": f"Unknown kind '{kind}'. Use one of: {sorted([*_PATTERNS, *KIND_ALIASES])}",
         }
 
-    pattern = _PATTERNS[kind](target)
-    exts = _EXTENSIONS.get(kind, (".txt",))
-    scan_dirs = _SCAN_DIRS[kind]
+    pattern = _PATTERNS[canonical](target)
+    exts = _EXTENSIONS.get(canonical, (".txt",))
+    scan_dirs = _SCAN_DIRS[canonical]
 
     roots = ([submod_root] if submod_root else []) + [mod_root]
     if include_vanilla and vanilla_path:
@@ -425,10 +391,7 @@ def find_references(
                         break
                     if not path.is_file():
                         continue
-                    try:
-                        rel = str(path.relative_to(base))
-                    except ValueError:
-                        rel = str(path)
+                    rel = str(path.relative_to(base))
                     seen.add(rel)
                     if rel in shadowed:
                         continue
@@ -438,11 +401,14 @@ def find_references(
                     if prefilter and target not in text:
                         continue
 
+                    starts: Optional[list[int]] = None
                     for m in pattern.finditer(text):
                         if files_only:
                             file_hits[rel] = file_hits.get(rel, 0) + 1
                             continue
-                        line, col = _pos_to_lc(text, m.start())
+                        if starts is None:
+                            starts = line_starts(text)
+                        line, col = line_and_column(m.start(), starts)
                         snippet = _line_at(text, m.start()).strip()[:snippet_chars]
                         matches.append(
                             {
@@ -493,12 +459,6 @@ def find_references(
         },
         heavy_keys=("matches",),
     )
-
-
-def _pos_to_lc(text: str, pos: int) -> tuple[int, int]:
-    line = text.count("\n", 0, pos) + 1
-    line_start = text.rfind("\n", 0, pos) + 1
-    return line, pos - line_start + 1
 
 
 def _line_at(text: str, pos: int) -> str:

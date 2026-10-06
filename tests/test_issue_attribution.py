@@ -109,7 +109,7 @@ def test_index_is_built_once(fake_mod_root):
 
 
 def test_dot_prefix_is_stripped_once_not_greedily(fake_mod_root):
-    # _normalise must strip a leading "./" (and a repeat), but must not eat a
+    # normalize_path must strip a leading "./" (and a repeat), but must not eat a
     # leading "." from a real filename like ".gitignore".
     at = IssueAttributor(fake_mod_root)
     assert at.resolve(_issue(file="./events/test_events.txt"), scan_prefixes=("events/",)) == (

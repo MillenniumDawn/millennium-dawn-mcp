@@ -12,6 +12,7 @@ from typing import Optional
 
 from ..paradox.schema import EVENT_KINDS
 from ..util.response import enforce_budget
+from ._blocks import block, indent
 
 
 def generate_event(
@@ -64,15 +65,11 @@ def generate_event(
         parts.append("")
 
     if trigger and not is_triggered_only:
-        parts.append("\ttrigger = {")
-        parts.extend(_indent(trigger, 2))
-        parts.append("\t}")
+        parts.extend(block("trigger", trigger, 1))
         parts.append("")
 
     if immediate:
-        parts.append("\timmediate = {")
-        parts.extend(_indent(immediate, 2))
-        parts.append("\t}")
+        parts.extend(block("immediate", immediate, 1))
         parts.append("")
 
     option_letters = "abcdefghijklmnopqrstuvwxyz"
@@ -96,7 +93,7 @@ def generate_event(
             parts.append(f"\t\tai_chance = {{ base = {ai_chance} }}")
         effects = opt.get("effects")
         if effects:
-            parts.extend(_indent(effects, 2))
+            parts.extend(indent(effects, 2))
         parts.append("\t}")
         parts.append("")
         loc_keys.append({"key": opt_id, "value": opt.get("label") or "Continue"})
@@ -113,8 +110,3 @@ def generate_event(
         },
         heavy_keys=("txt", "loc_yml_keys"),
     )
-
-
-def _indent(block: str, tabs: int) -> list[str]:
-    pad = "\t" * tabs
-    return [pad + line if line.strip() else line for line in block.rstrip("\n").splitlines()]

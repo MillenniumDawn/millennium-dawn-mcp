@@ -43,10 +43,7 @@ def _report_lib(mod_root: Path):
     baseline = importlib.import_module(f"{package_name}.baseline")
     return SimpleNamespace(
         Issue=models.Issue,
-        Baseline=baseline.Baseline,
-        classify=baseline.classify,
         dedupe=dedupe.dedupe,
-        issue_key=baseline.issue_key,
         load_issues=baseline.load_issues,
         load_baseline=baseline.load_baseline,
         META_FILENAME=baseline.META_FILENAME,

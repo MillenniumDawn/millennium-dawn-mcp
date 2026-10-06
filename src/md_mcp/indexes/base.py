@@ -134,8 +134,6 @@ class IndexCache:
         self.manifest_path = self.dir / f"{name}.manifest.json"
         self.data_path = self.dir / f"{name}.data.json"
         self.shard_dir = self.dir / f"{name}.data"
-        self.name = name
-        self.version = version
 
     # ----- manifest ---------------------------------------------------------
 
@@ -436,18 +434,16 @@ class GenericTxtIndex:
 
     def __init__(
         self,
-        mod_root: "Path",
-        cache_dir: "Path",
-        vanilla_path: "Optional[Path]" = None,
+        mod_root: Path,
+        cache_dir: Path,
+        vanilla_path: Optional[Path] = None,
         *,
         include_vanilla: bool = True,
-        submod_root: "Optional[Path]" = None,
+        submod_root: Optional[Path] = None,
     ):
-        from pathlib import Path as _Path
-
-        self.mod_root: _Path = mod_root
-        self.submod_root: "Optional[_Path]" = submod_root
-        self.vanilla_path: "Optional[_Path]" = vanilla_path if include_vanilla else None
+        self.mod_root: Path = mod_root
+        self.submod_root: Optional[Path] = submod_root
+        self.vanilla_path: Optional[Path] = vanilla_path if include_vanilla else None
         self._cache = IndexCache(cache_dir, self.cache_name, self.cache_version)
         self._stale_check = StaleCheck()
         self._subdirs = _normalise_specs(self.subdirs or self.subdir)

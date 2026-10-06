@@ -76,9 +76,6 @@ class FocusIndex(GenericTxtIndex):
     missing_result = FocusParseResult(None, "file not found")
     track_parse_errors = True
 
-    # Backwards-compatible alias for callers that pre-date the M2 harmonisation.
-    list_ids = GenericTxtIndex.list_keys
-
     def files_for_tag(self, tag: str) -> list[str]:
         """Sorted set of files defining a focus whose id starts with `<TAG>_`."""
         self.ensure_fresh()

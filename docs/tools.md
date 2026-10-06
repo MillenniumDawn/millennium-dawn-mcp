@@ -656,9 +656,10 @@ upstream interactive `calculate_days.py`: 365 days per year, February has 28
 days, and leap years are not applied. Rejects years before 2000 and invalid
 months/days. Returns `{ok: true, days}` or `{ok: false, error}`.
 
-All three tools run via an isolated subprocess with a timeout; they do not
-write to the mod or vanilla installation. List-bearing responses enforce the
-normal output budget.
+`tick_audit` and `estimate_gdp` run via an isolated subprocess with a timeout;
+`calculate_days` is plain arithmetic and runs in process. None of them write to
+the mod or vanilla installation. List-bearing responses enforce the normal
+output budget.
 
 ---
 

@@ -7,22 +7,13 @@ import re
 from typing import Optional
 
 from ..paradox import parse_string
-from ..paradox.nodes import Node, SymbolNode
+from ..paradox.nodes import Node, node_line, symbol_or_str
 from ..util.encoding import read_text
-from ..util.line_numbers import line_starts, pos_to_line
+from ..util.line_numbers import line_starts
 
 logger = logging.getLogger(__name__)
 
 _TAG_RE = re.compile(r"^[A-Z][A-Z0-9_]{1,7}$")
-
-
-def _scalar(node: Node) -> Optional[str]:
-    value = node.value
-    if isinstance(value, SymbolNode):
-        return value.name
-    if isinstance(value, str):
-        return value
-    return None
 
 
 def _record(node: Node, relpath: str, starts: list[int], *, kind: str, **extra: str) -> dict:
@@ -30,7 +21,7 @@ def _record(node: Node, relpath: str, starts: list[int], *, kind: str, **extra: 
         "id": node.name,
         "kind": kind,
         "file": relpath,
-        "line": pos_to_line(node.name_token.start, starts) if node.name_token else None,
+        "line": node_line(node, starts),
     }
     record.update(extra)
     return record
@@ -57,7 +48,7 @@ def parse_country_tag_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
     records: list[dict] = []
     for node in root.children():
         tag = node.name
-        country_file = _scalar(node)
+        country_file = symbol_or_str(node)
         if tag is None or not _TAG_RE.fullmatch(tag) or not country_file:
             continue
         records.append(

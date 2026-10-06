@@ -128,19 +128,19 @@ def test_estimate_gdp_loads_one_tag_and_returns_summary(tmp_path):
     }
 
 
-def test_calculate_days_matches_fixed_2000_calendar(tmp_path):
+def test_calculate_days_matches_fixed_2000_calendar():
     for year, month, day, expected in [
         (2000, 1, 1, 0),
         (2000, 12, 31, 364),
         (2004, 3, 1, 1519),
     ]:
-        assert upstream_analysis.calculate_days_tool(tmp_path, year, month, day) == {
+        assert upstream_analysis.calculate_days_tool(year, month, day) == {
             "ok": True,
             "days": expected,
         }
 
 
-def test_calculate_days_rejects_invalid_dates(tmp_path):
+def test_calculate_days_rejects_invalid_dates():
     for year, month, day in [
         (1999, 12, 31),
         (2000, 0, 1),
@@ -148,7 +148,7 @@ def test_calculate_days_rejects_invalid_dates(tmp_path):
         (2000, 2, 29),
         (2000, 4, 31),
     ]:
-        result = upstream_analysis.calculate_days_tool(tmp_path, year, month, day)
+        result = upstream_analysis.calculate_days_tool(year, month, day)
         assert result["ok"] is False
         assert result["error"]
 
@@ -159,21 +159,21 @@ def test_shim_subprocess_uses_devnull_timeout_and_json(monkeypatch, tmp_path):
     def fake_run(command, **kwargs):
         observed["command"] = command
         observed.update(kwargs)
-        return SimpleNamespace(returncode=0, stdout='{"ok": true, "days": 0}', stderr="")
+        return SimpleNamespace(returncode=0, stdout='{"ok": true, "tag": "USA"}', stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    result = upstream_analysis.calculate_days_tool(tmp_path, 2000, 1, 1)
+    result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
 
-    assert result == {"ok": True, "days": 0}
+    assert result == {"ok": True, "tag": "USA"}
     assert observed["command"][1].endswith("upstream_analysis_shim.py")
     assert observed["command"][2:] == [
-        "calculate_days",
+        "estimate_gdp",
         str(tmp_path),
-        json.dumps({"year": 2000, "month": 1, "day": 1}),
+        json.dumps({"tag": "USA"}),
     ]
     assert observed["stdin"] is subprocess.DEVNULL
-    assert observed["timeout"] == upstream_analysis._CALENDAR_TIMEOUT
+    assert observed["timeout"] == upstream_analysis._GDP_TIMEOUT
     assert observed["capture_output"] is True
 
 
@@ -208,10 +208,10 @@ def test_subprocess_spawn_failure_is_an_error(monkeypatch, tmp_path):
 
     monkeypatch.setattr(subprocess, "run", spawn_failed)
 
-    result = upstream_analysis.calculate_days_tool(tmp_path, 2000, 1, 1)
+    result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
 
     assert result["ok"] is False
-    assert "Could not run calculate_days" in result["error"]
+    assert "Could not run estimate_gdp" in result["error"]
 
 
 def test_shim_nonzero_exit_surfaces_stderr_detail(monkeypatch, tmp_path):
@@ -220,7 +220,7 @@ def test_shim_nonzero_exit_surfaces_stderr_detail(monkeypatch, tmp_path):
 
     monkeypatch.setattr(subprocess, "run", failing_run)
 
-    result = upstream_analysis.calculate_days_tool(tmp_path, 2000, 1, 1)
+    result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
 
     assert result["ok"] is False
     assert "exited with code 3: boom upstream" in result["error"]
@@ -232,7 +232,7 @@ def test_shim_nonzero_exit_without_stderr_falls_back_to_stdout(monkeypatch, tmp_
 
     monkeypatch.setattr(subprocess, "run", failing_run)
 
-    result = upstream_analysis.calculate_days_tool(tmp_path, 2000, 1, 1)
+    result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
 
     assert result["ok"] is False
     assert "exited with code 2: stdout trace" in result["error"]
@@ -244,7 +244,7 @@ def test_shim_invalid_json_is_an_error(monkeypatch, tmp_path):
 
     monkeypatch.setattr(subprocess, "run", garbage_run)
 
-    result = upstream_analysis.calculate_days_tool(tmp_path, 2000, 1, 1)
+    result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
 
     assert result["ok"] is False
     assert "returned invalid JSON" in result["error"]
@@ -256,7 +256,7 @@ def test_shim_non_object_json_is_an_error(monkeypatch, tmp_path):
 
     monkeypatch.setattr(subprocess, "run", list_run)
 
-    result = upstream_analysis.calculate_days_tool(tmp_path, 2000, 1, 1)
+    result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
 
     assert result["ok"] is False
     assert "non-object response" in result["error"]
@@ -378,20 +378,12 @@ def test_shim_estimate_gdp_full_path_in_process(tmp_path):
     assert result["gdp_total"] == 12.35
 
 
-def test_shim_calculate_days_validates_types_and_ranges():
-    shim = _load_shim()
-
-    assert shim.run("calculate_days", Path("/x"), {"year": 2004, "month": 3, "day": 1}) == {
-        "ok": True,
-        "days": 1519,
-    }
-    bool_year = shim.run("calculate_days", Path("/x"), {"year": True, "month": 1, "day": 1})
+def test_calculate_days_validates_types_and_ranges():
+    assert upstream_analysis.calculate_days_tool(2004, 3, 1) == {"ok": True, "days": 1519}
+    bool_year = upstream_analysis.calculate_days_tool(cast(Any, True), 1, 1)
     assert bool_year["ok"] is False
     assert "must be integers" in bool_year["error"]
-    assert (
-        shim.run("calculate_days", Path("/x"), {"year": "2000", "month": 1, "day": 1})["ok"]
-        is False
-    )
+    assert upstream_analysis.calculate_days_tool(cast(Any, "2000"), 1, 1)["ok"] is False
 
 
 def test_shim_unknown_operation_is_an_error():
@@ -408,11 +400,11 @@ def test_shim_main_writes_json_and_reports_load_failures(tmp_path, monkeypatch, 
 
     monkeypatch.setattr(
         "sys.argv",
-        ["shim", "calculate_days", str(tmp_path), json.dumps({"year": 2004, "month": 3, "day": 1})],
+        ["shim", "teleport", str(tmp_path), json.dumps({})],
     )
     assert shim.main() == 0
     out = capsys.readouterr().out
-    assert json.loads(out.strip()) == {"ok": True, "days": 1519}
+    assert json.loads(out.strip()) == {"ok": False, "error": "Unknown operation: teleport"}
 
     monkeypatch.setattr(
         "sys.argv",

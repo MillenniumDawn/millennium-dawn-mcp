@@ -175,6 +175,120 @@ def test_idea_round_trips():
     assert "original_tag = TST" in r["txt"]
 
 
+def test_decision_blocks_render_exactly():
+    r = generate_decision(
+        id="TST_dec",
+        state_target=True,
+        target_root_trigger="always = yes",
+        target_trigger="FROM = { always = yes }",
+        visible="has_war = no",
+        available="has_stability > 0.5\n\nhas_war = no",
+        days_remove=30,
+        cancel_trigger="has_war = yes",
+        remove_effect="add_stability = -0.05",
+    )
+    assert r["txt"] == "\n".join(
+        [
+            "\tTST_dec = {",
+            "\t\ticon = generic_decision",
+            "",
+            "\t\tstate_target = yes",
+            "\t\ttarget_root_trigger = {",
+            "\t\t\talways = yes",
+            "\t\t}",
+            "\t\ttarget_trigger = {",
+            "\t\t\tFROM = { always = yes }",
+            "\t\t}",
+            "",
+            "\t\tvisible = {",
+            "\t\t\thas_war = no",
+            "\t\t}",
+            "",
+            "\t\tavailable = {",
+            "\t\t\thas_stability > 0.5",
+            "",
+            "\t\t\thas_war = no",
+            "\t\t}",
+            "",
+            "\t\tcost = 25",
+            "\t\tdays_remove = 30",
+            "",
+            "\t\tcancel_trigger = {",
+            "\t\t\thas_war = yes",
+            "\t\t}",
+            "",
+            "\t\tcomplete_effect = {",
+            '\t\t\tlog = "[GetDateText]: [Root.GetName]: Decision TST_dec completed"',
+            "\t\t}",
+            "",
+            "\t\tremove_effect = {",
+            "\t\t\tadd_stability = -0.05",
+            "\t\t}",
+            "\t}",
+        ]
+    )
+
+
+def test_idea_blocks_render_exactly():
+    r = generate_idea(
+        id="TST_idea",
+        available="has_war = no",
+        cancel="has_war = yes",
+        cost=150,
+        modifier="stability_factor = 0.05",
+        research_bonus="land_doctrine = 0.05",
+        equipment_bonus="infantry_equipment = { build_cost_ic = -0.1 }",
+        targeted_modifier="tag = GER\nattack_bonus_against = 0.1",
+    )
+    assert r["txt"] == "\n".join(
+        [
+            "\t\tTST_idea = {",
+            "\t\t\tpicture = generic_idea",
+            "\t\t\tavailable = {",
+            "\t\t\t\thas_war = no",
+            "\t\t\t}",
+            "\t\t\tcancel = {",
+            "\t\t\t\thas_war = yes",
+            "\t\t\t}",
+            "\t\t\tcost = 150",
+            "\t\t\tmodifier = {",
+            "\t\t\t\tstability_factor = 0.05",
+            "\t\t\t}",
+            "\t\t\tresearch_bonus = {",
+            "\t\t\t\tland_doctrine = 0.05",
+            "\t\t\t}",
+            "\t\t\tequipment_bonus = {",
+            "\t\t\t\tinfantry_equipment = { build_cost_ic = -0.1 }",
+            "\t\t\t}",
+            "\t\t\ttargeted_modifier = {",
+            "\t\t\t\ttag = GER",
+            "\t\t\t\tattack_bonus_against = 0.1",
+            "\t\t\t}",
+            "\t\t}",
+        ]
+    )
+
+
+def test_event_and_focus_blocks_render_exactly():
+    event = generate_event(
+        namespace="tst",
+        number=1,
+        is_triggered_only=False,
+        trigger="has_war = no",
+        immediate="add_stability = 0.01",
+    )
+    assert (
+        "\n\ttrigger = {\n\t\thas_war = no\n\t}\n"
+        "\n\timmediate = {\n\t\tadd_stability = 0.01\n\t}\n"
+        "\n\toption = {\n"
+    ) in event["txt"]
+
+    focus = generate_focus(id="TST_f", tag="TST", available="has_war = no")
+    assert (
+        "\n\t\tavailable = {\n\t\t\thas_war = no\n\t\t}\n\n\t\tcompletion_reward = {\n"
+    ) in focus["txt"]
+
+
 def test_gfx_round_trips():
     r = generate_gfx_entry(name="GFX_test", texturefile="gfx/test.dds", frames=4)
     wrapped = "spriteTypes = {\n" + r["txt"] + "\n}"

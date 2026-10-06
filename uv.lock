@@ -905,9 +905,7 @@ version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "mcp" },
-    { name = "pyyaml" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
-    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -918,6 +916,7 @@ dev = [
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-xdist" },
+    { name = "pyyaml" },
     { name = "ruff" },
     { name = "types-pyyaml" },
 ]
@@ -931,11 +930,10 @@ requires-dist = [
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.8.6" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
     { name = "types-pyyaml", marker = "extra == 'dev'" },
-    { name = "typing-extensions", specifier = ">=4.0" },
 ]
 provides-extras = ["dev"]
 

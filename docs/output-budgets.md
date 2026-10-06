@@ -97,11 +97,6 @@ we drop `nodes` first (they're the heaviest and the caller can always re-call
 with `focus_ids=` to pin a subset), then `edges`, then `cycles` last because
 cycles are small and load-bearing for review.
 
-### `clip_strings(items, key, max_chars)`
-
-Trim `item[key]` on each dict to `max_chars`. Used for snippet fields in
-`find_references` to keep per-match payload modest.
-
 ## Detail tiers
 
 The cleanest API for variable-size output is a **tier knob** rather than

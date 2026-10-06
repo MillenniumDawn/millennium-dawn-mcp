@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Union
 
+from ..util.line_numbers import pos_to_line
+
 
 @dataclass(frozen=True)
 class Token:
@@ -67,3 +69,22 @@ class Node:
         """Return all children with the given name (case-insensitive)."""
         target = name.lower()
         return [c for c in self.children() if c.name and c.name.lower() == target]
+
+
+def symbol_or_str(node: Optional[Node]) -> Optional[str]:
+    """Return the text of a symbol or string value, or None for any other value."""
+    if node is None:
+        return None
+    value = node.value
+    if isinstance(value, SymbolNode):
+        return value.name
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def node_line(node: Node, starts: Optional[list[int]]) -> Optional[int]:
+    """Return the 1-based line of `node`'s name, or None without a name token or line table."""
+    if starts is None or node.name_token is None:
+        return None
+    return pos_to_line(node.name_token.start, starts)

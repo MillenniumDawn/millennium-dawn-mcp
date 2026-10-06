@@ -118,7 +118,9 @@ def test_tag_maps_follow_incremental_update_remove_and_cache_reload(tmp_path, ca
     exact = _write(root, "common/tags/USA.txt", ["exact_file_only"])
     index = _TagIndex(root, cache_dir, include_vanilla=False)
 
-    assert index.resolve("USA_dup")["file"] == "common/tags/z.txt"
+    duplicate = index.resolve("USA_dup")
+    assert duplicate is not None
+    assert duplicate["file"] == "common/tags/z.txt"
     assert "common/tags/z.txt" in index.files_for_tag("USA")
 
     winner.unlink()
@@ -128,7 +130,9 @@ def test_tag_maps_follow_incremental_update_remove_and_cache_reload(tmp_path, ca
     index._stale_check.force_next()
 
     assert index.ids_for_tag("USA") == _scan_ids(index, "USA")
-    assert index.resolve("USA_dup")["file"] == str(first.relative_to(root))
+    duplicate = index.resolve("USA_dup")
+    assert duplicate is not None
+    assert duplicate["file"] == str(first.relative_to(root))
     assert "usa_case2" not in index.ids_for_tag("USA")
     assert "exact_file_only" not in index.ids_for_country_tag("USA")
     assert _indexed_country_records(index, "USA") == _scan_country_records(index, "USA")

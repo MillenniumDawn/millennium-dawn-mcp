@@ -15,7 +15,7 @@ from typing import Callable
 
 import pytest
 
-import md_mcp.tools.linting_tools as linting_tools
+from md_mcp.tools import linting_tools
 from md_mcp.tools.linting_tools import (
     _ALL_CHECKS,
     _changed_files,

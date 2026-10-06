@@ -15,6 +15,7 @@ from md_mcp.util.response import BUDGET_BYTES
 
 _HELPER = """
 from dataclasses import dataclass
+from typing import NamedTuple
 
 builds = 0
 
@@ -32,7 +33,18 @@ def build_equipment_index(units_dir):
     return object()
 
 
-def check_created_variants(content, index):
+class CreatedVariants(NamedTuple):
+    text: str
+    spans: list[tuple[int, int]]
+
+
+def created_variant_spans(content):
+    start = content.find("create_equipment_variant")
+    return CreatedVariants(content, [(start, len(content))] if start >= 0 else [])
+
+
+def check_created_variants(variants, index):
+    content = variants.text
     if "oversized" in content:
         return [Finding(i, "unknown_slot", "x" * 200, "test_hull") for i in range(1_000)]
     if "bad_slot" in content:

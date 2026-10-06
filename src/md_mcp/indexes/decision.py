@@ -32,3 +32,4 @@ class DecisionIndex(GenericTxtIndex):
     cache_name = "decision"
     subdir = "common/decisions"
     parser_fn = staticmethod(_parse_decision_file)
+    tag_indexed = True

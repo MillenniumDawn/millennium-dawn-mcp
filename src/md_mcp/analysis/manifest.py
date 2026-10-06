@@ -179,6 +179,10 @@ def _ids_with_prefix(index, prefix: str) -> list[str]:
     if index is None:
         return []
     index.ensure_fresh()
+    # The common form is a country tag followed by exactly one underscore.
+    # Keep the original scan as a compatibility fallback for arbitrary prefixes.
+    if hasattr(index, "ids_for_tag") and prefix.endswith("_") and prefix.count("_") == 1:
+        return index.ids_for_tag(prefix[:-1])
     return [k for k in index.list_keys() if k.upper().startswith(prefix)]
 
 
@@ -245,18 +249,28 @@ def _tag_records(index: Optional[CountryTagIndex], tag_upper: str) -> list[str]:
 def _indexed_country_records(index, tag_upper: str) -> tuple[list[str], list[str]]:
     if index is None:
         return [], []
-    prefix = tag_upper + "_"
     ids: list[str] = []
     files: set[str] = set()
-    for key in index.list_keys():
+    if hasattr(index, "ids_for_country_tag"):
+        candidate_keys = index.ids_for_country_tag(tag_upper)
+        check_source = False
+    else:
+        candidate_keys = index.list_keys()
+        check_source = True
+    prefix = tag_upper + "_"
+    for key in candidate_keys:
         rec = index.resolve(key)
         if rec is None:
             continue
         file = str(rec["file"])
-        stem = Path(file).stem.upper()
-        if str(key).upper().startswith(prefix) or stem == tag_upper or stem.startswith(prefix):
-            ids.append(str(key))
-            files.add(file)
+        if check_source:
+            stem = Path(file).stem.upper()
+            matches_id = str(key).upper().startswith(prefix)
+            matches_file = stem == tag_upper or stem.startswith(prefix)
+            if not (matches_id or matches_file):
+                continue
+        ids.append(str(key))
+        files.add(file)
     return sorted(set(ids)), sorted(files)
 
 

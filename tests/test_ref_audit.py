@@ -51,14 +51,13 @@ _FOCUS_FILE = """focus_tree = {
 
 
 def _indexes(root: Path, cache: Path, submod_root: Path | None = None) -> dict:
-    kwargs = {"submod_root": submod_root}
     return {
-        "focus_index": FocusIndex(root, cache, None, **kwargs),
-        "event_index": EventIndex(root, cache, None, **kwargs),
-        "idea_index": IdeaIndex(root, cache, None, **kwargs),
-        "gfx_index": GfxIndex(root, cache, None, **kwargs),
-        "loc_index": LocalisationIndex(root, cache, None, **kwargs),
-        "decision_index": DecisionIndex(root, cache, None, **kwargs),
+        "focus_index": FocusIndex(root, cache, None, submod_root=submod_root),
+        "event_index": EventIndex(root, cache, None, submod_root=submod_root),
+        "idea_index": IdeaIndex(root, cache, None, submod_root=submod_root),
+        "gfx_index": GfxIndex(root, cache, None, submod_root=submod_root),
+        "loc_index": LocalisationIndex(root, cache, None, submod_root=submod_root),
+        "decision_index": DecisionIndex(root, cache, None, submod_root=submod_root),
     }
 
 

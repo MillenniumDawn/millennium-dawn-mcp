@@ -20,7 +20,6 @@ from md_mcp.tools.linting_tools import (
     _ALL_CHECKS,
     _changed_files,
     _staged_files,
-    GitScopeError,
     lint_loc_encoding_tool,
     lint_tool,
 )
@@ -470,7 +469,7 @@ def test_changed_files_handles_renames(tmp_path):
     [(_changed_files, "changed"), (_staged_files, "staged")],
 )
 def test_git_scope_discovery_non_repo_reports_error(tmp_path, discover, mode):
-    with pytest.raises(GitScopeError) as exc_info:
+    with pytest.raises(linting_tools.GitScopeError) as exc_info:
         discover(tmp_path)
 
     assert exc_info.value.as_dict()["mode"] == mode

@@ -163,9 +163,7 @@ def test_auto_router_mixes_tools_and_content_paths_without_protocol_output(tmp_p
     ],
     ids=["syntax-error", "missing-routing-attributes"],
 )
-def test_auto_router_falls_back_when_upstream_import_or_attributes_break(
-    tmp_path, batches_body
-):
+def test_auto_router_falls_back_when_upstream_import_or_attributes_break(tmp_path, batches_body):
     _write_upstream_router(
         tmp_path,
         group_body=_upstream_group_router("ideas"),

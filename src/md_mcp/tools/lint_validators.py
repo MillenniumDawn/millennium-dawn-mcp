@@ -477,9 +477,7 @@ def _upstream_args(mod_root: Optional[Path]) -> dict[str, tuple[str, ...]]:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             specs = [*batches.ALL_SPECS, *batches.IMPACT_ONLY_SPECS]
             return {
-                Path(spec.script).stem.removeprefix("validate_").replace("-", "_"): tuple(
-                    spec.args
-                )
+                Path(spec.script).stem.removeprefix("validate_").replace("-", "_"): tuple(spec.args)
                 for spec in specs
                 if spec.args
             }

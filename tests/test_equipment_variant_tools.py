@@ -52,6 +52,26 @@ def check_created_variants(variants, index):
     return []
 """
 
+_OLDER_HELPER = """
+from dataclasses import dataclass
+
+@dataclass
+class Finding:
+    line: int
+    kind: str
+    message: str
+    hull: str
+
+def build_equipment_index(units_dir):
+    return object()
+
+def check_created_variants(content, index):
+    assert isinstance(content, str)
+    if "bad_slot" in content:
+        return [Finding(5, "unknown_slot", "bad_slot is not available", "test_hull")]
+    return []
+"""
+
 _VALID = """create_equipment_variant = {
     type = test_hull
     modules = {
@@ -82,6 +102,28 @@ def test_check_equipment_variant_accepts_valid_variant(fake_mod_root):
         "truncated": False,
         "issues": [],
     }
+
+
+def test_check_equipment_variant_supports_older_helper_contract(fake_mod_root):
+    _install_helper(fake_mod_root)
+    helper = fake_mod_root / "tools" / "validation" / "equipment_module_slots.py"
+    helper.write_text(_OLDER_HELPER, encoding="utf-8")
+
+    result = check_equipment_variant_tool(
+        EquipmentVariantChecker(fake_mod_root), _VALID.replace("valid_slot", "bad_slot")
+    )
+
+    assert result["ok"] is True
+    assert result["valid"] is False
+    assert result["issues"] == [
+        {
+            "line": 5,
+            "severity": "error",
+            "kind": "unknown_slot",
+            "message": "bad_slot is not available",
+            "hull": "test_hull",
+        }
+    ]
 
 
 def test_check_equipment_variant_returns_structured_compatibility_issue(fake_mod_root):

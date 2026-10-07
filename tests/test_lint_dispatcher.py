@@ -547,7 +547,7 @@ def test_lint_git_scope_failures_return_structured_error(tmp_path, monkeypatch, 
                 command,
                 128,
                 stdout="",
-                stderr=("x" * 2_048) + "fatal: not a git repository",
+                stderr=("x" * 2_048) + ("é" * 600) + "fatal: café XY",
             )
         if failure == "missing":
             raise FileNotFoundError("git executable unavailable")
@@ -564,7 +564,8 @@ def test_lint_git_scope_failures_return_structured_error(tmp_path, monkeypatch, 
     assert scope_error["command"][0] == "git"
     if failure == "nonzero":
         assert scope_error["exit_code"] == 128
-        assert scope_error["stderr_tail"].endswith("fatal: not a git repository")
+        assert scope_error["stderr_tail"].endswith("fatal: café XY")
+        assert not scope_error["stderr_tail"].startswith("\ufffd")
         assert len(scope_error["stderr_tail"].encode("utf-8")) <= 1_000
     else:
         assert scope_error["exit_code"] is None

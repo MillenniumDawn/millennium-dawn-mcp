@@ -17,6 +17,7 @@ from md_mcp.generators import (
     generate_loc_stub,
 )
 from md_mcp.generators import gfx as gfx_mod
+from md_mcp.indexes.localisation import _parse_loc_file
 from md_mcp.paradox import parse_string
 from md_mcp.paradox.schema import (
     EVENT_KINDS,
@@ -316,6 +317,48 @@ def test_loc_stub_append_mode_skips_header():
     r = generate_loc_stub([{"key": "K", "value": "V"}], include_header=False)
     assert "l_english:" not in r["txt"]
     assert ' K: "V"' in r["txt"]
+
+
+@pytest.mark.parametrize(
+    ("value", "escaped"),
+    [
+        pytest.param("First\nSecond", r"First\nSecond", id="lf"),
+        pytest.param("First\r\nSecond", r"First\nSecond", id="crlf"),
+        pytest.param("First\rSecond", r"First\nSecond", id="cr"),
+        pytest.param("A\n\nB", r"A\n\nB", id="two-lf"),
+        pytest.param("A\r\n\r\nB", r"A\n\nB", id="two-crlf"),
+        pytest.param('say "hi"\nbye', r"say \"hi\"\nbye", id="quote-before-break"),
+        pytest.param('hi\n"bye"', r"hi\n\"bye\"", id="quote-after-break"),
+        pytest.param("a\\\nb", r"a\\\nb", id="backslash-before-break"),
+        pytest.param("a\n\\b", r"a\n\\b", id="backslash-after-break"),
+        pytest.param("a\\nb", r"a\\nb", id="literal-backslash-n-stays-doubled"),
+    ],
+)
+def test_loc_stub_escapes_line_breaks(value, escaped):
+    r = generate_loc_stub([{"key": "K", "value": value}], include_header=False)
+    assert r["txt"] == f' K: "{escaped}"\n'
+
+
+@pytest.mark.parametrize("bom_prefix", [False, True])
+@pytest.mark.parametrize("include_header", [True, False])
+@pytest.mark.parametrize(
+    ("value", "parsed"),
+    [
+        pytest.param("First\nSecond", "First\nSecond", id="lf"),
+        pytest.param("First\r\nSecond", "First\nSecond", id="crlf"),
+        pytest.param("First\rSecond", "First\nSecond", id="cr"),
+        pytest.param('say "hi"\nbye', 'say "hi"\nbye', id="quote-before-break"),
+        pytest.param('"First\nSecond"', '"First\nSecond"', id="break-between-quotes"),
+    ],
+)
+def test_loc_stub_line_breaks_round_trip(value, parsed, include_header, bom_prefix):
+    r = generate_loc_stub(
+        [{"key": "TST_desc", "value": value}, {"key": "TST_next", "value": "tail"}],
+        include_header=include_header,
+        bom_prefix=bom_prefix,
+    )
+    keys = _parse_loc_file(r["txt"], "test_l_english.yml")["keys"]
+    assert [(k["key"], k["value"]) for k in keys] == [("TST_desc", parsed), ("TST_next", "tail")]
 
 
 def _render(name: str, tex: str) -> str:

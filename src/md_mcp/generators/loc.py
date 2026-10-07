@@ -67,5 +67,12 @@ def _escape(value: str) -> str:
     """Escape embedded quotes and backslashes per HOI4 loc YAML rules.
 
     The format treats `\"` and `\\\\` as escapes — see `localisation-rules.md`.
+    Physical line breaks (LF, CRLF, CR) become the `\\n` loc escape.
     """
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+    return (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\r\n", "\\n")
+        .replace("\r", "\\n")
+        .replace("\n", "\\n")
+    )

@@ -126,8 +126,8 @@ def _focus_record(node: Node, kind: str, starts: list[int] | None) -> dict | Non
     for p in node.get_all("prerequisite"):
         group: list[str] = []
         for child in p.children():
-            if child.name == "focus" and isinstance(child.value, SymbolNode):
-                group.append(child.value.name)
+            if child.name == "focus" and (ref := symbol_or_str(child)):
+                group.append(ref)
         if group:
             prereqs.append(group)
 
@@ -135,8 +135,8 @@ def _focus_record(node: Node, kind: str, starts: list[int] | None) -> dict | Non
     mutex: list[str] = []
     if mutex_node:
         for child in mutex_node.children():
-            if child.name == "focus" and isinstance(child.value, SymbolNode):
-                mutex.append(child.value.name)
+            if child.name == "focus" and (ref := symbol_or_str(child)):
+                mutex.append(ref)
 
     return {
         "id": fid,

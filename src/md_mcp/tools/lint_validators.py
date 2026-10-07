@@ -21,7 +21,9 @@ nothing to do with the edit.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import os
 import re
 import subprocess
@@ -296,23 +298,60 @@ def _load_upstream_module(mod_root: Path, relative: str, module_name: str):
     return module
 
 
+def _source_stamp(root: Path, relative: str) -> tuple[str, int | None, int | None]:
+    """Return stat fields that invalidate routing after an upstream checkout changes."""
+    try:
+        stat = (root / relative).stat()
+    except OSError:
+        return relative, None, None
+    return relative, stat.st_mtime_ns, stat.st_size
+
+
 @lru_cache(maxsize=8)
-def _upstream_routing(mod_root_text: str):
+def _load_upstream_routing(
+    mod_root_text: str,
+    batch_stamp: tuple[str, int | None, int | None],
+    group_stamp: tuple[str, int | None, int | None],
+):
     """Return the current checkout's validator/group contract, if available.
 
     The fallback preserves compatibility with older or partial checkouts that
     predate the shared CI routing modules.
     """
     root = Path(mod_root_text)
-    batches = _load_upstream_module(
-        root, "tools/validation/validator_batches.py", f"md_batches_{hash(root)}"
-    )
-    groups = _load_upstream_module(
-        root, "tools/validation/change_groups.py", f"md_groups_{hash(root)}"
-    )
-    if batches is None or groups is None:
+    signature = (batch_stamp, group_stamp)
+    try:
+        # Upstream imports can print. stdout is the MCP framing stream, so keep
+        # this optional contract quiet while it is loaded.
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            batches = _load_upstream_module(
+                root,
+                "tools/validation/validator_batches.py",
+                f"md_batches_{hash((root, signature))}",
+            )
+            groups = _load_upstream_module(
+                root,
+                "tools/validation/change_groups.py",
+                f"md_groups_{hash((root, signature))}",
+            )
+            if batches is None or groups is None:
+                return None
+            return batches, groups
+    except Exception:
+        # These modules are optional, brittle contracts in the sibling repo.
+        # Broken imports should degrade to the local map, not fail lint.
         return None
-    return batches, groups
+
+
+def _upstream_routing(mod_root_text: str):
+    root = Path(mod_root_text)
+    batch_path = "tools/validation/validator_batches.py"
+    group_path = "tools/validation/change_groups.py"
+    return _load_upstream_routing(
+        mod_root_text,
+        _source_stamp(root, batch_path),
+        _source_stamp(root, group_path),
+    )
 
 
 def _upstream_excluded_names(routing) -> set[str]:
@@ -330,44 +369,53 @@ def _upstream_validators_for_paths(
     routing = _upstream_routing(str(mod_root.resolve()))
     if routing is None:
         return None
-    batches, groups = routing
-    normalized = [path.replace("\\", "/") for path in paths]
-    # Changed tooling code uses MD's impact selector, which owns the import
-    # graph, broad shared-tool rules, and impact-only checks.
-    if any(path.startswith("tools/") for path in normalized):
-        selected, adhoc = batches.select_for_changed_files(normalized)
-        specs = [*selected, *adhoc]
-        by_name = {
-            Path(spec.script).stem.removeprefix("validate_").replace("-", "_"): tuple(spec.args)
-            for spec in specs
-        }
-        return set(by_name) - AUTO_ROUTING_EXCLUDED, by_name
+    try:
+        batches, groups = routing
+        normalized = [path.replace("\\", "/") for path in paths]
+        tooling_paths = [path for path in normalized if path.startswith("tools/")]
+        content_paths = [path for path in normalized if not path.startswith("tools/")]
+        selected_names: set[str] = set()
+        args_by_name: dict[str, tuple[str, ...]] = {}
 
-    changed = groups.classify(normalized)
-    changed_groups = {name for name, value in changed.items() if value is True}
-    selected_names: set[str] = set()
-    args_by_name: dict[str, tuple[str, ...]] = {}
-    for spec in batches.ALL_SPECS:
-        name = Path(spec.script).stem.removeprefix("validate_").replace("-", "_")
-        if changed_groups.intersection(spec.groups):
-            selected_names.add(name)
-            args_by_name[name] = tuple(spec.args)
+        # Changed tooling code uses MD's impact selector, which owns the import
+        # graph, broad shared-tool rules, and impact-only checks.
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            if tooling_paths:
+                selected, adhoc = batches.select_for_changed_files(tooling_paths)
+                for spec in [*selected, *adhoc]:
+                    name = Path(spec.script).stem.removeprefix("validate_").replace("-", "_")
+                    selected_names.add(name)
+                    args_by_name[name] = tuple(spec.args)
 
-    # CI's impact-only validators do not have content groups. Keep their
-    # defined special cases in sync with change_groups' classification output.
-    if changed.get("file-paths"):
-        selected_names.add("file_paths")
-    if changed.get("style"):
-        selected_names.add("style")
-    if "descriptor.mod" in normalized or any(p.endswith(".mod") for p in normalized):
-        selected_names.add("mod_descriptors")
-    for spec in batches.IMPACT_ONLY_SPECS:
-        name = Path(spec.script).stem.removeprefix("validate_").replace("-", "_")
-        if name in selected_names:
-            args_by_name[name] = tuple(spec.args)
+            if content_paths:
+                changed = groups.classify(content_paths)
+                changed_groups = {name for name, value in changed.items() if value is True}
+                for spec in batches.ALL_SPECS:
+                    name = Path(spec.script).stem.removeprefix("validate_").replace("-", "_")
+                    if changed_groups.intersection(spec.groups):
+                        selected_names.add(name)
+                        args_by_name[name] = tuple(spec.args)
 
-    selected_names -= _upstream_excluded_names(routing)
-    return selected_names, args_by_name
+                # CI's impact-only validators do not have content groups. Keep
+                # their special cases in sync with change_groups' classification.
+                if changed.get("file-paths"):
+                    selected_names.add("file_paths")
+                if changed.get("style"):
+                    selected_names.add("style")
+                if "descriptor.mod" in content_paths or any(
+                    path.endswith(".mod") for path in content_paths
+                ):
+                    selected_names.add("mod_descriptors")
+                for spec in batches.IMPACT_ONLY_SPECS:
+                    name = Path(spec.script).stem.removeprefix("validate_").replace("-", "_")
+                    if name in selected_names:
+                        args_by_name[name] = tuple(spec.args)
+
+        selected_names -= _upstream_excluded_names(routing)
+        return selected_names, args_by_name
+    except Exception:
+        # Import, API, and attribute drift should use the local map below.
+        return None
 
 
 def _has_event_call(text: str) -> bool:
@@ -424,13 +472,19 @@ def _upstream_args(mod_root: Optional[Path]) -> dict[str, tuple[str, ...]]:
     routing = _upstream_routing(str(mod_root.resolve()))
     if routing is None:
         return {}
-    batches, _groups = routing
-    specs = [*batches.ALL_SPECS, *batches.IMPACT_ONLY_SPECS]
-    return {
-        Path(spec.script).stem.removeprefix("validate_").replace("-", "_"): tuple(spec.args)
-        for spec in specs
-        if spec.args
-    }
+    try:
+        batches, _groups = routing
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            specs = [*batches.ALL_SPECS, *batches.IMPACT_ONLY_SPECS]
+            return {
+                Path(spec.script).stem.removeprefix("validate_").replace("-", "_"): tuple(
+                    spec.args
+                )
+                for spec in specs
+                if spec.args
+            }
+    except Exception:
+        return {}
 
 
 def select_validators(
@@ -442,15 +496,19 @@ def select_validators(
     An empty relevant list selects nothing — zero runner calls on a clean tree.
     """
     if mod_root is not None:
-        routing = _upstream_routing(str(mod_root.resolve()))
-        if routing is not None:
-            excluded = _upstream_excluded_names(routing) | AUTO_ROUTING_EXCLUDED
-            if relevant is None:
-                return sorted(available - SLOW_VALIDATORS - excluded)
-            upstream = _upstream_validators_for_paths(relevant, mod_root)
-            if upstream is not None:
-                upstream_names, _args = upstream
-                return sorted((upstream_names - SLOW_VALIDATORS - excluded) & available)
+        try:
+            routing = _upstream_routing(str(mod_root.resolve()))
+            if routing is not None:
+                excluded = _upstream_excluded_names(routing) | AUTO_ROUTING_EXCLUDED
+                if relevant is None:
+                    return sorted(available - SLOW_VALIDATORS - excluded)
+                upstream = _upstream_validators_for_paths(relevant, mod_root)
+                if upstream is not None:
+                    upstream_names, _args = upstream
+                    return sorted((upstream_names - SLOW_VALIDATORS - excluded) & available)
+        except Exception:
+            # Keep `auto` available if the upstream router changes shape.
+            pass
     if relevant is None:
         return sorted(available - SLOW_VALIDATORS - AUTO_ROUTING_EXCLUDED)
     wanted: set[str] = set()

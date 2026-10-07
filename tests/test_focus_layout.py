@@ -60,7 +60,7 @@ def _write_tree(root: Path, body: str = _TREE, name: str = "TST_tree.txt") -> st
 
 def test_signature():
     params = inspect.signature(focus_layout).parameters
-    for p in ("tag", "file", "include_positions", "limit"):
+    for p in ("tag", "file", "include_positions", "limit", "submod_root"):
         assert p in params
 
 
@@ -212,6 +212,65 @@ class _StubIndex:
 
     def files_for_tag(self, tag):
         return self._files
+
+
+def _write_submod_tree(root: Path, name: str, focus_id: str, x: int) -> str:
+    d = root / "common" / "national_focus"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_text(
+        f"focus_tree = {{\n    focus = {{ id = {focus_id} x = {x} y = 0 }}\n}}\n",
+        encoding="utf-8",
+    )
+    return f"common/national_focus/{name}"
+
+
+def test_file_scope_prefers_submod_and_keeps_base_only_files(tmp_path):
+    base = tmp_path / "base"
+    overlay = tmp_path / "overlay"
+    shadowed = "TST_shadowed.txt"
+    shadowed_rel = _write_submod_tree(base, shadowed, "TST_base_shadowed", 1)
+    _write_submod_tree(overlay, shadowed, "TST_overlay_shadowed", 10)
+    overlay_only_rel = _write_submod_tree(overlay, "TST_overlay_only.txt", "TST_overlay_only", 20)
+    base_only_rel = _write_submod_tree(base, "TST_base_only.txt", "TST_base_only", 30)
+
+    shadowed_out = focus_layout(
+        base, None, file=shadowed_rel, include_positions=True, submod_root=overlay
+    )
+    overlay_only_out = focus_layout(
+        base, None, file=overlay_only_rel, include_positions=True, submod_root=overlay
+    )
+    base_only_out = focus_layout(
+        base, None, file=base_only_rel, include_positions=True, submod_root=overlay
+    )
+
+    assert [p["id"] for p in shadowed_out["positions"]] == ["TST_overlay_shadowed"]
+    assert shadowed_out["positions"][0]["x"] == 10
+    assert [p["id"] for p in overlay_only_out["positions"]] == ["TST_overlay_only"]
+    assert "parse_errors" not in overlay_only_out
+    assert [p["id"] for p in base_only_out["positions"]] == ["TST_base_only"]
+    assert "parse_errors" not in base_only_out
+
+
+def test_tag_scope_uses_submod_overlay_with_base_fallback(tmp_path):
+    base = tmp_path / "base"
+    overlay = tmp_path / "overlay"
+    cache = tmp_path / "cache"
+    _write_submod_tree(base, "TST_shadowed.txt", "TST_base_shadowed", 1)
+    _write_submod_tree(overlay, "TST_shadowed.txt", "TST_overlay_shadowed", 10)
+    _write_submod_tree(overlay, "TST_overlay_only.txt", "TST_overlay_only", 20)
+    _write_submod_tree(base, "TST_base_only.txt", "TST_base_only", 30)
+    index = FocusIndex(base, cache, None, submod_root=overlay)
+
+    out = focus_layout(base, index, tag="TST", include_positions=True, submod_root=overlay)
+
+    positions = {p["id"]: p["x"] for p in out["positions"]}
+    assert out["files_scanned"] == 3
+    assert positions == {
+        "TST_base_only": 30,
+        "TST_overlay_only": 20,
+        "TST_overlay_shadowed": 10,
+    }
+    assert "TST_base_shadowed" not in positions
 
 
 def test_duplicate_id_does_not_collide_with_itself(tmp_path):

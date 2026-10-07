@@ -7,8 +7,9 @@ Two layers, matching the validator-wrapper convention:
     no-write guarantee).
   * `@pytest.mark.integration` tests copy the REAL upstream fixer modules out
     of a real Millennium-Dawn checkout (found via MD_MOD_ROOT) into a tmp root
-    and round-trip fixtures with known violations. The real tree is never
-    written to.
+    and round-trip fixtures with known violations. They also copy the
+    upstream validation_config.json required by shared_utils imports. The real
+    tree is never written to.
 """
 
 from __future__ import annotations
@@ -445,6 +446,8 @@ def test_styling_warnings_capped_like_upstream(tmp_path):
 # ---------------------------------------------------------------------------
 
 _UPSTREAM_FILES = [
+    # shared_utils loads this file while importing validate_style.
+    Path("validation_config.json"),
     Path("tools") / "shared_utils.py",
     Path("tools") / "cleanup_or.py",
     Path("tools") / "linting" / "fix_styling.py",
@@ -489,11 +492,12 @@ _DECISION_LOG_FIXED = (
 
 @pytest.fixture
 def upstream_root(tmp_path) -> Path:
-    """Copy the real upstream fixer modules into a tmp mod root.
+    """Copy real fixer modules and their config dependency into a tmp mod root.
 
     A copy, not the real checkout: fixtures with known violations need to be
-    written under mod_root, and the real tree must never be touched. Skipped
-    (like the other integration fixtures) without MD_MOD_ROOT.
+    written under mod_root, and newer shared_utils loads validation_config.json
+    during imports. The real tree must never be touched. Skipped (like the
+    other integration fixtures) without MD_MOD_ROOT.
     """
     src_root = os.environ.get("MD_MOD_ROOT")
     if src_root is None or not (Path(src_root) / "descriptor.mod").exists():

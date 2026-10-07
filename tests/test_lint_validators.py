@@ -94,7 +94,7 @@ def _write_upstream_router(root: Path, *, group_body: str, batches_body: str | N
     validation = root / "tools" / "validation"
     validation.mkdir(parents=True, exist_ok=True)
     if batches_body is None:
-        batches_body = '''
+        batches_body = """
 import sys
 
 class Spec:
@@ -117,13 +117,13 @@ def select_for_changed_files(paths):
     print("tool router debug")
     print("tool router stderr", file=sys.stderr)
     return [Spec("tools/validation/validate_tool_check.py", (), ("--tool",))], []
-'''
+"""
     (validation / "validator_batches.py").write_text(batches_body, encoding="utf-8")
     (validation / "change_groups.py").write_text(group_body, encoding="utf-8")
 
 
 def _upstream_group_router(group: str) -> str:
-    return f'''
+    return f"""
 import sys
 
 SEEN_CONTENT_PATHS = None
@@ -134,7 +134,7 @@ def classify(paths):
     print("content router debug")
     print("content router stderr", file=sys.stderr)
     return {{"{group}": any("{group}" in path for path in paths)}}
-'''
+"""
 
 
 def test_auto_router_mixes_tools_and_content_paths_without_protocol_output(tmp_path, capsys):

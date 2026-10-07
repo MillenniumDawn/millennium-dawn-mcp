@@ -16,7 +16,7 @@ live under [`docs/`](./docs/).
 paradox-script parser. It exposes:
 
 - Tool and resource inventory: [`docs/tools.md`](./docs/tools.md).
-- **6 resource templates** under the `md://` URI scheme (`md://focus/{id}` etc.)
+- Resource templates use the `md://` URI scheme (`md://focus/{id}` etc.).
 
 It is **read-only** by design. Generators return content as strings; the agent
 writes via Edit/Write so the user sees diffs in the conversation. The server

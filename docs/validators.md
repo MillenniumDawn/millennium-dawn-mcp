@@ -29,9 +29,9 @@ sequence in a child process
 ([`_shim.py`](../src/md_mcp/validators/_shim.py)) and reads the issue list back
 as JSON from a temp file.
 
-This is not about crash isolation. In the current Millennium-Dawn checkout,
-30 of the 49 discovered validator modules in Millennium-Dawn commit
-`b6bea58f93cd416e69fc42e91e77cfe833778b88` contain a pool-aware path, counted
+This is not about crash isolation. On Millennium-Dawn commit
+`b6bea58f93cd416e69fc42e91e77cfe833778b88`, 30 of the 49 discovered validator
+modules contain a pool-aware path, counted
 when a module references one of the shared pool helpers (including as a
 callback) or a direct `Pool` constructor. Most use `_pool_map` in the shared
 `validator_common.py` base class. Pool creation is conditional: the shared

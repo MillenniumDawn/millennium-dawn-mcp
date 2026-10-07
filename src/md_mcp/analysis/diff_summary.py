@@ -147,14 +147,15 @@ def diff_summary(
         if old_path and old_path != new_path:
             record["old_path"] = old_path
 
-        if with_ids and kind in ("focus", "event", "decision", "idea") and status != "D":
+        if with_ids and kind in ("focus", "event", "decision", "idea"):
             id_block: dict[str, Any] = {}
             base_err: Optional[str] = None
             head_err: Optional[str] = None
             head_text: str = ""
             base_text: str = ""
 
-            head_text_r = _read_at(git_root, "HEAD", new_path)
+            # A deleted file is gone at HEAD; treat it as empty so every base ID is removed.
+            head_text_r = "" if status == "D" else _read_at(git_root, "HEAD", new_path)
             if isinstance(head_text_r, _GitReadError):
                 head_err = head_text_r.error
             else:

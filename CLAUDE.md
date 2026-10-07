@@ -15,11 +15,8 @@ live under [`docs/`](./docs/).
 `Millennium-Dawn/tools/` validators and ports the `MD-VSCode-Utility-Tool`
 paradox-script parser. It exposes:
 
-- **30 tools** (`resolve_*`, `find_*`, `parse_*`, `validate*`, `generate_*`,
-  `check_equipment_variant`, `lookup_docs`, `focus_graph`, `check_refs`, `focus_layout`,
-  `diff_summary`, `check_encoding`, `lint`, `fix_lint`, `review_branch`,
-  `list_country_content`)
-- **6 resources** under the `md://` URI scheme (`md://focus/{id}` etc.)
+- Tool and resource inventory: [`docs/tools.md`](./docs/tools.md).
+- Resource templates use the `md://` URI scheme (`md://focus/{id}` etc.).
 
 It is **read-only** by design. Generators return content as strings; the agent
 writes via Edit/Write so the user sees diffs in the conversation. The server
@@ -161,8 +158,10 @@ sub-command that primes caches before the server starts).
 sure it's gated on `MD_MCP_SERIAL_PARSE` and never reaches a fork inside
 `mcp.run()`.
 
-The mod validators are the other fork source: 19 of 26 fork a `Pool` from
-`validator_common.py`, which we don't control. That's why `ValidatorRunner`
+The mod validators are another fork source: many have pool-aware paths, and
+actual pool creation is conditional on worker count and batch size. The shared
+pool implementation is in `validator_common.py`, which we don't control. That's
+why `ValidatorRunner`
 defaults to `isolated` mode (runs each validator in a child via `_shim.py`) and
 `serve` forces it — in-process validation hangs the server the same way. Don't
 route validators through the in-process path from inside `mcp.run()`.

@@ -1,6 +1,6 @@
 # Tool & Resource Reference
 
-40 tools and 6 resources, grouped by purpose. Output shapes show the
+Registered tools and resource templates, grouped by purpose. Output shapes show the
 **default** behaviour — most tools have detail-tier or `limit` knobs.
 
 All tools return either `{"ok": True, ...}` or `{"ok": False, "error": "..."}`.
@@ -497,7 +497,7 @@ Search scripted effect definitions by an optional substring.
 
 Search scripted trigger definitions by an optional substring.
 
-All five definition searches return `total`, `returned`, `truncated`, and a
+Definition searches return `total`, `returned`, `truncated`, and a
 budget-guarded `matches` page.
 
 ### `find_references(kind, target, limit?, offset?, snippet_chars?, files_only?) -> dict`

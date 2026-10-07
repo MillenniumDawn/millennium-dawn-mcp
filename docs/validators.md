@@ -1,8 +1,8 @@
 # Validators
 
-How the server runs Millennium Dawn's Python validators in-process
-(auto-discovered, 26 at last count) and turns their output into structured
-JSON for the agent.
+How the server discovers Millennium Dawn's Python validators in the configured
+mod checkout and turns their output into structured JSON for the agent, in
+isolated or in-process mode.
 
 ## What gets wrapped
 
@@ -29,9 +29,14 @@ sequence in a child process
 ([`_shim.py`](../src/md_mcp/validators/_shim.py)) and reads the issue list back
 as JSON from a temp file.
 
-This is not about crash isolation. 19 of the 26 validators fork a
-`multiprocessing.Pool`, most of them through `_pool_map` in the shared
-`validator_common.py` base class. Forking from inside the server's stdio event
+This is not about crash isolation. On Millennium-Dawn commit
+`b6bea58f93cd416e69fc42e91e77cfe833778b88`, 30 of the 49 discovered validator
+modules contain a pool-aware path, counted
+when a module references one of the shared pool helpers (including as a
+callback) or a direct `Pool` constructor. Most use `_pool_map` in the shared
+`validator_common.py` base class. Pool creation is conditional: the shared
+helpers run serially for a single worker or batches under 10 items. Forking
+from inside the server's stdio event
 loop hangs the server outright: `validate(name="events")` never returns, where
 the same call takes 3 seconds outside the loop. Same failure as CLAUDE.md
 rule 6, one layer out, and it isn't ours to fix upstream. Running the validator

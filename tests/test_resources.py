@@ -577,3 +577,113 @@ def test_extract_focus_block_malformed_node_raises_with_focus_id(monkeypatch):
 
     with pytest.raises(KeyError, match=rf"Focus '{focus_id}'.*malformed parse"):
         _extract_focus_block("", focus_id)
+
+
+SAME_LINE_EVENTS = "country_event = { id = TST.1 } country_event = { id = TST.2 }\n"
+
+
+@pytest.mark.parametrize(
+    ("event_id", "expected"),
+    [
+        ("TST.1", "country_event = { id = TST.1 }"),
+        ("TST.2", "country_event = { id = TST.2 }"),
+    ],
+)
+def test_event_resource_same_line_siblings_slice_at_definition_boundary(
+    tmp_path, event_id, expected
+):
+    mod_root = _write_events(tmp_path, SAME_LINE_EVENTS)
+    settings = _settings(mod_root, tmp_path / ".cache")
+    index = EventIndex(mod_root, settings.cache_dir)
+
+    assert event_resource(event_id, settings, index) == expected
+
+
+def test_event_resource_at_start_of_file_has_no_prefix(tmp_path):
+    mod_root = _write_events(tmp_path, "country_event = {\n\tid = TST.1\n}\n")
+    settings = _settings(mod_root, tmp_path / ".cache")
+    index = EventIndex(mod_root, settings.cache_dir)
+
+    assert event_resource("TST.1", settings, index) == "country_event = {\n\tid = TST.1\n}"
+
+
+def test_extract_focus_block_same_line_container_excludes_opener():
+    text = "focus_tree = { focus = { id = TST_a } }\n"
+
+    assert _extract_focus_block(text, "TST_a") == "focus = { id = TST_a }"
+
+
+def test_extract_focus_block_keeps_leading_indentation():
+    text = "focus_tree = {\n \t  focus = {\n\t\tid = TST_a\n\t}\n}\n"
+
+    assert _extract_focus_block(text, "TST_a") == " \t  focus = {\n\t\tid = TST_a\n\t}"
+
+
+def test_extract_focus_block_preserves_internal_comments_after_same_line_opener():
+    text = (
+        "focus_tree = { focus = { # opening note\n"
+        "\tid = TST_a\n"
+        "\n"
+        "\t# interior note\n"
+        "\tx = 1 # trailing note\n"
+        "} }\n"
+    )
+    expected = (
+        "focus = { # opening note\n"
+        "\tid = TST_a\n"
+        "\n"
+        "\t# interior note\n"
+        "\tx = 1 # trailing note\n"
+        "}"
+    )
+
+    assert _extract_focus_block(text, "TST_a") == expected
+
+
+def test_extract_focus_block_at_start_of_file_has_no_prefix():
+    text = "shared_focus = {\n\tid = TST_s\n}\n"
+
+    assert _extract_focus_block(text, "TST_s") == "shared_focus = {\n\tid = TST_s\n}"
+
+
+def test_idea_resource_same_line_container_excludes_openers(tmp_path):
+    mod_root = _write_ideas(tmp_path, "ideas = { country = { TST_idea = { picture = x } } }\n")
+    settings = _settings(mod_root, tmp_path / ".cache")
+    index = IdeaIndex(mod_root, settings.cache_dir)
+
+    assert idea_resource("TST_idea", settings, index) == "TST_idea = { picture = x }"
+
+
+def test_decision_resource_same_line_container_excludes_opener(tmp_path):
+    mod_root = _write_decisions(tmp_path, "TST_category = { TST_dec = { cost = 1 } }\n")
+    settings = _settings(mod_root, tmp_path / ".cache")
+    index = DecisionIndex(mod_root, settings.cache_dir)
+
+    assert decision_resource("TST_dec", settings, index) == "TST_dec = { cost = 1 }"
+
+
+def test_sprite_resource_same_line_container_excludes_opener(tmp_path):
+    mod_root = _write_sprites(
+        tmp_path, 'spriteTypes = { spriteType = { name = "GFX_a" texturefile = "a.dds" } }\n'
+    )
+    settings = _settings(mod_root, tmp_path / ".cache")
+    index = GfxIndex(mod_root, settings.cache_dir)
+
+    expected = 'spriteType = { name = "GFX_a" texturefile = "a.dds" }'
+    assert sprite_resource("GFX_a", settings, index) == expected
+
+
+def test_decision_resource_multiline_after_same_line_opener_preserves_comments(tmp_path):
+    text = (
+        "TST_category = { TST_dec = { # opening note\n"
+        "\tcost = 1 # trailing note\n"
+        "\n"
+        "\t# interior note\n"
+        "} }\n"
+    )
+    mod_root = _write_decisions(tmp_path, text)
+    settings = _settings(mod_root, tmp_path / ".cache")
+    index = DecisionIndex(mod_root, settings.cache_dir)
+
+    expected = "TST_dec = { # opening note\n\tcost = 1 # trailing note\n\n\t# interior note\n}"
+    assert decision_resource("TST_dec", settings, index) == expected

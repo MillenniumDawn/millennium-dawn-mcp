@@ -11,7 +11,7 @@ from ..util.response import coerce_int, enforce_budget
 _SHIM = Path(__file__).with_name("upstream_analysis_shim.py")
 _TICK_TIMEOUT = 120
 _GDP_TIMEOUT = 120
-_CALENDAR_TIMEOUT = 10
+_DAYS_PER_MONTH = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 
 
 def _run_shim(mod_root: Path, operation: str, payload: dict, *, timeout: int) -> dict:
@@ -78,12 +78,28 @@ def estimate_gdp_tool(mod_root: Path, tag: str) -> dict:
     return enforce_budget(result, heavy_keys=("breakdown",))
 
 
-def calculate_days_tool(mod_root: Path, year: int, month: int, day: int) -> dict:
+def calculate_days_tool(year: int, month: int, day: int) -> dict:
     """Calculate days since 2000; uses fixed non-leap years and validates year/month/day."""
-    result = _run_shim(
-        mod_root,
-        "calculate_days",
-        {"year": year, "month": month, "day": day},
-        timeout=_CALENDAR_TIMEOUT,
-    )
-    return enforce_budget(result)
+    return enforce_budget(_calculate_days(year, month, day))
+
+
+def _calculate_days(year: object, month: object, day: object) -> dict:
+    if (
+        isinstance(year, bool)
+        or not isinstance(year, int)
+        or isinstance(month, bool)
+        or not isinstance(month, int)
+        or isinstance(day, bool)
+        or not isinstance(day, int)
+    ):
+        return {"ok": False, "error": "year, month, and day must be integers"}
+    if year < 2000:
+        return {"ok": False, "error": "year must be at least 2000"}
+    if month < 1 or month > 12:
+        return {"ok": False, "error": "month must be between 1 and 12"}
+    if day < 1 or day > _DAYS_PER_MONTH[month - 1]:
+        return {"ok": False, "error": "day is outside the selected month"}
+    days = (year - 2000) * sum(_DAYS_PER_MONTH)
+    days += sum(_DAYS_PER_MONTH[: month - 1])
+    days += day - 1
+    return {"ok": True, "days": days}

@@ -29,17 +29,19 @@ import sys
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
-from ..analysis.suppressions import suppressed_count
+from ..analysis.suppressions import SUPPRESSION_SOURCE, suppressed_count
 from ..util.pathing import contained
 from ..util.process import run_in_group
-from ..util.response import BUDGET_BYTES, enforce_budget
-from ..validators import SEVERITY_RANK, SLOW_VALIDATORS, ValidatorRunner
+from ..util.response import BUDGET_BYTES, MAX_TEXT_BYTES, clip_utf8, enforce_budget
+from ..validators import SLOW_VALIDATORS, ValidatorRunner, count_severities
+from ..validators.attribution import normalize_path
 from .lint_validators import (
     EQUIPMENT_VARIANT_PREFIXES,
     STYLE_PREFIXES,
     run_validators_for_lint,
     select_validators,
 )
+from .validation_tools import filter_and_cap
 
 _LINT_LINE_RE = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):\s*(?P<msg>.+)$")
 
@@ -53,19 +55,6 @@ _LOC_ENC_BAD_RE = re.compile(r"^(?P<file>.+?):\s+Missing UTF-8 BOM.*$")
 # ANSI escape stripper for scripts that emit colour codes.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
-# Leave room for status fields and stderr within the response budget.
-_MAX_REVIEW_REPORT_BYTES = max(1, BUDGET_BYTES - 12_000)
-
-
-def _clip_utf8(text: str, max_bytes: int) -> tuple[str, int, int, bool]:
-    """Return text clipped at a UTF-8 boundary plus size metadata."""
-    raw = text.encode("utf-8")
-    total = len(raw)
-    if total <= max_bytes:
-        return text, total, total, False
-    clipped = raw[:max_bytes].decode("utf-8", "ignore")
-    return clipped, total, len(clipped.encode("utf-8")), True
-
 
 def _review_payload(
     base: str,
@@ -75,7 +64,7 @@ def _review_payload(
 ) -> dict:
     """Shape and guard a review report on both subprocess paths."""
     if proc is None:
-        bounded_error, _, _, _ = _clip_utf8(str(error or ""), 2_000)
+        bounded_error, _, _, _ = clip_utf8(str(error or ""), 2_000)
         result = {
             "ok": False,
             "base": base,
@@ -89,8 +78,8 @@ def _review_payload(
         }
     else:
         raw_report = proc.stdout or ""
-        report, report_bytes, returned_bytes, report_truncated = _clip_utf8(
-            raw_report, _MAX_REVIEW_REPORT_BYTES
+        report, report_bytes, returned_bytes, report_truncated = clip_utf8(
+            raw_report, MAX_TEXT_BYTES
         )
         result = {
             "ok": True,
@@ -105,11 +94,7 @@ def _review_payload(
     return enforce_budget(result, heavy_keys=("report", "stderr", "error"))
 
 
-def _failure_payload(
-    script: Path,
-    proc: subprocess.CompletedProcess,
-    error: str,
-) -> dict:
+def _failure_payload(proc: subprocess.CompletedProcess, error: str) -> dict:
     stderr_tail = (proc.stderr or "")[-1000:]
     output_tail = stderr_tail or (proc.stdout or "")[-1000:]
     if output_tail.strip():
@@ -131,9 +116,7 @@ def _completed_process_failure(
     # issues were parsed came from a partial run, and exit 1 no longer means
     # "issues found". Report the crash instead of the partial output.
     if "Traceback (most recent call last):" in (proc.stderr or ""):
-        return _failure_payload(
-            script, proc, f"{script.name} crashed mid-run (traceback on stderr)"
-        )
+        return _failure_payload(proc, f"{script.name} crashed mid-run (traceback on stderr)")
 
     if proc.returncode == 0 or (proc.returncode == 1 and issue_count):
         return None
@@ -142,7 +125,7 @@ def _completed_process_failure(
         error = f"{script.name} exited with code 1 without recognized diagnostics"
     else:
         error = f"{script.name} exited with unexpected code {proc.returncode}"
-    return _failure_payload(script, proc, error)
+    return _failure_payload(proc, error)
 
 
 def lint_common_mistakes_tool(
@@ -169,13 +152,9 @@ def lint_common_mistakes_tool(
         file_path = m.group("file")
         if "/" not in file_path and "\\" not in file_path:
             return None
-        try:
-            line_no = int(m.group("line"))
-        except ValueError:
-            return None
         return {
             "file": file_path,
-            "line": line_no,
+            "line": int(m.group("line")),
             "message": m.group("msg"),
             "severity": "warning",
         }
@@ -448,7 +427,7 @@ def lint_tool(
     if files is not None:
         explicit_files: list[str] = []
         for file in files:
-            normalized = _norm_scope_path(file)
+            normalized = normalize_path(file)
             if Path(normalized).is_absolute():
                 resolved = contained(mod_root, normalized)
                 if resolved is None:
@@ -550,7 +529,7 @@ def lint_tool(
                     )
                 expanded -= set(unknown_validators)
                 if "auto" in validator_request:
-                    expanded |= set(select_validators(relevant, available))
+                    expanded |= set(select_validators(relevant, available, mod_root=mod_root))
                     if removed_variant_paths and "equipment_variants" in available:
                         expanded.add("equipment_variants")
                 validator_names = sorted(expanded)
@@ -603,7 +582,6 @@ def lint_tool(
 
     per_check: list[dict] = []
     all_issues: list[dict] = []
-    overall = {"error": 0, "warning": 0, "info": 0}
     suppressed_total = 0
 
     for name in selected:
@@ -625,8 +603,6 @@ def lint_tool(
             # Tag each issue with which check produced it (helps the agent).
             for i in issues:
                 i.setdefault("check", name)
-                sev = i.get("severity", "info")
-                overall[sev] = overall.get(sev, 0) + 1
             all_issues.extend(issues)
         per_check.append(check_summary)
 
@@ -642,16 +618,12 @@ def lint_tool(
             mod_root=mod_root,
         )
         per_check.extend(v_entries)
-        for i in v_issues:
-            sev = i.get("severity", "info")
-            overall[sev] = overall.get(sev, 0) + 1
         all_issues.extend(v_issues)
         suppressed_total += sum(suppressed_count(entry) for entry in v_entries)
 
-    floor = SEVERITY_RANK.get(severity_min, 0)
-    filtered = [i for i in all_issues if SEVERITY_RANK.get(i.get("severity", "info"), 0) >= floor]
-    truncated = len(filtered) > limit if limit >= 0 else False
-    issues_capped = filtered[:limit] if limit >= 0 else filtered
+    issues_capped, truncated, issues_total = filter_and_cap(
+        all_issues, severity_min=severity_min, limit=limit
+    )
 
     failed_checks = [c["name"] for c in per_check if not c.get("ok")]
     summary: dict = {
@@ -660,14 +632,14 @@ def lint_tool(
         "checks_run": selected,
         "validators_run": validator_names if validators_ran else [],
         "failed_checks": failed_checks,
-        "counts": overall,
-        "issues_total_after_filter": len(filtered),
+        "counts": count_severities(all_issues),
+        "issues_total_after_filter": issues_total,
         "truncated": truncated,
         "checks": per_check,
     }
     if suppressed_total:
         summary["suppressed_mod_wide"] = suppressed_total
-        summary["suppression_source"] = ".claude/docs/known-false-positives.md"
+        summary["suppression_source"] = SUPPRESSION_SOURCE
     if not counts_only:
         summary["issues"] = issues_capped
 
@@ -711,14 +683,6 @@ def _staged_files(mod_root: Path, submod_root: Optional[Path] = None) -> list[st
     if proc.returncode != 0:
         return []
     return [line for line in proc.stdout.splitlines() if line]
-
-
-def _norm_scope_path(path: str) -> str:
-    """Posix separators, no `./` prefix — the shape the prefix matchers expect."""
-    path = path.strip().replace("\\", "/")
-    while path.startswith("./"):
-        path = path[2:]
-    return path
 
 
 def _changed_files(

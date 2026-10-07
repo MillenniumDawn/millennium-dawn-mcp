@@ -9,10 +9,10 @@ The server is **read-only**: generators return paradox-script fragments as
 strings, and the agent writes them into place via its own Edit/Write tools so
 diffs stay visible to the user.
 
-- Wraps the validators in `Millennium-Dawn/tools/validation/` (auto-discovered,
-  26 at last count).
+- Wraps validators discovered in `Millennium-Dawn/tools/validation/` at runtime.
 - Ports the paradox parser from `MD-VSCode-Utility-Tool/src/hoiformat/`.
-- 30 tools and 6 `md://` resources.
+- See [`docs/tools.md`](./docs/tools.md) for the current registered tool and
+  resource catalogue.
 
 For agents working on the server itself: see [`CLAUDE.md`](./CLAUDE.md).
 
@@ -38,7 +38,8 @@ Verify the install:
 ```bash
 md-mcp doctor --mod-root /path/to/Millennium-Dawn
 # mod_root:       /Users/.../Millennium-Dawn
-# vanilla_path:   /Users/.../Hearts of Iron IV
+# submod_root:    (not configured)
+# vanilla_path:   (not detected)
 # cache_dir:      /Users/.../Millennium-Dawn/.md-mcp-cache
 # validator_mode: isolated
 # default_lang:   en
@@ -128,9 +129,9 @@ Full env-var reference:
 | `MD_MCP_SUBMOD_ROOT` | Optional submod/worktree overlay; matching files take precedence over the mod root. |
 | `HOI4_PATH` | Path to the vanilla `Hearts of Iron IV/` install (optional). |
 | `MD_MCP_CACHE_DIR` | Override the cache location (use this for read-only checkouts). |
-| `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process` (faster, but deadlocks the server; `serve` forces `isolated` regardless). |
+| `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process` (faster outside the stdio server; `serve` forces `isolated`). |
 | `MD_MCP_DEFAULT_LANG` | Default loc language for `resolve_loc` (defaults to `en`). |
-| `MD_MCP_LOC_LANGS` | Loc languages to index, e.g. `en,de` or `*` for all (defaults to just `default_lang`). Other languages still resolve, through a slower on-demand scan. |
+| `MD_MCP_LOC_LANGS` | Loc languages to index, e.g. `en,de` or `*` for all (defaults to `default_lang` plus English, which is always included). Other languages still resolve through a slower on-demand scan. |
 
 Example `~/.config/md-mcp/config.toml`:
 
@@ -180,7 +181,7 @@ hand for setup / cache priming.
 
 ## Tool & resource catalogue
 
-30 tools, 6 resources. Full reference in [`docs/tools.md`](./docs/tools.md).
+The registered tools and resources are listed in [`docs/tools.md`](./docs/tools.md).
 
 ### Resolvers — "where is X defined?"
 

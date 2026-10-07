@@ -312,11 +312,23 @@ class Finding:
     hull = "test_hull"
 
 
+from typing import NamedTuple
+
+
+class CreatedVariants(NamedTuple):
+    text: str
+    spans: list[tuple[int, int]]
+
+
 def build_equipment_index(units_dir):
     return object()
 
 
-def check_created_variants(content, index):
+def created_variant_spans(content):
+    return CreatedVariants(content, [])
+
+
+def check_created_variants(variants, index):
     return []
 """,
         encoding="utf-8",
@@ -384,6 +396,50 @@ def test_call_review_branch_forwards_submod_root(fake_mod_root, cache_dir, tmp_p
     # a valid payload, proving the tool wired submod_root through.
     assert payload["ok"] is False
     assert "review_branch.py not found" in payload["error"]
+
+
+def test_call_analysis_tools_forward_submod_root(fake_mod_root, cache_dir, tmp_path):
+    submod_root = tmp_path / "overlay"
+    relpath = "common/national_focus/OVR_overlay_only.txt"
+    focus = submod_root / relpath
+    focus.parent.mkdir(parents=True)
+    focus.write_text(
+        """focus_tree = {
+    focus = {
+        id = OVR_overlay_only
+        x = 15
+        y = 2
+        completion_reward = { country_event = OverlayMissing.1 }
+    }
+}
+""",
+        encoding="utf-8",
+    )
+    srv = build_server(
+        Settings(
+            mod_root=fake_mod_root,
+            vanilla_path=None,
+            cache_dir=cache_dir,
+            validator_mode="in_process",
+            default_lang="en",
+            submod_root=submod_root,
+        )
+    )
+
+    async def go():
+        return (
+            await srv.call_tool("focus_layout", {"tag": "OVR", "include_positions": True}),
+            await srv.call_tool("check_refs", {"tag": "OVR", "kinds": ["event"]}),
+        )
+
+    layout_result, refs_result = asyncio.new_event_loop().run_until_complete(go())
+    layout = json.loads(_text(layout_result))
+    refs = json.loads(_text(refs_result))
+
+    assert layout["focus_count"] == 1
+    assert layout["positions"] == [{"id": "OVR_overlay_only", "x": 15, "y": 2, "relative_to": None}]
+    assert refs["files_scanned"] == 1
+    assert {entry["ref"] for entry in refs["unresolved"]} == {"OverlayMissing.1"}
 
 
 def test_call_generate_gfx_merge(server, fake_mod_root):

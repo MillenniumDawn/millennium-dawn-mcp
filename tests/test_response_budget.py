@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from md_mcp.tools.validation_tools import _filter_and_cap
-from md_mcp.util.response import BUDGET_BYTES, clip_strings, coerce_int, enforce_budget, paginate
+from md_mcp.tools.validation_tools import filter_and_cap
+from md_mcp.util.response import BUDGET_BYTES, coerce_int, enforce_budget, paginate
 
 
 def _byte_size(obj: object) -> int:
@@ -217,43 +217,20 @@ def test_enforce_budget_does_not_mutate_caller_dict_when_over():
     assert out is not result
 
 
-def test_clip_strings():
-    items = [{"snippet": "abcdefghij"}, {"snippet": "xy"}]
-    out = clip_strings(items, "snippet", 3)
-    assert out[0]["snippet"] == "abc"
-    assert out[1]["snippet"] == "xy"
-
-
-def test_clip_strings_counts_utf8_bytes_not_chars():
-    # Each euro sign is three UTF-8 bytes. Clipping to 4 bytes keeps one euro
-    # sign (3 bytes) and drops the partial second one instead of emitting
-    # invalid UTF-8 or overshooting to 4 characters (12 bytes).
-    items = [{"snippet": "€€€"}]
-    out = clip_strings(items, "snippet", 4)
-    assert out[0]["snippet"] == "€"
-    assert len(out[0]["snippet"].encode("utf-8")) <= 4
-
-
-def test_clip_strings_leaves_short_multibyte_untouched():
-    items = [{"snippet": "€"}]
-    out = clip_strings(items, "snippet", 3)
-    assert out[0]["snippet"] == "€"
-
-
 def test_validate_filter_and_cap_severity():
     issues = [
         {"severity": "info", "msg": "i"},
         {"severity": "warning", "msg": "w"},
         {"severity": "error", "msg": "e"},
     ]
-    kept, _, total = _filter_and_cap(issues, severity_min="warning", limit=10)
+    kept, _, total = filter_and_cap(issues, severity_min="warning", limit=10)
     assert {i["severity"] for i in kept} == {"warning", "error"}
     assert total == 2
 
 
 def test_validate_filter_and_cap_limit():
     issues = [{"severity": "error"} for _ in range(20)]
-    kept, truncated, total = _filter_and_cap(issues, severity_min="info", limit=5)
+    kept, truncated, total = filter_and_cap(issues, severity_min="info", limit=5)
     assert len(kept) == 5
     assert truncated is True
     assert total == 20

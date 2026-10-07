@@ -34,3 +34,4 @@ class IdeaIndex(GenericTxtIndex):
     cache_name = "idea"
     subdir = "common/ideas"
     parser_fn = staticmethod(_parse_idea_file)
+    tag_indexed = True

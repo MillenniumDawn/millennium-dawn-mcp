@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
 from md_mcp.paradox import parse_string
 from md_mcp.paradox.schema import (
     extract_decision_records,
     extract_event_records,
-    extract_focus_ids,
     extract_focus_records,
     extract_idea_records,
     extract_sprite_records,
@@ -49,11 +50,6 @@ def test_is_focus_file_content_detects_all_three_kinds():
     assert not is_focus_file_content("idea = {}")
 
 
-def test_extract_focus_ids_all_kinds():
-    root = parse_string(SAMPLE)
-    assert extract_focus_ids(root) == ["A", "B", "S"]
-
-
 def test_extract_focus_records_includes_metadata():
     root = parse_string(SAMPLE)
     records = extract_focus_records(root, source=SAMPLE)
@@ -73,6 +69,51 @@ def test_extract_focus_records_includes_metadata():
     assert by_id["A"]["line"] == 4
     assert by_id["B"]["line"] == 10
     assert by_id["S"]["line"] == 20
+
+
+RELATIONS_TEMPLATE = """focus_tree = {{
+    focus = {{
+        id = "A"
+        prerequisite = {{ focus = {b} focus = {c} }}
+        prerequisite = {{ focus = {d} }}
+        mutually_exclusive = {{ focus = {e} focus = {f} }}
+    }}
+}}
+"""
+
+
+@pytest.mark.parametrize(
+    "refs",
+    [
+        pytest.param("B C D E F", id="unquoted"),
+        pytest.param('"B" "C" "D" "E" "F"', id="quoted"),
+        pytest.param('"B" C D "E" F', id="mixed"),
+    ],
+)
+def test_extract_focus_records_relations_ignore_quoting(refs):
+    b, c, d, e, f = refs.split()
+    root = parse_string(RELATIONS_TEMPLATE.format(b=b, c=c, d=d, e=e, f=f))
+    (rec,) = extract_focus_records(root)
+
+    # Each prerequisite block is one OR group; the groups are ANDed.
+    assert rec["prerequisites"] == [["B", "C"], ["D"]]
+    assert rec["mutually_exclusive"] == ["E", "F"]
+
+
+def test_extract_focus_records_relations_drop_non_text_values():
+    source = """focus_tree = {
+    focus = {
+        id = A
+        prerequisite = { focus = 5 }
+        prerequisite = { focus = { } focus = "B" }
+        mutually_exclusive = { focus = 5 focus = { x = 1 } focus = "C" }
+    }
+}
+"""
+    (rec,) = extract_focus_records(parse_string(source))
+
+    assert rec["prerequisites"] == [["B"]]
+    assert rec["mutually_exclusive"] == ["C"]
 
 
 def test_to_json_with_lines_emits_line_numbers():

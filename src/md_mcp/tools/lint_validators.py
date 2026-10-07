@@ -21,13 +21,16 @@ nothing to do with the edit.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import subprocess
+import sys
+from functools import lru_cache
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
-from ..analysis.suppressions import suppressed_count
+from ..analysis.suppressions import SUPPRESSION_SOURCE, suppressed_count
 from ..util.encoding import read_text
 from ..validators import SLOW_VALIDATORS, ValidatorRunner
 from ..validators.attribution import IssueAttributor
@@ -270,6 +273,103 @@ def _validators_for_path(path: str) -> set[str]:
     return names
 
 
+def _load_upstream_module(mod_root: Path, relative: str, module_name: str):
+    """Load one of MD's routing modules without adding its checkout to sys.path."""
+    source = mod_root / relative
+    if not source.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location(module_name, source)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    # dataclasses consult sys.modules while decorating ValidatorSpec.
+    previous = sys.modules.get(module_name)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        if previous is None:
+            sys.modules.pop(module_name, None)
+        else:
+            sys.modules[module_name] = previous
+        raise
+    return module
+
+
+@lru_cache(maxsize=8)
+def _upstream_routing(mod_root_text: str):
+    """Return the current checkout's validator/group contract, if available.
+
+    The fallback preserves compatibility with older or partial checkouts that
+    predate the shared CI routing modules.
+    """
+    root = Path(mod_root_text)
+    batches = _load_upstream_module(
+        root, "tools/validation/validator_batches.py", f"md_batches_{hash(root)}"
+    )
+    groups = _load_upstream_module(
+        root, "tools/validation/change_groups.py", f"md_groups_{hash(root)}"
+    )
+    if batches is None or groups is None:
+        return None
+    return batches, groups
+
+
+def _upstream_excluded_names(routing) -> set[str]:
+    batches, _groups = routing
+    excluded_scripts = getattr(batches, "_IMPACT_EXCLUDED_SCRIPTS", ())
+    return {
+        Path(script).stem.removeprefix("validate_").replace("-", "_") for script in excluded_scripts
+    }
+
+
+def _upstream_validators_for_paths(
+    paths: list[str], mod_root: Path
+) -> tuple[set[str], dict[str, tuple[str, ...]]] | None:
+    """Resolve content changes using upstream's current group/spec definitions."""
+    routing = _upstream_routing(str(mod_root.resolve()))
+    if routing is None:
+        return None
+    batches, groups = routing
+    normalized = [path.replace("\\", "/") for path in paths]
+    # Changed tooling code uses MD's impact selector, which owns the import
+    # graph, broad shared-tool rules, and impact-only checks.
+    if any(path.startswith("tools/") for path in normalized):
+        selected, adhoc = batches.select_for_changed_files(normalized)
+        specs = [*selected, *adhoc]
+        by_name = {
+            Path(spec.script).stem.removeprefix("validate_").replace("-", "_"): tuple(spec.args)
+            for spec in specs
+        }
+        return set(by_name) - AUTO_ROUTING_EXCLUDED, by_name
+
+    changed = groups.classify(normalized)
+    changed_groups = {name for name, value in changed.items() if value is True}
+    selected_names: set[str] = set()
+    args_by_name: dict[str, tuple[str, ...]] = {}
+    for spec in batches.ALL_SPECS:
+        name = Path(spec.script).stem.removeprefix("validate_").replace("-", "_")
+        if changed_groups.intersection(spec.groups):
+            selected_names.add(name)
+            args_by_name[name] = tuple(spec.args)
+
+    # CI's impact-only validators do not have content groups. Keep their
+    # defined special cases in sync with change_groups' classification output.
+    if changed.get("file-paths"):
+        selected_names.add("file_paths")
+    if changed.get("style"):
+        selected_names.add("style")
+    if "descriptor.mod" in normalized or any(p.endswith(".mod") for p in normalized):
+        selected_names.add("mod_descriptors")
+    for spec in batches.IMPACT_ONLY_SPECS:
+        name = Path(spec.script).stem.removeprefix("validate_").replace("-", "_")
+        if name in selected_names:
+            args_by_name[name] = tuple(spec.args)
+
+    selected_names -= _upstream_excluded_names(routing)
+    return selected_names, args_by_name
+
+
 def _has_event_call(text: str) -> bool:
     return any(token in text for token in _EVENT_CALL_TOKENS) or bool(
         _EVENT_LIST_ASSIGNMENT.search(text)
@@ -318,12 +418,39 @@ def _equipment_variant_context_changed(relevant: set, mod_root: Optional[Path]) 
     return False
 
 
-def select_validators(relevant: Optional[list[str]], available: set[str]) -> list[str]:
+def _upstream_args(mod_root: Optional[Path]) -> dict[str, tuple[str, ...]]:
+    if mod_root is None:
+        return {}
+    routing = _upstream_routing(str(mod_root.resolve()))
+    if routing is None:
+        return {}
+    batches, _groups = routing
+    specs = [*batches.ALL_SPECS, *batches.IMPACT_ONLY_SPECS]
+    return {
+        Path(spec.script).stem.removeprefix("validate_").replace("-", "_"): tuple(spec.args)
+        for spec in specs
+        if spec.args
+    }
+
+
+def select_validators(
+    relevant: Optional[list[str]], available: set[str], mod_root: Optional[Path] = None
+) -> list[str]:
     """Resolve `validators=["auto"]` to concrete names for the given file scope.
 
     `relevant=None` (mode=all) degrades to every fast auto-routable validator.
     An empty relevant list selects nothing — zero runner calls on a clean tree.
     """
+    if mod_root is not None:
+        routing = _upstream_routing(str(mod_root.resolve()))
+        if routing is not None:
+            excluded = _upstream_excluded_names(routing) | AUTO_ROUTING_EXCLUDED
+            if relevant is None:
+                return sorted(available - SLOW_VALIDATORS - excluded)
+            upstream = _upstream_validators_for_paths(relevant, mod_root)
+            if upstream is not None:
+                upstream_names, _args = upstream
+                return sorted((upstream_names - SLOW_VALIDATORS - excluded) & available)
     if relevant is None:
         return sorted(available - SLOW_VALIDATORS - AUTO_ROUTING_EXCLUDED)
     wanted: set[str] = set()
@@ -362,6 +489,7 @@ def run_validators_for_lint(
         if relevant_set is not None and "equipment_variants" in names
         else False
     )
+    args_by_name = _upstream_args(mod_root)
 
     check_entries: list[dict] = []
     issues_out: list[dict] = []
@@ -374,12 +502,19 @@ def run_validators_for_lint(
             # so file scoping is skipped too: the related issues live elsewhere.
             full_scan = name == "equipment_variants" and context_changed
             use_staged = staged_only and not full_scan
+            run_options: dict[str, Any] = {"staged_only": use_staged}
+            validator_args = args_by_name.get(name, ())
+            if validator_args:
+                run_options["args"] = validator_args
             if wanted is not None and not full_scan:
                 result = runner.run(
-                    name, staged_only=use_staged, files=sorted(wanted), post_filter=False
+                    name,
+                    files=sorted(wanted),
+                    post_filter=False,
+                    **run_options,
                 )
             else:
-                result = runner.run(name, staged_only=use_staged)
+                result = runner.run(name, **run_options)
         except Exception as e:
             check_entries.append({"name": label, "ok": False, "error": str(e)})
             continue
@@ -408,7 +543,7 @@ def run_validators_for_lint(
         entry = {"name": label, "ok": True, "total": len(on_scope)}
         if suppressed:
             entry["suppressed_mod_wide"] = suppressed
-            entry["suppression_source"] = ".claude/docs/known-false-positives.md"
+            entry["suppression_source"] = SUPPRESSION_SOURCE
         if wanted is not None:
             entry["total_mod_wide"] = len(raw) + suppressed
             if result.get("scoped"):

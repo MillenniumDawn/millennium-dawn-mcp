@@ -38,6 +38,7 @@ def focus_layout(
     tag: Optional[str] = None,
     file: Optional[str] = None,
     vanilla_path: Optional[Path] = None,
+    submod_root: Optional[Path] = None,
     include_positions: bool = False,
     limit: int | float | str | None = 300,
 ) -> dict:
@@ -80,7 +81,9 @@ def focus_layout(
     seen_in_scope: set[str] = set()
     duplicate_files: dict[str, list[str]] = {}
     parse_errors: list[dict] = []
-    for parsed in iter_scope_files(candidate_files, mod_root, vanilla_path, parse_errors):
+    for parsed in iter_scope_files(
+        candidate_files, mod_root, vanilla_path, parse_errors, submod_root=submod_root
+    ):
         relpath = parsed.relpath
         for rec in extract_focus_records(parsed.root, source=parsed.text):
             rec["file"] = relpath

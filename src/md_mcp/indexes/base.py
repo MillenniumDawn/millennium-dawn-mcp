@@ -134,8 +134,6 @@ class IndexCache:
         self.manifest_path = self.dir / f"{name}.manifest.json"
         self.data_path = self.dir / f"{name}.data.json"
         self.shard_dir = self.dir / f"{name}.data"
-        self.name = name
-        self.version = version
 
     # ----- manifest ---------------------------------------------------------
 
@@ -430,24 +428,28 @@ class GenericTxtIndex:
     missing_result: Any = None
     track_parse_errors: bool = False
     warn_on_duplicates: bool = True
+    # Enable the derived country-tag maps only for indexes queried by tag. In
+    # particular, the localisation index can contain far more keys than a
+    # definition index and does not use these lookups.
+    tag_indexed: bool = False
+    tag_file_indexed: bool = False
+    source_tag_indexed: bool = False
     # One cache shard per contributing file instead of a single `data.json`; a one-file
     # edit then rewrites one shard, and a corrupt shard costs one re-parse.
     sharded: bool = False
 
     def __init__(
         self,
-        mod_root: "Path",
-        cache_dir: "Path",
-        vanilla_path: "Optional[Path]" = None,
+        mod_root: Path,
+        cache_dir: Path,
+        vanilla_path: Optional[Path] = None,
         *,
         include_vanilla: bool = True,
-        submod_root: "Optional[Path]" = None,
+        submod_root: Optional[Path] = None,
     ):
-        from pathlib import Path as _Path
-
-        self.mod_root: _Path = mod_root
-        self.submod_root: "Optional[_Path]" = submod_root
-        self.vanilla_path: "Optional[_Path]" = vanilla_path if include_vanilla else None
+        self.mod_root: Path = mod_root
+        self.submod_root: Optional[Path] = submod_root
+        self.vanilla_path: Optional[Path] = vanilla_path if include_vanilla else None
         self._cache = IndexCache(cache_dir, self.cache_name, self.cache_version)
         self._stale_check = StaleCheck()
         self._subdirs = _normalise_specs(self.subdirs or self.subdir)
@@ -458,6 +460,9 @@ class GenericTxtIndex:
         self._by_key: dict[Any, dict] = {}
         self._duplicates: dict[Any, list[str]] = {}
         self._parse_errors: dict[str, str] = {}
+        self._ids_by_tag: dict[str, tuple[str, ...]] = {}
+        self._files_by_tag: dict[str, tuple[str, ...]] = {}
+        self._ids_by_file_tag: dict[str, tuple[Any, ...]] = {}
         # Signatures of the files the in-memory maps were built from. The warm
         # refresh diffs disk against these, not against the shared manifest.
         self._sigs: dict[str, FileSig] = {}
@@ -480,6 +485,54 @@ class GenericTxtIndex:
     def records_for_file(self, relpath: str) -> list[dict]:
         self.ensure_fresh()
         return self._by_file.get(relpath, [])
+
+    def ids_for_tag(self, tag: str) -> list[str]:
+        """Sorted winning string keys whose prefix is ``<TAG>_`` (case-insensitive)."""
+        self.ensure_fresh()
+        canonical = tag.upper()
+        if self.tag_indexed and "_" not in canonical:
+            return list(self._ids_by_tag.get(canonical, ()))
+        prefix = canonical + "_"
+        return sorted(
+            key for key in self._by_key if isinstance(key, str) and key.upper().startswith(prefix)
+        )
+
+    def files_for_tag(self, tag: str) -> list[str]:
+        """Sorted unique winning files for keys whose prefix is ``<TAG>_``."""
+        self.ensure_fresh()
+        canonical = tag.upper()
+        if self.tag_file_indexed and "_" not in canonical:
+            return list(self._files_by_tag.get(canonical, ()))
+        prefix = canonical + "_"
+        return sorted(
+            {
+                str(record["file"])
+                for key, record in self._by_key.items()
+                if isinstance(key, str) and key.upper().startswith(prefix)
+            }
+        )
+
+    def ids_for_country_tag(self, tag: str) -> list[Any]:
+        """Winning IDs with a tag prefix or defined in a tag-named file.
+
+        This mirrors the two inclusion rules used by the country manifest while
+        avoiding a scan of every record on each request.
+        """
+        self.ensure_fresh()
+        canonical = tag.upper()
+        if "_" not in canonical and self.source_tag_indexed:
+            keys = set(self._ids_by_tag.get(canonical, ()))
+            keys.update(self._ids_by_file_tag.get(canonical, ()))
+            return sorted(keys, key=str)
+        prefix = canonical + "_"
+        result = []
+        for key, record in self._by_key.items():
+            file_tag = Path(str(record["file"])).stem.upper()
+            if (isinstance(key, str) and key.upper().startswith(prefix)) or (
+                file_tag == canonical or file_tag.startswith(prefix)
+            ):
+                result.append(key)
+        return sorted(set(result), key=str)
 
     def parse_errors(self) -> list[dict]:
         self.ensure_fresh()
@@ -535,6 +588,47 @@ class GenericTxtIndex:
         else:
             self._rebuild_full(plan)
         self._sigs = plan.current_sigs
+        if self.tag_indexed or self.tag_file_indexed or self.source_tag_indexed:
+            self._rebuild_tag_indexes()
+
+    def _rebuild_tag_indexes(self) -> None:
+        """Derive tag maps from the resolved keys after a full or incremental rebuild.
+
+        Building from `_by_key` (rather than raw per-file records) preserves the
+        canonical last-write-wins behavior for duplicate IDs. The maps are
+        process-local and reconstructed on cache load, so no cache schema bump is
+        needed.
+        """
+        ids_by_tag: dict[str, list[str]] = {}
+        files_by_tag: dict[str, set[str]] = {}
+        ids_by_file_tag: dict[str, list[Any]] = {}
+        file_tags: dict[str, str] = {}
+
+        for key, record in self._by_key.items():
+            file = record.get("file")
+            if isinstance(key, str):
+                tag, separator, _ = key.partition("_")
+                if separator:
+                    canonical = tag.upper()
+                    if self.tag_indexed or self.source_tag_indexed:
+                        ids_by_tag.setdefault(canonical, []).append(key)
+                    if self.tag_file_indexed and isinstance(file, str):
+                        files_by_tag.setdefault(canonical, set()).add(file)
+
+            if self.source_tag_indexed and isinstance(file, str):
+                file_tag = file_tags.get(file)
+                if file_tag is None:
+                    stem = Path(file).stem.upper()
+                    file_tag, _, _ = stem.partition("_")
+                    file_tags[file] = file_tag
+                if file_tag:
+                    ids_by_file_tag.setdefault(file_tag, []).append(key)
+
+        self._ids_by_tag = {tag: tuple(sorted(keys)) for tag, keys in ids_by_tag.items()}
+        self._files_by_tag = {tag: tuple(sorted(files)) for tag, files in files_by_tag.items()}
+        self._ids_by_file_tag = {
+            tag: tuple(sorted(keys, key=str)) for tag, keys in ids_by_file_tag.items()
+        }
 
     def _parse_results(
         self, relpaths: list[str]

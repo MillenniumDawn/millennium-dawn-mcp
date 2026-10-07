@@ -75,7 +75,7 @@ def test_focus_index_builds_from_fixture(fake_mod_root, cache_dir):
     fi = FocusIndex(fake_mod_root, cache_dir)
     fi.ensure_fresh()
 
-    ids = fi.list_ids()
+    ids = fi.list_keys()
     assert "TST_root" in ids
     assert "TST_branch_a" in ids
     assert "TST_branch_b" in ids
@@ -135,7 +135,7 @@ def test_focus_index_cache_persisted(fake_mod_root, cache_dir):
     # Second instance reads cache + ensures freshness; no exception, matching ids.
     fi2 = FocusIndex(fake_mod_root, cache_dir)
     fi2.ensure_fresh()
-    assert sorted(fi2.list_ids()) == sorted(fi.list_ids())
+    assert sorted(fi2.list_keys()) == sorted(fi.list_keys())
 
 
 @pytest.mark.parametrize(
@@ -183,7 +183,7 @@ def test_load_manifest_rejects_malformed(cache_dir, payload):
 def test_focus_index_rebuilds_on_shape_corrupt_manifest(fake_mod_root, cache_dir):
     fi = FocusIndex(fake_mod_root, cache_dir)
     fi.ensure_fresh()
-    ids = sorted(fi.list_ids())
+    ids = sorted(fi.list_keys())
     assert ids
 
     manifest = cache_dir / "v3" / "focus.manifest.json"
@@ -196,7 +196,7 @@ def test_focus_index_rebuilds_on_shape_corrupt_manifest(fake_mod_root, cache_dir
 
     fi2 = FocusIndex(fake_mod_root, cache_dir)
     fi2.ensure_fresh()
-    assert sorted(fi2.list_ids()) == ids
+    assert sorted(fi2.list_keys()) == ids
 
 
 def test_load_manifest_unreadable_returns_none(cache_dir, monkeypatch):
@@ -532,7 +532,7 @@ def test_focus_index_against_real_mod(real_mod_root, cache_dir):
     fi = FocusIndex(real_mod_root, cache_dir)
     fi.ensure_fresh()
     # Sanity floor — the mod should have at least 5000 focuses.
-    assert len(fi.list_ids()) > 5000
+    assert len(fi.list_keys()) > 5000
 
 
 @pytest.mark.integration

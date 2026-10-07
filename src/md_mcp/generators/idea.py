@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ..util.response import enforce_budget
+from ._blocks import block, indent
 
 
 def generate_idea(
@@ -54,20 +55,16 @@ def generate_idea(
     if allowed or tag:
         parts.append("\t\t\tallowed = {")
         if allowed:
-            parts.extend(_indent(allowed, 4))
+            parts.extend(indent(allowed, 4))
         else:
             parts.append(f"\t\t\t\toriginal_tag = {tag}")
         parts.append("\t\t\t}")
 
     if available:
-        parts.append("\t\t\tavailable = {")
-        parts.extend(_indent(available, 4))
-        parts.append("\t\t\t}")
+        parts.extend(block("available", available, 3))
 
     if cancel:
-        parts.append("\t\t\tcancel = {")
-        parts.extend(_indent(cancel, 4))
-        parts.append("\t\t\t}")
+        parts.extend(block("cancel", cancel, 3))
 
     if cost is not None:
         parts.append(f"\t\t\tcost = {cost}")
@@ -75,24 +72,16 @@ def generate_idea(
         parts.append(f"\t\t\tremoval_cost = {removal_cost}")
 
     if modifier:
-        parts.append("\t\t\tmodifier = {")
-        parts.extend(_indent(modifier, 4))
-        parts.append("\t\t\t}")
+        parts.extend(block("modifier", modifier, 3))
 
     if research_bonus:
-        parts.append("\t\t\tresearch_bonus = {")
-        parts.extend(_indent(research_bonus, 4))
-        parts.append("\t\t\t}")
+        parts.extend(block("research_bonus", research_bonus, 3))
 
     if equipment_bonus:
-        parts.append("\t\t\tequipment_bonus = {")
-        parts.extend(_indent(equipment_bonus, 4))
-        parts.append("\t\t\t}")
+        parts.extend(block("equipment_bonus", equipment_bonus, 3))
 
     if targeted_modifier:
-        parts.append("\t\t\ttargeted_modifier = {")
-        parts.extend(_indent(targeted_modifier, 4))
-        parts.append("\t\t\t}")
+        parts.extend(block("targeted_modifier", targeted_modifier, 3))
 
     parts.append("\t\t}")
 
@@ -106,8 +95,3 @@ def generate_idea(
         },
         heavy_keys=("txt", "loc_yml_keys"),
     )
-
-
-def _indent(block: str, tabs: int) -> list[str]:
-    pad = "\t" * tabs
-    return [pad + line if line.strip() else line for line in block.rstrip("\n").splitlines()]

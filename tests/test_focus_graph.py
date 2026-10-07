@@ -223,3 +223,52 @@ def test_focus_graph_paths_flags_cycle_unreliable(fake_mod_root, cache_dir):
     clean = next(p for p in g["paths"] if p["focus"] == "TST_c_clean")
     assert "estimate_unreliable" in target
     assert "estimate_unreliable" not in clean
+
+
+QUOTING_TREE = """focus_tree = {{
+    id = {tag}_tree
+    focus = {{ id = {q}{tag}_root{q} x = 0 y = 0 }}
+    focus = {{
+        id = {q}{tag}_a{q} x = 0 y = 1
+        prerequisite = {{ focus = {q}{tag}_root{q} }}
+        mutually_exclusive = {{ focus = {q}{tag}_b{q} }}
+    }}
+    focus = {{
+        id = {q}{tag}_b{q} x = 1 y = 1
+        prerequisite = {{ focus = {q}{tag}_root{q} }}
+        mutually_exclusive = {{ focus = {q}{tag}_a{q} }}
+    }}
+}}
+"""
+
+
+def test_focus_graph_quoted_relations_match_unquoted_twin(fake_mod_root, cache_dir):
+    """Quoted focus ids in prerequisite/mutex blocks give the same graph as unquoted ones."""
+    for tag, q in (("QQQ", '"'), ("UUU", "")):
+        body = QUOTING_TREE.format(tag=tag, q=q)
+        f = fake_mod_root / "common" / "national_focus" / f"{tag}_quoting.txt"
+        f.write_text(body, encoding="utf-8")
+    fi = FocusIndex(fake_mod_root, cache_dir)
+
+    def shape(tag: str) -> tuple[list[str], set[tuple[str, str, str]]]:
+        g = focus_graph(tag, fake_mod_root, fi, detail="ids")
+        strip = f"{tag}_"
+        roots = [r.removeprefix(strip) for r in g["roots"]]
+        edges = {
+            (e["from"].removeprefix(strip), e["to"].removeprefix(strip), e["kind"])
+            for e in g["edges"]
+        }
+        return roots, edges
+
+    quoted, unquoted = shape("QQQ"), shape("UUU")
+
+    assert quoted == unquoted
+    assert unquoted == (
+        ["root"],
+        {
+            ("root", "a", "prereq"),
+            ("root", "b", "prereq"),
+            ("a", "b", "mutex"),
+            ("b", "a", "mutex"),
+        },
+    )

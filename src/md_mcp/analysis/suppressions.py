@@ -16,6 +16,8 @@ from typing import Iterable
 
 from .vanilla_manifest import load_sprite_manifest
 
+SUPPRESSION_SOURCE = ".claude/docs/known-false-positives.md"
+
 _FOCUS_ICON_RE = re.compile(r"^Missing icon sprite '([^']+)' for focus ")
 _DECISION_CANDIDATES_RE = re.compile(r"-> no sprite (.+?) defined in interface/\*\.gfx")
 

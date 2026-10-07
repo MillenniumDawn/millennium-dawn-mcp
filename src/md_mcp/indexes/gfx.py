@@ -14,7 +14,6 @@ for anything ambiguous.
 
 from __future__ import annotations
 
-import bisect
 import logging
 import re
 from typing import Optional
@@ -22,7 +21,7 @@ from typing import Optional
 from ..paradox import parse_string
 from ..paradox.schema import SPRITE_KINDS, extract_sprite_records
 from ..util.encoding import read_text
-from ..util.line_numbers import line_starts
+from ..util.line_numbers import line_starts, pos_to_line
 from .base import GenericTxtIndex
 
 logger = logging.getLogger(__name__)
@@ -35,17 +34,10 @@ _NAME_RE = re.compile(r'\bname\s*=\s*"([^"\\]*(?:\\.[^"\\]*)*)"', re.IGNORECASE)
 _NAME_BARE_RE = re.compile(r"\bname\s*=\s*([A-Za-z_][\w.]*)", re.IGNORECASE)
 _TEXTUREFILE_RE = re.compile(r'\btexturefile\s*=\s*"([^"]+)"', re.IGNORECASE)
 _TEXTUREFILE_BARE_RE = re.compile(r"\btexturefile\s*=\s*([^\s{}]+)", re.IGNORECASE)
-_LINE_COUNT_PER_FILE = 50_000  # cap on lines we compute per match (perf safety net)
 
 
 _BRACE_TOKEN_RE = re.compile(r'"(?:\\.|[^"\\])*"|#[^\n]*|[{}]')
 _SPRITE_TYPES_OPEN_RE = re.compile(r"\bspriteTypes\w*\s*=\s*\{", re.IGNORECASE)
-
-
-def _line_at(line_offsets: list[int], pos: int) -> int:
-    """Binary search line index for the given position. 1-based line number."""
-    # bisect_right gives the insertion point; line index is that - 1, 1-based becomes that.
-    return bisect.bisect_right(line_offsets, pos)
 
 
 def _scan_sprite_blocks(text: str) -> list[dict]:
@@ -133,7 +125,7 @@ def _scan_sprite_blocks(text: str) -> list[dict]:
                 "name": name,
                 "kind": kind,
                 "texturefile": texturefile,
-                "line": _line_at(line_offsets, m.start()),
+                "line": pos_to_line(m.start(), line_offsets),
             }
         )
 

@@ -129,39 +129,11 @@ def _estimate_gdp(mod_root: Path, payload: dict) -> dict:
     }
 
 
-def _calculate_days(payload: dict) -> dict:
-    days_per_month = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
-    year = payload.get("year")
-    month = payload.get("month")
-    day = payload.get("day")
-    if (
-        isinstance(year, bool)
-        or not isinstance(year, int)
-        or isinstance(month, bool)
-        or not isinstance(month, int)
-        or isinstance(day, bool)
-        or not isinstance(day, int)
-    ):
-        return {"ok": False, "error": "year, month, and day must be integers"}
-    if year < 2000:
-        return {"ok": False, "error": "year must be at least 2000"}
-    if month < 1 or month > 12:
-        return {"ok": False, "error": "month must be between 1 and 12"}
-    if day < 1 or day > days_per_month[month - 1]:
-        return {"ok": False, "error": "day is outside the selected month"}
-    days = (year - 2000) * sum(days_per_month)
-    days += sum(days_per_month[: month - 1])
-    days += day - 1
-    return {"ok": True, "days": days}
-
-
 def run(operation: str, mod_root: Path, payload: dict) -> dict:
     if operation == "tick_audit":
         return _tick_audit(mod_root, payload)
     if operation == "estimate_gdp":
         return _estimate_gdp(mod_root, payload)
-    if operation == "calculate_days":
-        return _calculate_days(payload)
     return {"ok": False, "error": f"Unknown operation: {operation}"}
 
 

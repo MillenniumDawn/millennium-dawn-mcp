@@ -4,7 +4,7 @@ import difflib
 import html
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional, Sequence
 
 from ..config import Settings
 from ..util.response import coerce_int, enforce_budget, paginate
@@ -95,52 +95,36 @@ def lookup_docs_tool(
     if key is not None:
         definitions = entries.get(key)
         if definitions is None:
-            suggestions = _suggestions(key, entries)
-            page, truncated, total = paginate(suggestions, offset=offset, limit=limit)
-            return enforce_budget(
+            return _paged(
                 {
                     "ok": False,
                     **result_context,
                     "file": relative_path.as_posix(),
                     "error": f"No {normalized_kind} documentation found for {key!r}",
-                    "total": total,
-                    "returned": len(page),
-                    "truncated": truncated,
-                    "suggestions": page,
                 },
-                heavy_keys=("suggestions",),
+                "suggestions",
+                _suggestions(key, entries),
+                limit,
+                offset,
             )
 
-        page, truncated, total = paginate(definitions, offset=offset, limit=limit)
         first = definitions[0]
-        return enforce_budget(
+        return _paged(
             {
                 "ok": True,
                 "kind": normalized_kind,
                 "key": key,
                 "file": first["file"],
                 "line": first["line"],
-                "total": total,
-                "returned": len(page),
-                "truncated": truncated,
-                "entries": page,
             },
-            heavy_keys=("entries",),
+            "entries",
+            definitions,
+            limit,
+            offset,
         )
 
     summaries = [_entry_summary(definitions[0]) for definitions in entries.values()]
-    page, truncated, total = paginate(summaries, offset=offset, limit=limit)
-    return enforce_budget(
-        {
-            "ok": True,
-            "kind": normalized_kind,
-            "total": total,
-            "returned": len(page),
-            "truncated": truncated,
-            "entries": page,
-        },
-        heavy_keys=("entries",),
-    )
+    return _paged({"ok": True, "kind": normalized_kind}, "entries", summaries, limit, offset)
 
 
 def _lookup_system_docs(
@@ -193,48 +177,42 @@ def _lookup_system_docs(
             )
             canonical = {document["key"].casefold(): document["key"] for document in documents}
             suggestions = [canonical[item] for item in suggestions]
-            page, truncated, total = paginate(suggestions, offset=offset, limit=limit)
-            return enforce_budget(
+            return _paged(
                 {
                     "ok": False,
                     **context,
                     "file": relative_dir.as_posix(),
                     "error": f"No {kind} documentation found for {key!r}",
-                    "total": total,
-                    "returned": len(page),
-                    "truncated": truncated,
-                    "suggestions": page,
                 },
-                heavy_keys=("suggestions",),
+                "suggestions",
+                suggestions,
+                limit,
+                offset,
             )
-        page, truncated, total = paginate(matches, offset=offset, limit=limit)
         first = matches[0]
-        return enforce_budget(
-            {
-                "ok": True,
-                **context,
-                "file": first["file"],
-                "line": first["line"],
-                "total": total,
-                "returned": len(page),
-                "truncated": truncated,
-                "entries": page,
-            },
-            heavy_keys=("entries",),
+        return _paged(
+            {"ok": True, **context, "file": first["file"], "line": first["line"]},
+            "entries",
+            matches,
+            limit,
+            offset,
         )
 
     summaries = [_entry_summary(document) | {"title": document["title"]} for document in documents]
-    page, truncated, total = paginate(summaries, offset=offset, limit=limit)
+    return _paged({"ok": True, **context}, "entries", summaries, limit, offset)
+
+
+def _paged(leading: dict, list_key: str, items: Sequence[Any], limit: int, offset: int) -> dict:
+    page, truncated, total = paginate(items, offset=offset, limit=limit)
     return enforce_budget(
         {
-            "ok": True,
-            **context,
+            **leading,
             "total": total,
             "returned": len(page),
             "truncated": truncated,
-            "entries": page,
+            list_key: page,
         },
-        heavy_keys=("entries",),
+        heavy_keys=(list_key,),
     )
 
 

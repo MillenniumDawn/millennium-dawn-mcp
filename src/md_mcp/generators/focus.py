@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ..util.response import enforce_budget
+from ._blocks import block, indent
 
 
 def generate_focus(
@@ -90,17 +91,13 @@ def generate_focus(
     parts.append("")
 
     if available:
-        parts.append("\t\tavailable = {")
-        for line in _indent_lines(available, 3):
-            parts.append(line)
-        parts.append("\t\t}")
+        parts.extend(block("available", available, 2))
         parts.append("")
 
     parts.append("\t\tcompletion_reward = {")
     parts.append(f'\t\t\tlog = "[GetDateText]: [Root.GetName]: Focus {id}"')
     if completion_reward:
-        for line in _indent_lines(completion_reward, 3):
-            parts.append(line)
+        parts.extend(indent(completion_reward, 3))
     else:
         parts.append("\t\t\t# add_political_power = 50")
     parts.append("\t\t}")
@@ -124,11 +121,6 @@ def generate_focus(
         {"txt": txt, "loc_yml_keys": loc_yml_keys},
         heavy_keys=("txt", "loc_yml_keys"),
     )
-
-
-def _indent_lines(block: str, tabs: int) -> list[str]:
-    pad = "\t" * tabs
-    return [pad + line if line.strip() else line for line in block.rstrip("\n").splitlines()]
 
 
 def _humanise(focus_id: str, tag: str) -> str:

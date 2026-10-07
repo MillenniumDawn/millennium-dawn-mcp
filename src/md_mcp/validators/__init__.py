@@ -1,4 +1,4 @@
-from .runner import ValidatorInfo, ValidatorRunner, available_validators
+from .runner import ValidatorInfo, ValidatorRunner, available_validators, count_severities
 
 # Whole-mod cross-reference scans, minutes not seconds. Excluded from run-all
 # paths ("*" in lint, validator=None in validate); reachable by explicit name.
@@ -13,4 +13,5 @@ __all__ = [
     "ValidatorInfo",
     "ValidatorRunner",
     "available_validators",
+    "count_severities",
 ]

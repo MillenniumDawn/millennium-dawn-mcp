@@ -33,7 +33,6 @@ _TOKEN_TYPES: list[tuple[str, str]] = [
 _TOKEN_REGEX = re.compile(
     r"\s*(?:" + "|".join(f"(?P<{name}>{pat})" for name, pat in _TOKEN_TYPES) + ")"
 )
-_TOKEN_NAMES = [name for name, _ in _TOKEN_TYPES]
 
 
 class LexError(Exception):
@@ -70,18 +69,12 @@ class Tokenizer:
                 self._raise("Invalid token")
 
             self._pos = match.end()
-            for name in _TOKEN_NAMES:
-                value = match.group(name)
-                if value is not None:
-                    token = Token(
-                        value=value, start=self._pos - len(value), end=self._pos, type=name
-                    )
-                    break
-            else:  # pragma: no cover — regex guarantees one group matches
+            name = match.lastgroup
+            if name is None:  # pragma: no cover — every alternative is a named group
                 self._raise("Invalid token")
-
-            if token.type != "comment":
-                return token
+            value = match.group(name)
+            if name != "comment":
+                return Token(value=value, start=self._pos - len(value), end=self._pos, type=name)
 
     def peek(self) -> Token:
         if self._pending is None:

@@ -50,14 +50,14 @@ _FOCUS_FILE = """focus_tree = {
 """
 
 
-def _indexes(root: Path, cache: Path) -> dict:
+def _indexes(root: Path, cache: Path, submod_root: Path | None = None) -> dict:
     return {
-        "focus_index": FocusIndex(root, cache, None),
-        "event_index": EventIndex(root, cache, None),
-        "idea_index": IdeaIndex(root, cache, None),
-        "gfx_index": GfxIndex(root, cache, None),
-        "loc_index": LocalisationIndex(root, cache, None),
-        "decision_index": DecisionIndex(root, cache, None),
+        "focus_index": FocusIndex(root, cache, None, submod_root=submod_root),
+        "event_index": EventIndex(root, cache, None, submod_root=submod_root),
+        "idea_index": IdeaIndex(root, cache, None, submod_root=submod_root),
+        "gfx_index": GfxIndex(root, cache, None, submod_root=submod_root),
+        "loc_index": LocalisationIndex(root, cache, None, submod_root=submod_root),
+        "decision_index": DecisionIndex(root, cache, None, submod_root=submod_root),
     }
 
 
@@ -70,7 +70,16 @@ def audit_mod(fake_mod_root, cache_dir):
 
 def test_signature():
     params = inspect.signature(check_refs).parameters
-    for p in ("tag", "files", "kinds", "limit", "offset", "counts_only", "lang"):
+    for p in (
+        "tag",
+        "files",
+        "kinds",
+        "limit",
+        "offset",
+        "counts_only",
+        "lang",
+        "submod_root",
+    ):
         assert p in params
 
 
@@ -199,6 +208,89 @@ def test_not_checked_lists_partial_scripted_coverage(audit_mod):
     assert out["vanilla_manifest"] is False
     assert "scripted_effects" in out["not_checked"]
     assert "scripted_triggers" in out["not_checked"]
+
+
+def _write_audit_focus(root: Path, name: str, focus_id: str, event_id: str) -> str:
+    path = root / "common" / "national_focus" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"""focus_tree = {{
+    focus = {{
+        id = {focus_id}
+        x = 1
+        y = 0
+        completion_reward = {{ country_event = {event_id} }}
+    }}
+}}
+""",
+        encoding="utf-8",
+    )
+    return f"common/national_focus/{name}"
+
+
+def test_file_scope_reads_submod_overlay_and_base_fallback(fake_mod_root, cache_dir, tmp_path):
+    overlay = tmp_path / "overlay"
+    shadowed_rel = _write_audit_focus(
+        fake_mod_root, "OVR_shadowed.txt", "OVR_shadowed", "BaseShadow.1"
+    )
+    _write_audit_focus(overlay, "OVR_shadowed.txt", "OVR_shadowed", "OverlayShadow.1")
+    overlay_only_rel = _write_audit_focus(
+        overlay, "OVR_overlay_only.txt", "OVR_overlay_only", "OverlayOnly.1"
+    )
+    base_only_rel = _write_audit_focus(
+        fake_mod_root, "OVR_base_only.txt", "OVR_base_only", "BaseOnly.1"
+    )
+
+    shadowed = check_refs(
+        fake_mod_root,
+        files=[shadowed_rel],
+        kinds=["event"],
+        submod_root=overlay,
+        **_indexes(fake_mod_root, cache_dir, submod_root=overlay),
+    )
+    overlay_only = check_refs(
+        fake_mod_root,
+        files=[overlay_only_rel],
+        kinds=["event"],
+        submod_root=overlay,
+        **_indexes(fake_mod_root, cache_dir, submod_root=overlay),
+    )
+    base_only = check_refs(
+        fake_mod_root,
+        files=[base_only_rel],
+        kinds=["event"],
+        submod_root=overlay,
+        **_indexes(fake_mod_root, cache_dir, submod_root=overlay),
+    )
+
+    assert {entry["ref"] for entry in shadowed["unresolved"]} == {"OverlayShadow.1"}
+    assert "parse_errors" not in overlay_only
+    assert {entry["ref"] for entry in overlay_only["unresolved"]} == {"OverlayOnly.1"}
+    assert "parse_errors" not in base_only
+    assert {entry["ref"] for entry in base_only["unresolved"]} == {"BaseOnly.1"}
+
+
+def test_tag_scope_reads_submod_overlay_and_base_fallback(fake_mod_root, cache_dir, tmp_path):
+    overlay = tmp_path / "overlay"
+    _write_audit_focus(fake_mod_root, "OVR_shadowed.txt", "OVR_shadowed", "BaseShadow.1")
+    _write_audit_focus(overlay, "OVR_shadowed.txt", "OVR_shadowed", "OverlayShadow.1")
+    _write_audit_focus(overlay, "OVR_overlay_only.txt", "OVR_overlay_only", "OverlayOnly.1")
+    _write_audit_focus(fake_mod_root, "OVR_base_only.txt", "OVR_base_only", "BaseOnly.1")
+
+    out = check_refs(
+        fake_mod_root,
+        tag="OVR",
+        kinds=["event"],
+        submod_root=overlay,
+        **_indexes(fake_mod_root, cache_dir, submod_root=overlay),
+    )
+
+    assert out["files_scanned"] == 3
+    assert {entry["ref"] for entry in out["unresolved"]} == {
+        "OverlayShadow.1",
+        "OverlayOnly.1",
+        "BaseOnly.1",
+    }
 
 
 _MANIFEST_FOCUS = """focus_tree = {

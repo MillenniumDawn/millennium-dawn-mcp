@@ -15,11 +15,8 @@ live under [`docs/`](./docs/).
 `Millennium-Dawn/tools/` validators and ports the `MD-VSCode-Utility-Tool`
 paradox-script parser. It exposes:
 
-- **30 tools** (`resolve_*`, `find_*`, `parse_*`, `validate*`, `generate_*`,
-  `check_equipment_variant`, `lookup_docs`, `focus_graph`, `check_refs`, `focus_layout`,
-  `diff_summary`, `check_encoding`, `lint`, `fix_lint`, `review_branch`,
-  `list_country_content`)
-- **6 resources** under the `md://` URI scheme (`md://focus/{id}` etc.)
+- Tool and resource inventory: [`docs/tools.md`](./docs/tools.md).
+- Resource templates use the `md://` URI scheme (`md://focus/{id}` etc.).
 
 It is **read-only** by design. Generators return content as strings; the agent
 writes via Edit/Write so the user sees diffs in the conversation. The server
@@ -42,8 +39,7 @@ src/md_mcp/
 │   ├── lexer.py         Token regexes (verbatim port of hoiparser.ts)
 │   ├── parser.py        Recursive-descent
 │   ├── nodes.py         Node, Token, SymbolNode dataclasses
-│   ├── schema.py        Typed projections (focus/event/decision/idea/sprite)
-│   └── writer.py        AST → text (used by generators)
+│   └── schema.py        Typed projections (focus/event/decision/idea/sprite)
 ├── indexes/             Two-tier cache (in-process + persistent JSONL)
 │   ├── base.py          GenericTxtIndex, IndexCache, staleness checking
 │   └── {focus,event,decision,idea,localisation,gfx}.py
@@ -57,7 +53,7 @@ src/md_mcp/
 │   └── encoding.py      BOM compliance check
 ├── tools/               Thin @mcp.tool() wrappers
 └── util/
-    ├── response.py      paginate, enforce_budget, clip_strings, BUDGET_BYTES
+    ├── response.py      paginate, enforce_budget, BUDGET_BYTES
     ├── encoding.py      BOM-aware read_text
     └── pathing.py       mod_root / vanilla discovery
 ```
@@ -113,9 +109,10 @@ it for edits, copies, or commits.
 `ValidatorRunner` imports `Millennium-Dawn/tools/validation/validate_*.py` and
 reads `validator._issues` — that underscore means it's not a public API. A
 refactor in `Millennium-Dawn/tools` can break us. The import/read sequence
-lives in two mirrored places: `_shim.py` (`_collect`, the default isolated
-path) and `_run_inprocess` in `runner.py`. **Patch both** and consider whether
-the change should also tolerate older `Millennium-Dawn` checkouts.
+lives in one place: `_collect` in `runner.py`. `_run_inprocess` calls it
+directly and the isolated child (`_shim.py`) calls it after the exec. Patch it
+there and consider whether the change should also tolerate older
+`Millennium-Dawn` checkouts.
 
 `Issue.file` is not uniform: mod-relative path, bare basename, `""`, or the
 literal `"unknown"`, sometimes several within one validator. Anything keying on
@@ -124,21 +121,23 @@ it must go through `IssueAttributor`
 resolves by shape against the real file list — never compare `issue["file"]` to
 a scope set directly.
 
-To debug a validator failure with a real traceback, run it outside the server:
+To debug a validator failure with a real traceback, call `_collect` outside the
+server. `ValidatorRunner.run()` catches every exception and returns
+`{ok: false, error}` in both modes; `_collect` raises:
 
 ```python
 from md_mcp.config import load
-from md_mcp.validators import ValidatorRunner
+from md_mcp.validators.runner import _collect
 
 settings = load("/path/to/Millennium-Dawn")
-result = ValidatorRunner(settings.mod_root, mode="in_process").run("events")
-print(result)
+payload = _collect(str(settings.mod_root), "validate_events", staged_only=False)
+print(len(payload["issues"]))
 ```
 
-(`in_process` deadlocks under `serve` — see rule 6 — so `serve` overrides it
-back to isolated. `md-mcp doctor` only prints settings; it runs no validators.
-See [`docs/validators.md`](./docs/validators.md) for the fuller debugging
-snippet.)
+(`_collect` and `in_process` both deadlock under `serve` — see rule 6 — so
+`serve` overrides the mode back to isolated. `md-mcp doctor` only prints
+settings; it runs no validators. See
+[`docs/validators.md`](./docs/validators.md) for the fuller debugging snippet.)
 
 ### 5. BOM rules on emitted files
 
@@ -164,8 +163,10 @@ is intentionally active under `md-mcp serve`; it does not use a process pool or
 fork. Keep its worker and admission limits in place. Do not gate this offload on
 `MD_MCP_SERIAL_PARSE`.
 
-The mod validators are the other fork source: 19 of 26 fork a `Pool` from
-`validator_common.py`, which we don't control. That's why `ValidatorRunner`
+The mod validators are another fork source: many have pool-aware paths, and
+actual pool creation is conditional on worker count and batch size. The shared
+pool implementation is in `validator_common.py`, which we don't control. That's
+why `ValidatorRunner`
 defaults to `isolated` mode (runs each validator in a child via `_shim.py`) and
 `serve` forces it — in-process validation hangs the server the same way. Don't
 route validators through the in-process path from inside `mcp.run()`.

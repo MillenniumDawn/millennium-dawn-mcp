@@ -93,7 +93,7 @@ def list_country_content(
     prefix = tag_upper + "_"
     wanted_full = _resolve_include(include)
 
-    focuses: list[str] = _focuses(focus_index, prefix)
+    focuses: list[str] = _ids_with_prefix(focus_index, prefix)
     decisions: list[str] = _ids_with_prefix(decision_index, prefix)
     ideas: list[str] = _ids_with_prefix(idea_index, prefix)
     events, event_files = _events(event_index, tag_upper, prefix)
@@ -101,29 +101,24 @@ def list_country_content(
     mio_files = _scan_files(
         mod_root,
         "common/military_industrial_organization/organizations",
-        ("*.txt",),
         prefix=tag_upper,
         submod_root=submod_root,
     )
     history_files = _scan_files(
-        mod_root, "history/countries", ("*.txt",), prefix=tag_upper, submod_root=submod_root
+        mod_root, "history/countries", prefix=tag_upper, submod_root=submod_root
     )
-    oob_files = _scan_files(
-        mod_root, "history/units", ("*.txt",), prefix=tag_upper, submod_root=submod_root
-    )
+    oob_files = _scan_files(mod_root, "history/units", prefix=tag_upper, submod_root=submod_root)
     namelist_files = _scan_files(
-        mod_root, "common/names", ("*.txt",), prefix=tag_upper, submod_root=submod_root
+        mod_root, "common/names", prefix=tag_upper, submod_root=submod_root
     )
     country_tags = _tag_records(country_tag_index, tag_upper)
-    characters, character_files = _indexed_country_records(
-        character_index, tag_upper, file_prefix=True
-    )
-    traits, trait_files = _indexed_country_records(trait_index, tag_upper, file_prefix=True)
+    characters, character_files = _indexed_country_records(character_index, tag_upper)
+    traits, trait_files = _indexed_country_records(trait_index, tag_upper)
     scripted_effects, scripted_effect_files = _indexed_country_records(
-        scripted_effect_index, tag_upper, file_prefix=True
+        scripted_effect_index, tag_upper
     )
     scripted_triggers, scripted_trigger_files = _indexed_country_records(
-        scripted_trigger_index, tag_upper, file_prefix=True
+        scripted_trigger_index, tag_upper
     )
 
     raw: dict[str, list[str]] = {
@@ -180,17 +175,14 @@ def _resolve_include(include: Optional[Sequence[str]]) -> set[str]:
     return {c for c in include if c in _ALL_CATEGORIES}
 
 
-def _focuses(focus_index: Optional[FocusIndex], prefix: str) -> list[str]:
-    if focus_index is None:
-        return []
-    focus_index.ensure_fresh()
-    return [fid for fid in focus_index.list_keys() if fid.upper().startswith(prefix)]
-
-
 def _ids_with_prefix(index, prefix: str) -> list[str]:
     if index is None:
         return []
     index.ensure_fresh()
+    # The common form is a country tag followed by exactly one underscore.
+    # Keep the original scan as a compatibility fallback for arbitrary prefixes.
+    if hasattr(index, "ids_for_tag") and prefix.endswith("_") and prefix.count("_") == 1:
+        return index.ids_for_tag(prefix[:-1])
     return [k for k in index.list_keys() if k.upper().startswith(prefix)]
 
 
@@ -254,35 +246,37 @@ def _tag_records(index: Optional[CountryTagIndex], tag_upper: str) -> list[str]:
     return [rec["id"]] if rec is not None else []
 
 
-def _indexed_country_records(
-    index,
-    tag_upper: str,
-    *,
-    file_prefix: bool = False,
-) -> tuple[list[str], list[str]]:
+def _indexed_country_records(index, tag_upper: str) -> tuple[list[str], list[str]]:
     if index is None:
         return [], []
-    prefix = tag_upper + "_"
     ids: list[str] = []
     files: set[str] = set()
-    for key in index.list_keys():
+    if hasattr(index, "ids_for_country_tag"):
+        candidate_keys = index.ids_for_country_tag(tag_upper)
+        check_source = False
+    else:
+        candidate_keys = index.list_keys()
+        check_source = True
+    prefix = tag_upper + "_"
+    for key in candidate_keys:
         rec = index.resolve(key)
         if rec is None:
             continue
         file = str(rec["file"])
-        stem = Path(file).stem.upper()
-        if str(key).upper().startswith(prefix) or (
-            file_prefix and (stem == tag_upper or stem.startswith(prefix))
-        ):
-            ids.append(str(key))
-            files.add(file)
+        if check_source:
+            stem = Path(file).stem.upper()
+            matches_id = str(key).upper().startswith(prefix)
+            matches_file = stem == tag_upper or stem.startswith(prefix)
+            if not (matches_id or matches_file):
+                continue
+        ids.append(str(key))
+        files.add(file)
     return sorted(set(ids)), sorted(files)
 
 
 def _scan_files(
     mod_root: Path,
     subdir: str,
-    patterns: tuple,
     *,
     prefix: str,
     submod_root: Optional[Path] = None,
@@ -294,18 +288,17 @@ def _scan_files(
         d = root / subdir
         if not d.is_dir():
             continue
-        for pat in patterns:
-            for p in d.rglob(pat):
-                if not p.is_file():
-                    continue
-                rel = str(p.relative_to(root))
-                if rel in seen:
-                    continue
-                stem = p.stem.upper()
-                matched = stem.startswith(prefix + "_") or stem == prefix
-                if not matched and "_" in stem:
-                    matched = stem.split("_")[1] == prefix
-                if matched:
-                    seen.add(rel)
-                    out.append(rel)
+        for p in d.rglob("*.txt"):
+            if not p.is_file():
+                continue
+            rel = str(p.relative_to(root))
+            if rel in seen:
+                continue
+            stem = p.stem.upper()
+            matched = stem.startswith(prefix + "_") or stem == prefix
+            if not matched and "_" in stem:
+                matched = stem.split("_")[1] == prefix
+            if matched:
+                seen.add(rel)
+                out.append(rel)
     return sorted(out)

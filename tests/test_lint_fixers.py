@@ -7,8 +7,9 @@ Two layers, matching the validator-wrapper convention:
     no-write guarantee).
   * `@pytest.mark.integration` tests copy the REAL upstream fixer modules out
     of a real Millennium-Dawn checkout (found via MD_MOD_ROOT) into a tmp root
-    and round-trip fixtures with known violations. The real tree is never
-    written to.
+    and round-trip fixtures with known violations. They also copy the
+    upstream validation_config.json required by shared_utils imports. The real
+    tree is never written to.
 """
 
 from __future__ import annotations
@@ -22,11 +23,10 @@ from pathlib import Path
 import pytest
 
 from md_mcp.tools.lint_fixers import (
-    _MAX_TXT_BYTES,
     LOG_ID_SCOPES,
     fix_lint_tool,
 )
-from md_mcp.util.response import BUDGET_BYTES
+from md_mcp.util.response import BUDGET_BYTES, MAX_TEXT_BYTES
 
 LINTING = "tools/linting"
 
@@ -446,6 +446,8 @@ def test_styling_warnings_capped_like_upstream(tmp_path):
 # ---------------------------------------------------------------------------
 
 _UPSTREAM_FILES = [
+    # shared_utils loads this file while importing validate_style.
+    Path("validation_config.json"),
     Path("tools") / "shared_utils.py",
     Path("tools") / "cleanup_or.py",
     Path("tools") / "linting" / "fix_styling.py",
@@ -490,11 +492,12 @@ _DECISION_LOG_FIXED = (
 
 @pytest.fixture
 def upstream_root(tmp_path) -> Path:
-    """Copy the real upstream fixer modules into a tmp mod root.
+    """Copy real fixer modules and their config dependency into a tmp mod root.
 
     A copy, not the real checkout: fixtures with known violations need to be
-    written under mod_root, and the real tree must never be touched. Skipped
-    (like the other integration fixtures) without MD_MOD_ROOT.
+    written under mod_root, and newer shared_utils loads validation_config.json
+    during imports. The real tree must never be touched. Skipped (like the
+    other integration fixtures) without MD_MOD_ROOT.
     """
     src_root = os.environ.get("MD_MOD_ROOT")
     if src_root is None or not (Path(src_root) / "descriptor.mod").exists():
@@ -621,7 +624,7 @@ def test_integration_all_fixers_at_max_txt_bytes_are_clipped(upstream_root):
     out = fix_lint_tool(upstream_root, fixer="styling", path=rel)
     assert out["ok"] is True
     assert out["txt_truncated"] is True
-    assert out["txt_bytes"] > _MAX_TXT_BYTES >= out["txt_returned_bytes"]
+    assert out["txt_bytes"] > MAX_TEXT_BYTES >= out["txt_returned_bytes"]
     assert "do NOT write clipped content back" in out["note"]
     assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
 

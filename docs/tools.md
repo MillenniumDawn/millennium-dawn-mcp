@@ -1,6 +1,6 @@
 # Tool & Resource Reference
 
-40 tools and 6 resources, grouped by purpose. Output shapes show the
+Registered tools and resource templates, grouped by purpose. Output shapes show the
 **default** behaviour — most tools have detail-tier or `limit` knobs.
 
 All tools return either `{"ok": True, ...}` or `{"ok": False, "error": "..."}`.
@@ -497,7 +497,7 @@ Search scripted effect definitions by an optional substring.
 
 Search scripted trigger definitions by an optional substring.
 
-All five definition searches return `total`, `returned`, `truncated`, and a
+Definition searches return `total`, `returned`, `truncated`, and a
 budget-guarded `matches` page.
 
 ### `find_references(kind, target, limit?, offset?, snippet_chars?, files_only?) -> dict`
@@ -625,7 +625,8 @@ Returns `{ok, base, total_files, files_returned, counts_by_kind, truncated, file
 Each file record is `{path, status, kind, added_ids?, removed_ids?, old_path?, id_diff?}`.
 For renames, `path` is the new path and `old_path` is the base path. If a Git read
 or parser fails, `id_diff` contains `base_error`, `head_error`, or `error`, and no
-ID delta is reported for that file. Deleted files do not perform an ID read.
+ID delta is reported for that file. Deleted focus, event, decision, and idea files are
+read at `base`, and every ID they defined is reported as `removed_ids`.
 Invalid bases and Git failures return `{ok: false, error, error_msg?}`.
 
 ### `tick_audit(tag?, limit?, offset?) -> dict`
@@ -656,9 +657,10 @@ upstream interactive `calculate_days.py`: 365 days per year, February has 28
 days, and leap years are not applied. Rejects years before 2000 and invalid
 months/days. Returns `{ok: true, days}` or `{ok: false, error}`.
 
-All three tools run via an isolated subprocess with a timeout; they do not
-write to the mod or vanilla installation. List-bearing responses enforce the
-normal output budget.
+`tick_audit` and `estimate_gdp` run via an isolated subprocess with a timeout;
+`calculate_days` is plain arithmetic and runs in process. None of them write to
+the mod or vanilla installation. List-bearing responses enforce the normal
+output budget.
 
 ---
 

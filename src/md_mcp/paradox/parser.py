@@ -4,15 +4,13 @@ Ported from `MD-VSCode-Utility-Tool/src/hoiformat/hoiparser.ts`. The structure m
 the TS source one-to-one: a recursive-descent over `parseBlockContent` / `parseNode` /
 `parseNodeValue`, using a single-token-lookahead tokenizer.
 
-Public entry points:
+Public entry point:
     * `parse_string(text)` — parse a snippet to a root Node whose `value` is the list of children
-    * `parse_file(path)`   — read and parse a UTF-8 (with optional BOM) `.txt` file
 """
 
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 from .lexer import LexError, Tokenizer
 from .nodes import Node, SymbolNode, Token
@@ -41,21 +39,6 @@ def parse_string(text: str, error_prefix: str = "") -> Node:
         return Node(name=None, operator=None, value=value)
     except LexError as e:
         raise ParseError(str(e)) from e
-
-
-def parse_file(path: str | Path) -> Node:
-    """Read a `.txt` file (UTF-8 with optional BOM) and parse it.
-
-    Per `general-rules.md`, `.txt` files are saved without BOM, but some legacy or
-    third-party files may include one; we accept either.
-    """
-    p = Path(path)
-    raw = p.read_bytes()
-    # Strip UTF-8 BOM if present.
-    if raw.startswith(b"\xef\xbb\xbf"):
-        raw = raw[3:]
-    text = raw.decode("utf-8", errors="replace")
-    return parse_string(text, error_prefix=f"In file {p}:\n")
 
 
 def _unescape_string(quoted: str) -> str:

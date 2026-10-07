@@ -15,6 +15,7 @@ from md_mcp.util.response import BUDGET_BYTES
 
 _HELPER = """
 from dataclasses import dataclass
+from typing import NamedTuple
 
 builds = 0
 
@@ -32,9 +33,40 @@ def build_equipment_index(units_dir):
     return object()
 
 
-def check_created_variants(content, index):
+class CreatedVariants(NamedTuple):
+    text: str
+    spans: list[tuple[int, int]]
+
+
+def created_variant_spans(content):
+    start = content.find("create_equipment_variant")
+    return CreatedVariants(content, [(start, len(content))] if start >= 0 else [])
+
+
+def check_created_variants(variants, index):
+    content = variants.text
     if "oversized" in content:
         return [Finding(i, "unknown_slot", "x" * 200, "test_hull") for i in range(1_000)]
+    if "bad_slot" in content:
+        return [Finding(5, "unknown_slot", "bad_slot is not available", "test_hull")]
+    return []
+"""
+
+_OLDER_HELPER = """
+from dataclasses import dataclass
+
+@dataclass
+class Finding:
+    line: int
+    kind: str
+    message: str
+    hull: str
+
+def build_equipment_index(units_dir):
+    return object()
+
+def check_created_variants(content, index):
+    assert isinstance(content, str)
     if "bad_slot" in content:
         return [Finding(5, "unknown_slot", "bad_slot is not available", "test_hull")]
     return []
@@ -70,6 +102,28 @@ def test_check_equipment_variant_accepts_valid_variant(fake_mod_root):
         "truncated": False,
         "issues": [],
     }
+
+
+def test_check_equipment_variant_supports_older_helper_contract(fake_mod_root):
+    _install_helper(fake_mod_root)
+    helper = fake_mod_root / "tools" / "validation" / "equipment_module_slots.py"
+    helper.write_text(_OLDER_HELPER, encoding="utf-8")
+
+    result = check_equipment_variant_tool(
+        EquipmentVariantChecker(fake_mod_root), _VALID.replace("valid_slot", "bad_slot")
+    )
+
+    assert result["ok"] is True
+    assert result["valid"] is False
+    assert result["issues"] == [
+        {
+            "line": 5,
+            "severity": "error",
+            "kind": "unknown_slot",
+            "message": "bad_slot is not available",
+            "hull": "test_hull",
+        }
+    ]
 
 
 def test_check_equipment_variant_returns_structured_compatibility_issue(fake_mod_root):

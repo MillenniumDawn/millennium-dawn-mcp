@@ -18,12 +18,12 @@ for `isolated`.
 
 from __future__ import annotations
 
+import argparse
 import ast
 import builtins
 import contextlib
 import functools
 import importlib
-import importlib.util
 import inspect
 import io
 import json
@@ -35,9 +35,9 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
-from ..analysis.suppressions import suppress_issues
+from ..analysis.suppressions import SUPPRESSION_SOURCE, suppress_issues
 from ..util.process import run_in_group
 from .attribution import IssueAttributor
 
@@ -104,8 +104,8 @@ def available_validators(mod_root: Path) -> list[ValidatorInfo]:
 class ValidatorRunner:
     """Runs Millennium-Dawn validators in-process and normalises their output.
 
-    Caches the validator-module imports so repeated calls are cheap; doesn't cache
-    the validator *instances* (their internal state is per-run).
+    Module imports are cached by `sys.modules`; the validator *instances* are
+    built per run (their internal state is per-run).
     """
 
     def __init__(
@@ -118,8 +118,6 @@ class ValidatorRunner:
         self.submod_root = submod_root
         self.mode = "isolated" if mode == "subprocess" else mode
         self._infos: Optional[dict[str, ValidatorInfo]] = None
-        self._modules: dict[str, object] = {}
-        self._sys_path_inserted = False
         self._attributor_cache: Optional[IssueAttributor] = None
 
     def _attributor(self) -> IssueAttributor:
@@ -144,6 +142,7 @@ class ValidatorRunner:
         staged_only: bool = False,
         files: Optional[builtins.list[str]] = None,
         post_filter: bool = True,
+        args: Optional[builtins.list[str] | tuple[str, ...]] = None,
     ) -> dict:
         """Run a single validator. Returns {ok, validator, title, issues, counts}.
 
@@ -161,33 +160,15 @@ class ValidatorRunner:
 
         if self.mode == "in_process":
             return self._run_inprocess(
-                info, staged_only=staged_only, files=files, post_filter=post_filter
+                info, staged_only=staged_only, files=files, post_filter=post_filter, args=args
             )
         return self._run_isolated(
-            info, staged_only=staged_only, files=files, post_filter=post_filter
+            info, staged_only=staged_only, files=files, post_filter=post_filter, args=args
         )
 
     # ------------------------------------------------------------------
     # in-process mode
     # ------------------------------------------------------------------
-
-    def _ensure_sys_path(self) -> None:
-        if self._sys_path_inserted:
-            return
-        tools_dir = str(self.mod_root / "tools")
-        val_dir = str(self.mod_root / "tools" / "validation")
-        for d in (tools_dir, val_dir):
-            if d not in sys.path:
-                sys.path.insert(0, d)
-        self._sys_path_inserted = True
-
-    def _load_module(self, info: ValidatorInfo):
-        self._ensure_sys_path()
-        if info.module_name in self._modules:
-            return self._modules[info.module_name]
-        mod = importlib.import_module(info.module_name)
-        self._modules[info.module_name] = mod
-        return mod
 
     def _run_inprocess(
         self,
@@ -196,68 +177,51 @@ class ValidatorRunner:
         staged_only: bool,
         files: Optional[builtins.list[str]],
         post_filter: bool,
+        args: Optional[builtins.list[str] | tuple[str, ...]],
     ) -> dict:
+        stderr_on_failure: list[str] = []
         try:
-            module = self._load_module(info)
-        except Exception as e:
-            return {
-                "ok": False,
-                "validator": info.name,
-                "error": f"Failed to import validator module: {e}",
-            }
-
-        validator_cls = getattr(module, "Validator", None)
-        if validator_cls is None:
-            return {
-                "ok": False,
-                "validator": info.name,
-                "error": f"Module {info.module_name} does not define `Validator`",
-            }
-
-        try:
-            inst = validator_cls(
-                mod_path=str(self.mod_root),
-                use_colors=False,
-                staged_only=staged_only,
+            payload = _collect(
+                str(self.mod_root),
+                info.module_name,
+                staged_only,
+                files=files,
+                args=args,
+                stderr_on_failure=stderr_on_failure,
             )
         except Exception as e:
-            return {
-                "ok": False,
-                "validator": info.name,
-                "error": f"Constructor failed: {e}",
-            }
+            payload = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+            if stderr_on_failure:
+                payload["stderr"] = stderr_on_failure[-1]
+        return self._finish(info, payload, files=files, post_filter=post_filter)
 
-        scoped = _configure_file_scope(inst, files)
+    def _finish(
+        self,
+        info: ValidatorInfo,
+        payload: dict,
+        *,
+        files: Optional[builtins.list[str]],
+        post_filter: bool,
+    ) -> dict:
+        """Shared tail: turn a `_collect` payload into the filtered, summarised result."""
+        if not payload.get("ok"):
+            result = {"ok": False, "validator": info.name, "error": payload.get("error")}
+            if "stderr" in payload:
+                result["stderr"] = payload["stderr"]
+            return result
 
-        # Silence validator's stdout chatter — we only want the structured issues.
-        # Catch SystemExit so a validator's `sys.exit()` doesn't kill the server.
-        buf_out, buf_err = io.StringIO(), io.StringIO()
-        try:
-            with contextlib.redirect_stdout(buf_out), contextlib.redirect_stderr(buf_err):
-                try:
-                    inst.run_all_validations()
-                except SystemExit as e:
-                    logger.info(
-                        "validator %s called sys.exit(%s); continuing",
-                        info.name,
-                        e.code,
-                    )
-        except Exception as e:
-            return {
-                "ok": False,
-                "validator": info.name,
-                "error": f"Validator raised: {e}",
-                "stderr": buf_err.getvalue()[-2000:],
-            }
-
-        issues = [i.to_dict() for i in getattr(inst, "_issues", [])]
+        issues = payload.get("issues", [])
         if post_filter:
             kept, unattributed = _filter_by_files(issues, files, self._attributor())
         else:
             kept, unattributed = issues, 0
         kept, suppressed = suppress_issues(kept, self.mod_root)
         return _summarise(
-            info, kept, unattributed=unattributed, suppressed=suppressed, scoped=scoped
+            info,
+            kept,
+            unattributed=unattributed,
+            suppressed=suppressed,
+            scoped=bool(payload.get("scoped")),
         )
 
     # ------------------------------------------------------------------
@@ -271,6 +235,7 @@ class ValidatorRunner:
         staged_only: bool,
         files: Optional[builtins.list[str]],
         post_filter: bool,
+        args: Optional[builtins.list[str] | tuple[str, ...]],
     ) -> dict:
         cmd = [
             sys.executable,
@@ -283,6 +248,8 @@ class ValidatorRunner:
         ]
         if staged_only:
             cmd.append("--staged-only")
+        for arg in args or ():
+            cmd.append(f"--validator-arg={arg}")
 
         with tempfile.TemporaryDirectory(prefix="md-mcp-validator-") as td:
             out = Path(td) / "issues.json"
@@ -316,22 +283,7 @@ class ValidatorRunner:
                     "stderr": proc.stderr.decode("utf-8", "replace")[-2000:],
                 }
 
-        if not payload.get("ok"):
-            return {"ok": False, "validator": info.name, "error": payload.get("error")}
-
-        issues = payload.get("issues", [])
-        if post_filter:
-            kept, unattributed = _filter_by_files(issues, files, self._attributor())
-        else:
-            kept, unattributed = issues, 0
-        kept, suppressed = suppress_issues(kept, self.mod_root)
-        return _summarise(
-            info,
-            kept,
-            unattributed=unattributed,
-            suppressed=suppressed,
-            scoped=bool(payload.get("scoped")),
-        )
+        return self._finish(info, payload, files=files, post_filter=post_filter)
 
 
 # Upstream passes that build repo-wide sets from plain collector calls.
@@ -416,6 +368,73 @@ def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:
     return True
 
 
+def _ensure_sys_path(mod_root: str) -> None:
+    for d in (os.path.join(mod_root, "tools"), os.path.join(mod_root, "tools", "validation")):
+        if d not in sys.path:
+            sys.path.insert(0, d)
+
+
+def _collect(
+    mod_root: str,
+    module_name: str,
+    staged_only: bool,
+    files: Optional[list[str]] = None,
+    *,
+    args: Optional[list[str] | tuple[str, ...]] = None,
+    stderr_on_failure: Optional[list[str]] = None,
+) -> dict:
+    """Import, build, scope, and run one validator, then harvest its `_issues`.
+
+    The only copy of that sequence: `_run_inprocess` calls it directly and the
+    isolated child (`_shim.py`) calls it after the exec. Raises on any failure;
+    when supplied, `stderr_on_failure` receives the captured stderr tail if
+    validator execution raises.
+    """
+    _ensure_sys_path(mod_root)
+    module = importlib.import_module(module_name)
+    validator_cls = getattr(module, "Validator", None)
+    if validator_cls is None:
+        raise AttributeError(f"module {module_name} does not define `Validator`")
+
+    validator_kwargs = {}
+    if args:
+        add_extra_args = getattr(module, "_add_extra_args", None)
+        if not callable(add_extra_args):
+            raise ValueError(f"module {module_name} does not accept validator arguments")
+        parser = argparse.ArgumentParser(add_help=False)
+        add_extra_args(parser)
+        parsed, unknown = parser.parse_known_args(list(args))
+        if unknown:
+            raise ValueError(f"unsupported arguments for {module_name}: {unknown}")
+        validator_kwargs = vars(parsed)
+
+    inst = validator_cls(
+        mod_path=mod_root,
+        use_colors=False,
+        staged_only=staged_only,
+        **validator_kwargs,
+    )
+    scoped = _configure_file_scope(inst, files)
+
+    # Validators chatter on stdout and some call sys.exit() mid-run; neither
+    # should cost us the issues they already collected.
+    buf_out, buf_err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(buf_out), contextlib.redirect_stderr(buf_err):
+        try:
+            inst.run_all_validations()
+        except SystemExit as e:
+            logger.info("validator %s called sys.exit(%s); continuing", module_name, e.code)
+        except Exception:
+            if stderr_on_failure is not None:
+                stderr_on_failure.append(buf_err.getvalue()[-2000:])
+            raise
+
+    payload = {"ok": True, "issues": [i.to_dict() for i in getattr(inst, "_issues", [])]}
+    if scoped:
+        payload["scoped"] = True
+    return payload
+
+
 def _filter_by_files(
     issues: list[dict], files: Optional[list[str]], attributor: IssueAttributor
 ) -> tuple[list[dict], int]:
@@ -439,6 +458,15 @@ def _filter_by_files(
     return kept, unattributed
 
 
+def count_severities(issues: Iterable[dict]) -> dict:
+    """Per-severity issue counts; error/warning/info always present."""
+    counts = {"error": 0, "warning": 0, "info": 0}
+    for i in issues:
+        sev = i.get("severity", "info")
+        counts[sev] = counts.get(sev, 0) + 1
+    return counts
+
+
 def _summarise(
     info: ValidatorInfo,
     issues: list[dict],
@@ -447,22 +475,18 @@ def _summarise(
     suppressed: int = 0,
     scoped: bool = False,
 ) -> dict:
-    counts = {"error": 0, "warning": 0, "info": 0}
-    for i in issues:
-        sev = i.get("severity", "info")
-        counts[sev] = counts.get(sev, 0) + 1
     result = {
         "ok": True,
         "validator": info.name,
         "title": info.title,
-        "counts": counts,
+        "counts": count_severities(issues),
         "issues": issues,
     }
     if unattributed:
         result["unattributed"] = unattributed
     if suppressed:
         result["suppressed"] = suppressed
-        result["suppression_source"] = ".claude/docs/known-false-positives.md"
+        result["suppression_source"] = SUPPRESSION_SOURCE
     if scoped:
         result["scoped"] = True
     return result

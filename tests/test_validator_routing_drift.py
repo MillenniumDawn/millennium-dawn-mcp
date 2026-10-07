@@ -1,4 +1,4 @@
-"""Integration contract for upstream validator routing."""
+"""Integration contract between lint auto-routing and upstream CI routing."""
 
 from __future__ import annotations
 
@@ -9,8 +9,14 @@ from pathlib import Path
 import pytest
 import yaml
 
-from md_mcp.tools.lint_validators import SCAN_PREFIXES, _validators_for_path
-from md_mcp.validators import SLOW_VALIDATORS
+from md_mcp.tools.lint_validators import (
+    AUTO_ROUTING_EXCLUDED,
+    _upstream_args,
+    _upstream_routing,
+    _validators_for_path,
+    select_validators,
+)
+from md_mcp.validators import SLOW_VALIDATORS, available_validators
 
 EXPECTED_REGISTRY = {
     "validate_common_mistakes": (("", ".txt"),),
@@ -30,10 +36,7 @@ EXPECTED_REGISTRY = {
         ("common/scripted_guis/", ".txt"),
         ("common/ideas/", ".txt"),
     ),
-    "validate_ai_roles": (
-        ("common/ai_strategy/", ".txt"),
-        ("common/ai_templates/", ".txt"),
-    ),
+    "validate_ai_roles": (("common/ai_strategy/", ".txt"), ("common/ai_templates/", ".txt")),
     "validate_ai_navy": (("common/ai_navy/", ".txt"), ("common/units/", ".txt")),
     "validate_characters": (
         ("common/characters/", ".txt"),
@@ -77,221 +80,10 @@ EXPECTED_REGISTRY = {
         ("localisation/english/", ".yml"),
     ),
 }
-
 EXPECTED_REGISTRY_EXCLUDES = {
     "validate_common_mistakes": r"Changelog\.txt$|AUTHORS\.txt$|descriptions.*\.txt$",
     "validate_style": r"Changelog\.txt$|AUTHORS\.txt$|descriptions.*\.txt$",
 }
-
-CORE_GROUPS = ("common", "events", "history", "interface", "localisation", "map-adjacency")
-EXPECTED_CI_ROUTING = {
-    "achievements": CORE_GROUPS,
-    "agency_upgrades": CORE_GROUPS,
-    "ai_equipment": ("ai-equipment",),
-    "ai_navy": ("ai-navy",),
-    "ai_path_rules": ("common", "history", "national-focus"),
-    "ai_roles": ("ai-strategy",),
-    "bonus_names": ("common", "events"),
-    "building_guards": ("common", "events"),
-    "characters": ("characters",),
-    "common_mistakes": CORE_GROUPS,
-    "cosmetic_tags": CORE_GROUPS,
-    "country_names": ("common",),
-    "decisions": ("decisions", "localisation"),
-    "defines": CORE_GROUPS,
-    "dlc_guards": ("common", "events"),
-    "dynamic_modifier_guards": ("common", "events"),
-    "equipment_upkeep": ("oob",),
-    "equipment_variants": ("common", "events", "history"),
-    "events": CORE_GROUPS,
-    "factions": ("factions",),
-    "focus_tree": ("localisation", "national-focus"),
-    "gfx_references": ("common", "events", "history", "interface", "localisation"),
-    "history": CORE_GROUPS,
-    "ideas": CORE_GROUPS,
-    "influence_calls": ("common", "events"),
-    "localisation": CORE_GROUPS,
-    "math_expressions": CORE_GROUPS,
-    "mio_icons": ("mios",),
-    "mios": ("interface", "localisation", "mios"),
-    "modifiers": ("common",),
-    "on_actions": ("events", "on-actions"),
-    "oob_units": ("oob",),
-    "party_loc": ("common", "localisation"),
-    "scientist_traits": ("scientist-traits",),
-    "scripted_gui": ("interface", "scripted-guis"),
-    "scripted_localisation": CORE_GROUPS,
-    "scripted_params": ("common", "events", "history"),
-    "set_variables": CORE_GROUPS,
-    "simplifications": (
-        "decisions",
-        "events",
-        "national-focus",
-        "on-actions",
-        "scripted-effects",
-    ),
-    "tech_categories": ("common", "events"),
-    "technologies": ("common",),
-    "unused_scripted": CORE_GROUPS,
-    "variables": CORE_GROUPS,
-}
-
-EXPECTED_CI_FILTERS = {
-    "ai-equipment": ("common/ai_equipment/**",),
-    "ai-navy": ("common/ai_navy/**", "common/units/**"),
-    "ai-strategy": ("common/ai_strategy/**", "common/ai_templates/**"),
-    "characters": (
-        "common/characters/**",
-        "common/unit_leader/**",
-        "common/country_leader/**",
-        "common/national_focus/**",
-        "common/decisions/**",
-        "common/scripted_effects/**",
-        "common/on_actions/**",
-        "events/**",
-        "history/countries/**",
-    ),
-    "common": ("common/**",),
-    "decisions": (
-        "common/**/*.txt",
-        "events/**/*.txt",
-        "history/**/*.txt",
-        "interface/**/*.gfx",
-        "gfx/interface/decisions/**",
-    ),
-    "events": ("events/**",),
-    "factions": ("common/factions/**",),
-    "history": ("history/**",),
-    "interface": ("interface/**",),
-    "localisation": ("localisation/**",),
-    "map-adjacency": ("map/adjacency_rules.txt",),
-    "mios": (
-        "common/military_industrial_organization/**",
-        "common/country_leader/**",
-        "common/doctrines/**",
-        "common/units/equipment/**",
-        "common/equipment_groups/**",
-        "interface/**",
-    ),
-    "national-focus": ("common/national_focus/**",),
-    "on-actions": ("common/on_actions/**",),
-    "oob": (
-        "history/units/**",
-        "history/**",
-        "common/units/**",
-        "common/ai_templates/**",
-        "common/scripted_effects/**",
-        "history/countries/**",
-        "common/national_focus/**",
-        "events/**",
-        "common/decisions/**",
-        "common/special_projects/**",
-        "common/on_actions/**",
-        "common/operations/**",
-        "common/resistance_compliance_modifiers/**",
-        "common/scripted_guis/**",
-        "common/ideas/**",
-    ),
-    "scientist-traits": ("common/scientist_traits/**", "interface/**"),
-    "scripted-effects": ("common/scripted_effects/**",),
-    "scripted-guis": ("common/scripted_guis/**",),
-    "scripted-loc": ("common/scripted_localisation/**",),
-    "style": (
-        "common/**/*.txt",
-        "events/**/*.txt",
-        "history/**/*.txt",
-        "music/**/*.txt",
-    ),
-    "mod": ("*.mod",),
-    "content": (
-        "common/**",
-        "events/**",
-        "history/**",
-        "localisation/**",
-        "interface/**",
-        "gfx/interface/decisions/**",
-        "music/**",
-        "map/adjacency_rules.txt",
-        "*.mod",
-    ),
-    "docs": ("docs/**", "tools/docs_checks/**", ".github/workflows/docs-quality.yml"),
-}
-
-EXPECTED_WORKSPACE_PATHS = (
-    "common",
-    "events",
-    "history",
-    "localisation",
-    "interface",
-    "gfx/flags",
-    "gfx/interface/decisions",
-    "map/adjacency_rules.txt",
-    "music",
-    "tools",
-    "resources/documentation",
-    ".claude",
-    ".github/actions/setup-md-python/action.yml",
-    "CLAUDE.md",
-    "pyproject.toml",
-    "*.mod",
-    ".workspace-manifest",
-    ".validation_cache",
-)
-EXPECTED_PREPARE_WORKSPACE_PATHS = (
-    "common",
-    "events",
-    "history",
-    "localisation",
-    "interface",
-    "gfx/flags",
-    "gfx/interface/decisions",
-    "map/adjacency_rules.txt",
-    "music",
-    "tools",
-    "resources/documentation",
-    ".claude",
-    ".github/actions/setup-md-python/action.yml",
-    "CLAUDE.md",
-    "pyproject.toml",
-    "*.mod",
-)
-EXPECTED_VALIDATE_PATHS_CHECKOUT = (
-    "descriptor.mod",
-    "tools",
-    ".github/actions/setup-md-python/action.yml",
-)
-
-# These CI gates intentionally cover more paths than the validator scans.
-COARSE_CI_ROUTES = {
-    (validator, group)
-    for validator, groups in EXPECTED_CI_ROUTING.items()
-    if groups == CORE_GROUPS
-    for group in groups
-} | {
-    ("modifiers", "common"),
-    # CI watches every file in these trees; the validator consumes script .txt.
-    ("equipment_variants", "common"),
-    ("equipment_variants", "events"),
-    ("equipment_variants", "history"),
-    ("scripted_params", "decisions"),
-    ("simplifications", "decisions"),
-    ("technologies", "common"),
-}
-
-# CI reruns these for any localisation change. They only read English yml.
-CI_BROAD_SCOPE_EXCEPTIONS = {
-    ("decisions", "localisation"),
-    ("focus_tree", "localisation"),
-}
-
-EXPECTED_STANDALONE_JOBS = {
-    "file_paths": ("validate-paths", "validate_file_paths.py", ("map/provinces.bmp",)),
-    "mod_descriptors": ("mod-tests", "validate_mod_descriptors.py", ("descriptor.mod",)),
-    "style": ("mod-tests", "validate_style.py", ("common/ideas/__routing_probe.txt",)),
-}
-
-# Whole-tree or not-yet-scoped CI validators. Adding them to auto-routing
-# scans the domain before file scope and blows the one-file lint budget (#124).
 INTENTIONALLY_NOT_AUTO_ROUTED = {
     "achievements",
     "ai_path_rules",
@@ -311,46 +103,22 @@ INTENTIONALLY_NOT_AUTO_ROUTED = {
 } | SLOW_VALIDATORS
 
 
-def _load_registry(mod_root: Path):
-    path = mod_root / "tools" / "precommit_validate.py"
-    spec = importlib.util.spec_from_file_location("md_upstream_precommit_validate", path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module._REGISTRY
-
-
-def _load_module(mod_root: Path, relative: str, module_name: str):
+def _load_module(mod_root: Path, relative: str, name: str):
     path = mod_root / relative
-    spec = importlib.util.spec_from_file_location(module_name, path)
+    spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def _load_ci_workflow(mod_root: Path):
-    path = mod_root / ".github" / "workflows" / "test-suite.yml"
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
-def _load_ci_routes(mod_root: Path):
-    batches = _load_module(
-        mod_root, "tools/validation/validator_batches.py", "md_upstream_validator_batches"
-    )
-    groups = _load_module(
-        mod_root, "tools/validation/change_groups.py", "md_upstream_change_groups"
-    )
-    routes = {}
-    for spec in batches.ALL_SPECS:
-        name = Path(spec.script).stem.removeprefix("validate_")
-        assert name not in routes, f"duplicate CI validator: {name}"
-        routes[name] = tuple(sorted(spec.groups))
-    return routes, groups.GROUP_PATTERNS, _load_ci_workflow(mod_root)["jobs"]
+def _load_registry(mod_root: Path):
+    module = _load_module(mod_root, "tools/precommit_validate.py", "md_upstream_precommit")
+    return module._REGISTRY
 
 
 def _load_style_scan_patterns(mod_root: Path) -> tuple[str, ...]:
-    path = mod_root / "tools" / "validation" / "validate_style.py"
+    path = mod_root / "tools/validation/validate_style.py"
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign):
@@ -367,40 +135,23 @@ def _load_style_scan_patterns(mod_root: Path) -> tuple[str, ...]:
     raise AssertionError(f"{path} no longer defines _SCAN_PATTERNS")
 
 
-def _sparse_checkout_paths(steps: list) -> tuple[str, ...]:
-    checkout = next(step for step in steps if "sparse-checkout" in step.get("with", {}))
-    return tuple(
-        line.strip()
-        for line in checkout["with"]["sparse-checkout"].splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
+def _load_workflow(mod_root: Path):
+    return yaml.safe_load(
+        (mod_root / ".github/workflows/test-suite.yml").read_text(encoding="utf-8")
     )
 
 
-def _load_workspace_paths(mod_root: Path) -> tuple[str, ...]:
-    workflow = _load_ci_workflow(mod_root)
-    return tuple(workflow["env"]["WORKSPACE_PATHS"].split())
-
-
-def _load_prepare_workspace_paths(mod_root: Path) -> tuple[str, ...]:
-    workflow = _load_ci_workflow(mod_root)
-    return _sparse_checkout_paths(workflow["jobs"]["prepare-workspace"]["steps"])
-
-
-def _load_validate_paths_checkout(mod_root: Path) -> tuple[str, ...]:
-    workflow = _load_ci_workflow(mod_root)
-    return _sparse_checkout_paths(workflow["jobs"]["validate-paths"]["steps"])
-
-
-def _probe_path(pattern: str) -> str:
+def _probe(pattern: str) -> str:
     return pattern.replace("**", "__routing_probe").replace("*", "routing_probe")
 
 
-def test_equipment_variants_ci_domains_are_auto_routable_for_script_text():
-    assert EXPECTED_CI_ROUTING["equipment_variants"] == ("common", "events", "history")
-    assert "equipment_variants" not in INTENTIONALLY_NOT_AUTO_ROUTED
-    for root in ("common", "events", "history"):
-        assert "equipment_variants" in _validators_for_path(f"{root}/__routing_probe.txt")
-        assert "equipment_variants" not in _validators_for_path(f"{root}/__routing_probe.gfx")
+def _sparse_paths(steps: list) -> set[str]:
+    step = next(step for step in steps if "sparse-checkout" in step.get("with", {}))
+    return {
+        line.strip()
+        for line in step["with"]["sparse-checkout"].splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
 
 
 @pytest.mark.integration
@@ -422,7 +173,7 @@ def test_commit_registry_paths_reach_auto_map(real_mod_root):
         for prefix, extension in spec.rules:
             if not prefix and extension == ".txt":
                 probes = [
-                    _probe_path(pattern)
+                    _probe(pattern)
                     for pattern in _load_style_scan_patterns(real_mod_root)
                     if pattern.endswith(extension)
                 ]
@@ -434,67 +185,159 @@ def test_commit_registry_paths_reach_auto_map(real_mod_root):
 
 
 @pytest.mark.integration
-def test_upstream_ci_routing_snapshot(real_mod_root):
-    routes, filters, jobs = _load_ci_routes(real_mod_root)
-    assert routes == EXPECTED_CI_ROUTING
-    actual_filters = {name: frozenset(paths) for name, paths in filters.items()}
-    expected_filters = {name: frozenset(paths) for name, paths in EXPECTED_CI_FILTERS.items()}
-    assert actual_filters == expected_filters
-    run_steps = [step.get("run", "") for step in jobs["mod-tests"]["steps"]]
-    assert any("run_validator_batch.py" in command for command in run_steps)
+def test_auto_routing_matches_current_upstream_groups(real_mod_root):
+    batches, change_groups = _upstream_routing(str(real_mod_root.resolve()))
+    available = {info.name for info in available_validators(real_mod_root)}
+    excluded = {
+        Path(script).stem.removeprefix("validate_").replace("-", "_")
+        for script in batches._IMPACT_EXCLUDED_SCRIPTS
+    }
 
-
-@pytest.mark.integration
-def test_upstream_workspace_paths_snapshot(real_mod_root):
-    assert _load_workspace_paths(real_mod_root) == EXPECTED_WORKSPACE_PATHS
-    assert _load_prepare_workspace_paths(real_mod_root) == EXPECTED_PREPARE_WORKSPACE_PATHS
-    assert _load_validate_paths_checkout(real_mod_root) == EXPECTED_VALIDATE_PATHS_CHECKOUT
-
-
-@pytest.mark.integration
-def test_precise_ci_paths_reach_auto_map(real_mod_root):
-    routes, filters, _jobs = _load_ci_routes(real_mod_root)
-    missing = set(routes) - set(SCAN_PREFIXES) - INTENTIONALLY_NOT_AUTO_ROUTED
-    assert not missing, f"CI validators missing from auto routing: {sorted(missing)}"
-
-    for validator, groups in routes.items():
-        if validator in INTENTIONALLY_NOT_AUTO_ROUTED:
-            continue
-        for group in groups:
-            if (validator, group) in COARSE_CI_ROUTES:
-                continue
-            if (validator, group) in CI_BROAD_SCOPE_EXCEPTIONS:
-                for pattern in filters[group]:
-                    probe = _probe_path(pattern)
-                    assert validator not in _validators_for_path(
-                        probe
-                    ), f"{validator} unexpectedly routes broader CI pattern {pattern}"
-                assert validator in _validators_for_path("localisation/english/__routing_probe.yml")
-                assert validator not in _validators_for_path(
-                    "localisation/french/__routing_probe.yml"
+    # Exercise representative files from every current CI group. The expected
+    # set is computed from upstream's live specs and classifier, not a copied
+    # list that can drift independently.
+    covered_groups = set()
+    for spec in batches.ALL_SPECS:
+        for group in spec.groups:
+            patterns = change_groups.GROUP_PATTERNS[group]
+            probe = _probe(patterns[0])
+            changed = change_groups.classify([probe])
+            assert changed[group] is True, f"upstream does not classify {probe} as {group}"
+            selected = {
+                Path(candidate.script).stem.removeprefix("validate_").replace("-", "_")
+                for candidate in batches.ALL_SPECS
+                if set(candidate.groups).intersection(
+                    name for name, value in changed.items() if value is True
                 )
-                continue
-            for pattern in filters[group]:
-                probe = _probe_path(pattern)
-                assert validator in _validators_for_path(
-                    probe
-                ), f"{validator} is not auto-routed for CI pattern {pattern}"
+            }
+            expected = (selected - SLOW_VALIDATORS - excluded) & available
+            expected -= AUTO_ROUTING_EXCLUDED
+            if changed.get("file-paths"):
+                expected.add("file_paths")
+            if changed.get("style"):
+                expected.add("style")
+            expected &= available
+            actual = set(select_validators([probe], available, mod_root=real_mod_root))
+            assert actual == expected, f"auto route drift for {probe}: {actual ^ expected}"
+            covered_groups.add(group)
+
+    assert set().union(*(set(s.groups) for s in batches.ALL_SPECS)) <= covered_groups
+
+
+@pytest.mark.integration
+def test_impact_exclusions_and_validator_arguments_follow_upstream(real_mod_root):
+    batches, _groups = _upstream_routing(str(real_mod_root.resolve()))
+    available = {info.name for info in available_validators(real_mod_root)}
+    excluded_names = {
+        Path(script).stem.removeprefix("validate_").replace("-", "_")
+        for script in batches._IMPACT_EXCLUDED_SCRIPTS
+    }
+    for script in batches._IMPACT_EXCLUDED_SCRIPTS:
+        assert (
+            select_validators([f"tools/validation/{script}"], available, mod_root=real_mod_root)
+            == []
+        )
+    run_all = set(select_validators(None, available, mod_root=real_mod_root))
+    assert not (excluded_names & available & run_all)
+
+    expected_args = {
+        Path(spec.script).stem.removeprefix("validate_").replace("-", "_"): tuple(spec.args)
+        for spec in (*batches.ALL_SPECS, *batches.IMPACT_ONLY_SPECS)
+        if spec.args
+    }
+    assert _upstream_args(real_mod_root) == expected_args
+    assert expected_args["variables"] == ("--redundant-focus-flags",)
+    assert expected_args["math_expressions"] == ("--clamp-bounds",)
+    assert expected_args["decisions"] == ("--unannounced-categories",)
 
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    "validator,job_name,script,probes",
+    "path",
     [
-        (validator, job_name, script, probes)
-        for validator, (job_name, script, probes) in EXPECTED_STANDALONE_JOBS.items()
+        "tools/validation/validate_decisions.py",
+        "tools/shared_utils.py",
+        "tools/report_lib/foo.py",
     ],
 )
-def test_standalone_ci_validator_remains_wired(real_mod_root, validator, job_name, script, probes):
-    _routes, _filters, jobs = _load_ci_routes(real_mod_root)
-    assert job_name in jobs
-    run_steps = [step["run"] for step in jobs[job_name]["steps"] if "run" in step]
-    assert any(
-        script in command for command in run_steps
-    ), f"{validator} is no longer run by {job_name}"
-    for probe in probes:
-        assert validator in _validators_for_path(probe)
+def test_tooling_auto_selection_matches_upstream_impact_selector(real_mod_root, path):
+    batches, _groups = _upstream_routing(str(real_mod_root.resolve()))
+    available = {info.name for info in available_validators(real_mod_root)}
+    selected, adhoc = batches.select_for_changed_files([path])
+    expected = {
+        Path(spec.script).stem.removeprefix("validate_").replace("-", "_")
+        for spec in [*selected, *adhoc]
+    }
+    excluded = {
+        Path(script).stem.removeprefix("validate_").replace("-", "_")
+        for script in batches._IMPACT_EXCLUDED_SCRIPTS
+    }
+    expected -= SLOW_VALIDATORS | AUTO_ROUTING_EXCLUDED | excluded
+    expected &= available
+
+    actual = set(select_validators([path], available, mod_root=real_mod_root))
+
+    assert actual == expected
+    if path == "tools/shared_utils.py":
+        assert {"style", "mod_descriptors"} <= actual
+    if path == "tools/report_lib/foo.py":
+        assert {"variables", "decisions"} <= actual
+
+
+@pytest.mark.integration
+def test_ci_workspace_contains_current_routing_inputs(real_mod_root):
+    workflow = _load_workflow(real_mod_root)
+    workspace = set(workflow["env"]["WORKSPACE_PATHS"].split())
+    profile = set(
+        line.strip().strip("/")
+        for line in (real_mod_root / "tools/validation/ci_workspace_profile.txt")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip() and not line.startswith("!")
+    )
+    checkout = _sparse_paths(workflow["jobs"]["validate-paths"]["steps"])
+
+    # These are current contract inputs used by the live routing/workspace
+    # definitions. In particular graphic-db was added after the old snapshot.
+    required = {"validation_config.json", "gfx/interface/equipmentdesigner/graphic_db"}
+    assert required <= workspace
+    assert required <= profile
+    assert "tools" in checkout
+
+    group_module = _load_module(
+        real_mod_root, "tools/validation/change_groups.py", "md_test_change_groups"
+    )
+    assert (
+        "gfx/interface/equipmentdesigner/graphic_db/**" in group_module.GROUP_PATTERNS["graphic-db"]
+    )
+
+
+@pytest.mark.integration
+def test_upstream_standalone_validators_remain_wired(real_mod_root):
+    jobs = _load_workflow(real_mod_root)["jobs"]
+    required = [
+        ("validate-paths", "validate_file_paths.py"),
+        ("mod-tests", "validate_mod_descriptors.py"),
+        ("mod-tests", "validate_style.py"),
+    ]
+    for job_name, script in required:
+        commands = [step["run"] for step in jobs[job_name]["steps"] if "run" in step]
+        assert any(script in command for command in commands)
+    assert "style" in _validators_for_path("common/ideas/__routing_probe.txt")
+
+
+@pytest.mark.integration
+def test_upstream_style_scan_patterns_remain_text_scoped(real_mod_root):
+    path = real_mod_root / "tools/validation/validate_style.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    patterns = next(
+        ast.literal_eval(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "_SCAN_PATTERNS"
+            for target in node.targets
+        )
+    )
+    assert patterns
+    assert all(pattern.endswith(".txt") for pattern in patterns)

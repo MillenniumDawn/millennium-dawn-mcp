@@ -14,3 +14,5 @@ class ScriptedTriggerIndex(GenericTxtIndex):
     subdir = "common/scripted_triggers"
     parser_fn = staticmethod(parse_scripted_trigger_file)
     primary_key = "id"
+    tag_indexed = True
+    source_tag_indexed = True

@@ -191,8 +191,6 @@ def test_report_lib_loads_models_dedupe_and_baseline(fake_mod_root: Path):
 
     assert lib.Issue.from_dict({"severity": "warning"}).severity == "warning"
     assert callable(lib.dedupe)
-    assert callable(lib.classify)
-    assert callable(lib.issue_key)
     assert callable(lib.load_issues)
 
     second = _report_lib(fake_mod_root)

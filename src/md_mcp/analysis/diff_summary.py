@@ -26,9 +26,7 @@ import re
 import subprocess
 from pathlib import Path
 from subprocess import TimeoutExpired
-from typing import Any, Optional, Sequence, Union
-
-from typing_extensions import TypeIs
+from typing import Any, Optional, Union
 
 from ..paradox import parse_string
 from ..paradox.schema import (
@@ -69,10 +67,6 @@ class _GitReadError:
 
     def __repr__(self) -> str:
         return f"_GitReadError(error={self.error!r}, error_msg={self.error_msg!r})"
-
-
-def _is_read_error(value: Union[str, _GitReadError]) -> TypeIs[_GitReadError]:
-    return isinstance(value, _GitReadError)
 
 
 def _validate_rev(name: str, rev: str) -> str:
@@ -152,20 +146,17 @@ def diff_summary(
         }
         if old_path and old_path != new_path:
             record["old_path"] = old_path
-            # Backwards-compat alias: agents looking for `path` on a rename
-            # still see the new path, but exposing `old_path` lets callers
-            # reproduce the rename.
-            record["path"] = new_path
 
-        if with_ids and kind in ("focus", "event", "decision", "idea") and status != "D":
+        if with_ids and kind in ("focus", "event", "decision", "idea"):
             id_block: dict[str, Any] = {}
             base_err: Optional[str] = None
             head_err: Optional[str] = None
             head_text: str = ""
             base_text: str = ""
 
-            head_text_r = _read_at(git_root, "HEAD", new_path)
-            if _is_read_error(head_text_r):
+            # A deleted file is gone at HEAD; treat it as empty so every base ID is removed.
+            head_text_r = "" if status == "D" else _read_at(git_root, "HEAD", new_path)
+            if isinstance(head_text_r, _GitReadError):
                 head_err = head_text_r.error
             else:
                 head_text = head_text_r
@@ -174,7 +165,7 @@ def diff_summary(
                 # For renames/copies, compare against the OLD path at base.
                 compare_path = old_path if status in ("R", "C") else new_path
                 base_text_r = _read_at(git_root, base, compare_path)
-                if _is_read_error(base_text_r):
+                if isinstance(base_text_r, _GitReadError):
                     base_err = base_text_r.error
                 else:
                     base_text = base_text_r
@@ -317,13 +308,10 @@ def _parse_name_status_z(raw: str) -> list[dict[str, str]]:
             new_path = parts[i] if i < len(parts) else ""
             i += 1
             records.append({"status": status, "old_path": old_path, "new_path": new_path})
-        elif status in ("M", "A", "D", "T"):
-            new_path = parts[i] if i < len(parts) else ""
-            i += 1
-            records.append({"status": status, "old_path": "", "new_path": new_path})
         else:
-            # All other git statuses use one path. Preserve them rather than
-            # silently dropping a file if git adds a new status letter.
+            # M/A/D/T and every other git status use one path. Preserve unknown
+            # statuses rather than silently dropping a file if git adds a new
+            # status letter.
             new_path = parts[i] if i < len(parts) else ""
             i += 1
             records.append({"status": status, "old_path": "", "new_path": new_path})
@@ -403,11 +391,3 @@ def _extract_ids(text: str, kind: str) -> list[str]:
     if kind == "idea":
         return [r["id"] for r in extract_idea_records(root)]
     return []
-
-
-# Re-export the validator helpers for tests without making them private.
-__all__: Sequence[str] = (
-    "GIT_TIMEOUT_DIFF",
-    "GIT_TIMEOUT_SHOW",
-    "diff_summary",
-)

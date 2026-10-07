@@ -12,8 +12,6 @@ license = { text = "MIT" }
 dependencies = [
   "mcp>=1.0,<2",
   "tomli>=2.0; python_version < '3.11'",
-  "pyyaml>=6.0",
-  "typing-extensions>=4.0",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +22,7 @@ dev = [
   "diff-cover>=9.0",
   "ruff==0.8.6",
   "mypy>=1.14",
+  "pyyaml>=6.0",
   "types-PyYAML",
   "pre-commit>=4.0",
 ]

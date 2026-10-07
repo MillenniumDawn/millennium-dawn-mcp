@@ -79,9 +79,10 @@ class EquipmentVariantChecker:
             )
 
         try:
-            findings = self._module_for_current_equipment().check_created_variants(
-                text, self._index_for_current_equipment()
-            )
+            module = self._module_for_current_equipment()
+            created_variant_spans = getattr(module, "created_variant_spans", None)
+            created = created_variant_spans(text) if callable(created_variant_spans) else text
+            findings = module.check_created_variants(created, self._index_for_current_equipment())
         except Exception as exc:
             return enforce_budget(
                 {"ok": False, "error": f"Equipment variant check failed: {exc}"[:500]}

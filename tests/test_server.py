@@ -312,11 +312,23 @@ class Finding:
     hull = "test_hull"
 
 
+from typing import NamedTuple
+
+
+class CreatedVariants(NamedTuple):
+    text: str
+    spans: list[tuple[int, int]]
+
+
 def build_equipment_index(units_dir):
     return object()
 
 
-def check_created_variants(content, index):
+def created_variant_spans(content):
+    return CreatedVariants(content, [])
+
+
+def check_created_variants(variants, index):
     return []
 """,
         encoding="utf-8",

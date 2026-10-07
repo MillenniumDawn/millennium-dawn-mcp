@@ -228,23 +228,139 @@ def test_modified_focus_file_reports_removed_ids(git_repo: Path):
     assert "added_ids" not in rec
 
 
-def test_deleted_file_is_classified_but_skipped_for_id_diff(git_repo: Path):
-    _write(git_repo, "events/Test_events.txt", "country_event = { id = TST_evt.1 }")
-    _add_and_commit(git_repo, "events/Test_events.txt", message="add events")
+@pytest.mark.parametrize(
+    "kind, rel_path, body, removed",
+    [
+        (
+            "focus",
+            FOCUS_FILE,
+            _focus_body("TST_root", "TST_branch"),
+            ["TST_branch", "TST_root"],
+        ),
+        (
+            "event",
+            "events/Test_events.txt",
+            "add_namespace = TST\n"
+            "country_event = {\n"
+            "    id = TST.1\n"
+            "}\n"
+            "country_event = {\n"
+            "    id = TST.2\n"
+            "}\n",
+            ["TST.1", "TST.2"],
+        ),
+        (
+            "decision",
+            "common/decisions/TST_decisions.txt",
+            "TST_category = {\n"
+            "    TST_base_decision = {\n"
+            "        allowed = { tag = TST }\n"
+            "    }\n"
+            "    TST_new_decision = {\n"
+            "        allowed = { tag = TST }\n"
+            "    }\n"
+            "}\n",
+            ["TST_base_decision", "TST_new_decision"],
+        ),
+        (
+            "idea",
+            "common/ideas/TST_ideas.txt",
+            "ideas = {\n"
+            "    country = {\n"
+            "        TST_base_idea = {\n"
+            "            modifier = { stability_factor = 0.05 }\n"
+            "        }\n"
+            "        TST_new_idea = {\n"
+            "            modifier = { war_support_factor = 0.05 }\n"
+            "        }\n"
+            "    }\n"
+            "}\n",
+            ["TST_base_idea", "TST_new_idea"],
+        ),
+    ],
+)
+def test_deleted_file_reports_base_ids_as_removed(
+    git_repo: Path, kind: str, rel_path: str, body: str, removed: list[str]
+):
+    _write(git_repo, rel_path, body)
+    _add_and_commit(git_repo, rel_path, message=f"add {kind}")
 
-    (git_repo / "events" / "Test_events.txt").unlink()
+    (git_repo / rel_path).unlink()
     _git(git_repo, "add", "-A")
-    _commit(git_repo, "delete events")
+    _commit(git_repo, f"delete {kind}")
 
     out = diff_summary(git_repo, base="HEAD~1")
-    rec = next(r for r in out["files"] if r["path"] == "events/Test_events.txt")
+    rec = next(r for r in out["files"] if r["path"] == rel_path)
     assert rec["status"] == "D"
-    assert rec["kind"] == "event"
-    # Deletions skip ID reads entirely. Comparing against an empty HEAD would
-    # otherwise mis-claim every prior ID was removed.
+    assert rec["kind"] == kind
+    assert rec["removed_ids"] == removed
     assert "added_ids" not in rec
-    assert "removed_ids" not in rec
     assert "id_diff" not in rec
+
+
+def _stub_deleted_event(monkeypatch: pytest.MonkeyPatch, base_text: Any) -> list[tuple[str, str]]:
+    """Report `events/deleted.txt` as deleted; `_read_at` returns `base_text`."""
+    reads: list[tuple[str, str]] = []
+
+    def fake_read_at(_root: Path, rev: str, path: str) -> Any:
+        reads.append((rev, path))
+        return base_text
+
+    monkeypatch.setattr(
+        diff_summary_mod,
+        "_git_diff_files",
+        lambda *_args: [{"status": "D", "old_path": "", "new_path": "events/deleted.txt"}],
+    )
+    monkeypatch.setattr(diff_summary_mod, "_read_at", fake_read_at)
+    return reads
+
+
+def test_deleted_file_reads_only_base_never_head(monkeypatch: pytest.MonkeyPatch):
+    reads = _stub_deleted_event(monkeypatch, "country_event = { id = TST.1 }")
+
+    out = diff_summary(Path("."), base="HEAD~1")
+    [rec] = out["files"]
+    assert reads == [("HEAD~1", "events/deleted.txt")]
+    assert rec["removed_ids"] == ["TST.1"]
+
+
+def test_deleted_empty_file_reports_no_ids(monkeypatch: pytest.MonkeyPatch):
+    _stub_deleted_event(monkeypatch, "")
+
+    out = diff_summary(Path("."), base="HEAD~1")
+    [rec] = out["files"]
+    assert rec["status"] == "D"
+    assert "removed_ids" not in rec
+    assert "added_ids" not in rec
+    assert "id_diff" not in rec
+
+
+def test_deleted_file_base_read_failure_surfaces_as_base_error(monkeypatch: pytest.MonkeyPatch):
+    from md_mcp.analysis.diff_summary import _GitReadError
+
+    _stub_deleted_event(monkeypatch, _GitReadError("git show failed"))
+
+    out = diff_summary(Path("."), base="HEAD~1")
+    [rec] = out["files"]
+    assert rec["id_diff"] == {"base_error": "git show failed"}
+    assert "removed_ids" not in rec
+
+
+def test_deleted_file_with_malformed_base_surfaces_parser_error(monkeypatch: pytest.MonkeyPatch):
+    _stub_deleted_event(monkeypatch, "country_event = {\n    id = TST.1\n")
+
+    out = diff_summary(Path("."), base="HEAD~1")
+    [rec] = out["files"]
+    assert "parser failure" in rec["id_diff"]["error"]
+    assert "removed_ids" not in rec
+
+
+def test_deleted_file_with_ids_disabled_does_no_reads(monkeypatch: pytest.MonkeyPatch):
+    reads = _stub_deleted_event(monkeypatch, "country_event = { id = TST.1 }")
+
+    out = diff_summary(Path("."), base="HEAD~1", with_ids=False)
+    assert reads == []
+    assert out["files"] == [{"path": "events/deleted.txt", "status": "D", "kind": "event"}]
 
 
 def test_rename_keeps_both_paths_and_compares_correctly(git_repo: Path):

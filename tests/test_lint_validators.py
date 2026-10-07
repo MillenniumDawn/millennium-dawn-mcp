@@ -54,9 +54,12 @@ class FakeRunner(ValidatorRunner):
             for n in self.names
         ]
 
-    def run(self, name, *, staged_only=False, files=None, post_filter=True):
+    def run(self, name, *, staged_only=False, files=None, post_filter=True, args=None):
         self.calls.append({"name": name, "staged_only": staged_only})
-        self.scope_calls.append({"name": name, "files": files, "post_filter": post_filter})
+        call = {"name": name, "files": files, "post_filter": post_filter}
+        if args:
+            call["args"] = args
+        self.scope_calls.append(call)
         if name in self.results:
             return self.results[name]
         return {"ok": True, "validator": name, "counts": {}, "issues": []}
@@ -347,6 +350,28 @@ def test_select_validators_intersects_available():
 # ---------------------------------------------------------------------------
 # run_validators_for_lint
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_run_validators_for_lint_forwards_current_upstream_args(real_mod_root):
+    runner = FakeRunner(names=["decisions"])
+    entries, _issues = run_validators_for_lint(
+        runner,
+        ["decisions"],
+        staged_only=False,
+        relevant_set=None,
+        mod_root=real_mod_root,
+    )
+
+    assert entries[0]["ok"] is True
+    assert runner.scope_calls == [
+        {
+            "name": "decisions",
+            "files": None,
+            "post_filter": True,
+            "args": ("--unannounced-categories",),
+        }
+    ]
 
 
 def test_run_validators_scopes_and_reports_mod_wide():

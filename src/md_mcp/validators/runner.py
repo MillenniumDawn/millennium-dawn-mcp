@@ -18,6 +18,7 @@ for `isolated`.
 
 from __future__ import annotations
 
+import argparse
 import ast
 import builtins
 import contextlib
@@ -141,6 +142,7 @@ class ValidatorRunner:
         staged_only: bool = False,
         files: Optional[builtins.list[str]] = None,
         post_filter: bool = True,
+        args: Optional[builtins.list[str] | tuple[str, ...]] = None,
     ) -> dict:
         """Run a single validator. Returns {ok, validator, title, issues, counts}.
 
@@ -158,10 +160,10 @@ class ValidatorRunner:
 
         if self.mode == "in_process":
             return self._run_inprocess(
-                info, staged_only=staged_only, files=files, post_filter=post_filter
+                info, staged_only=staged_only, files=files, post_filter=post_filter, args=args
             )
         return self._run_isolated(
-            info, staged_only=staged_only, files=files, post_filter=post_filter
+            info, staged_only=staged_only, files=files, post_filter=post_filter, args=args
         )
 
     # ------------------------------------------------------------------
@@ -175,6 +177,7 @@ class ValidatorRunner:
         staged_only: bool,
         files: Optional[builtins.list[str]],
         post_filter: bool,
+        args: Optional[builtins.list[str] | tuple[str, ...]],
     ) -> dict:
         stderr_on_failure: list[str] = []
         try:
@@ -183,6 +186,7 @@ class ValidatorRunner:
                 info.module_name,
                 staged_only,
                 files=files,
+                args=args,
                 stderr_on_failure=stderr_on_failure,
             )
         except Exception as e:
@@ -231,6 +235,7 @@ class ValidatorRunner:
         staged_only: bool,
         files: Optional[builtins.list[str]],
         post_filter: bool,
+        args: Optional[builtins.list[str] | tuple[str, ...]],
     ) -> dict:
         cmd = [
             sys.executable,
@@ -243,6 +248,8 @@ class ValidatorRunner:
         ]
         if staged_only:
             cmd.append("--staged-only")
+        for arg in args or ():
+            cmd.append(f"--validator-arg={arg}")
 
         with tempfile.TemporaryDirectory(prefix="md-mcp-validator-") as td:
             out = Path(td) / "issues.json"
@@ -373,6 +380,7 @@ def _collect(
     staged_only: bool,
     files: Optional[list[str]] = None,
     *,
+    args: Optional[list[str] | tuple[str, ...]] = None,
     stderr_on_failure: Optional[list[str]] = None,
 ) -> dict:
     """Import, build, scope, and run one validator, then harvest its `_issues`.
@@ -388,7 +396,24 @@ def _collect(
     if validator_cls is None:
         raise AttributeError(f"module {module_name} does not define `Validator`")
 
-    inst = validator_cls(mod_path=mod_root, use_colors=False, staged_only=staged_only)
+    validator_kwargs = {}
+    if args:
+        add_extra_args = getattr(module, "_add_extra_args", None)
+        if not callable(add_extra_args):
+            raise ValueError(f"module {module_name} does not accept validator arguments")
+        parser = argparse.ArgumentParser(add_help=False)
+        add_extra_args(parser)
+        parsed, unknown = parser.parse_known_args(list(args))
+        if unknown:
+            raise ValueError(f"unsupported arguments for {module_name}: {unknown}")
+        validator_kwargs = vars(parsed)
+
+    inst = validator_cls(
+        mod_path=mod_root,
+        use_colors=False,
+        staged_only=staged_only,
+        **validator_kwargs,
+    )
     scoped = _configure_file_scope(inst, files)
 
     # Validators chatter on stdout and some call sys.exit() mid-run; neither

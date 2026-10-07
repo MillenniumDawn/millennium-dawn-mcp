@@ -283,7 +283,7 @@ def test_lint_tool_reports_validator_suppressions_in_summary(tmp_path):
                 )
             ]
 
-        def run(self, name, *, staged_only=False, files=None, post_filter=True):
+        def run(self, name, *, staged_only=False, files=None, post_filter=True, args=None):
             return {
                 "ok": True,
                 "issues": [],

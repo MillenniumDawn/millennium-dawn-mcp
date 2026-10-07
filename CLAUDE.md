@@ -158,6 +158,11 @@ sub-command that primes caches before the server starts).
 sure it's gated on `MD_MCP_SERIAL_PARSE` and never reaches a fork inside
 `mcp.run()`.
 
+The bounded `ThreadPoolExecutor` in `md_mcp/util/offload.py` is thread-only and
+is intentionally active under `md-mcp serve`; it does not use a process pool or
+fork. Keep its worker and admission limits in place. Do not gate this offload on
+`MD_MCP_SERIAL_PARSE`.
+
 The mod validators are another fork source: many have pool-aware paths, and
 actual pool creation is conditional on worker count and batch size. The shared
 pool implementation is in `validator_common.py`, which we don't control. That's

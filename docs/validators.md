@@ -273,16 +273,21 @@ Both run via subprocess. They're independent of `ValidatorRunner`.
 
 Under `md-mcp serve`, `lint`, `validate`, and `review_branch` run in a bounded
 thread pool so their blocking filesystem scans and subprocess waits do not
-stall unrelated MCP requests. The server allows four worker threads and at
-most eight active or queued calls. `lint` and `validate` share a
-`ValidatorRunner`; those two operations are serialized while they use its
-lazy import and attribution caches. `review_branch` runs independently. These
-tools do not mutate the shared content indexes.
+stall unrelated MCP requests. The server has four worker threads and admits at
+most eight jobs to the pool or its work queue at once; excess calls wait
+asynchronously for capacity. `lint` and `validate` share a `ValidatorRunner`;
+they acquire an async lock before requesting an admission slot and then use its
+lazy import and attribution caches. Calls waiting for that lock occupy neither
+an admission slot nor a worker thread. If a client cancels a call after its
+worker starts, that worker keeps the lock and its slot until it finishes.
+`review_branch` runs independently. These tools do not mutate the shared
+content indexes.
 
 Cancelling a client request stops waiting for its result, but Python cannot
-stop a worker thread or its subprocess wait safely. The worker continues, and
-its pool slot stays occupied until it finishes; the bound therefore also
-applies when clients cancel work.
+stop a worker thread or its subprocess wait safely. A submitted worker
+continues, and its pool slot stays occupied until it finishes. A request
+cancelled before submission, while waiting for the validator lock or pool
+capacity, releases any lock it holds and does not keep an admission slot.
 
 ## Adding a new validator
 

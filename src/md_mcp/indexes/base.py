@@ -520,7 +520,7 @@ class GenericTxtIndex:
         """
         self.ensure_fresh()
         canonical = tag.upper()
-        if "_" not in canonical and (self.tag_indexed or self.source_tag_indexed):
+        if "_" not in canonical and self.source_tag_indexed:
             keys = set(self._ids_by_tag.get(canonical, ()))
             keys.update(self._ids_by_file_tag.get(canonical, ()))
             return sorted(keys, key=str)

@@ -44,6 +44,12 @@ class _SourceOnlyTagIndex(_TagIndex):
     tag_file_indexed = False
 
 
+class _TagOnlyIndex(_TagIndex):
+    cache_name = "tag-only-test"
+    tag_file_indexed = False
+    source_tag_indexed = False
+
+
 def _write(root: Path, relative_path: str, ids: list[str]) -> Path:
     path = root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,7 +102,6 @@ def test_tag_lookups_match_case_insensitive_prefix_scan(tmp_path, cache_dir):
     expected_records = _scan_country_records(index, "USA")
     assert index.ids_for_country_tag("usa") == expected_records[0]
     assert _indexed_country_records(index, "USA") == expected_records
-    assert _indexed_country_records(index, "USA") == expected_records
 
     scan_index = _ScanTagIndex(root, cache_dir, include_vanilla=False)
     assert scan_index.ids_for_tag("USA") == expected_ids
@@ -108,6 +113,11 @@ def test_tag_lookups_match_case_insensitive_prefix_scan(tmp_path, cache_dir):
 
     source_only_index = _SourceOnlyTagIndex(root, cache_dir, include_vanilla=False)
     assert source_only_index.ids_for_country_tag("USA") == expected_records[0]
+
+    tag_only_index = _TagOnlyIndex(root, cache_dir, include_vanilla=False)
+    assert tag_only_index.ids_for_country_tag("USA") == expected_records[0]
+    assert "exact_file_only" in tag_only_index.ids_for_country_tag("USA")
+    assert _indexed_country_records(tag_only_index, "USA") == expected_records
 
 
 def test_tag_maps_follow_incremental_update_remove_and_cache_reload(tmp_path, cache_dir):

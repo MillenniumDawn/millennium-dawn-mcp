@@ -268,17 +268,18 @@ thread pool so their blocking filesystem scans and subprocess waits do not
 stall unrelated MCP requests. The server has four worker threads and admits at
 most eight jobs to the pool or its work queue at once; excess calls wait
 asynchronously for capacity. `lint` and `validate` share a `ValidatorRunner`;
-they acquire an async lock before using its lazy import and attribution caches.
-Calls waiting for that lock do not occupy worker threads. If a client cancels a
-call after its worker starts, that worker keeps the lock until it finishes,
-then releases its pool slot. `review_branch` runs independently. These tools do
-not mutate the shared content indexes.
+they acquire an async lock before requesting an admission slot and then use its
+lazy import and attribution caches. Calls waiting for that lock occupy neither
+an admission slot nor a worker thread. If a client cancels a call after its
+worker starts, that worker keeps the lock and its slot until it finishes.
+`review_branch` runs independently. These tools do not mutate the shared
+content indexes.
 
 Cancelling a client request stops waiting for its result, but Python cannot
 stop a worker thread or its subprocess wait safely. A submitted worker
 continues, and its pool slot stays occupied until it finishes. A request
-cancelled while waiting for the validator lock has not been submitted and
-releases its admission slot immediately.
+cancelled before submission, while waiting for the validator lock or pool
+capacity, releases any lock it holds and does not keep an admission slot.
 
 ## Adding a new validator
 

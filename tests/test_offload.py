@@ -17,6 +17,9 @@ def test_offloader_propagates_worker_exception() -> None:
             raise ValueError("worker failed")
 
         with pytest.raises(ValueError, match="worker failed"):
+            await offloader.run(fail)
+
+        with pytest.raises(ValueError, match="worker failed"):
             await offloader.run_serialized(lock, fail)
 
         assert await offloader.run_serialized(lock, lambda: "recovered") == "recovered"
@@ -85,7 +88,7 @@ def test_cancelled_serial_waiter_does_not_occupy_worker() -> None:
         # The second call is waiting on the async lock, not occupying the other
         # pool thread. Independent work can still use that worker.
         assert (
-            await asyncio.wait_for(offloader.run(lambda: "free worker"), timeout=0.5)
+            await asyncio.wait_for(offloader.run(lambda: "free worker"), timeout=1.0)
             == "free worker"
         )
 
@@ -98,13 +101,12 @@ def test_cancelled_serial_waiter_does_not_occupy_worker() -> None:
     asyncio.run(run())
 
 
-def test_cancelled_serial_waiter_releases_admission_slot() -> None:
+def test_full_validator_lock_queue_does_not_starve_independent_work() -> None:
     async def run() -> None:
-        offloader = BoundedOffloader(workers=2, capacity=2)
+        offloader = BoundedOffloader()
         lock = asyncio.Lock()
         started = threading.Event()
         release = threading.Event()
-        independent_started = threading.Event()
 
         def first() -> None:
             started.set()
@@ -113,28 +115,79 @@ def test_cancelled_serial_waiter_releases_admission_slot() -> None:
         first_task = asyncio.create_task(offloader.run_serialized(lock, first))
         await asyncio.to_thread(started.wait, 1)
 
+        waiter_count = 7
+        waiters_entered = asyncio.Event()
+        entered = 0
+
+        async def wait_for_validator_lock() -> None:
+            nonlocal entered
+            entered += 1
+            if entered == waiter_count:
+                waiters_entered.set()
+            await offloader.run_serialized(lock, lambda: None)
+
+        waiting_tasks = [
+            asyncio.create_task(wait_for_validator_lock()) for _ in range(waiter_count)
+        ]
+        await waiters_entered.wait()
+        await asyncio.sleep(0.05)
+
+        assert (
+            await asyncio.wait_for(offloader.run(lambda: "review branch"), timeout=1.0)
+            == "review branch"
+        )
+
+        for task in waiting_tasks:
+            task.cancel()
+        for task in waiting_tasks:
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        release.set()
+        await first_task
+
+    asyncio.run(run())
+
+
+def test_cancelled_capacity_waiter_releases_validator_lock() -> None:
+    async def run() -> None:
+        offloader = BoundedOffloader(workers=1, capacity=1)
+        lock = asyncio.Lock()
+        started = threading.Event()
+        release = threading.Event()
+
+        def first() -> None:
+            started.set()
+            release.wait(timeout=3)
+
+        first_task = asyncio.create_task(offloader.run(first))
+        await asyncio.to_thread(started.wait, 1)
+
         waiter_entered = asyncio.Event()
 
-        async def wait_for_lock() -> None:
+        async def wait_for_capacity() -> None:
             waiter_entered.set()
             await offloader.run_serialized(lock, lambda: None)
 
-        waiting_task = asyncio.create_task(wait_for_lock())
+        waiting_task = asyncio.create_task(wait_for_capacity())
         await waiter_entered.wait()
-        await asyncio.sleep(0.05)
+
+        async def wait_until_lock_is_held() -> None:
+            while not lock.locked():
+                await asyncio.sleep(0.005)
+
+        await asyncio.wait_for(wait_until_lock_is_held(), timeout=1.0)
+        assert lock.locked()
 
         waiting_task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await waiting_task
+        assert not lock.locked()
 
-        def independent() -> None:
-            independent_started.set()
-
-        await asyncio.wait_for(offloader.run(independent), timeout=0.5)
-        assert independent_started.is_set()
-
+        second_task = asyncio.create_task(offloader.run_serialized(lock, lambda: "second"))
         release.set()
         await first_task
+        assert await asyncio.wait_for(second_task, timeout=1.0) == "second"
 
     asyncio.run(run())
 

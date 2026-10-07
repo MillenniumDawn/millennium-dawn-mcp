@@ -54,18 +54,23 @@ class BoundedOffloader:
         *args: Any,
         **kwargs: Any,
     ) -> T:
-        await self._capacity.acquire()
-        loop = asyncio.get_running_loop()
         lock_acquired = False
+        capacity_acquired = False
         try:
             if lock is not None:
                 await lock.acquire()
                 lock_acquired = True
+            # Acquire admission only after serialization. Calls waiting on the
+            # shared validator lock must not starve unrelated blocking tools.
+            await self._capacity.acquire()
+            capacity_acquired = True
+            loop = asyncio.get_running_loop()
             future: Future[T] = self._executor.submit(partial(function, *args, **kwargs))
         except BaseException:
+            if capacity_acquired:
+                self._capacity.release()
             if lock is not None and lock_acquired:
                 lock.release()
-            self._capacity.release()
             raise
 
         def release_slot(_: Future[T]) -> None:

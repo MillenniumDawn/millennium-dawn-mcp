@@ -551,7 +551,8 @@ def test_lint_git_scope_failures_return_structured_error(tmp_path, monkeypatch, 
             )
         if failure == "missing":
             raise FileNotFoundError("git executable unavailable")
-        raise subprocess.TimeoutExpired(command, timeout=15, stderr="git timed out")
+        timeout_stderr = ("é" * 600 + "fatal: café XY").encode("utf-8")
+        raise subprocess.TimeoutExpired(command, timeout=15, stderr=timeout_stderr)
 
     monkeypatch.setattr(linting_tools.subprocess, "run", failed_git)
 
@@ -567,10 +568,24 @@ def test_lint_git_scope_failures_return_structured_error(tmp_path, monkeypatch, 
         assert scope_error["stderr_tail"].endswith("fatal: café XY")
         assert not scope_error["stderr_tail"].startswith("\ufffd")
         assert len(scope_error["stderr_tail"].encode("utf-8")) <= 1_000
+    elif failure == "timeout":
+        assert scope_error["exit_code"] is None
+        assert scope_error["stderr_tail"].endswith("fatal: café XY")
+        assert not scope_error["stderr_tail"].startswith("\ufffd")
+        assert len(scope_error["stderr_tail"].encode("utf-8")) <= 1_000
     else:
         assert scope_error["exit_code"] is None
         assert scope_error["reason"]
     assert "no files in scope" not in repr(out)
+
+
+def test_git_scope_stderr_tail_keeps_internal_invalid_bytes_visible():
+    invalid_utf8 = b"fatal: " + b"\xff" + "café".encode("utf-8")
+    tail = linting_tools._scope_text(invalid_utf8, 1_000, tail=True)
+    leading_invalid = linting_tools._scope_text(b"\x80oops", 1_000, tail=True)
+
+    assert tail == "fatal: \ufffdcafé"
+    assert leading_invalid == "\ufffdoops"
 
 
 @pytest.mark.parametrize("mode", ["changed", "staged"])

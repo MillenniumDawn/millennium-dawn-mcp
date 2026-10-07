@@ -679,6 +679,25 @@ _GIT_SCOPE_REASON_BYTES = 500
 _GIT_SCOPE_STDERR_BYTES = 1_000
 
 
+def _split_utf8_prefix_length(encoded: bytes, tail_start: int, tail_bytes: bytes) -> int:
+    """Bytes at the tail's start that finish a codepoint split at its byte boundary."""
+    for prefix_length in range(1, min(3, tail_start) + 1):
+        prefix = encoded[tail_start - prefix_length : tail_start]
+        try:
+            prefix.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            if exc.reason != "unexpected end of data" or exc.end != len(prefix):
+                continue
+            partial = prefix[exc.start :]
+            for tail_length in range(1, min(3, len(tail_bytes)) + 1):
+                try:
+                    (partial + tail_bytes[:tail_length]).decode("utf-8")
+                except UnicodeDecodeError:
+                    continue
+                return tail_length
+    return 0
+
+
 def _scope_text(value: object, max_bytes: int, *, tail: bool = False) -> str:
     """Convert subprocess output to a bounded, UTF-8-safe string."""
     if tail:
@@ -687,7 +706,15 @@ def _scope_text(value: object, max_bytes: int, *, tail: bool = False) -> str:
             if isinstance(value, bytes)
             else str(value or "").encode("utf-8", errors="replace")
         )
-        return encoded[-max_bytes:].decode("utf-8", errors="ignore")
+        tail_start = max(0, len(encoded) - max_bytes)
+        tail_bytes = encoded[tail_start:]
+        offset = _split_utf8_prefix_length(encoded, tail_start, tail_bytes)
+        tail_text = tail_bytes[offset:].decode("utf-8", errors="replace")
+        # Replacements for malformed internal bytes can expand the decoded
+        # tail. Trim from its front so the most recent stderr remains visible.
+        while len(tail_text.encode("utf-8")) > max_bytes:
+            tail_text = tail_text[1:]
+        return tail_text
     text = value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value or "")
     return clip_utf8(text, max_bytes)[0]
 

@@ -139,7 +139,7 @@ def _slice_node(text: str, node: Node) -> str:
     """Slice the exact source text for a definition node, comments and whitespace included."""
     if node.name_token is None or node.value_end_token is None:
         raise KeyError("Definition node has no position information (malformed parse)")
-    start = _line_start(text, node.name_token.start)
+    start = _slice_start(text, node.name_token.start)
     return text[start : node.value_end_token.end]
 
 
@@ -157,15 +157,16 @@ def _extract_focus_block(text: str, focus_id: str, root: Optional[Node] = None) 
     if not candidates:
         raise KeyError(f"Focus '{focus_id}' resolved by index but not located in file")
 
-    # Slice from the start of the line holding `name_token` to the matching `}`.
+    # Slice from `name_token` (plus any indentation before it) to the matching `}`.
     cand = candidates[0]
     if cand.name_token is None or cand.value_end_token is None:
         raise KeyError(f"Focus '{focus_id}' has no position information (malformed parse)")
-    start = _line_start(text, cand.name_token.start)
+    start = _slice_start(text, cand.name_token.start)
     end = cand.value_end_token.end
     return text[start:end]
 
 
-def _line_start(text: str, pos: int) -> int:
-    nl = text.rfind("\n", 0, pos)
-    return nl + 1 if nl >= 0 else 0
+def _slice_start(text: str, pos: int) -> int:
+    """Start of the line when only indentation precedes `pos`, else `pos` itself."""
+    line_start = text.rfind("\n", 0, pos) + 1
+    return pos if text[line_start:pos].strip() else line_start

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import inspect
 import json
+import sys
+import threading
 from pathlib import Path
 
 import pytest
 
 from md_mcp.config import Settings
+from md_mcp.tools import lint_validators
 from md_mcp.tools.lint_validators import (
     SCAN_PREFIXES,
     UNATTRIBUTED_SAMPLE,
@@ -87,6 +90,132 @@ def _issue(file, message="bad", severity="warning", line=0, category="CAT"):
         "line": line,
         "category": category,
     }
+
+
+def _write_upstream_router(root: Path, *, group_body: str, batches_body: str | None = None):
+    validation = root / "tools" / "validation"
+    validation.mkdir(parents=True, exist_ok=True)
+    if batches_body is None:
+        batches_body = """
+import sys
+
+class Spec:
+    def __init__(self, script, groups=(), args=()):
+        self.script = script
+        self.groups = groups
+        self.args = args
+
+ALL_SPECS = [
+    Spec("tools/validation/validate_ideas.py", ("ideas",), ("--ideas",)),
+    Spec("tools/validation/validate_events.py", ("events",), ("--events",)),
+]
+IMPACT_ONLY_SPECS = []
+_IMPACT_EXCLUDED_SCRIPTS = ()
+SEEN_TOOL_PATHS = None
+
+def select_for_changed_files(paths):
+    global SEEN_TOOL_PATHS
+    SEEN_TOOL_PATHS = list(paths)
+    print("tool router debug")
+    print("tool router stderr", file=sys.stderr)
+    return [Spec("tools/validation/validate_tool_check.py", (), ("--tool",))], []
+"""
+    (validation / "validator_batches.py").write_text(batches_body, encoding="utf-8")
+    (validation / "change_groups.py").write_text(group_body, encoding="utf-8")
+
+
+def _upstream_group_router(group: str) -> str:
+    return f"""
+import sys
+
+SEEN_CONTENT_PATHS = None
+
+def classify(paths):
+    global SEEN_CONTENT_PATHS
+    SEEN_CONTENT_PATHS = list(paths)
+    print("content router debug")
+    print("content router stderr", file=sys.stderr)
+    return {{"{group}": any("{group}" in path for path in paths)}}
+"""
+
+
+def test_auto_router_mixes_tools_and_content_paths_without_protocol_output(tmp_path, capsys):
+    _write_upstream_router(tmp_path, group_body=_upstream_group_router("ideas"))
+
+    got = select_validators(
+        ["common/ideas/example.txt", "tools/validation/check.py"],
+        {"ideas", "tool_check"},
+        tmp_path,
+    )
+
+    assert got == ["ideas", "tool_check"]
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    routing = lint_validators._upstream_routing(str(tmp_path.resolve()))
+    assert routing[0].SEEN_TOOL_PATHS == ["tools/validation/check.py"]
+    assert routing[1].SEEN_CONTENT_PATHS == ["common/ideas/example.txt"]
+
+
+@pytest.mark.parametrize(
+    "batches_body",
+    [
+        "def broken(:\n    pass\n",
+        "class Spec: pass\nIMPACT_ONLY_SPECS = []\n_IMPACT_EXCLUDED_SCRIPTS = ()\n",
+    ],
+    ids=["syntax-error", "missing-routing-attributes"],
+)
+def test_auto_router_falls_back_when_upstream_import_or_attributes_break(tmp_path, batches_body):
+    _write_upstream_router(
+        tmp_path,
+        group_body=_upstream_group_router("ideas"),
+        batches_body=batches_body,
+    )
+
+    got = select_validators(["common/ideas/example.txt"], {"ideas"}, tmp_path)
+
+    assert got == ["ideas"]
+
+
+def test_auto_router_reloads_after_upstream_checkout_files_change(tmp_path):
+    _write_upstream_router(tmp_path, group_body=_upstream_group_router("ideas"))
+    available = {"ideas", "events"}
+    paths = ["common/ideas/example.txt", "events/example.txt"]
+
+    assert select_validators(paths, available, tmp_path) == ["ideas"]
+
+    _write_upstream_router(tmp_path, group_body=_upstream_group_router("events"))
+
+    assert select_validators(paths, available, tmp_path) == ["events"]
+
+
+def test_overlapping_quiet_sections_restore_streams():
+    original = (sys.stdout, sys.stderr)
+    first_inside = threading.Event()
+    second_inside = threading.Event()
+    first_exited = threading.Event()
+
+    def first():
+        with lint_validators._quiet_upstream():
+            first_inside.set()
+            second_inside.wait(0.2)
+        first_exited.set()
+
+    def second():
+        first_inside.wait(5)
+        with lint_validators._quiet_upstream():
+            second_inside.set()
+            first_exited.wait(5)
+
+    threads = [threading.Thread(target=first), threading.Thread(target=second)]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(10)
+        assert (sys.stdout, sys.stderr) == original
+    finally:
+        sys.stdout, sys.stderr = original
 
 
 # ---------------------------------------------------------------------------

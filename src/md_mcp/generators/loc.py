@@ -19,6 +19,21 @@ from typing import Sequence
 
 from ..util.response import enforce_budget
 
+_LOC_LINE_BREAKS = str.maketrans(
+    {
+        "\n": r"\n",
+        "\r": r"\n",
+        "\v": r"\n",
+        "\f": r"\n",
+        "\x1c": r"\n",
+        "\x1d": r"\n",
+        "\x1e": r"\n",
+        "\x85": r"\n",
+        "\u2028": r"\n",
+        "\u2029": r"\n",
+    }
+)
+
 
 def generate_loc_stub(
     keys: Sequence[dict],
@@ -67,5 +82,7 @@ def _escape(value: str) -> str:
     """Escape embedded quotes and backslashes per HOI4 loc YAML rules.
 
     The format treats `\"` and `\\\\` as escapes — see `localisation-rules.md`.
+    Physical separators recognized by ``str.splitlines()`` become the `\\n` loc escape.
     """
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\r\n", "\n")
+    return escaped.translate(_LOC_LINE_BREAKS)

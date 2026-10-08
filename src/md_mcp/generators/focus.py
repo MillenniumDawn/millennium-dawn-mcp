@@ -49,7 +49,8 @@ def generate_focus(
                               directly under `relative_position_id`. Use wider gaps
                               only when the user asks for them.
       cost                  — political-power cost in 70-day chunks (default 10 = 1 month)
-      icon                  — GFX_ sprite name; omit and a placeholder is inserted
+      icon                  — sprite id. A full `GFX_...` id is kept as is; a bare suffix gets
+                              `GFX_` prepended. Omit and a placeholder is inserted
       relative_position_id  — anchor focus id (recommended for non-root focuses)
       prerequisites         — list of prereq groups; each group is OR'd internally,
                               groups themselves are AND'd. e.g. [["A"], ["B", "C"]]
@@ -66,7 +67,10 @@ def generate_focus(
     """
     parts: list[str] = ["\tfocus = {"]
     parts.append(f"\t\tid = {id}")
-    parts.append(f"\t\ticon = GFX_{icon or 'placeholder_focus'}")
+    sprite = icon or "placeholder_focus"
+    if not sprite.startswith("GFX_"):
+        sprite = f"GFX_{sprite}"
+    parts.append(f"\t\ticon = {sprite}")
     parts.append("")
     parts.append(f"\t\tx = {x}")
     parts.append(f"\t\ty = {y}")

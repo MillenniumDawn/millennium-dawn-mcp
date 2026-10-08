@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import inspect
 import json
+import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -185,6 +187,35 @@ def test_auto_router_reloads_after_upstream_checkout_files_change(tmp_path):
     _write_upstream_router(tmp_path, group_body=_upstream_group_router("events"))
 
     assert select_validators(paths, available, tmp_path) == ["events"]
+
+
+def test_overlapping_quiet_sections_restore_streams():
+    original = (sys.stdout, sys.stderr)
+    first_inside = threading.Event()
+    second_inside = threading.Event()
+    first_exited = threading.Event()
+
+    def first():
+        with lint_validators._quiet_upstream():
+            first_inside.set()
+            second_inside.wait(0.2)
+        first_exited.set()
+
+    def second():
+        first_inside.wait(5)
+        with lint_validators._quiet_upstream():
+            second_inside.set()
+            first_exited.wait(5)
+
+    threads = [threading.Thread(target=first), threading.Thread(target=second)]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(10)
+        assert (sys.stdout, sys.stderr) == original
+    finally:
+        sys.stdout, sys.stderr = original
 
 
 # ---------------------------------------------------------------------------

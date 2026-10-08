@@ -28,9 +28,10 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Iterator, Optional, Sequence
 
 from ..analysis.suppressions import SUPPRESSION_SOURCE, suppressed_count
 from ..util.encoding import read_text
@@ -275,6 +276,21 @@ def _validators_for_path(path: str) -> set[str]:
     return names
 
 
+_QUIET_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _quiet_upstream() -> Iterator[None]:
+    """Discard stdout/stderr while upstream routing code runs."""
+    # The redirects swap process-wide streams; overlapping threads restore them out of order.
+    with (
+        _QUIET_LOCK,
+        contextlib.redirect_stdout(io.StringIO()),
+        contextlib.redirect_stderr(io.StringIO()),
+    ):
+        yield
+
+
 def _load_upstream_module(mod_root: Path, relative: str, module_name: str):
     """Load one of MD's routing modules without adding its checkout to sys.path."""
     source = mod_root / relative
@@ -323,7 +339,7 @@ def _load_upstream_routing(
     try:
         # Upstream imports can print. stdout is the MCP framing stream, so keep
         # this optional contract quiet while it is loaded.
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with _quiet_upstream():
             batches = _load_upstream_module(
                 root,
                 "tools/validation/validator_batches.py",
@@ -379,7 +395,7 @@ def _upstream_validators_for_paths(
 
         # Changed tooling code uses MD's impact selector, which owns the import
         # graph, broad shared-tool rules, and impact-only checks.
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with _quiet_upstream():
             if tooling_paths:
                 selected, adhoc = batches.select_for_changed_files(tooling_paths)
                 for spec in [*selected, *adhoc]:
@@ -474,7 +490,7 @@ def _upstream_args(mod_root: Optional[Path]) -> dict[str, tuple[str, ...]]:
         return {}
     try:
         batches, _groups = routing
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with _quiet_upstream():
             specs = [*batches.ALL_SPECS, *batches.IMPACT_ONLY_SPECS]
             return {
                 Path(spec.script).stem.removeprefix("validate_").replace("-", "_"): tuple(spec.args)

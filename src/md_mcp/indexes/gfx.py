@@ -19,6 +19,7 @@ import re
 from typing import Optional
 
 from ..paradox import parse_string
+from ..paradox.parser import _unescape_string
 from ..paradox.schema import SPRITE_KINDS, extract_sprite_records
 from ..util.encoding import read_text
 from ..util.line_numbers import line_starts, pos_to_line
@@ -27,26 +28,54 @@ from .base import GenericTxtIndex
 logger = logging.getLogger(__name__)
 
 # Match `<kind> = {`. Case-sensitive because HOI4 itself is case-sensitive on identifiers
-# (per general-rules.md). Field-name regexes stay case-insensitive — `name` and
-# `texturefile` are *property* keys inside a sprite block and the engine is lenient there.
+# (per general-rules.md).
 _SPRITE_OPEN_RE = re.compile(r"\b(" + "|".join(SPRITE_KINDS) + r")\s*=\s*\{")
-_NAME_RE = re.compile(r'\bname\s*=\s*"([^"\\]*(?:\\.[^"\\]*)*)"', re.IGNORECASE)
-_NAME_BARE_RE = re.compile(r"\bname\s*=\s*([A-Za-z_][\w.]*)", re.IGNORECASE)
-_TEXTUREFILE_RE = re.compile(r'\btexturefile\s*=\s*"([^"]+)"', re.IGNORECASE)
-_TEXTUREFILE_BARE_RE = re.compile(r"\btexturefile\s*=\s*([^\s{}]+)", re.IGNORECASE)
-
-
-_BRACE_TOKEN_RE = re.compile(r'"(?:\\.|[^"\\])*"|#[^\n]*|[{}]')
 _SPRITE_TYPES_OPEN_RE = re.compile(r"\bspriteTypes\w*\s*=\s*\{", re.IGNORECASE)
+
+# Value shapes the AST reads as a name or path: a quoted string, or a bare symbol
+# (the lexer's symbol token, which `_SYMBOL_CHAR` mirrors). Anything else (`{`, a number)
+# is not a scalar.
+_STRING = r'"(?:\\.|[^"\\])*"'
+_SYMBOL_CHAR = r"[\w:.@\[\]\-?^/|\xa0-ɏ]"
+_BARE_VALUE = r"(?:\d+\.)?[a-zA-Z_@\[\]]" + _SYMBOL_CHAR + "*"
+_VALUE = rf"\s*=\s*({_STRING}|{_BARE_VALUE}|)"
+
+
+def _key_alternatives(key: str) -> str:
+    """Whole-symbol, case-insensitive `key = value` alternatives, one per case of the first letter.
+
+    Each alternative starts with a plain literal so the regex engine can skip to candidate
+    characters. A set or lookbehind start measured ~1.6x slower on `goals_shine.gfx`.
+    """
+    head, rest = key[0], key[1:]
+    return "|".join(rf"{c}(?<!{_SYMBOL_CHAR}{c})(?i:{rest}){_VALUE}" for c in (head, head.upper()))
+
+
+# One sweep tokenizes strings, `#` comments, braces, and the `name` / `texturefile` keys. A
+# string or comment is consumed whole, so key-like text inside one never matches. The value
+# groups are 1-2 (`name`) and 3-4 (`texturefile`); `m.lastindex` is None for the rest.
+_SWEEP_RE = re.compile(
+    rf"{_STRING}|#[^\n]*|\{{|\}}|{_key_alternatives('name')}|{_key_alternatives('texturefile')}"
+)
+
+
+def _scalar_text(raw: str) -> str | None:
+    """Unquote a captured value like the parser does; an empty capture is a non-scalar."""
+    if raw.startswith('"'):
+        return _unescape_string(raw) if "\\" in raw else raw[1:-1]
+    return raw or None
 
 
 def _scan_sprite_blocks(text: str) -> list[dict]:
     """Brace-balanced scan: for each `<kind> = { ... }` block, extract name + texturefile.
 
     Performance approach:
-      * One sweep of `_BRACE_TOKEN_RE` collects every `{` / `}` / string / comment
-        token position. The regex skips quoted strings and `#` comments so brace
-        counting isn't fooled by `"foo {"`.
+      * One sweep of `_SWEEP_RE` walks every `{` / `}` / string / comment / `name` /
+        `texturefile` token. Strings and `#` comments are consumed whole, so brace
+        counting and key matching aren't fooled by `"foo {"` or `# name = "x"`.
+      * The sweep keeps the open-brace stack, so each key is attributed to the block it
+        is directly inside. The first occurrence per block wins, as in `Node.get`, and
+        nested blocks never leak their keys to the sprite around them.
       * `_SPRITE_OPEN_RE` independently finds every `<kind> = {` opening.
       * Line numbers come from one precomputed offset table (`O(log n)` per lookup).
 
@@ -54,77 +83,56 @@ def _scan_sprite_blocks(text: str) -> list[dict]:
     """
     line_offsets = line_starts(text)
 
-    # Find brace positions (skipping strings and comments).
-    open_positions: list[int] = []
-    close_positions: list[int] = []
-    for m in _BRACE_TOKEN_RE.finditer(text):
-        tok = m.group(0)
-        if tok == "{":
-            open_positions.append(m.start())
-        elif tok == "}":
-            close_positions.append(m.start())
-
-    # Build a sorted list of (pos, kind) — kind is +1 for open, -1 for close.
-    # Then for each sprite-open position, find the matching close by walking forward.
-    brace_events: list[tuple] = []
-    for p in open_positions:
-        brace_events.append((p, 1))
-    for p in close_positions:
-        brace_events.append((p, -1))
-    brace_events.sort()
-
-    # Map open-brace position → matching close-brace position via single linear pass.
-    # Also track each open-brace's immediate parent for the hierarchy filter below.
-    match_close: dict[int, int] = {}
+    # Each open brace's immediate parent drives the hierarchy filter below. `first_name` /
+    # `first_texture` map a block's open brace to the value of its first direct key
+    # (None when that value is not a scalar).
     parent_open: dict[int, int] = {}
+    first_name: dict[int, str | None] = {}
+    first_texture: dict[int, str | None] = {}
     stack: list[int] = []
-    for pos, delta in brace_events:
-        if delta == 1:
+    for m in _SWEEP_RE.finditer(text):
+        key = m.lastindex
+        if key is not None:
+            if stack:
+                first = first_name if key <= 2 else first_texture
+                first.setdefault(stack[-1], _scalar_text(m[key]))
+            continue
+        tok = m[0]
+        if tok == "{":
+            pos = m.start()
             parent_open[pos] = stack[-1] if stack else -1
             stack.append(pos)
-        else:
+        elif tok == "}":
             if not stack:
                 raise ValueError("unbalanced braces (extra `}`)")
-            open_pos = stack.pop()
-            match_close[open_pos] = pos
+            stack.pop()
     if stack:
         raise ValueError("unbalanced braces (unclosed `{`)")
 
-    # Real-brace positions (skipping strings/comments) for membership tests.
-    open_pos_set: set[int] = set(open_positions)
-
-    # Collect the `{` positions of real spriteTypes* container blocks.
+    # Collect the `{` positions of real spriteTypes* container blocks (a position missing
+    # from `parent_open` was inside a string/comment).
     sprite_container_opens: set[int] = {
         m.end() - 1
         for m in _SPRITE_TYPES_OPEN_RE.finditer(text)
-        if m.end() - 1 in open_pos_set and parent_open.get(m.end() - 1, -1) == -1
+        if parent_open.get(m.end() - 1) == -1
     }
 
     records: list[dict] = []
     for m in _SPRITE_OPEN_RE.finditer(text):
-        kind = m.group(1)
         open_brace = m.end() - 1
-        close_brace = match_close.get(open_brace)
-        if close_brace is None:
-            # The sprite opener's `{` isn't in our brace map — implies it was inside
-            # a string/comment. Skip.
-            continue
         # Only index sprites that are direct children of a spriteTypes* block,
         # matching the hierarchy enforced by find_sprite_nodes / extract_sprite_records.
+        # An opener whose `{` sat inside a string/comment has no parent entry; skip it.
         if parent_open.get(open_brace, -1) not in sprite_container_opens:
             continue
-        body = text[open_brace + 1 : close_brace]
-        name_m = _NAME_RE.search(body) or _NAME_BARE_RE.search(body)
-        if not name_m:
+        name = first_name.get(open_brace)
+        if name is None:
             continue
-        name = name_m.group(1)
-        tex_m = _TEXTUREFILE_RE.search(body) or _TEXTUREFILE_BARE_RE.search(body)
-        texturefile = tex_m.group(1) if tex_m else None
         records.append(
             {
                 "name": name,
-                "kind": kind,
-                "texturefile": texturefile,
+                "kind": m.group(1),
+                "texturefile": first_texture.get(open_brace),
                 "line": pos_to_line(m.start(), line_offsets),
             }
         )
@@ -157,7 +165,7 @@ def _parse_gfx_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
 
 
 class GfxIndex(GenericTxtIndex):
-    cache_version = 1
+    cache_version = 2
     cache_name = "gfx"
     subdir = "interface"
     pattern = "*.gfx"

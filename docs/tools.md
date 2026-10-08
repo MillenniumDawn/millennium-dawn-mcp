@@ -284,6 +284,14 @@ for "check this code's quality."
   - `"changed"` = staged + unstaged + untracked (everything `git status --porcelain` sees). This is what you want mid-edit before anything is committed.
   - `"staged"` = only files in the git index — matches pre-commit's view.
   - `"all"` = brute scan every matching file under the mod root. Slow; use when you want a clean baseline.
+  - `"changed"` and `"staged"` ask Git for the scope. If Git cannot run, exits
+    nonzero, or times out after 15 seconds, no check runs and the call returns
+    `{ok: false, error, scope_error: {mode, command, exit_code, reason, stderr_tail}}`.
+    That includes a mod root that is not a Git checkout: the default `lint()`
+    fails there, where it used to return a clean empty run. `exit_code` is null
+    when Git never ran or timed out, and `stderr_tail` is the last 1,000 bytes
+    of Git's stderr. A Git run that succeeds with no files is still a clean
+    no-op. `files=[...]` and `mode="all"` never call Git.
 - **`files=[...]`** — explicit mod-relative paths or absolute paths inside the mod
   root. Absolute paths are normalized to mod-relative paths; escapes are errors.
   Overrides `mode`. Each check filters this list by its own file-pattern (e.g. `mod_encoding` only looks at `.mod`,

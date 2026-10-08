@@ -15,6 +15,7 @@ from typing import Callable
 
 import pytest
 
+from md_mcp.tools import linting_tools
 from md_mcp.tools.linting_tools import (
     _ALL_CHECKS,
     _changed_files,
@@ -463,8 +464,15 @@ def test_changed_files_handles_renames(tmp_path):
     assert removed == ["baseline.txt"]
 
 
-def test_changed_files_non_git_dir_returns_empty(tmp_path):
-    assert _changed_files(tmp_path) == []
+@pytest.mark.parametrize(
+    ("discover", "mode"),
+    [(_changed_files, "changed"), (_staged_files, "staged")],
+)
+def test_git_scope_discovery_non_repo_reports_error(tmp_path, discover, mode):
+    with pytest.raises(linting_tools.GitScopeError) as exc_info:
+        discover(tmp_path)
+
+    assert exc_info.value.as_dict()["mode"] == mode
 
 
 def test_changed_files_non_ascii_paths_arrive_verbatim(tmp_path):
@@ -514,19 +522,108 @@ sys.exit(0)
     assert "common/new.txt" in files_in_issues
 
 
-def test_lint_changed_mode_no_changes_is_clean_run(tmp_path):
-    """When git is clean, all checks no-op (skipped) with overall ok."""
+@pytest.mark.parametrize("mode", ["changed", "staged"])
+def test_lint_clean_git_scope_is_clean_run(tmp_path, mode):
+    """A successful empty Git query is a valid no-op for both scoped modes."""
     _init_repo(tmp_path)
     _seed_all_scripts(tmp_path, {})
     # Commit the stubs so the tree is genuinely clean.
     _git(tmp_path, "add", "-A")
     _git(tmp_path, "commit", "-qm", "stubs")
-    out = lint_tool(tmp_path, validators=[])
+    out = lint_tool(tmp_path, mode=mode, validators=[])
     assert out["ok"] is True
-    assert out["mode"] == "changed"
+    assert out["mode"] == mode
     assert out["counts"] == {"error": 0, "warning": 0, "info": 0}
     # Genuinely skipped, not "ran against whatever happened to be staged".
     assert all(c.get("skipped") == "no files in scope" for c in out["checks"])
+
+
+@pytest.mark.parametrize("mode", ["changed", "staged"])
+@pytest.mark.parametrize("failure", ["nonzero", "missing", "timeout"])
+def test_lint_git_scope_failures_return_structured_error(tmp_path, monkeypatch, mode, failure):
+    def failed_git(command, **kwargs):
+        if failure == "nonzero":
+            return subprocess.CompletedProcess(
+                command,
+                128,
+                stdout="",
+                stderr=("x" * 2_048) + ("é" * 600) + "fatal: café XY",
+            )
+        if failure == "missing":
+            raise FileNotFoundError("git executable unavailable")
+        timeout_stderr = ("é" * 600 + "fatal: café XY").encode("utf-8")
+        raise subprocess.TimeoutExpired(command, timeout=15, stderr=timeout_stderr)
+
+    monkeypatch.setattr(linting_tools.subprocess, "run", failed_git)
+
+    out = lint_tool(tmp_path, mode=mode, checks=["common_mistakes"], validators=[])
+
+    assert out["ok"] is False
+    assert "Git" in out["error"]
+    scope_error = out["scope_error"]
+    assert scope_error["mode"] == mode
+    assert scope_error["command"][0] == "git"
+    if failure == "nonzero":
+        assert scope_error["exit_code"] == 128
+        assert scope_error["stderr_tail"].endswith("fatal: café XY")
+        assert not scope_error["stderr_tail"].startswith("\ufffd")
+        assert len(scope_error["stderr_tail"].encode("utf-8")) <= 1_000
+    elif failure == "timeout":
+        assert scope_error["exit_code"] is None
+        assert scope_error["stderr_tail"].endswith("fatal: café XY")
+        assert not scope_error["stderr_tail"].startswith("\ufffd")
+        assert len(scope_error["stderr_tail"].encode("utf-8")) <= 1_000
+    else:
+        assert scope_error["exit_code"] is None
+        assert scope_error["reason"]
+    assert "no files in scope" not in repr(out)
+
+
+def test_git_scope_stderr_tail_keeps_internal_invalid_bytes_visible():
+    invalid_utf8 = b"fatal: " + b"\xff" + "café".encode("utf-8")
+    tail = linting_tools._scope_text(invalid_utf8, 1_000, tail=True)
+    leading_invalid = linting_tools._scope_text(b"\x80oops", 1_000, tail=True)
+
+    assert tail == "fatal: \ufffdcafé"
+    assert leading_invalid == "\ufffdoops"
+
+
+@pytest.mark.parametrize("mode", ["changed", "staged"])
+@pytest.mark.parametrize("use_overlay", [False, True])
+def test_git_scope_discovery_uses_selected_worktree_cwd(tmp_path, monkeypatch, mode, use_overlay):
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+    expected_cwd = overlay if use_overlay else tmp_path
+
+    def successful_git(command, **kwargs):
+        assert kwargs["cwd"] == str(expected_cwd)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(linting_tools.subprocess, "run", successful_git)
+    discover = _changed_files if mode == "changed" else _staged_files
+
+    assert discover(tmp_path, overlay if use_overlay else None) == []
+
+
+@pytest.mark.parametrize(
+    "scope_kwargs",
+    [
+        pytest.param({"files": ["common/a.txt"]}, id="explicit-files"),
+        pytest.param({"mode": "all"}, id="all-files"),
+    ],
+)
+def test_lint_explicit_and_all_modes_skip_git_discovery(tmp_path, monkeypatch, scope_kwargs):
+    _seed_all_scripts(tmp_path, {})
+
+    def unexpected_discovery(*args, **kwargs):
+        pytest.fail("explicit and all-file scopes must not invoke Git discovery")
+
+    monkeypatch.setattr(linting_tools, "_changed_files", unexpected_discovery)
+    monkeypatch.setattr(linting_tools, "_staged_files", unexpected_discovery)
+
+    out = lint_tool(tmp_path, checks=["common_mistakes"], validators=[], **scope_kwargs)
+
+    assert out["ok"] is True
 
 
 def test_lint_empty_files_scope_skips_every_check(tmp_path):

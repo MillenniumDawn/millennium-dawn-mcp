@@ -424,23 +424,30 @@ def lint_tool(
     #   relevant=[]   means "user has nothing in scope — every check no-ops"
     removed_paths: list[str] = []
     relevant: Optional[list[str]]
-    if files is not None:
-        explicit_files: list[str] = []
-        for file in files:
-            normalized = normalize_path(file)
-            if Path(normalized).is_absolute():
-                resolved = contained(mod_root, normalized)
-                if resolved is None:
-                    return {"ok": False, "error": f"{file!r} is outside the mod root"}
-                normalized = resolved.relative_to(mod_root.resolve()).as_posix()
-            explicit_files.append(normalized)
-        relevant = explicit_files
-    elif mode == "all":
-        relevant = None
-    elif mode == "changed":
-        relevant = _changed_files(mod_root, submod_root, removed=removed_paths)
-    else:  # staged
-        relevant = _staged_files(mod_root, submod_root)
+    try:
+        if files is not None:
+            explicit_files: list[str] = []
+            for file in files:
+                normalized = normalize_path(file)
+                if Path(normalized).is_absolute():
+                    resolved = contained(mod_root, normalized)
+                    if resolved is None:
+                        return {"ok": False, "error": f"{file!r} is outside the mod root"}
+                    normalized = resolved.relative_to(mod_root.resolve()).as_posix()
+                explicit_files.append(normalized)
+            relevant = explicit_files
+        elif mode == "all":
+            relevant = None
+        elif mode == "changed":
+            relevant = _changed_files(mod_root, submod_root, removed=removed_paths)
+        else:  # staged
+            relevant = _staged_files(mod_root, submod_root)
+    except GitScopeError as exc:
+        return {
+            "ok": False,
+            "error": f"Git {exc.mode} scope discovery failed: {exc.reason}",
+            "scope_error": exc.as_dict(),
+        }
 
     relevant_set: Optional[set] = set(relevant) if relevant is not None else None
     removed_variant_paths = [
@@ -667,21 +674,130 @@ def lint_tool(
     return enforce_budget(summary, heavy_keys=("issues",))
 
 
-def _staged_files(mod_root: Path, submod_root: Optional[Path] = None) -> list[str]:
-    """Staged files in the active worktree's git index; renames list both paths."""
+_GIT_SCOPE_TIMEOUT = 15
+_GIT_SCOPE_REASON_BYTES = 500
+_GIT_SCOPE_STDERR_BYTES = 1_000
+
+
+def _split_utf8_prefix_length(encoded: bytes, tail_start: int, tail_bytes: bytes) -> int:
+    """Bytes at the tail's start that finish a codepoint split at its byte boundary."""
+    for prefix_length in range(1, min(3, tail_start) + 1):
+        prefix = encoded[tail_start - prefix_length : tail_start]
+        try:
+            prefix.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            if exc.reason != "unexpected end of data" or exc.end != len(prefix):
+                continue
+            partial = prefix[exc.start :]
+            for tail_length in range(1, min(3, len(tail_bytes)) + 1):
+                try:
+                    (partial + tail_bytes[:tail_length]).decode("utf-8")
+                except UnicodeDecodeError:
+                    continue
+                return tail_length
+    return 0
+
+
+def _scope_text(value: object, max_bytes: int, *, tail: bool = False) -> str:
+    """Convert subprocess output to a bounded, UTF-8-safe string."""
+    if tail:
+        encoded = (
+            value
+            if isinstance(value, bytes)
+            else str(value or "").encode("utf-8", errors="replace")
+        )
+        tail_start = max(0, len(encoded) - max_bytes)
+        tail_bytes = encoded[tail_start:]
+        offset = _split_utf8_prefix_length(encoded, tail_start, tail_bytes)
+        tail_text = tail_bytes[offset:].decode("utf-8", errors="replace")
+        # Replacements for malformed internal bytes can expand the decoded
+        # tail. Trim from its front so the most recent stderr remains visible.
+        while len(tail_text.encode("utf-8")) > max_bytes:
+            tail_text = tail_text[1:]
+        return tail_text
+    text = value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value or "")
+    return clip_utf8(text, max_bytes)[0]
+
+
+class GitScopeError(RuntimeError):
+    """A Git command failed while resolving the files a lint run should inspect."""
+
+    def __init__(
+        self,
+        *,
+        mode: str,
+        command: Sequence[str],
+        reason: str,
+        exit_code: Optional[int] = None,
+        stderr: object = "",
+    ) -> None:
+        self.mode = mode
+        self.command = tuple(command)
+        self.reason = _scope_text(reason, _GIT_SCOPE_REASON_BYTES)
+        self.exit_code = exit_code
+        self.stderr_tail = _scope_text(stderr, _GIT_SCOPE_STDERR_BYTES, tail=True)
+        super().__init__(self.reason)
+
+    def as_dict(self) -> dict:
+        """Return a bounded scope-discovery error for the MCP response."""
+        return {
+            "mode": self.mode,
+            "command": list(self.command),
+            "exit_code": self.exit_code,
+            "reason": self.reason,
+            "stderr_tail": self.stderr_tail,
+        }
+
+
+def _run_git_scope(
+    mode: str,
+    command: list[str],
+    mod_root: Path,
+    submod_root: Optional[Path],
+) -> subprocess.CompletedProcess:
+    """Run one Git scope-discovery command or raise a structured error."""
     try:
         proc = subprocess.run(
-            ["git", "diff", "--name-only", "--cached", "--no-renames"],
+            command,
             cwd=str(submod_root or mod_root),
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=_GIT_SCOPE_TIMEOUT,
             check=False,
         )
-    except Exception:
-        return []
+    except subprocess.TimeoutExpired as exc:
+        raise GitScopeError(
+            mode=mode,
+            command=command,
+            reason=f"Git command timed out after {_GIT_SCOPE_TIMEOUT}s",
+            stderr=exc.stderr,
+        ) from exc
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        raise GitScopeError(
+            mode=mode,
+            command=command,
+            reason=f"Could not run Git command: {exc}",
+        ) from exc
+
     if proc.returncode != 0:
-        return []
+        raise GitScopeError(
+            mode=mode,
+            command=command,
+            reason=f"Git exited with status {proc.returncode}",
+            exit_code=proc.returncode,
+            stderr=proc.stderr,
+        )
+    return proc
+
+
+def _staged_files(mod_root: Path, submod_root: Optional[Path] = None) -> list[str]:
+    """Staged files in the active worktree's git index; renames list both paths."""
+    proc = _run_git_scope(
+        "staged",
+        ["git", "diff", "--name-only", "--cached", "--no-renames"],
+        mod_root,
+        submod_root,
+    )
     return [line for line in proc.stdout.splitlines() if line]
 
 
@@ -703,21 +819,14 @@ def _changed_files(
     Deletions are skipped — there's nothing to lint for a removed file. When
     `removed` is supplied, deleted paths and rename sources are appended there
     for validators whose context can change when a file disappears.
-    Returns [] when `mod_root` isn't a git repo.
+    A Git failure raises `GitScopeError`; a successful empty status is a valid no-op.
     """
-    try:
-        proc = subprocess.run(
-            ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
-            cwd=str(submod_root or mod_root),
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-    except Exception:
-        return []
-    if proc.returncode != 0:
-        return []
+    proc = _run_git_scope(
+        "changed",
+        ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
+        mod_root,
+        submod_root,
+    )
 
     files: list[str] = []
     seen: set = set()

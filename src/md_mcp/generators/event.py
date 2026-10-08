@@ -38,7 +38,8 @@ def generate_event(
                            `unit_leader_event`, `operative_leader_event`
       is_triggered_only  — when true, omit `mean_time_to_happen`/`trigger`
       fire_only_once     — adds `fire_only_once = yes`
-      picture            — GFX_ sprite (placeholder used if omitted)
+      picture            — sprite id. A full `GFX_...` id is kept as is; a bare suffix
+                           gets `GFX_` prepended. Placeholder used if omitted
       trigger            — raw paradox-script content for `trigger = { ... }`
       immediate          — raw paradox-script content for `immediate = { ... }`
       options            — list of `{name?: str, label?: str, ai_chance?: int,
@@ -55,7 +56,10 @@ def generate_event(
     parts.append(f"\tid = {eid}")
     parts.append(f"\ttitle = {eid}.t")
     parts.append(f"\tdesc = {eid}.d")
-    parts.append(f"\tpicture = GFX_{picture or 'event_generic'}")
+    sprite = picture or "event_generic"
+    if not sprite.startswith("GFX_"):
+        sprite = f"GFX_{sprite}"
+    parts.append(f"\tpicture = {sprite}")
     parts.append("")
     if is_triggered_only:
         parts.append("\tis_triggered_only = yes")

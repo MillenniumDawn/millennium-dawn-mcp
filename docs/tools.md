@@ -697,12 +697,20 @@ Scaffold a `focus = { ... }` block. Optional fields: `x`, `y`, `cost`, `icon`,
 convention is 2 apart on x for siblings and 1 apart on y for tiers. Go wider
 only when the user asks.
 
+`icon` takes a sprite id. A full `GFX_...` id, such as one from
+`resolve_sprite`, is kept as is. A bare suffix gets `GFX_` prepended. Omit it
+for `GFX_placeholder_focus`.
+
 Returns `{txt, loc_yml_keys: [{key, value}, ...]}`. The loc rows are stubs
 the agent should add to the country's `_l_english.yml`.
 
 ### `generate_event(namespace, number, kind?, ...) -> dict`
 
 Scaffold a `country_event`/`news_event`/`state_event` block.
+
+`picture` follows the same rule as the focus `icon`: a full `GFX_...` id is
+kept as is, a bare suffix gets `GFX_` prepended, and omitting it gives
+`GFX_event_generic`.
 
 Returns `{txt, namespace_directive, loc_yml_keys}`. If the file is new, prepend
 `namespace_directive` (`add_namespace = isr`) before the event blocks.

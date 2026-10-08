@@ -794,11 +794,11 @@ def _staged_files(mod_root: Path, submod_root: Optional[Path] = None) -> list[st
     """Staged files in the active worktree's git index; renames list both paths."""
     proc = _run_git_scope(
         "staged",
-        ["git", "diff", "--name-only", "--cached", "--no-renames"],
+        ["git", "diff", "--name-only", "-z", "--cached", "--no-renames"],
         mod_root,
         submod_root,
     )
-    return [line for line in proc.stdout.splitlines() if line]
+    return [path for path in proc.stdout.split("\0") if path]
 
 
 def _changed_files(

@@ -17,8 +17,10 @@ from md_mcp.generators import (
     generate_loc_stub,
 )
 from md_mcp.generators import gfx as gfx_mod
+from md_mcp.indexes import GfxIndex
 from md_mcp.indexes.localisation import _parse_loc_file
 from md_mcp.paradox import parse_string
+from md_mcp.paradox.nodes import symbol_or_str
 from md_mcp.paradox.schema import (
     EVENT_KINDS,
     extract_decision_records,
@@ -26,7 +28,9 @@ from md_mcp.paradox.schema import (
     extract_focus_records,
     extract_idea_records,
     extract_sprite_records,
+    find_event_nodes,
 )
+from md_mcp.tools.resolver_tools import resolve_sprite_tool
 from md_mcp.util.response import BUDGET_BYTES
 
 
@@ -288,6 +292,54 @@ def test_event_and_focus_blocks_render_exactly():
     assert (
         "\n\t\tavailable = {\n\t\t\thas_war = no\n\t\t}\n\n\t\tcompletion_reward = {\n"
     ) in focus["txt"]
+
+
+@pytest.mark.parametrize(
+    ("icon", "emitted"),
+    [
+        (None, "GFX_placeholder_focus"),
+        ("", "GFX_placeholder_focus"),
+        ("focus_custom", "GFX_focus_custom"),
+        ("GFX_focus_custom", "GFX_focus_custom"),
+        ("gfx_focus_custom", "GFX_gfx_focus_custom"),
+    ],
+)
+def test_focus_icon_keeps_full_gfx_id_and_prefixes_bare_suffix(icon, emitted):
+    r = generate_focus(id="TST_x", tag="TST", x=0, y=0, icon=icon)
+
+    assert f"\t\ticon = {emitted}" in r["txt"].splitlines()
+
+
+@pytest.mark.parametrize(
+    ("picture", "emitted"),
+    [
+        (None, "GFX_event_generic"),
+        ("", "GFX_event_generic"),
+        ("event_custom", "GFX_event_custom"),
+        ("GFX_event_custom", "GFX_event_custom"),
+        ("gfx_event_custom", "GFX_gfx_event_custom"),
+    ],
+)
+def test_event_picture_keeps_full_gfx_id_and_prefixes_bare_suffix(picture, emitted):
+    r = generate_event(namespace="TST", number=1, picture=picture)
+
+    assert f"\tpicture = {emitted}" in r["txt"].splitlines()
+
+
+def test_resolved_sprite_name_round_trips_through_focus_and_event(fake_mod_root, cache_dir):
+    index = GfxIndex(fake_mod_root, cache_dir, None)
+    resolved = resolve_sprite_tool("GFX_test_sprite_one", index)["name"]
+    focus = generate_focus(id="TST_x", tag="TST", x=0, y=0, icon=resolved)
+    event = generate_event(namespace="TST", number=1, picture=resolved)
+
+    [focus_rec] = extract_focus_records(
+        parse_string("focus_tree = { id = test\n" + focus["txt"] + "\n}")
+    )
+    [event_node] = find_event_nodes(parse_string(event["txt"]), "TST.1")
+
+    assert resolved == "GFX_test_sprite_one"
+    assert focus_rec["icon"] == resolved
+    assert symbol_or_str(event_node.get("picture")) == resolved
 
 
 def test_gfx_round_trips():

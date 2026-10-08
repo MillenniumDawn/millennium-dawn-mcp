@@ -276,6 +276,17 @@ SPRITES_WITH_BARE_AND_QUOTED_NAMES = """spriteTypes = {
 }
 """
 
+SPRITES_WITH_COMMENTED_AND_NESTED_PROPERTIES = """spriteTypes = {
+\tspriteType = {
+\t\t# name = "GFX_old"
+\t\teffect = { name = "GFX_nested" texturefile = "gfx/interface/nested.dds" }
+\t\tname = "GFX_actual"
+\t\t# texturefile = "gfx/interface/old.dds"
+\t\ttexturefile = "gfx/interface/actual.dds"
+\t}
+}
+"""
+
 
 def test_decision_resource_returns_real_definition_not_nested_impostor(tmp_path):
     mod_root = _write_decisions(tmp_path, DECISIONS_WITH_IMPOSTOR)
@@ -564,6 +575,19 @@ def test_sprite_resource_anchors_bare_and_quoted_names(tmp_path):
 
     assert "gfx/interface/quoted.dds" in quoted
     assert "gfx/interface/bare.dds" in bare
+
+
+def test_sprite_index_and_resource_agree_on_direct_properties(tmp_path):
+    mod_root = _write_sprites(tmp_path, SPRITES_WITH_COMMENTED_AND_NESTED_PROPERTIES)
+    settings = _settings(mod_root, tmp_path / ".cache")
+    index = GfxIndex(mod_root, settings.cache_dir)
+
+    actual = index.resolve("GFX_actual")
+    assert actual is not None
+    assert actual["texturefile"] == "gfx/interface/actual.dds"
+    assert index.resolve("GFX_old") is None
+    assert index.resolve("GFX_nested") is None
+    assert 'name = "GFX_actual"' in sprite_resource("GFX_actual", settings, index)
 
 
 def test_extract_focus_block_malformed_node_raises_with_focus_id(monkeypatch):

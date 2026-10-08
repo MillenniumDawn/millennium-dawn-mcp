@@ -503,6 +503,34 @@ def test_is_scope_reference_recognises_dotted_accessors(value):
 
 @pytest.mark.parametrize(
     "value",
+    [
+        "ROOT.FROM",
+        "PREV.PREV",
+        "FROM.FROM.FROM",
+        "ROOT.FROM.FROM.FROM",
+        "THIS.owner",
+        "THIS.controller",
+        "root.from",
+    ],
+)
+def test_is_scope_reference_recognises_scope_chains(value):
+    assert _is_scope_reference(value) is True
+
+
+def test_is_scope_reference_keeps_bare_lowercase_scope_names_as_tags():
+    assert _is_scope_reference("owner") is False
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["ROOT.FOO", "ROOT.", ".FROM", "ROOT..FROM", "USA.FROM", "ROOT.original_tag"],
+)
+def test_is_scope_reference_rejects_malformed_chains(value):
+    assert _is_scope_reference(value) is False
+
+
+@pytest.mark.parametrize(
+    "value",
     ["USA", "GER", "SOV", "TST", "TAG", "USA_cosmetic_tag_monarchist", "GER_fourth_reich"],
 )
 def test_is_scope_reference_keeps_real_tag_names(value):
@@ -542,6 +570,34 @@ def test_country_tag_audit_skips_scope_keywords_and_dotted_refs(fake_mod_root, c
     assert ("country_tag", "var:prev.original_tag") not in unresolved
     assert ("country_tag", "event_target:aggressor") not in unresolved
     assert out["counts"]["country_tag"]["checked"] == 0
+
+
+def test_country_tag_audit_skips_scope_chains(fake_mod_root, cache_dir):
+    """`FROM = { tag = ROOT.FROM }` (peace conference AI) is a scope chain; a
+    malformed chain and an unknown literal tag in the same file still report.
+    """
+    body = """GENERIC_wants_its_cores = {
+    enable = {
+        tag = ROOT
+        FROM = { tag = ROOT.FROM }
+        FROM = { tag = ROOT.FOO }
+        NOT = { tag = PREV.PREV.PREV }
+        original_tag = TST_GHOST_TAG
+    }
+}
+"""
+    f = fake_mod_root / "common" / "national_focus" / "TST_scope_chain.txt"
+    f.write_text(body, encoding="utf-8")
+    out = check_refs(
+        fake_mod_root,
+        files=["common/national_focus/TST_scope_chain.txt"],
+        kinds=["country_tag"],
+        country_tag_index=CountryTagIndex(fake_mod_root, cache_dir, include_vanilla=False),
+        **_indexes(fake_mod_root, cache_dir),
+    )
+    unresolved = {(e["kind"], e["ref"]) for e in out["unresolved"]}
+    assert unresolved == {("country_tag", "ROOT.FOO"), ("country_tag", "TST_GHOST_TAG")}
+    assert out["counts"]["country_tag"]["checked"] == 2
 
 
 def test_country_tag_audit_drops_set_cosmetic_tag(fake_mod_root, cache_dir):

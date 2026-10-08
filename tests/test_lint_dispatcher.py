@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import inspect
 import subprocess
+import sys
 from pathlib import Path
 from typing import Callable
 
@@ -501,8 +502,8 @@ def test_staged_files_splits_nul_delimited_output(tmp_path, monkeypatch):
 
     def nul_delimited_git(command, **kwargs):
         commands.append(command)
-        stdout = "events/café.txt\0events/a\nb.txt\0\0"
-        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+        stdout = "events/café.txt\0events/a\nb.txt\0\0".encode()
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr=b"")
 
     monkeypatch.setattr(linting_tools.subprocess, "run", nul_delimited_git)
 
@@ -515,13 +516,10 @@ def test_staged_files_returns_unquoted_special_paths(tmp_path):
     """Default `core.quotePath` C-quotes non-ASCII and control characters without `-z`."""
     _init_repo(tmp_path)
     _git(tmp_path, "config", "core.quotePath", "true")
-    names = [
-        "events/café.txt",
-        "events/with space.txt",
-        "events/with\ttab.txt",
-        "events/with\nnewline.txt",
-        "events/plain.txt",
-    ]
+    names = ["events/café.txt", "events/with space.txt", "events/plain.txt"]
+    if sys.platform != "win32":
+        # Windows rejects control characters in filenames.
+        names += ["events/with\ttab.txt", "events/with\nnewline.txt"]
     (tmp_path / "events").mkdir()
     for name in names:
         (tmp_path / name).write_text("x\n", encoding="utf-8")
@@ -531,6 +529,25 @@ def test_staged_files_returns_unquoted_special_paths(tmp_path):
 
     assert sorted(staged) == sorted(names)
     assert not any('"' in path or "\\" in path for path in staged)
+
+
+@pytest.mark.parametrize("discover", [_changed_files, _staged_files])
+def test_git_scope_paths_decode_as_utf8_under_legacy_locale(tmp_path, monkeypatch, discover):
+    """Windows before Python 3.15 decodes text-mode pipes with a legacy code page."""
+    _init_repo(tmp_path)
+    (tmp_path / "events").mkdir()
+    (tmp_path / "events" / "café.txt").write_text("x\n", encoding="utf-8")
+    _git(tmp_path, "add", "--", "events/café.txt")
+    real_run = subprocess.run
+
+    def cp1252_locale_run(command, **kwargs):
+        if kwargs.get("text"):
+            kwargs.setdefault("encoding", "cp1252")
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(linting_tools.subprocess, "run", cp1252_locale_run)
+
+    assert discover(tmp_path) == ["events/café.txt"]
 
 
 def test_lint_default_mode_is_changed(tmp_path):
@@ -626,6 +643,22 @@ def test_git_scope_stderr_tail_keeps_internal_invalid_bytes_visible():
 
 
 @pytest.mark.parametrize("mode", ["changed", "staged"])
+def test_lint_git_scope_undecodable_output_returns_structured_error(tmp_path, monkeypatch, mode):
+    def latin1_git(command, **kwargs):
+        stdout = b"A  events/caf\xe9.txt\0"
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr=b"")
+
+    monkeypatch.setattr(linting_tools.subprocess, "run", latin1_git)
+
+    out = lint_tool(tmp_path, mode=mode, checks=["common_mistakes"], validators=[])
+
+    assert out["ok"] is False
+    assert out["scope_error"]["mode"] == mode
+    assert out["scope_error"]["exit_code"] == 0
+    assert "UTF-8" in out["scope_error"]["reason"]
+
+
+@pytest.mark.parametrize("mode", ["changed", "staged"])
 @pytest.mark.parametrize("use_overlay", [False, True])
 def test_git_scope_discovery_uses_selected_worktree_cwd(tmp_path, monkeypatch, mode, use_overlay):
     overlay = tmp_path / "overlay"
@@ -634,7 +667,7 @@ def test_git_scope_discovery_uses_selected_worktree_cwd(tmp_path, monkeypatch, m
 
     def successful_git(command, **kwargs):
         assert kwargs["cwd"] == str(expected_cwd)
-        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
 
     monkeypatch.setattr(linting_tools.subprocess, "run", successful_git)
     discover = _changed_files if mode == "changed" else _staged_files
@@ -675,7 +708,7 @@ def test_lint_staged_mode_runs_default_validator_for_non_ascii_path(tmp_path):
     out = lint_tool(tmp_path, mode="staged", checks=["mod_encoding"], validator_runner=runner)
 
     assert out["validators_run"] == ["style"]
-    assert runner.scope_calls[0]["files"] == ["events/café.txt"]
+    assert [Path(f).as_posix() for f in runner.scope_calls[0]["files"]] == ["events/café.txt"]
 
 
 @pytest.mark.parametrize(

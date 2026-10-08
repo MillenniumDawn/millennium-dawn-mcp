@@ -754,14 +754,13 @@ def _run_git_scope(
     command: list[str],
     mod_root: Path,
     submod_root: Optional[Path],
-) -> subprocess.CompletedProcess:
-    """Run one Git scope-discovery command or raise a structured error."""
+) -> str:
+    """Run one Git scope-discovery command and return its stdout, or raise a structured error."""
     try:
         proc = subprocess.run(
             command,
             cwd=str(submod_root or mod_root),
             capture_output=True,
-            text=True,
             timeout=_GIT_SCOPE_TIMEOUT,
             check=False,
         )
@@ -787,18 +786,27 @@ def _run_git_scope(
             exit_code=proc.returncode,
             stderr=proc.stderr,
         )
-    return proc
+    # Git writes paths as UTF-8 bytes; text mode would decode them with the locale.
+    try:
+        return proc.stdout.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise GitScopeError(
+            mode=mode,
+            command=command,
+            reason=f"Git output is not valid UTF-8: {exc}",
+            exit_code=proc.returncode,
+        ) from exc
 
 
 def _staged_files(mod_root: Path, submod_root: Optional[Path] = None) -> list[str]:
     """Staged files in the active worktree's git index; renames list both paths."""
-    proc = _run_git_scope(
+    stdout = _run_git_scope(
         "staged",
         ["git", "diff", "--name-only", "-z", "--cached", "--no-renames"],
         mod_root,
         submod_root,
     )
-    return [path for path in proc.stdout.split("\0") if path]
+    return [path for path in stdout.split("\0") if path]
 
 
 def _changed_files(
@@ -821,7 +829,7 @@ def _changed_files(
     for validators whose context can change when a file disappears.
     A Git failure raises `GitScopeError`; a successful empty status is a valid no-op.
     """
-    proc = _run_git_scope(
+    stdout = _run_git_scope(
         "changed",
         ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
         mod_root,
@@ -830,7 +838,7 @@ def _changed_files(
 
     files: list[str] = []
     seen: set = set()
-    entries = iter(proc.stdout.split("\0"))
+    entries = iter(stdout.split("\0"))
     for raw in entries:
         if len(raw) < 4:
             continue

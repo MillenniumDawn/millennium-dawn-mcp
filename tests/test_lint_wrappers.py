@@ -54,7 +54,7 @@ def test_changed_files_uses_submod_worktree_cwd(tmp_path, monkeypatch):
 
     class _Result:
         returncode = 0
-        stdout = " M common/overlay.txt\0"
+        stdout = b" M common/overlay.txt\0"
 
     def fake_run(*args, **kwargs):
         calls.append(kwargs["cwd"])

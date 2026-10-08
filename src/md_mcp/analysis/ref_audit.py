@@ -451,8 +451,12 @@ def _is_texture_path(value: str) -> bool:
 
 
 def _is_scope_reference(value: str) -> bool:
-    """Country scope names and dynamic accessors are not tag ids."""
-    return value in _SCOPE_KEYWORDS or value.startswith(_DOTTED_SCOPE_PREFIXES)
+    """Country scope names, scope chains, and dynamic accessors are not tag ids."""
+    return (
+        value in _SCOPE_KEYWORDS
+        or value.startswith(_DOTTED_SCOPE_PREFIXES)
+        or ("." in value and all(part.upper() in _SCOPE_KEYWORDS for part in value.split(".")))
+    )
 
 
 def _child_get(node: Node, name: str) -> Optional[Node]:

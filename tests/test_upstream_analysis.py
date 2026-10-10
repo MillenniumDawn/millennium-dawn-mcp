@@ -153,7 +153,7 @@ def test_calculate_days_rejects_invalid_dates():
         assert result["error"]
 
 
-def test_shim_subprocess_uses_devnull_timeout_and_json(monkeypatch, tmp_path):
+def test_shim_runs_in_a_process_group_with_timeout_and_json(monkeypatch, tmp_path):
     observed = {}
 
     def fake_run(command, **kwargs):
@@ -161,7 +161,8 @@ def test_shim_subprocess_uses_devnull_timeout_and_json(monkeypatch, tmp_path):
         observed.update(kwargs)
         return SimpleNamespace(returncode=0, stdout='{"ok": true, "tag": "USA"}', stderr="")
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    # run_in_group owns stdin=DEVNULL and output capture; tests/test_process.py pins both.
+    monkeypatch.setattr(upstream_analysis, "run_in_group", fake_run)
 
     result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
 
@@ -172,9 +173,8 @@ def test_shim_subprocess_uses_devnull_timeout_and_json(monkeypatch, tmp_path):
         str(tmp_path),
         json.dumps({"tag": "USA"}),
     ]
-    assert observed["stdin"] is subprocess.DEVNULL
     assert observed["timeout"] == upstream_analysis._GDP_TIMEOUT
-    assert observed["capture_output"] is True
+    assert observed["text"] is True
 
 
 def test_tick_audit_enforces_budget(monkeypatch, tmp_path):
@@ -194,7 +194,7 @@ def test_subprocess_timeout_is_an_error(monkeypatch, tmp_path):
     def timed_out(*args, **kwargs):
         raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
 
-    monkeypatch.setattr(subprocess, "run", timed_out)
+    monkeypatch.setattr(upstream_analysis, "run_in_group", timed_out)
 
     result = upstream_analysis.tick_audit_tool(tmp_path)
 
@@ -206,7 +206,7 @@ def test_subprocess_spawn_failure_is_an_error(monkeypatch, tmp_path):
     def spawn_failed(*args, **kwargs):
         raise OSError("exec failed")
 
-    monkeypatch.setattr(subprocess, "run", spawn_failed)
+    monkeypatch.setattr(upstream_analysis, "run_in_group", spawn_failed)
 
     result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
 
@@ -218,7 +218,7 @@ def test_shim_nonzero_exit_surfaces_stderr_detail(monkeypatch, tmp_path):
     def failing_run(*args, **kwargs):
         return SimpleNamespace(returncode=3, stdout="", stderr="boom upstream\n")
 
-    monkeypatch.setattr(subprocess, "run", failing_run)
+    monkeypatch.setattr(upstream_analysis, "run_in_group", failing_run)
 
     result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
 
@@ -230,7 +230,7 @@ def test_shim_nonzero_exit_without_stderr_falls_back_to_stdout(monkeypatch, tmp_
     def failing_run(*args, **kwargs):
         return SimpleNamespace(returncode=2, stdout="stdout trace", stderr="")
 
-    monkeypatch.setattr(subprocess, "run", failing_run)
+    monkeypatch.setattr(upstream_analysis, "run_in_group", failing_run)
 
     result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
 
@@ -242,7 +242,7 @@ def test_shim_invalid_json_is_an_error(monkeypatch, tmp_path):
     def garbage_run(*args, **kwargs):
         return SimpleNamespace(returncode=0, stdout="not json", stderr="")
 
-    monkeypatch.setattr(subprocess, "run", garbage_run)
+    monkeypatch.setattr(upstream_analysis, "run_in_group", garbage_run)
 
     result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
 
@@ -254,7 +254,7 @@ def test_shim_non_object_json_is_an_error(monkeypatch, tmp_path):
     def list_run(*args, **kwargs):
         return SimpleNamespace(returncode=0, stdout="[1]", stderr="")
 
-    monkeypatch.setattr(subprocess, "run", list_run)
+    monkeypatch.setattr(upstream_analysis, "run_in_group", list_run)
 
     result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
 

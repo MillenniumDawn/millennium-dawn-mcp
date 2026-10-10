@@ -18,6 +18,8 @@
 
 ### Changed
 
+- `tick_audit` and `estimate_gdp` run their child through `run_in_group`, like the validators and
+  lint scripts. A timeout now kills the child's whole process group. Payloads are unchanged.
 - `validator_mode = subprocess` (the alias for `isolated`) is resolved when settings load.
   `md-mcp serve` no longer warns that the alias is unsafe, and `md-mcp doctor` prints
   `validator_mode: isolated` for it.

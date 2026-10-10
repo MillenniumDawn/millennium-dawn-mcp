@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
-import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Optional
@@ -11,6 +9,7 @@ from typing import Optional
 from ..util.encoding import UTF8_BOM
 from ..util.pathing import PathAccessError, validate_user_path
 from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget, fit_prefix
+from ..util.upstream_modules import UpstreamModules
 
 SUPPORTED_KINDS: tuple[str, ...] = (
     "focus",
@@ -35,34 +34,12 @@ _UPSTREAM_MODULES: tuple[str, ...] = (
     "standardize_mio",
     "standardize_technologies",
 )
-_loaded_mod_root: Optional[Path] = None
-_loaded_api: Optional[ModuleType] = None
-_inserted_dirs: list[str] = []
+_UPSTREAM = UpstreamModules("standardization", _UPSTREAM_MODULES)
 
 
 def _load_standardize_api(mod_root: Path) -> ModuleType:
     """Load the upstream API and its sibling modules from this mod root."""
-    global _loaded_mod_root, _loaded_api, _inserted_dirs
-    root = mod_root.resolve()
-    if _loaded_mod_root != root:
-        for directory in _inserted_dirs:
-            while directory in sys.path:
-                sys.path.remove(directory)
-        _inserted_dirs = []
-        for name in _UPSTREAM_MODULES:
-            sys.modules.pop(name, None)
-        for directory_path in (root / "tools", root / "tools" / "standardization"):
-            value = str(directory_path)
-            if value in sys.path:
-                sys.path.remove(value)
-            sys.path.insert(0, value)
-            _inserted_dirs.append(value)
-        _loaded_api = None
-        _loaded_mod_root = root
-
-    if _loaded_api is None:
-        _loaded_api = importlib.import_module("standardize_api")
-    return _loaded_api
+    return _UPSTREAM.load(mod_root, ("standardize_api",))["standardize_api"]
 
 
 def _clip_txt(result: dict, txt: str) -> dict:

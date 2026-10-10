@@ -106,7 +106,7 @@ parseValue  := { parseBlockContent('}') }
 
 The parser keeps two tokens in the resulting `Node` (`name_token` and
 `value_end_token`) so downstream consumers can slice the original source by
-offset — used by `resources.py` to preserve comments and whitespace when
+offset. `resources.py` uses them to preserve comments and whitespace when
 returning raw blocks via `md://`.
 
 ## BOM handling

@@ -259,6 +259,7 @@ The ISR focus_graph probe in the git history is a useful template.
 | Env var | Effect |
 | --- | --- |
 | `MD_MOD_ROOT` | Path to the `Millennium-Dawn/` checkout. Required when not auto-discovered. |
+| `MD_MCP_SUBMOD_ROOT` | Optional submod/worktree overlay; matching files take precedence over the mod root. The default cache moves under it. |
 | `HOI4_PATH` | Path to vanilla `Hearts of Iron IV/`. Optional; doubles cold-build time. |
 | `MD_MCP_CACHE_DIR` | Override `.md-mcp-cache/` location (use for read-only checkouts). |
 | `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process`. `in_process` is unsafe under `serve`; see rule 6. |
@@ -267,7 +268,7 @@ The ISR focus_graph probe in the git history is a useful template.
 | `MD_MCP_SERIAL_PARSE` | `1` forces serial parsing — auto-set by `md-mcp serve`. |
 | `MD_MCP_TEXT_CACHE_BYTES` | Bound on decoded text held by `find_references`' in-memory file cache, measured as the strings cost in memory (default 134217728 = 128 MB; `0` disables). Once full, further files are read but not cached. |
 | `MD_MCP_AST_CACHE_SIZE` | Parsed-AST LRU capacity in files (default 32, `0` disables). |
-| `MD_MCP_AST_CACHE_BYTES` | Bound on source text held by the parsed-AST cache (default 8000000). Resident cost is ~23x that: 8 MB of source is ~185 MB of trees on the real mod. |
+| `MD_MCP_AST_CACHE_BYTES` | Bound on source text held by the parsed-AST cache (default 8000000). Resident cost is ~23x that: 8 MB of source is ~184 MB of trees on the real mod. |
 
 Config-file equivalents in `~/.config/md-mcp/config.toml`. CLI flag > env >
 file > computed default.

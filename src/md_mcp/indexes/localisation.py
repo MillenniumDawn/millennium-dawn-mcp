@@ -70,6 +70,7 @@ _HEADER_RE = re.compile(r"^\s*(l_[a-z_]+)\s*:\s*$")
 # `  KEY: "value"`  or  `  KEY:0 "value"`  — tolerant of optional version digit.
 # Captures key and quoted value; trailing `# comment` is allowed.
 _ENTRY_RE = re.compile(r"^\s*([^:#\s][^:#]*?)\s*:\s*\d*\s*\"((?:\\.|[^\"\\])*)\"\s*(?:#.*)?$")
+_ESCAPE_RE = re.compile(r'\\([\\n"])')
 
 
 def _file_lang_suffix(path: Path) -> Optional[str]:
@@ -316,6 +317,5 @@ def _parse_loc_file(text: str, relpath: str) -> dict:
 
 
 def _unescape(s: str) -> str:
-    """Decode known localisation escapes in one pass, preferring escaped slashes."""
-    escapes = {r"\\": "\\", r"\n": "\n", r"\"": '"'}
-    return re.sub(r'\\\\|\\n|\\"', lambda match: escapes[match.group()], s)
+    """Decode `\\\\`, `\\n` and `\\"` in one left-to-right pass."""
+    return _ESCAPE_RE.sub(lambda m: "\n" if m[1] == "n" else m[1], s)

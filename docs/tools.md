@@ -577,8 +577,9 @@ validators can't be scoped to a file, and `resolve_*` is one id per call.
   `event_target:` references are skipped — `set_cosmetic_tag` carries a
   cosmetic-tag *name*, not a country tag), `character` (and friends),
   `trait` (and friends), `scripted_effect` (only direct calls whose key is
-  in the index), `scripted_trigger` (same caveat), and `duplicate_icons`
-  (focus definitions sharing an icon id, compared case-insensitively).
+  in the index), `scripted_trigger` (same caveat). Omitting `kinds` runs all
+  of these. `duplicate_icons` (focuses in one file sharing an icon id) runs
+  only when named.
 - Unresolved refs are deduped by (kind, id) with `count` and up to 3 `sites`
   (`{file, line, via, referrer}`).
 - **`limit=200`**, **`offset=0`** — paginate the unresolved list. `-1` returns
@@ -594,22 +595,21 @@ validators can't be scoped to a file, and `resolve_*` is one id per call.
   vanilla-only sprite ids were resolved from the committed
   `vanilla_sprites.txt` manifest instead.
 
-When `duplicate_icons` is selected, the result also includes
-`duplicate_icons_summary: {groups, focuses}`, `total_duplicate_icons`,
+`kinds=["duplicate_icons"]` adds `total_duplicate_icons`,
 `returned_duplicate_icons`, `duplicate_icons_truncated`, and (unless
-`counts_only=true`) `duplicate_icons: [{icon, focuses: [{id, file, line}]}]`.
-`groups` counts repeated icon ids within individual focus files; `focuses`
-counts focus definitions across those groups. Icons are compared
-case-insensitively. Only direct `icon = ...` fields on focus definitions are
-checked; icon assignments nested in conditional or other blocks are omitted.
-This list uses the same `limit` and `offset` as `unresolved`. If the response
-budget drops the list, `duplicate_icons_dropped` gives the number of page groups
-omitted and `size_truncated` is set; the summary and page totals remain.
+`counts_only=true`) `duplicate_icons: [{icon, focuses: [{id, file, line}]}]`,
+one group per icon id reused within a focus file. It is opt-in because reuse
+is common: `05_usa.txt` has 163 groups, about 49 KB. Icons are compared
+case-insensitively. Only a direct `icon = ...` on the focus is read, so icons
+set inside a conditional block are skipped. The list shares `limit` and
+`offset` with `unresolved`, and its `counts` entry reports focuses with an
+icon as `checked` and groups as `unresolved`. If the response budget drops the
+list, `duplicate_icons_dropped` and `size_truncated` are set and the totals
+remain.
 
 Returns `{ok, scope, files_scanned, kinds_checked, not_checked,
 vanilla_indexed, vanilla_manifest, counts: {kind: {checked, unresolved}},
-total_unresolved, returned, truncated, unresolved: [...]}` plus duplicate-icon
-summary and page fields when that kind is selected.
+total_unresolved, returned, truncated, unresolved: [...]}`.
 
 ### `focus_layout(tag?, file?, include_positions?, limit?) -> dict`
 

@@ -198,7 +198,7 @@ def test_duplicate_icons_groups_focus_sites_and_paginates(audit_mod):
         **idx,
     )
     assert result["total_duplicate_icons"] == 2
-    assert result["duplicate_icons_summary"] == {"groups": 2, "focuses": 4}
+    assert result["counts"]["duplicate_icons"] == {"checked": 5, "unresolved": 2}
     assert result["duplicate_icons"] == [
         {
             "icon": "GFX_shared",
@@ -208,6 +208,8 @@ def test_duplicate_icons_groups_focus_sites_and_paginates(audit_mod):
             ],
         }
     ]
+    assert result["returned_duplicate_icons"] == 1
+    assert result["duplicate_icons_truncated"] is True
     counts_only = check_refs(
         root,
         files=["common/national_focus/TST_audit.txt"],
@@ -217,16 +219,6 @@ def test_duplicate_icons_groups_focus_sites_and_paginates(audit_mod):
     )
     assert "duplicate_icons" not in counts_only
     assert counts_only["total_duplicate_icons"] == 2
-    page = check_refs(
-        root,
-        files=["common/national_focus/TST_audit.txt"],
-        kinds=["duplicate_icons"],
-        limit=1,
-        **idx,
-    )
-    assert len(page["duplicate_icons"]) == 1
-    assert page["returned_duplicate_icons"] == 1
-    assert page["duplicate_icons_truncated"] is True
     last_page = check_refs(
         root,
         files=["common/national_focus/TST_audit.txt"],
@@ -259,7 +251,24 @@ def test_duplicate_icons_does_not_group_across_focus_files(audit_mod):
 
     assert result["duplicate_icons"] == []
     assert result["total_duplicate_icons"] == 0
-    assert result["duplicate_icons_summary"] == {"groups": 0, "focuses": 0}
+
+
+def test_duplicate_icons_is_opt_in(audit_mod):
+    root, cache = audit_mod
+    (root / "common" / "national_focus" / "AAA.txt").write_text(
+        "focus_tree = {\n"
+        "    focus = { id = AAA_one icon = GFX_shared }\n"
+        "    focus = { id = AAA_two icon = GFX_shared }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    result = check_refs(root, files=["common/national_focus/AAA.txt"], **_indexes(root, cache))
+
+    assert "duplicate_icons" not in result["kinds_checked"]
+    assert "duplicate_icons" not in result["counts"]
+    assert "duplicate_icons" not in result
+    assert "total_duplicate_icons" not in result
 
 
 @pytest.mark.integration

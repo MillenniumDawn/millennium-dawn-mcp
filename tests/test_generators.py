@@ -417,6 +417,7 @@ def test_loc_stub_escapes_line_breaks(value, escaped):
         pytest.param("First\u2029Second", "First\nSecond", id="paragraph-separator"),
         pytest.param('say "hi"\nbye', 'say "hi"\nbye', id="quote-before-break"),
         pytest.param('"First\nSecond"', '"First\nSecond"', id="break-between-quotes"),
+        pytest.param(r"a\nb", r"a\nb", id="literal-backslash-n"),
     ],
 )
 def test_loc_stub_line_breaks_round_trip(value, parsed, include_header, bom_prefix):
@@ -427,6 +428,17 @@ def test_loc_stub_line_breaks_round_trip(value, parsed, include_header, bom_pref
     )
     keys = _parse_loc_file(r["txt"], "test_l_english.yml")["keys"]
     assert [(k["key"], k["value"]) for k in keys] == [("TST_desc", parsed), ("TST_next", "tail")]
+
+
+def test_loc_parser_distinguishes_newline_from_escaped_backslash_n():
+    content = 'l_english:\n literal: "\\\\n"\n newline: "\\n"\n'
+
+    parsed = _parse_loc_file(content, "test_l_english.yml")
+
+    assert [(entry["key"], entry["value"]) for entry in parsed["keys"]] == [
+        ("literal", r"\n"),
+        ("newline", "\n"),
+    ]
 
 
 def _render(name: str, tex: str) -> str:

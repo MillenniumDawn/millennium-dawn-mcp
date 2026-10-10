@@ -114,9 +114,10 @@ directories are simply ignored; users can blow them away manually.
 
 ```
 .md-mcp-cache/
-├── v3/                           (focus v3, loc v3 — each index has its own N)
+├── v3/                           (focus v3)
 │   ├── focus.data.json
-│   ├── focus.manifest.json
+│   └── focus.manifest.json
+├── v4/                           (localisation v4)
 │   ├── loc-en.manifest.json      one cache per language set (loc-en, loc-de_en, ...)
 │   └── loc-en.data/              sharded: one JSON file per contributing .yml
 │       ├── MD_GCC_membership_l_english.yml-3fa9c1…json
@@ -128,7 +129,8 @@ JSON (not JSONL) was chosen for simplicity — atomic rewrite is straightforward
 and cross-language inspection / corruption diagnosis with `jq` is trivial.
 
 Loc cache v3 changed meaning twice over (only the configured languages are
-indexed; data is sharded), so v2 caches are ignored.
+indexed; data is sharded), so v2 caches are ignored. Loc cache v4 rebuilds
+persisted values after localisation escape decoding changed.
 
 ## Sharded cache
 
@@ -186,6 +188,10 @@ only; `list_country_content` walks `localisation/` itself so a country manifest
 still lists every translation. A file whose `l_<lang>:` header disagrees with its
 filename suffix is selected by the suffix, so it is indexed (or scanned) under the
 filename's language rather than the header's.
+
+Localisation values decode `\"`, `\\`, and `\n` in a single pass. A doubled
+backslash before `n` therefore resolves to the literal two-character sequence
+`\n`; a single `\n` resolves to a line feed.
 
 ## What the cache stores (and doesn't)
 

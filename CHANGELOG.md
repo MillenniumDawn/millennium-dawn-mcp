@@ -20,6 +20,9 @@
 
 - Localisation escape decoding now distinguishes `\\n` (literal backslash followed by `n`)
   from `\n` (line feed). The localisation cache version is 4 so cached values are rebuilt.
+- `validate` run-all results now retain each validator's scoped `unattributed` count and expose
+  their sum at the top level, including zero counts and `counts_only` / delta responses. These
+  findings remain outside severity totals and the scoped issue list.
 - `line_starts` (and the GFX index's line-offset table) now scans with a `str.find` loop instead of
   a per-character Python loop, and the tokenizer builds its line table lazily on the first parse
   error rather than in `Tokenizer.__init__`. Output is unchanged; `parse_string` on `05_usa.txt` is

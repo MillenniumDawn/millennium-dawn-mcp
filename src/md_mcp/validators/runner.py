@@ -220,6 +220,7 @@ class ValidatorRunner:
             info,
             kept,
             unattributed=unattributed,
+            attribution_scoped=files is not None and post_filter,
             suppressed=suppressed,
             scoped=bool(payload.get("scoped")),
         )
@@ -472,6 +473,7 @@ def _summarise(
     issues: list[dict],
     *,
     unattributed: int = 0,
+    attribution_scoped: bool = False,
     suppressed: int = 0,
     scoped: bool = False,
 ) -> dict:
@@ -482,7 +484,7 @@ def _summarise(
         "counts": count_severities(issues),
         "issues": issues,
     }
-    if unattributed:
+    if attribution_scoped or unattributed:
         result["unattributed"] = unattributed
     if suppressed:
         result["suppressed"] = suppressed

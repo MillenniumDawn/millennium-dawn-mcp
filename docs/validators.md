@@ -209,6 +209,14 @@ feedback on what you just touched.
 the wrapper runs the full validator and filters the resulting issue list by
 file. Slower than `staged_only` for big trees.
 
+For a file-scoped `validate`, each validator reports an `unattributed` count for
+issues whose files could not be resolved, and run-all also returns the sum at
+the top level. A scoped run reports zero explicitly when every issue was
+attributed. These findings are not added to the scoped `issues` list or
+severity `counts`; the metadata remains available with `counts_only=True` and
+in delta mode. Delta's separate `unclassified` count describes issues that
+could not be compared with the baseline.
+
 ## Running validators through `lint`
 
 `lint()` runs the `style` validator by default in full-tree mode or when the

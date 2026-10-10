@@ -173,10 +173,14 @@ route validators through the in-process path from inside `mcp.run()`.
 
 ### 7. `Node.children()` is a method, not an attribute
 
-The Python AST diverges from the TS port in one place: `Node.children` is a
+The Python AST diverges from the TS port in two places. `Node.children` is a
 **method** (returns `[]` if value isn't a block, otherwise the block contents).
 Earlier code wrote `for c in node.children:` and crashed with
 `'method' object is not iterable`. Always call it: `node.children()`.
+
+`Node` also keeps only `name_token` and `value_end_token`. The TS operator,
+value-start, and value-attachment tokens are not stored: nothing read them and
+each cost memory on every node. See [`docs/parser.md`](./docs/parser.md).
 
 Similarly, `Token.start` is a Python **str index**, not a line number. To translate,
 use `line_starts(text)` + `pos_to_line(pos, line_starts)` from
@@ -263,7 +267,7 @@ The ISR focus_graph probe in the git history is a useful template.
 | `MD_MCP_SERIAL_PARSE` | `1` forces serial parsing — auto-set by `md-mcp serve`. |
 | `MD_MCP_TEXT_CACHE_BYTES` | Bound on decoded text held by `find_references`' in-memory file cache, measured as the strings cost in memory (default 134217728 = 128 MB; `0` disables). Once full, further files are read but not cached. |
 | `MD_MCP_AST_CACHE_SIZE` | Parsed-AST LRU capacity in files (default 32, `0` disables). |
-| `MD_MCP_AST_CACHE_BYTES` | Bound on source text held by the parsed-AST cache (default 8000000). Resident cost is ~30x that: 8 MB of source is ~230 MB of trees on the real mod. |
+| `MD_MCP_AST_CACHE_BYTES` | Bound on source text held by the parsed-AST cache (default 8000000). Resident cost is ~23x that: 8 MB of source is ~185 MB of trees on the real mod. |
 
 Config-file equivalents in `~/.config/md-mcp/config.toml`. CLI flag > env >
 file > computed default.
@@ -289,7 +293,8 @@ not in the hook. Run `pytest -q` yourself; it isn't a hook either.
    with vanilla content, read the TS source
    (`MD-VSCode-Utility-Tool/src/hoiformat/hoiparser.ts`) and confirm the
    behaviour there before changing the Python side. The string token is the
-   one deliberate difference; see [`docs/parser.md`](./docs/parser.md).
+   one deliberate parsing difference, and `Node` stores fewer tokens; see
+   [`docs/parser.md`](./docs/parser.md).
 3. The index cache is **stat-based**, not content-based. If an index seems
    stale, blow away `<mod_root>/.md-mcp-cache/v1/` and rerun
    `md-mcp build-index`.

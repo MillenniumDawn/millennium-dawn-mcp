@@ -66,26 +66,16 @@ def _parse_node(tokens: Tokenizer) -> Node:
             name_token=name,
         )
 
-    # operator phase
-    if next_token.value == "{":
-        # Implicit `= { ... }` — TS code synthesises an `=` token here.
-        operator_token = Token(
-            value="=", start=next_token.start, end=next_token.end, type="operator"
-        )
-    else:
-        operator_token = tokens.next()
+    # An implicit `name { ... }` block reads as `name = { ... }`.
+    operator = "=" if next_token.value == "{" else tokens.next().value
 
-    value, value_start, value_end = _parse_node_value(tokens)
+    value, value_end = _parse_node_value(tokens)
 
     # Handle `value @attachment` — a symbol followed by another block becomes attachment + block.
     value_attachment: SymbolNode | None = None
-    value_attachment_token: Token | None = None
-    if isinstance(value, SymbolNode):
-        peek = tokens.peek()
-        if peek.value == "{":
-            value_attachment = value
-            value_attachment_token = value_start
-            value, value_start, value_end = _parse_node_value(tokens)
+    if isinstance(value, SymbolNode) and tokens.peek().value == "{":
+        value_attachment = value
+        value, value_end = _parse_node_value(tokens)
 
     # Skip trailing separators.
     tail = tokens.peek()
@@ -96,23 +86,21 @@ def _parse_node(tokens: Tokenizer) -> Node:
     return Node(
         name=name.value,
         name_token=name,
-        operator=operator_token.value,
-        operator_token=operator_token,
+        operator=operator,
         value=value,
-        value_start_token=value_start,
         value_end_token=value_end,
         value_attachment=value_attachment,
-        value_attachment_token=value_attachment_token,
     )
 
 
 def _parse_node_value(
     tokens: Tokenizer,
-) -> tuple[str | int | float | SymbolNode | list | None, Token, Token]:
+) -> tuple[str | int | float | SymbolNode | list | None, Token]:
+    """Parse one value. Returns it with its last token (the `}` of a block)."""
     next_token = tokens.next()
     t = next_token.type
     if t == "string":
-        return _unescape_string(next_token.value), next_token, next_token
+        return _unescape_string(next_token.value), next_token
 
     if t == "number":
         # The lexer only emits "number" tokens for strings matching its number
@@ -128,17 +116,17 @@ def _parse_node_value(
         else:
             # pi-lens-ignore: unchecked-throwing-call-python
             num = int(v)
-        return num, next_token, next_token
+        return num, next_token
 
     if t in ("symbol", "unitnumber"):
-        return SymbolNode(name=next_token.value), next_token, next_token
+        return SymbolNode(name=next_token.value), next_token
 
     if t == "operator" and next_token.value == "{":
         children = _parse_block_content(tokens)
         right = tokens.next()
         if right.value != "}":
             tokens.throw("Expect a '}'", prev=True)
-        return children, next_token, right
+        return children, right
 
     tokens.throw("Expect string, number, symbol, or {", prev=True)
 

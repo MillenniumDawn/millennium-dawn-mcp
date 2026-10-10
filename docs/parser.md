@@ -33,11 +33,12 @@ class Node:
     value_attachment: Optional[SymbolNode]  # for `value @attach` syntax
 
     name_token: Optional[Token]
-    operator_token: Optional[Token]
-    value_attachment_token: Optional[Token]
-    value_start_token: Optional[Token]
     value_end_token: Optional[Token]
 ```
+
+`hoiparser.ts` also keeps the operator, value-start, and value-attachment tokens.
+Nothing here reads them, and each one is held for every node, so the port leaves
+them out. That cut the trees for 8 MB of focus source from 246 MB to 184 MB.
 
 `NodeValue` is the tagged union of:
 
@@ -103,10 +104,10 @@ parseValue  := { parseBlockContent('}') }
               [ '@' SYMBOL ]?                              (value attachment)
 ```
 
-The parser keeps tokens in the resulting `Node` (`name_token`,
-`value_start_token`, `value_end_token`, etc.) so downstream consumers can
-slice the original source by byte offset — used by `resources.py` to preserve
-comments and whitespace when returning raw blocks via `md://`.
+The parser keeps two tokens in the resulting `Node` (`name_token` and
+`value_end_token`) so downstream consumers can slice the original source by
+offset — used by `resources.py` to preserve comments and whitespace when
+returning raw blocks via `md://`.
 
 ## BOM handling
 

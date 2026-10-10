@@ -129,8 +129,8 @@ a dict lookup.
   raises the `OSError` as before.
 - **Capacity**: 32 files (`MD_MCP_AST_CACHE_SIZE`, `0` disables) and 8 MB of
   source text (`MD_MCP_AST_CACHE_BYTES`), whichever bound is hit first. An AST
-  is roughly 30x its source size, so the byte bound caps resident trees at a few
-  hundred MB even when a scope walk streams hundreds of files through the cache.
+  is roughly 23x its source size, so the byte bound caps resident trees at about
+  185 MB even when a scope walk streams hundreds of files through the cache.
   A file larger than the byte bound is parsed but not cached.
 - **Errors are not cached.** A `ParseError` propagates and the next call
   re-parses. `error_prefix` only decorates error messages and is not part of the

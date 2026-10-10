@@ -18,6 +18,10 @@
 
 ### Changed
 
+- `Node` no longer stores `operator_token`, `value_attachment_token`, or `value_start_token`.
+  Nothing read them, and each was held for every node. Trees for 8 MB of focus source drop from
+  246 MB to 184 MB (44 files on the real mod); `05_usa.txt` alone from 41 MB to 29 MB. Parse
+  results are unchanged. `hoiparser.ts` keeps all five tokens; see `docs/parser.md`.
 - `tick_audit` and `estimate_gdp` run their child through `run_in_group`, like the validators and
   lint scripts. A timeout now kills the child's whole process group. Payloads are unchanged.
 - `validator_mode = subprocess` (the alias for `isolated`) is resolved when settings load.
@@ -51,7 +55,7 @@
 - Parsed ASTs are now cached across tool and resource calls (`paradox/ast_cache.py`): a
   process-wide LRU keyed by `(path, mtime_ns, size)`, bounded to 32 files
   (`MD_MCP_AST_CACHE_SIZE`) and 8 MB of source text (`MD_MCP_AST_CACHE_BYTES`; ASTs are
-  ~30x their source). `resolve_focus`, `focus_graph`, the scope walkers behind
+  ~23x their source). `resolve_focus`, `focus_graph`, the scope walkers behind
   `focus_layout` / `check_refs` / deep `find_focuses` filters, and the `md://` resources share it,
   so a repeat call on `05_usa.txt` drops from ~700 ms to ~30 ms. Parse errors are not cached.
 - `GenericTxtIndex._rebuild` is incremental after the first load: the refresh diffs disk against

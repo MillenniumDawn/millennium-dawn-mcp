@@ -24,6 +24,9 @@ def _alive(pid: int) -> bool:
     # A killed process stays a zombie until it is reaped, and some sandboxes never reap orphans.
     try:
         status = Path(f"/proc/{pid}/status").read_text()
+    except (FileNotFoundError, ProcessLookupError):
+        # Reaped since the signal check. Without /proc at all, that check is all there is.
+        return not Path("/proc/self").exists()
     except OSError:
         return True
     return "\nState:\tZ" not in status
@@ -37,6 +40,15 @@ def test_alive_treats_an_unreaped_child_as_dead():
         assert not _alive(child.pid)
     finally:
         child.wait()
+
+
+@pytest.mark.skipif(not Path("/proc/self/status").exists(), reason="needs Linux /proc")
+def test_alive_treats_a_pid_reaped_between_its_two_checks_as_dead(monkeypatch):
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    child.wait()
+    # The signal check still saw the pid; it was reaped before /proc was read.
+    monkeypatch.setattr(os, "kill", lambda pid, sig: None)
+    assert not _alive(child.pid)
 
 
 def test_run_in_group_captures_output_and_exit_code(tmp_path):

@@ -18,6 +18,9 @@
 
 ### Changed
 
+- `validator_mode = subprocess` (the alias for `isolated`) is resolved when settings load.
+  `md-mcp serve` no longer warns that the alias is unsafe, and `md-mcp doctor` prints
+  `validator_mode: isolated` for it.
 - `generate_loc_stub` no longer returns `bytes_to_write`. Over MCP the field arrived as the same
   string as `txt`, so every response carried its content twice. `txt` still starts with the BOM
   character when `bom_prefix=True`.

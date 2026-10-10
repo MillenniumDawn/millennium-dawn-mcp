@@ -238,6 +238,23 @@ def test_unrecognized_validator_mode_fails_loudly(tmp_path, monkeypatch):
         config.load(str(root))
 
 
+@pytest.mark.parametrize(
+    ("setting", "expected"),
+    [("subprocess", "isolated"), ("isolated", "isolated"), ("in_process", "in_process")],
+)
+def test_load_resolves_the_subprocess_mode_alias(tmp_path, monkeypatch, setting, expected):
+    root = _make_mod_root(tmp_path / "Mod")
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
+    monkeypatch.setenv("MD_MCP_VALIDATOR_MODE", setting)
+    assert config.load(str(root)).validator_mode == expected
+
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(f'validator_mode = "{setting}"\n', encoding="utf-8")
+    monkeypatch.setattr(config, "CONFIG_PATH", cfg)
+    monkeypatch.delenv("MD_MCP_VALIDATOR_MODE")
+    assert config.load(str(root)).validator_mode == expected
+
+
 def test_submod_root_loads_from_env_and_moves_default_cache(tmp_path, monkeypatch):
     root = _make_mod_root(tmp_path / "Mod")
     submod = tmp_path / "Overlay"

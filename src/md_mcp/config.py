@@ -82,6 +82,8 @@ def load(mod_root: str | Path | None = None, submod_root: str | Path | None = No
             f"Invalid validator_mode {validator_mode!r}. Must be one of: "
             f"{', '.join(sorted(VALIDATOR_MODES))}"
         )
+    if validator_mode == "subprocess":
+        validator_mode = "isolated"
 
     default_lang = os.environ.get("MD_MCP_DEFAULT_LANG") or file_cfg.get("default_lang", "en")
     loc_langs_setting = os.environ.get("MD_MCP_LOC_LANGS") or file_cfg.get("loc_langs")

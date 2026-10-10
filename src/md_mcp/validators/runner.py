@@ -13,7 +13,7 @@ per call, which is noise next to a multi-second validator.
 `MD_MCP_VALIDATOR_MODE=in_process` skips the child and imports the validator
 directly. Faster and easier to debug, but only safe outside `mcp.run()` — a
 forking validator will deadlock the server. `subprocess` is a back-compat alias
-for `isolated`.
+for `isolated`, resolved in `config.load`.
 """
 
 from __future__ import annotations
@@ -116,7 +116,7 @@ class ValidatorRunner:
     ):
         self.mod_root = mod_root
         self.submod_root = submod_root
-        self.mode = "isolated" if mode == "subprocess" else mode
+        self.mode = mode
         self._infos: Optional[dict[str, ValidatorInfo]] = None
         self._attributor_cache: Optional[IssueAttributor] = None
 

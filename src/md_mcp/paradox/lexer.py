@@ -23,7 +23,11 @@ from .nodes import Token
 _TOKEN_TYPES: list[tuple[str, str]] = [
     ("comment", r"#.*(?:[\r\n]|$)"),
     ("operator", r"[={}<>;,]|>=|<=|!="),
-    ("string", r'"(?:\\"|\\\\|[^"])*"'),
+    # Keep the alternatives disjoint: the old `[^\"]` fallback also accepted
+    # backslashes, letting each run of slashes split into pairs in exponentially
+    # many ways when the closing quote was missing. Unknown escapes remain
+    # literal backslash + character, as before.
+    ("string", r'"(?:\\"|\\\\|\\(?!["\\])|[^"\\])*"'),
     ("symbol", r"(?:\d+\.)?[a-zA-Z_@\[\]][\w:\._@\[\]\-\?\^\/ -ɏ|]*"),
     ("unitnumber", r"(?:-?\d*\.\d+|-?\d+)(?:%%?)"),
     ("number", r"-?\d*\.\d+|-?\d+|0x\d+"),

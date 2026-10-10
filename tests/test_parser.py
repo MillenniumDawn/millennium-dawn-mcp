@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from md_mcp.paradox import ParseError, parse_string
+from md_mcp.paradox.lexer import LexError, Tokenizer
 from md_mcp.paradox.nodes import SymbolNode
 from md_mcp.util.encoding import read_text
 
@@ -26,6 +27,52 @@ def test_string_with_escapes():
     root = parse_string(r'name = "He said \"hi\""')
     [node] = root.children()
     assert node.value == 'He said "hi"'
+
+
+def test_string_backslash_parity_before_quote():
+    # An odd slash escapes the quote; an even run leaves it as the terminator.
+    odd = parse_string('name = "a' + "\\" + '"b"')
+    even = parse_string('name = "a' + "\\" * 2 + '"')
+    assert odd.children()[0].value == 'a"b'
+    assert even.children()[0].value == "a\\"
+
+
+def test_string_unknown_escape_stays_literal():
+    root = parse_string('name = "a\\qb"')
+    assert root.children()[0].value == "a\\qb"
+
+
+def test_unterminated_string_with_long_backslash_run_is_bounded():
+    import time
+
+    source = 'name = "' + "\\" * 36
+    started = time.perf_counter()
+    with pytest.raises(ParseError):
+        parse_string(source)
+    assert time.perf_counter() - started < 0.5
+
+
+def test_lexer_keeps_even_backslash_run_in_string_token():
+    token = Tokenizer('"path' + "\\" * 32 + '"').next()
+    assert token.type == "string"
+
+
+@pytest.mark.parametrize("backslash_count", [1, 2, 3, 4])
+def test_terminal_backslash_parity_matches_lexer_and_parser(backslash_count):
+    literal = '"value' + "\\" * backslash_count + '"'
+    if backslash_count % 2:
+        # The final quote is escaped, so there is no terminating quote.
+        with pytest.raises(LexError):
+            Tokenizer(literal).next()
+        with pytest.raises(ParseError):
+            parse_string("name = " + literal)
+    else:
+        token = Tokenizer(literal).next()
+        assert token.type == "string"
+        assert token.value == literal
+        assert parse_string("name = " + literal).children()[0].value == "value" + "\\" * (
+            backslash_count // 2
+        )
 
 
 def test_bool_yes_no_are_symbols():

@@ -62,7 +62,7 @@ From `lexer.py`:
 |---|---|---|
 | `comment` | `#.*(?:[\r\n]|$)` | `# this is a comment` |
 | `operator` | `[={}<>;,]` plus `>=`, `<=`, `!=` | `=`, `{`, `}`, `>=` |
-| `string` | `"(?:\\"|\\\\|[^"])*"` | `"localised key"` |
+| `string` | `"(?:\\"|\\\\|\\(?!["\\])|[^"\\])*"` | `"localised key"` |
 | `symbol` | `(?:\d+\.)?[a-zA-Z_@\[\]][\w:\._@\[\]\-\?\^\/ -ɏ|]*` | `ISR_idf`, `[VAR]`, `5.cycle_var` |
 | `unitnumber` | `(?:-?\d*\.\d+|-?\d+)(?:%%?)` | `5%`, `42%%` |
 | `number` | `-?\d*\.\d+|-?\d+|0x\d+` | `42`, `-3.5`, `0xFF` |
@@ -73,6 +73,17 @@ The order in `_TOKEN_TYPES` matters: `symbol` must be tried before `number`
 so that `539.productivity_state_var` parses as one symbol (the regex starts
 with optional `\d+\.`), not as the number `539` followed by an invalid
 `.productivity_state_var`.
+
+The string pattern keeps backslash escapes and ordinary characters in disjoint
+alternatives. It preserves escaped quote/backslash handling and literal unknown
+escapes while avoiding exponential backtracking on unterminated strings with a
+long run of backslashes. Immediately before a candidate closing quote, an odd
+run of backslashes escapes that quote (so the string remains unterminated unless
+another quote follows); an even run closes the string. Tests pin this behavior
+for runs of one through four backslashes in both the lexer and parser. For
+single-line strings, the GFX scanner follows the same quote-boundary parity.
+Its escaped-character branch uses `.` and therefore does not cross newlines,
+while the lexer permits newlines inside strings.
 
 `Token.start` and `Token.end` are Python `str` indices into the source
 (code points, not UTF-8 bytes; they coincide for ASCII), not line/column.

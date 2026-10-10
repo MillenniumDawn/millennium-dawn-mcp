@@ -2,7 +2,7 @@
 
 import pytest
 
-from md_mcp.indexes.gfx import _scan_sprite_blocks
+from md_mcp.indexes.gfx import _SWEEP_RE, _scan_sprite_blocks
 from md_mcp.paradox import parse_string
 from md_mcp.paradox.schema import extract_sprite_records
 
@@ -48,6 +48,15 @@ def test_scanner_indexes_real_texture_not_impostor_after():
     recs = _scan_sprite_blocks(SANDWICH)
     mid = next(r for r in recs if r["name"] == "GFX_mid")
     assert mid["texturefile"] == "gfx/interface/real.dds"
+
+
+@pytest.mark.parametrize(
+    ("backslash_count", "expected_matches"),
+    [(1, ['"value\\"{inside"']), (2, ['"value\\\\"', "{"])],
+)
+def test_gfx_sweep_uses_lexer_quote_boundary_parity(backslash_count, expected_matches):
+    text = '"value' + "\\" * backslash_count + '"{inside"'
+    assert [match[0] for match in _SWEEP_RE.finditer(text)] == expected_matches
 
 
 NESTED_CONTAINER = (

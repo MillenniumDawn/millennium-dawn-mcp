@@ -93,9 +93,9 @@ def list_country_content(
     prefix = tag_upper + "_"
     wanted_full = _resolve_include(include)
 
-    focuses: list[str] = _ids_with_prefix(focus_index, prefix)
-    decisions: list[str] = _ids_with_prefix(decision_index, prefix)
-    ideas: list[str] = _ids_with_prefix(idea_index, prefix)
+    focuses: list[str] = _ids_for_tag(focus_index, tag_upper)
+    decisions: list[str] = _ids_for_tag(decision_index, tag_upper)
+    ideas: list[str] = _ids_for_tag(idea_index, tag_upper)
     events, event_files = _events(event_index, tag_upper, prefix)
     loc_files: list[str] = _loc_files(loc_index, tag_upper)
     mio_files = _scan_files(
@@ -175,15 +175,8 @@ def _resolve_include(include: Optional[Sequence[str]]) -> set[str]:
     return {c for c in include if c in _ALL_CATEGORIES}
 
 
-def _ids_with_prefix(index, prefix: str) -> list[str]:
-    if index is None:
-        return []
-    index.ensure_fresh()
-    # The common form is a country tag followed by exactly one underscore.
-    # Keep the original scan as a compatibility fallback for arbitrary prefixes.
-    if hasattr(index, "ids_for_tag") and prefix.endswith("_") and prefix.count("_") == 1:
-        return index.ids_for_tag(prefix[:-1])
-    return [k for k in index.list_keys() if k.upper().startswith(prefix)]
+def _ids_for_tag(index, tag_upper: str) -> list[str]:
+    return index.ids_for_tag(tag_upper) if index is not None else []
 
 
 def _events(
@@ -251,26 +244,12 @@ def _indexed_country_records(index, tag_upper: str) -> tuple[list[str], list[str
         return [], []
     ids: list[str] = []
     files: set[str] = set()
-    if hasattr(index, "ids_for_country_tag"):
-        candidate_keys = index.ids_for_country_tag(tag_upper)
-        check_source = False
-    else:
-        candidate_keys = index.list_keys()
-        check_source = True
-    prefix = tag_upper + "_"
-    for key in candidate_keys:
+    for key in index.ids_for_country_tag(tag_upper):
         rec = index.resolve(key)
         if rec is None:
             continue
-        file = str(rec["file"])
-        if check_source:
-            stem = Path(file).stem.upper()
-            matches_id = str(key).upper().startswith(prefix)
-            matches_file = stem == tag_upper or stem.startswith(prefix)
-            if not (matches_id or matches_file):
-                continue
         ids.append(str(key))
-        files.add(file)
+        files.add(str(rec["file"]))
     return sorted(set(ids)), sorted(files)
 
 

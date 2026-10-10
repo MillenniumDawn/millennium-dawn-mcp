@@ -229,15 +229,13 @@ def _reset_upstream_loader_state():
     saved_path = sys.path.copy()
     saved_modules = {name: sys.modules.get(name) for name in standardize_tools._UPSTREAM_MODULES}
     yield
+    standardize_tools._UPSTREAM.reset()
     sys.path[:] = saved_path
     for name, module in saved_modules.items():
         if module is None:
             sys.modules.pop(name, None)
         else:
             sys.modules[name] = module
-    standardize_tools._loaded_mod_root = None
-    standardize_tools._loaded_api = None
-    standardize_tools._inserted_dirs = []
 
 
 def _plant_api(root: Path, source: str = _FAKE_API_SOURCE) -> Path:
@@ -255,7 +253,6 @@ def test_loader_plants_sys_path_and_caches_per_root(tmp_path: Path):
 
     first = standardize_tools._load_standardize_api(root_one)
     assert first.MARKER == "first"
-    assert standardize_tools._loaded_api is first
     assert standardize_tools._load_standardize_api(root_one) is first
 
     second = standardize_tools._load_standardize_api(root_two)
@@ -289,9 +286,6 @@ def test_loader_dedupes_preexisting_sys_path_entries(tmp_path: Path):
     _plant_api(root)
     tools_dir = str(root.resolve() / "tools")
     sys.path.insert(0, tools_dir)
-    standardize_tools._loaded_mod_root = None
-    standardize_tools._loaded_api = None
-    standardize_tools._inserted_dirs = []
 
     api = standardize_tools._load_standardize_api(root)
 

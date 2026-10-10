@@ -36,10 +36,9 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from ..indexes import FocusIndex
-from ..paradox.ast_cache import parse_cached
 from ..paradox.schema import extract_focus_records
-from ..util.pathing import resolve_scope_file
 from ..util.response import enforce_budget, paginate
+from .scope import iter_scope_files
 
 _VALID_DETAIL = ("summary", "ids", "full", "paths")
 
@@ -78,19 +77,14 @@ def focus_graph(
     full_nodes: list[dict] = []
     by_id: dict[str, dict] = {}
 
-    for relpath in candidate_files:
-        abs_path = resolve_scope_file(relpath, mod_root, vanilla_path, submod_root)
-        if abs_path is None:
-            continue
-        try:
-            text, root = parse_cached(abs_path)
-        except Exception:
-            continue
-
-        for rec in extract_focus_records(root, source=text):
+    # Files that fail to resolve or parse are left out of the graph.
+    for parsed in iter_scope_files(
+        candidate_files, mod_root, vanilla_path, [], submod_root=submod_root
+    ):
+        for rec in extract_focus_records(parsed.root, source=parsed.text):
             if not rec["id"].upper().startswith(prefix):
                 continue
-            entry = {**rec, "file": relpath}
+            entry = {**rec, "file": parsed.relpath}
             full_nodes.append(entry)
             by_id[rec["id"]] = entry
 
@@ -285,9 +279,7 @@ def _find_cycles(graph: dict[str, list[str]]) -> list[list[str]]:
         stack.append(node)
         for nxt in graph.get(node, []):
             if color.get(nxt) == 1:
-                if nxt in stack:
-                    cyc = [*stack[stack.index(nxt) :], nxt]
-                    cycles.append(cyc)
+                cycles.append([*stack[stack.index(nxt) :], nxt])
             elif color.get(nxt) == 0:
                 dfs(nxt)
         color[node] = 2

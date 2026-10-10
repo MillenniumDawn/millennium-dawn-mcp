@@ -639,20 +639,15 @@ def main() -> None:  # pragma: no cover — entry point
     if args.cmd == "doctor":
         # Intentional CLI output, not debug leftovers.
         # pi-lens-ignore: python-print-statement
-        print(f"mod_root:       {settings.mod_root}")
-        # pi-lens-ignore: python-print-statement
-        print(f"submod_root:    {settings.submod_root or '(not configured)'}")
-        # pi-lens-ignore: python-print-statement
-        print(f"vanilla_path:   {settings.vanilla_path or '(not detected)'}")
-        # pi-lens-ignore: python-print-statement
-        print(f"cache_dir:      {settings.cache_dir}")
-        # pi-lens-ignore: python-print-statement
-        print(f"validator_mode: {settings.validator_mode}")
-        # pi-lens-ignore: python-print-statement
-        print(f"default_lang:   {settings.default_lang}")
-        # Intentional CLI output, not debug leftovers.
-        # pi-lens-ignore: python-print-statement
-        print(f"loc_langs:      {','.join(settings.loc_langs)}")
+        print(
+            f"mod_root:       {settings.mod_root}\n"
+            f"submod_root:    {settings.submod_root or '(not configured)'}\n"
+            f"vanilla_path:   {settings.vanilla_path or '(not detected)'}\n"
+            f"cache_dir:      {settings.cache_dir}\n"
+            f"validator_mode: {settings.validator_mode}\n"
+            f"default_lang:   {settings.default_lang}\n"
+            f"loc_langs:      {','.join(settings.loc_langs)}"
+        )
         sys.exit(0)
 
     if args.cmd == "build-index":

@@ -20,8 +20,6 @@ so its CRLF→LF byte transform is reimplemented inline.
 
 from __future__ import annotations
 
-import importlib
-import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Optional
@@ -29,6 +27,7 @@ from typing import Optional
 from ..util.encoding import UTF8_BOM
 from ..util.pathing import PathAccessError, validate_user_path
 from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget
+from ..util.upstream_modules import UpstreamModules
 from ..validators.attribution import normalize_path
 
 FIXERS: tuple[str, ...] = ("styling", "loc_yaml", "line_endings", "log_ids")
@@ -52,43 +51,13 @@ _UPSTREAM_IMPORTS: dict[str, tuple[str, ...]] = {
     "line_endings": (),
 }
 
-_loaded_mod_root: Optional[Path] = None
-_loaded_modules: dict[str, ModuleType] = {}
-_inserted_dirs: list[str] = []
+_UPSTREAM = UpstreamModules("linting", _UPSTREAM_MODULES)
 
 
 def _load_fixer_modules(mod_root: Path, fixer: str) -> dict[str, ModuleType]:
-    """Import the upstream cores a fixer needs, re-importing on mod_root change.
-
-    Modules are cached per mod_root so a server process imports once; tests
-    that plant stand-ins in fresh tmp trees get a fresh import instead of a
-    stale sys.modules hit from an earlier root. Directories inserted into
-    sys.path for a previous root are removed on switch, so a root without
-    upstream modules fails cleanly instead of resolving another root's copies.
-    """
-    global _loaded_mod_root, _loaded_modules, _inserted_dirs
+    """Import the upstream cores a fixer needs, re-importing on mod_root change."""
     names = _UPSTREAM_IMPORTS[fixer]
-    if not names:
-        return {}
-
-    if _loaded_mod_root != mod_root:
-        for d in _inserted_dirs:
-            if d in sys.path:
-                sys.path.remove(d)
-        _inserted_dirs = []
-        for d in (str(mod_root / "tools"), str(mod_root / "tools" / "linting")):
-            if d not in sys.path:
-                sys.path.insert(0, d)
-                _inserted_dirs.append(d)
-        for name in _UPSTREAM_MODULES:
-            sys.modules.pop(name, None)
-        _loaded_modules = {}
-        _loaded_mod_root = mod_root
-
-    for name in names:
-        if name not in _loaded_modules:
-            _loaded_modules[name] = importlib.import_module(name)
-    return _loaded_modules
+    return _UPSTREAM.load(mod_root, names) if names else {}
 
 
 def fix_lint_tool(

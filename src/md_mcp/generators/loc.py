@@ -52,10 +52,7 @@ def generate_loc_stub(
       bom_prefix     — prefix `﻿` (the UTF-8 BOM as a character) for new files
 
     Returns:
-      {txt: str, bytes_to_write: optional[bytes]}
-
-      `bytes_to_write` is provided so the agent can write the file with the BOM
-      bytes intact, even if its Write tool defaults to text mode.
+      {txt: str}
     """
     parts: list[str] = []
     if include_header:
@@ -69,13 +66,7 @@ def generate_loc_stub(
     if bom_prefix:
         body = "﻿" + body
 
-    return enforce_budget(
-        {
-            "txt": body,
-            "bytes_to_write": body.encode("utf-8"),
-        },
-        heavy_keys=("bytes_to_write", "txt"),
-    )
+    return enforce_budget({"txt": body}, heavy_keys=("txt",))
 
 
 def _escape(value: str) -> str:

@@ -68,12 +68,12 @@ class Tokenizer:
             self._prev_pos = self._pos
             match = _TOKEN_REGEX.match(self._input, self._pos)
             if match is None:
-                self._raise("Invalid token")
+                self.throw("Invalid token")
 
             self._pos = match.end()
             name = match.lastgroup
             if name is None:  # pragma: no cover — every alternative is a named group
-                self._raise("Invalid token")
+                self.throw("Invalid token")
             value = match.group(name)
             if name != "comment":
                 return Token(value=value, start=self._pos - len(value), end=self._pos, type=name)
@@ -88,7 +88,7 @@ class Tokenizer:
         self._pending = None
         return token
 
-    def _raise(self, message: str, prev: bool = False) -> NoReturn:
+    def throw(self, message: str, prev: bool = False) -> NoReturn:
         pos = self._prev_pos if prev else self._pos
         starts = self._line_starts
         if starts is None:
@@ -97,6 +97,3 @@ class Tokenizer:
 
         snippet = (self._input + "(EOF)")[pos : min(pos + 30, len(self._input) + 5)]
         raise LexError(self._error_prefix + message, line, column, snippet)
-
-    def throw(self, message: str, prev: bool = False):
-        self._raise(message, prev)

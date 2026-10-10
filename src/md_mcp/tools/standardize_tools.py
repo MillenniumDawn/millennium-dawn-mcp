@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import importlib
-import json
-import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Optional
 
 from ..util.encoding import UTF8_BOM
 from ..util.pathing import PathAccessError, validate_user_path
-from ..util.response import BUDGET_BYTES, MAX_TEXT_BYTES, clip_utf8, enforce_budget
+from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget, fit_prefix
+from ..util.upstream_modules import UpstreamModules
 
 SUPPORTED_KINDS: tuple[str, ...] = (
     "focus",
@@ -36,34 +34,12 @@ _UPSTREAM_MODULES: tuple[str, ...] = (
     "standardize_mio",
     "standardize_technologies",
 )
-_loaded_mod_root: Optional[Path] = None
-_loaded_api: Optional[ModuleType] = None
-_inserted_dirs: list[str] = []
+_UPSTREAM = UpstreamModules("standardization", _UPSTREAM_MODULES)
 
 
 def _load_standardize_api(mod_root: Path) -> ModuleType:
     """Load the upstream API and its sibling modules from this mod root."""
-    global _loaded_mod_root, _loaded_api, _inserted_dirs
-    root = mod_root.resolve()
-    if _loaded_mod_root != root:
-        for directory in _inserted_dirs:
-            while directory in sys.path:
-                sys.path.remove(directory)
-        _inserted_dirs = []
-        for name in _UPSTREAM_MODULES:
-            sys.modules.pop(name, None)
-        for directory_path in (root / "tools", root / "tools" / "standardization"):
-            value = str(directory_path)
-            if value in sys.path:
-                sys.path.remove(value)
-            sys.path.insert(0, value)
-            _inserted_dirs.append(value)
-        _loaded_api = None
-        _loaded_mod_root = root
-
-    if _loaded_api is None:
-        _loaded_api = importlib.import_module("standardize_api")
-    return _loaded_api
+    return _UPSTREAM.load(mod_root, ("standardize_api",))["standardize_api"]
 
 
 def _clip_txt(result: dict, txt: str) -> dict:
@@ -81,30 +57,18 @@ def _clip_txt(result: dict, txt: str) -> dict:
     if truncated:
         result["note"] = note
 
-    if len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > BUDGET_BYTES:
-        # Escaping can inflate txt past the budget; find the longest prefix that fits.
-        original = txt
+    # Escaping can inflate txt past the budget; keep the longest prefix that fits.
+    def shrunk(chars: int) -> dict:
+        prefix = txt[:chars]
+        return {
+            **result,
+            "txt": prefix,
+            "txt_returned_bytes": len(prefix.encode("utf-8")),
+            "txt_truncated": True,
+            "note": note,
+        }
 
-        def shrunk(chars: int) -> dict:
-            prefix = original[:chars]
-            return {
-                **result,
-                "txt": prefix,
-                "txt_returned_bytes": len(prefix.encode("utf-8")),
-                "txt_truncated": True,
-                "note": note,
-            }
-
-        low, high = 0, len(original)
-        while low < high:
-            middle = (low + high + 1) // 2
-            if len(json.dumps(shrunk(middle), ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES:
-                low = middle
-            else:
-                high = middle - 1
-        result = shrunk(low)
-
-    return enforce_budget(result, heavy_keys=("txt",))
+    return enforce_budget(fit_prefix(result, len(txt), shrunk), heavy_keys=("txt",))
 
 
 def standardize_tool(

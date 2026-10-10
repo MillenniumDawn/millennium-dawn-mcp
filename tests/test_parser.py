@@ -88,6 +88,25 @@ def test_nested_block():
     assert c.value == 1
 
 
+def test_value_attachment_takes_the_symbol_before_a_block():
+    root = parse_string("color = rgb { 255 0 0 }\nnext = 1")
+    color, following = root.children()
+    assert color.operator == "="
+    assert color.value_attachment == SymbolNode("rgb")
+    assert [child.name for child in color.children()] == ["255", "0", "0"]
+    assert color.value_end_token is not None
+    assert color.value_end_token.value == "}"
+    assert following.value == 1
+
+
+def test_implicit_block_reads_as_an_assignment():
+    root = parse_string("name { a = 1 }")
+    [node] = root.children()
+    assert node.operator == "="
+    assert node.value_attachment is None
+    assert [child.name for child in node.children()] == ["a"]
+
+
 def test_state_prefixed_variable_is_one_symbol():
     """Regression: `539.productivity_state_var` must lex as a single symbol, not
     `number(539) . invalid(.productivity_state_var)`."""

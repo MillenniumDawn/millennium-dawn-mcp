@@ -40,6 +40,9 @@ class Node:
 
     For the file-root node, name/operator are None and value is the list of top-level nodes.
     For a bare keyword (e.g. inside `{ A B C }`), operator and value are None and name holds it.
+
+    Only the tokens something reads are kept: the name (line numbers, slice start)
+    and the value's last token (slice end). Every extra token is held per node.
     """
 
     name: Optional[str] = None
@@ -48,9 +51,6 @@ class Node:
     value_attachment: Optional[SymbolNode] = None
 
     name_token: Optional[Token] = None
-    operator_token: Optional[Token] = None
-    value_attachment_token: Optional[Token] = None
-    value_start_token: Optional[Token] = None
     value_end_token: Optional[Token] = None
 
     def children(self) -> list["Node"]:

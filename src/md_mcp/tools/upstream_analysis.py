@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from ..util.process import run_in_group
 from ..util.response import coerce_int, enforce_budget
 
 _SHIM = Path(__file__).with_name("upstream_analysis_shim.py")
@@ -16,13 +17,10 @@ _DAYS_PER_MONTH = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 
 def _run_shim(mod_root: Path, operation: str, payload: dict, *, timeout: int) -> dict:
     try:
-        proc = subprocess.run(
+        proc = run_in_group(
             [sys.executable, str(_SHIM), operation, str(mod_root), json.dumps(payload)],
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
             timeout=timeout,
-            check=False,
+            text=True,
         )
     except subprocess.TimeoutExpired as exc:
         return {"ok": False, "error": f"{operation} timed out after {timeout}s: {exc}"}

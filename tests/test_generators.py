@@ -362,7 +362,8 @@ def test_loc_stub_bom_and_escaping():
     assert r["txt"].startswith("﻿")
     assert "l_english:" in r["txt"]
     assert r"\"" in r["txt"]
-    assert r["bytes_to_write"].startswith(b"\xef\xbb\xbf")
+    assert r["txt"].encode("utf-8").startswith(b"\xef\xbb\xbf")
+    assert set(r) == {"txt"}
 
 
 def test_loc_stub_append_mode_skips_header():

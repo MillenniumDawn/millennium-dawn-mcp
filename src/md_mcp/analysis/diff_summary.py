@@ -123,7 +123,7 @@ def diff_summary(
     # distinguishable.
     kinds_set = set(kinds) if kinds is not None else None
     limit = max(0, limit)
-    by_kind: dict[str, list[dict]] = {}
+    counts: dict[str, int] = {}
     file_records: list[dict] = []
 
     if not isinstance(diff_records, list):
@@ -190,9 +190,8 @@ def diff_summary(
                 record["id_diff"] = id_block
 
         file_records.append(record)
-        by_kind.setdefault(kind, []).append(record)
+        counts[kind] = counts.get(kind, 0) + 1
 
-    counts = {kind: len(records) for kind, records in by_kind.items()}
     truncated = len(file_records) > limit
     return enforce_budget(
         {
@@ -258,9 +257,9 @@ def _git_diff_files(mod_root: Path, base: str) -> Any:
             check=False,
             timeout=GIT_TIMEOUT_DIFF,
         )
-    except (FileNotFoundError, TimeoutExpired) as exc:
-        if isinstance(exc, FileNotFoundError):
-            return {"ok": False, "error": "git not found on PATH"}
+    except FileNotFoundError:
+        return {"ok": False, "error": "git not found on PATH"}
+    except TimeoutExpired:
         return {
             "ok": False,
             "error": f"git diff timed out after {GIT_TIMEOUT_DIFF:g}s",
@@ -348,9 +347,9 @@ def _read_at(mod_root: Path, rev: str, path: str) -> Union[str, _GitReadError]:
             check=False,
             timeout=GIT_TIMEOUT_SHOW,
         )
-    except (FileNotFoundError, TimeoutExpired) as exc:
-        if isinstance(exc, FileNotFoundError):
-            return _GitReadError("git not found on PATH")
+    except FileNotFoundError:
+        return _GitReadError("git not found on PATH")
+    except TimeoutExpired:
         return _GitReadError(f"git show timed out after {GIT_TIMEOUT_SHOW:g}s")
     if proc.returncode != 0:
         msg = (proc.stderr or "").strip() or proc.stdout.strip()

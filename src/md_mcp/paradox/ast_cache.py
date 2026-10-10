@@ -17,9 +17,9 @@ Rules for callers:
   never cached, so every failure re-raises with the caller's own prefix.
 * The cache holds at most `MD_MCP_AST_CACHE_SIZE` files (default 32) and at most
   `MD_MCP_AST_CACHE_BYTES` of source text (default 8 MB, measured in characters).
-  An AST is roughly 30x its source size (`05_usa.txt`: 1.5 MB of text, ~41 MB of
+  An AST is roughly 23x its source size (`05_usa.txt`: 1.5 MB of text, ~29 MB of
   nodes), so the byte bound is what keeps a scope walk over hundreds of files from
-  pinning a gigabyte of trees: 8 MB of source pinned ~232 MB on the real mod. A
+  pinning a gigabyte of trees: 8 MB of source pinned ~184 MB on the real mod. A
   file larger than the byte bound is parsed but not cached, and an edited file
   replaces its own stale entry rather than sitting beside it.
 """

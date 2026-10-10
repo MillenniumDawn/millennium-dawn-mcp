@@ -203,7 +203,13 @@ issues compared with a baseline snapshot.
   etc.). Omit to run all *fast* validators (slow `unused_scripted` and
   `unused_textures` are skipped by default — call them by name when you want them).
 - **`staged_only=True`** — restrict to git-staged files. Much faster mid-edit.
-- **`files=[...]`** — post-filter issues to ones in this set of paths.
+- **`files=[...]`** — scope validator inputs to these paths when the validator
+  supports input scoping, then post-filter issues to the same paths. Each path
+  is looked up in `submod_root`, then `mod_root`. If any is in neither, nothing
+  runs and the call returns `{ok: false, error: "scope file not found: …",
+  missing: [...]}`. The `error` names the first missing path. If the list is
+  over the response budget, `missing_dropped` and `size_truncated: true`
+  replace it.
 - **`strict=True`** — treat warnings as errors in the summary counts.
 - **`severity_min="info"`** — drop issues below this floor. `"info"`,
   `"warning"`, `"error"`.

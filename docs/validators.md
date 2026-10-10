@@ -205,9 +205,15 @@ Restricts the validator to git-staged files. Native to each validator — the
 wrapper just passes the flag through. Useful mid-edit when you want fast
 feedback on what you just touched.
 
-`files=[...]` is post-filter: validators don't expose a path-filter API, so
-the wrapper runs the full validator and filters the resulting issue list by
-file. Slower than `staged_only` for big trees.
+`files=[...]` scopes primary validator inputs when the upstream collector
+supports file scoping, while keeping definition passes unscoped; issues are
+also post-filtered to that file set.
+
+The `validate` tool looks each path up in `submod_root`, then `mod_root`,
+before it runs anything. A path in neither returns `{ok: false, error: "scope
+file not found: …", missing: [...]}` and no validator child starts. The check
+lives in the tool, not in `ValidatorRunner.run`: `lint` passes Git-derived
+scopes to the runner, and those include staged deletions.
 
 For a file-scoped `validate`, a validator reports an `unattributed` count when
 some of its issues name a file that could not be resolved. Run-all keeps that

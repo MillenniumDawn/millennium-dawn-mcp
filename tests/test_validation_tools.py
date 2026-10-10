@@ -6,6 +6,7 @@ must not report success while individual validators failed.
 
 from __future__ import annotations
 
+import errno
 import importlib
 import json
 from pathlib import Path
@@ -114,6 +115,9 @@ def test_validate_list_budget_guard_drops_oversized_validator_page(fake_mod_root
 
 def test_validate_default_skips_non_english_localisation(fake_mod_root):
     _plant(fake_mod_root, "french_probe", _GOOD)
+    french_file = fake_mod_root / "localisation" / "french" / "probe_l_french.yml"
+    french_file.parent.mkdir(parents=True)
+    french_file.write_text("l_french:\n", encoding="utf-8")
 
     result = validate_tool(
         _settings(fake_mod_root),
@@ -125,6 +129,97 @@ def test_validate_default_skips_non_english_localisation(fake_mod_root):
     assert result["skipped_files"] == 1
     assert result["counts"] == {"error": 0, "warning": 0, "info": 0}
     assert result["issues"] == []
+
+
+def test_validate_run_all_returns_all_missing_paths_before_dispatch(fake_mod_root, monkeypatch):
+    runner = ValidatorRunner(fake_mod_root)
+
+    def unexpected_run(*args, **kwargs):
+        pytest.fail("missing scope paths must fail before validator dispatch")
+
+    monkeypatch.setattr(runner, "run", unexpected_run)
+    missing = ["events/missing_a.txt", "common/missing_b.txt"]
+    result = validate_tool(
+        _settings(fake_mod_root), runner, files=missing, delta=True, baseline=None
+    )
+
+    assert result == {
+        "ok": False,
+        "error": "scope file not found: events/missing_a.txt",
+        "missing": missing,
+    }
+
+
+def test_validate_missing_non_english_localisation_fails_before_skip(fake_mod_root, monkeypatch):
+    runner = ValidatorRunner(fake_mod_root)
+
+    def unexpected_run(*args, **kwargs):
+        pytest.fail("missing localization scope must fail before validator dispatch")
+
+    monkeypatch.setattr(runner, "run", unexpected_run)
+    path = "localisation/french/absent_l_french.yml"
+    result = validate_tool(_settings(fake_mod_root), runner, files=[path])
+
+    assert result == {
+        "ok": False,
+        "error": f"scope file not found: {path}",
+        "missing": [path],
+    }
+
+
+def test_validate_scope_path_that_cannot_be_checked_is_reported_missing(fake_mod_root, monkeypatch):
+    path = "events/test_events.txt"
+    target = (fake_mod_root / path).resolve()
+    original_exists = Path.exists
+
+    def fail_target(candidate, **kwargs):
+        if candidate == target:
+            raise OSError(errno.ENAMETOOLONG, "File name too long")
+        return original_exists(candidate, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", fail_target)
+    result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root), files=[path])
+
+    assert result == {"ok": False, "error": f"scope file not found: {path}", "missing": [path]}
+
+
+def test_scope_files_resolve_against_the_submod_then_the_base_mod(fake_mod_root, tmp_path):
+    submod = tmp_path / "Submod"
+    (submod / "events").mkdir(parents=True)
+    (submod / "events" / "overlay.txt").write_text("x", encoding="utf-8")
+    settings = Settings(
+        mod_root=fake_mod_root,
+        vanilla_path=None,
+        cache_dir=fake_mod_root / ".md-mcp-cache",
+        submod_root=submod,
+    )
+
+    missing = validation_tools._missing_scope_files(
+        settings,
+        [
+            "events/overlay.txt",
+            "events\\test_events.txt",
+            "events\\absent.txt",
+            "../outside.txt",
+            "events",
+        ],
+    )
+
+    # A directory is not a scope file: it would match no input and report nothing.
+    assert missing == ["events/absent.txt", "../outside.txt", "events"]
+
+
+def test_validate_large_missing_scope_list_is_budgeted(fake_mod_root):
+    runner = ValidatorRunner(fake_mod_root)
+    files = [f"missing/{i:04}-{'x' * 24}.txt" for i in range(5_000)]
+
+    result = validate_tool(_settings(fake_mod_root), runner, files=files)
+
+    assert result["ok"] is False
+    assert result["error"] == f"scope file not found: {files[0]}"
+    assert result["missing_dropped"] == len(files)
+    assert result["size_truncated"] is True
+    assert len(json.dumps(result).encode("utf-8")) <= BUDGET_BYTES
 
 
 def test_validate_all_ok_when_every_validator_ok(fake_mod_root):

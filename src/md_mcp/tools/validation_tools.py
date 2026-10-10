@@ -11,6 +11,7 @@ from typing import Optional
 from ..analysis.issue_delta import new_issue_dicts, prepare_baseline
 from ..analysis.suppressions import SUPPRESSION_SOURCE, suppressed_count
 from ..config import Settings
+from ..util.pathing import resolve_scope_file
 from ..util.response import coerce_int, enforce_budget, paginate
 from ..validators import (
     SEVERITY_RANK,
@@ -93,7 +94,7 @@ def validate_tool(
     Args:
       validator     — name from `validate_list`; if omitted, runs every fast validator
       staged_only   — restrict to git-staged files (much faster for mid-edit checks)
-      files         — post-filter issues to ones in this set of paths (mod-relative)
+      files         — scope the run to these mod-relative paths; a missing one is an error
       strict        — treat warnings as errors in the summary counts
       severity_min  — "info" | "warning" | "error" — drop issues below this floor
       limit         — cap issues returned (counts remain accurate). Use -1 for no cap.
@@ -101,6 +102,13 @@ def validate_tool(
       delta         — return only issues absent from a baseline snapshot
       baseline      — snapshot file/directory or cached ref; required in delta mode
     """
+    missing = _missing_scope_files(settings, files or [])
+    if missing:
+        return enforce_budget(
+            {"ok": False, "error": f"scope file not found: {missing[0]}", "missing": missing},
+            heavy_keys=("missing",),
+        )
+
     prepared_baseline = None
     if delta:
         try:
@@ -250,6 +258,22 @@ def validate_tool(
         summary["issues"] = kept
 
     return enforce_budget(summary, heavy_keys=("issues",))
+
+
+def _missing_scope_files(settings: Settings, files: list[str]) -> list[str]:
+    """Scope paths that are a file in neither the submod overlay nor the base mod."""
+    missing: list[str] = []
+    for raw in files:
+        path = raw.replace("\\", "/")
+        try:
+            found = resolve_scope_file(path, settings.mod_root, None, settings.submod_root)
+            is_file = found is not None and found.is_file()
+        except OSError:
+            # Unreadable or overlong path: report it, don't crash the call.
+            is_file = False
+        if not is_file:
+            missing.append(path)
+    return missing
 
 
 def _is_non_english_loc(path: str) -> bool:

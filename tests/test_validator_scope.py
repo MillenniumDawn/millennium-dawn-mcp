@@ -305,6 +305,24 @@ def test_lint_post_filter_preserves_unattributed_issues(tmp_path):
     assert issues[-1]["scope"] == "unattributed"
 
 
+def test_lint_scope_with_a_deleted_file_still_runs_the_validator(tmp_path):
+    # Staged lint keeps deleted paths in scope, so the runner must accept them.
+    root = tmp_path / "Mod"
+    _write_fixture(root, "scope_deleted", _SCOPED_VALIDATOR)
+    (root / "events" / "Brazil.txt").unlink()
+
+    entries, issues = run_validators_for_lint(
+        ValidatorRunner(root),
+        ["scope_deleted"],
+        staged_only=False,
+        relevant_set={"events/Algeria.txt", "events/Brazil.txt"},
+        mod_root=root,
+    )
+
+    assert entries[0]["ok"] is True
+    assert issues[0]["file"] == "events/Algeria.txt"
+
+
 def test_unsupported_collector_falls_back_to_full_scan_and_post_filter(tmp_path):
     root = tmp_path / "Mod"
     _write_fixture(root, "scope_legacy", _LEGACY_VALIDATOR)

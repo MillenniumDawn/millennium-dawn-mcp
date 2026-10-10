@@ -23,6 +23,9 @@
 - `validate` run-all results now keep each validator's scoped `unattributed` count and return
   the sum at the top level, including `counts_only` and delta responses. A named run already
   did. These findings stay outside severity totals and the scoped issue list.
+- `validate(files=[...])` checks each path against the submod overlay and then the base mod
+  before running anything. A path in neither returns `{ok: false, error: "scope file not
+  found: …", missing: [...]}`, not an upstream traceback. `lint` scopes are unchanged.
 - `line_starts` (and the GFX index's line-offset table) now scans with a `str.find` loop instead of
   a per-character Python loop, and the tokenizer builds its line table lazily on the first parse
   error rather than in `Tokenizer.__init__`. Output is unchanged; `parse_string` on `05_usa.txt` is

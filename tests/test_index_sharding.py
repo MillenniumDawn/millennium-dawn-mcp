@@ -97,7 +97,7 @@ def test_sharded_index_writes_one_shard_per_file_and_no_monolith(loc_root, cache
     assert not cache.data_path.exists()
     assert cache.manifest_path.exists()
     assert len(list(cache.shard_dir.iterdir())) == 4
-    assert cache.dir.name == "v3"
+    assert cache.dir.name == "v4"
 
 
 def test_startup_from_shards_equals_full_rebuild(loc_root, cache_dir, tmp_path):

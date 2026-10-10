@@ -13,7 +13,7 @@ the language count. Other languages still resolve through an on-demand scan (see
 `LocalisationIndex._scan_lang`).
 
 Cache layout (sharded, one cache per language set: one JSON file per contributing
-.yml under <cache_dir>/v3/loc-<langs>.data/<name>-<digest>.json; manifest in
+.yml under <cache_dir>/v4/loc-<langs>.data/<name>-<digest>.json; manifest in
 loc-<langs>.manifest.json, e.g. `loc-en`, `loc-de_en`):
     {
         "relpath": "<relpath>",
@@ -43,8 +43,8 @@ from .base import (
 
 logger = logging.getLogger(__name__)
 
-# v3: only the configured languages are indexed, and data is sharded per file.
-LOC_CACHE_VERSION = 3
+# v4: localisation escape decoding changed, so persisted values must be rebuilt.
+LOC_CACHE_VERSION = 4
 LOC_SUBDIR = "localisation"
 
 # ISO code → file suffix
@@ -70,6 +70,7 @@ _HEADER_RE = re.compile(r"^\s*(l_[a-z_]+)\s*:\s*$")
 # `  KEY: "value"`  or  `  KEY:0 "value"`  — tolerant of optional version digit.
 # Captures key and quoted value; trailing `# comment` is allowed.
 _ENTRY_RE = re.compile(r"^\s*([^:#\s][^:#]*?)\s*:\s*\d*\s*\"((?:\\.|[^\"\\])*)\"\s*(?:#.*)?$")
+_ESCAPE_RE = re.compile(r'\\([\\n"])')
 
 
 def _file_lang_suffix(path: Path) -> Optional[str]:
@@ -316,4 +317,5 @@ def _parse_loc_file(text: str, relpath: str) -> dict:
 
 
 def _unescape(s: str) -> str:
-    return s.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
+    """Decode `\\\\`, `\\n` and `\\"` in one left-to-right pass."""
+    return _ESCAPE_RE.sub(lambda m: "\n" if m[1] == "n" else m[1], s)

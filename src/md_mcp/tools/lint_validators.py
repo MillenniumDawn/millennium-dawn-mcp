@@ -381,9 +381,7 @@ def _upstream_excluded_names(routing) -> set[str]:
     return {_validator_name(script) for script in excluded_scripts}
 
 
-def _upstream_validators_for_paths(
-    paths: list[str], mod_root: Path
-) -> tuple[set[str], dict[str, tuple[str, ...]]] | None:
+def _upstream_validators_for_paths(paths: list[str], mod_root: Path) -> set[str] | None:
     """Resolve content changes using upstream's current group/spec definitions."""
     routing = _upstream_routing(str(mod_root.resolve()))
     if routing is None:
@@ -394,26 +392,22 @@ def _upstream_validators_for_paths(
         tooling_paths = [path for path in normalized if path.startswith("tools/")]
         content_paths = [path for path in normalized if not path.startswith("tools/")]
         selected_names: set[str] = set()
-        args_by_name: dict[str, tuple[str, ...]] = {}
 
         # Changed tooling code uses MD's impact selector, which owns the import
         # graph, broad shared-tool rules, and impact-only checks.
         with _quiet_upstream():
             if tooling_paths:
                 selected, adhoc = batches.select_for_changed_files(tooling_paths)
-                for spec in [*selected, *adhoc]:
-                    name = _validator_name(spec.script)
-                    selected_names.add(name)
-                    args_by_name[name] = tuple(spec.args)
+                selected_names.update(_validator_name(spec.script) for spec in [*selected, *adhoc])
 
             if content_paths:
                 changed = groups.classify(content_paths)
                 changed_groups = {name for name, value in changed.items() if value is True}
-                for spec in batches.ALL_SPECS:
-                    name = _validator_name(spec.script)
-                    if changed_groups.intersection(spec.groups):
-                        selected_names.add(name)
-                        args_by_name[name] = tuple(spec.args)
+                selected_names.update(
+                    _validator_name(spec.script)
+                    for spec in batches.ALL_SPECS
+                    if changed_groups.intersection(spec.groups)
+                )
 
                 # CI's impact-only validators do not have content groups. Keep
                 # their special cases in sync with change_groups' classification.
@@ -425,13 +419,8 @@ def _upstream_validators_for_paths(
                     path.endswith(".mod") for path in content_paths
                 ):
                     selected_names.add("mod_descriptors")
-                for spec in batches.IMPACT_ONLY_SPECS:
-                    name = _validator_name(spec.script)
-                    if name in selected_names:
-                        args_by_name[name] = tuple(spec.args)
 
-        selected_names -= _upstream_excluded_names(routing)
-        return selected_names, args_by_name
+        return selected_names - _upstream_excluded_names(routing)
     except Exception:
         # Import, API, and attribute drift should use the local map below.
         return None
@@ -515,9 +504,8 @@ def select_validators(
                 excluded = _upstream_excluded_names(routing) | AUTO_ROUTING_EXCLUDED
                 if relevant is None:
                     return sorted(available - SLOW_VALIDATORS - excluded)
-                upstream = _upstream_validators_for_paths(relevant, mod_root)
-                if upstream is not None:
-                    upstream_names, _args = upstream
+                upstream_names = _upstream_validators_for_paths(relevant, mod_root)
+                if upstream_names is not None:
                     return sorted((upstream_names - SLOW_VALIDATORS - excluded) & available)
         except Exception:
             # Keep `auto` available if the upstream router changes shape.

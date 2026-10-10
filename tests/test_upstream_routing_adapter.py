@@ -110,10 +110,9 @@ def test_content_routes_use_upstream_groups_and_impact_only_specs(tmp_path):
     _install_routing(tmp_path)
     available = {"alpha", "ignored", "style", "file_paths", "mod_descriptors"}
 
-    routed = _upstream_validators_for_paths(["common/ideas/a.txt"], tmp_path)
-    assert routed is not None
-    names, args = routed
+    names = _upstream_validators_for_paths(["common/ideas/a.txt"], tmp_path)
     assert names == {"alpha", "style"}
+    args = _upstream_args(tmp_path)
     assert args["alpha"] == ("--alpha-mode",)
     assert args["style"] == ("--style-mode",)
     assert select_validators(["common/ideas/a.txt"], available, mod_root=tmp_path) == [
@@ -121,9 +120,7 @@ def test_content_routes_use_upstream_groups_and_impact_only_specs(tmp_path):
         "style",
     ]
 
-    routed = _upstream_validators_for_paths(["descriptor.mod"], tmp_path)
-    assert routed is not None
-    names, _args = routed
+    names = _upstream_validators_for_paths(["descriptor.mod"], tmp_path)
     assert names == {"file_paths", "mod_descriptors"}
     assert select_validators(["descriptor.mod"], available, mod_root=tmp_path) == [
         "file_paths",
@@ -134,11 +131,8 @@ def test_content_routes_use_upstream_groups_and_impact_only_specs(tmp_path):
 def test_tool_routes_and_validator_args_use_upstream_specs(tmp_path):
     _install_routing(tmp_path)
     available = {"tool", "style", "mod_descriptors"}
-    routed = _upstream_validators_for_paths([r"tools\shared_utils.py"], tmp_path)
-    assert routed is not None
-    names, args = routed
-    assert names == available
-    assert args["tool"] == ("--tool-mode",)
+    assert _upstream_validators_for_paths([r"tools\shared_utils.py"], tmp_path) == available
+    assert _upstream_args(tmp_path)["tool"] == ("--tool-mode",)
     assert select_validators([r"tools\shared_utils.py"], available, mod_root=tmp_path) == [
         "mod_descriptors",
         "style",

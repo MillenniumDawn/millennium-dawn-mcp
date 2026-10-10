@@ -18,6 +18,9 @@
 
 ### Changed
 
+- The lexer's string token no longer backtracks exponentially on an unterminated string with a
+  long run of backslashes. Well-formed strings lex as before. An unterminated `"C:\dir\"` with no
+  later quote is now a parse error; `hoiparser.ts` closes it by backtracking. See `docs/parser.md`.
 - Localisation escape decoding now distinguishes `\\n` (literal backslash followed by `n`)
   from `\n` (line feed). The localisation cache version is 4 so cached values are rebuilt.
 - `validate` run-all results now keep each validator's scoped `unattributed` count and return

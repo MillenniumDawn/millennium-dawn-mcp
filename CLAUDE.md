@@ -36,7 +36,7 @@ src/md_mcp/
 ├── config.py            Settings dataclass; mod-root / vanilla / cache discovery
 ├── resources.py         md:// resource handlers (raw text streaming)
 ├── paradox/             Ported HOI4 parser
-│   ├── lexer.py         Token regexes (verbatim port of hoiparser.ts)
+│   ├── lexer.py         Token regexes (port of hoiparser.ts; string differs, see docs/parser.md)
 │   ├── parser.py        Recursive-descent
 │   ├── nodes.py         Node, Token, SymbolNode dataclasses
 │   └── schema.py        Typed projections (focus/event/decision/idea/sprite)
@@ -288,7 +288,8 @@ not in the hook. Run `pytest -q` yourself; it isn't a hook either.
 2. The parser is a **direct port** of `hoiparser.ts`. When the AST disagrees
    with vanilla content, read the TS source
    (`MD-VSCode-Utility-Tool/src/hoiformat/hoiparser.ts`) and confirm the
-   behaviour there before changing the Python side.
+   behaviour there before changing the Python side. The string token is the
+   one deliberate difference; see [`docs/parser.md`](./docs/parser.md).
 3. The index cache is **stat-based**, not content-based. If an index seems
    stale, blow away `<mod_root>/.md-mcp-cache/v1/` and rerun
    `md-mcp build-index`.

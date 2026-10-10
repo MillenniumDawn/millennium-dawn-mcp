@@ -13,7 +13,6 @@ class CharacterIndex(GenericTxtIndex):
     cache_name = "character"
     subdir = "common/characters"
     parser_fn = staticmethod(parse_character_file)
-    primary_key = "id"
     tag_indexed = True
     source_tag_indexed = True
 
@@ -25,6 +24,5 @@ class TraitIndex(GenericTxtIndex):
     cache_name = "trait"
     subdirs = ("common/country_leader", "common/unit_leader")
     parser_fn = staticmethod(parse_trait_file)
-    primary_key = "id"
     tag_indexed = True
     source_tag_indexed = True

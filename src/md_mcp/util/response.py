@@ -17,7 +17,7 @@ with headroom for the protocol envelope.
 from __future__ import annotations
 
 import json
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 BUDGET_BYTES = 100_000
 
@@ -110,6 +110,30 @@ def enforce_budget(
             return result
 
     return _bounded_fallback(result, budget)
+
+
+def fit_prefix(
+    result: dict,
+    length: int,
+    build: Callable[[int], dict],
+    *,
+    budget: int = BUDGET_BYTES,
+) -> dict:
+    """Return `result` if it fits `budget`, else `build(n)` for the largest fitting `n <= length`.
+
+    For keeping a useful prefix of one list or string where `enforce_budget`
+    would drop the whole key. `build(n)` must grow with `n`.
+    """
+    if _jsize(result) <= budget:
+        return result
+    low, high = 0, length
+    while low < high:
+        middle = (low + high + 1) // 2
+        if _jsize(build(middle)) <= budget:
+            low = middle
+        else:
+            high = middle - 1
+    return build(low)
 
 
 def _jsize(obj: Any) -> int:

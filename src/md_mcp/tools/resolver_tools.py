@@ -40,18 +40,18 @@ def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusInde
     if cached is None:
         return {"ok": False, "id": focus_id, "error": "Focus not found in mod or vanilla"}
 
+    indexed = {
+        "ok": True,
+        "id": focus_id,
+        "file": cached["file"],
+        "line": cached["line"],
+        "kind": cached["kind"],
+    }
     abs_path = resolve_scope_file(
         cached["file"], settings.mod_root, settings.vanilla_path, settings.submod_root
     )
     if abs_path is None:
-        return {
-            "ok": True,
-            "id": focus_id,
-            "file": cached["file"],
-            "line": cached["line"],
-            "kind": cached["kind"],
-            "warning": "File listed in index but no longer on disk",
-        }
+        return {**indexed, "warning": "File listed in index but no longer on disk"}
 
     try:
         # abs_path is constrained to the configured content roots.
@@ -59,33 +59,19 @@ def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusInde
         text, root = parse_cached(abs_path, error_prefix=f"In file {cached['file']}:\n")
         records = extract_focus_records(root, source=text)
     except Exception as e:
-        return {
-            "ok": True,
-            "id": focus_id,
-            "file": cached["file"],
-            "line": cached["line"],
-            "kind": cached["kind"],
-            "warning": f"Could not parse file for detail extraction: {e}",
-        }
+        return {**indexed, "warning": f"Could not parse file for detail extraction: {e}"}
 
     detail = next((r for r in records if r["id"] == focus_id), None)
     if detail is None:
         return {
-            "ok": True,
-            "id": focus_id,
-            "file": cached["file"],
-            "line": cached["line"],
-            "kind": cached["kind"],
+            **indexed,
             "warning": "Focus disappeared from file since index was built — rerun stale check",
         }
 
     return enforce_budget(
         {
-            "ok": True,
-            "id": focus_id,
-            "file": cached["file"],
+            **indexed,
             "line": detail["line"] or cached["line"],
-            "kind": cached["kind"],
             "parsed": {
                 "x": detail["x"],
                 "y": detail["y"],

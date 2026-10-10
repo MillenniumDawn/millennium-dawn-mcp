@@ -141,7 +141,6 @@ def _parse_node_value(
         return children, next_token, right
 
     tokens.throw("Expect string, number, symbol, or {", prev=True)
-    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def _parse_block_content(tokens: Tokenizer) -> list[Node]:

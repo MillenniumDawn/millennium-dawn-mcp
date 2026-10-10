@@ -370,12 +370,15 @@ def _upstream_routing(mod_root_text: str):
     )
 
 
+def _validator_name(script: str) -> str:
+    """Short validator name for an upstream script path: `validate_foo-bar.py` -> `foo_bar`."""
+    return Path(script).stem.removeprefix("validate_").replace("-", "_")
+
+
 def _upstream_excluded_names(routing) -> set[str]:
     batches, _groups = routing
     excluded_scripts = getattr(batches, "_IMPACT_EXCLUDED_SCRIPTS", ())
-    return {
-        Path(script).stem.removeprefix("validate_").replace("-", "_") for script in excluded_scripts
-    }
+    return {_validator_name(script) for script in excluded_scripts}
 
 
 def _upstream_validators_for_paths(
@@ -399,7 +402,7 @@ def _upstream_validators_for_paths(
             if tooling_paths:
                 selected, adhoc = batches.select_for_changed_files(tooling_paths)
                 for spec in [*selected, *adhoc]:
-                    name = Path(spec.script).stem.removeprefix("validate_").replace("-", "_")
+                    name = _validator_name(spec.script)
                     selected_names.add(name)
                     args_by_name[name] = tuple(spec.args)
 
@@ -407,7 +410,7 @@ def _upstream_validators_for_paths(
                 changed = groups.classify(content_paths)
                 changed_groups = {name for name, value in changed.items() if value is True}
                 for spec in batches.ALL_SPECS:
-                    name = Path(spec.script).stem.removeprefix("validate_").replace("-", "_")
+                    name = _validator_name(spec.script)
                     if changed_groups.intersection(spec.groups):
                         selected_names.add(name)
                         args_by_name[name] = tuple(spec.args)
@@ -423,7 +426,7 @@ def _upstream_validators_for_paths(
                 ):
                     selected_names.add("mod_descriptors")
                 for spec in batches.IMPACT_ONLY_SPECS:
-                    name = Path(spec.script).stem.removeprefix("validate_").replace("-", "_")
+                    name = _validator_name(spec.script)
                     if name in selected_names:
                         args_by_name[name] = tuple(spec.args)
 
@@ -492,11 +495,7 @@ def _upstream_args(mod_root: Optional[Path]) -> dict[str, tuple[str, ...]]:
         batches, _groups = routing
         with _quiet_upstream():
             specs = [*batches.ALL_SPECS, *batches.IMPACT_ONLY_SPECS]
-            return {
-                Path(spec.script).stem.removeprefix("validate_").replace("-", "_"): tuple(spec.args)
-                for spec in specs
-                if spec.args
-            }
+            return {_validator_name(spec.script): tuple(spec.args) for spec in specs if spec.args}
     except Exception:
         return {}
 

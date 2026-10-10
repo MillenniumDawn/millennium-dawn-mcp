@@ -413,7 +413,7 @@ class GenericTxtIndex:
     """Shared scaffolding for indexes that collect and parse content files.
 
     Subclasses provide cache metadata, one or more `subdir`/`pattern` specs, a
-    picklable module-level `parser_fn`, and a string or tuple `primary_key`.
+    picklable module-level `parser_fn`, and a string or two-field `primary_key`.
     """
 
     cache_version: int = 1
@@ -423,7 +423,7 @@ class GenericTxtIndex:
     subdirs: Sequence[str] = ()
     patterns: Sequence[str] = ()
     file_predicate: Optional[Callable[[Path], bool]] = None
-    primary_key: str | tuple[str, ...] = "id"
+    primary_key: str | tuple[str, str] = "id"
     parse_chunksize: int = 4
     missing_result: Any = None
     track_parse_errors: bool = False
@@ -873,21 +873,14 @@ class GenericTxtIndex:
         primary_key = self.primary_key
         if isinstance(primary_key, str):
             return lambda record: record.get(primary_key)
-        if len(primary_key) == 2:
-            first, second = primary_key
+        first, second = primary_key
 
-            def pair_key(record: dict) -> Any:
-                a = record.get(first)
-                b = record.get(second)
-                return None if a is None or b is None else (a, b)
+        def pair_key(record: dict) -> Any:
+            a = record.get(first)
+            b = record.get(second)
+            return None if a is None or b is None else (a, b)
 
-            return pair_key
-
-        def tuple_key(record: dict) -> Any:
-            values = tuple(record.get(field) for field in primary_key)
-            return values if all(value is not None for value in values) else None
-
-        return tuple_key
+        return pair_key
 
     def _parse_parallel(self, relpaths: list[str]) -> list[Any]:
         fn = type(self).parser_fn

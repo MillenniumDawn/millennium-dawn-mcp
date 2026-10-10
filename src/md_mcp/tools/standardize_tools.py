@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-import json
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -11,7 +10,7 @@ from typing import Optional
 
 from ..util.encoding import UTF8_BOM
 from ..util.pathing import PathAccessError, validate_user_path
-from ..util.response import BUDGET_BYTES, MAX_TEXT_BYTES, clip_utf8, enforce_budget
+from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget, fit_prefix
 
 SUPPORTED_KINDS: tuple[str, ...] = (
     "focus",
@@ -81,30 +80,18 @@ def _clip_txt(result: dict, txt: str) -> dict:
     if truncated:
         result["note"] = note
 
-    if len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > BUDGET_BYTES:
-        # Escaping can inflate txt past the budget; find the longest prefix that fits.
-        original = txt
+    # Escaping can inflate txt past the budget; keep the longest prefix that fits.
+    def shrunk(chars: int) -> dict:
+        prefix = txt[:chars]
+        return {
+            **result,
+            "txt": prefix,
+            "txt_returned_bytes": len(prefix.encode("utf-8")),
+            "txt_truncated": True,
+            "note": note,
+        }
 
-        def shrunk(chars: int) -> dict:
-            prefix = original[:chars]
-            return {
-                **result,
-                "txt": prefix,
-                "txt_returned_bytes": len(prefix.encode("utf-8")),
-                "txt_truncated": True,
-                "note": note,
-            }
-
-        low, high = 0, len(original)
-        while low < high:
-            middle = (low + high + 1) // 2
-            if len(json.dumps(shrunk(middle), ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES:
-                low = middle
-            else:
-                high = middle - 1
-        result = shrunk(low)
-
-    return enforce_budget(result, heavy_keys=("txt",))
+    return enforce_budget(fit_prefix(result, len(txt), shrunk), heavy_keys=("txt",))
 
 
 def standardize_tool(

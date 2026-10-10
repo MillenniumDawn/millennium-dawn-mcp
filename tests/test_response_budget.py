@@ -7,7 +7,7 @@ import json
 import pytest
 
 from md_mcp.tools.validation_tools import filter_and_cap
-from md_mcp.util.response import BUDGET_BYTES, coerce_int, enforce_budget, paginate
+from md_mcp.util.response import BUDGET_BYTES, coerce_int, enforce_budget, fit_prefix, paginate
 
 
 def _byte_size(obj: object) -> int:
@@ -215,6 +215,36 @@ def test_enforce_budget_does_not_mutate_caller_dict_when_over():
     assert "items" in result
     assert "size_truncated" not in result
     assert out is not result
+
+
+def test_fit_prefix_returns_result_untouched_when_it_fits():
+    result = {"ok": True, "items": ["a", "b"]}
+
+    def build(count: int) -> dict:
+        raise AssertionError("build must not run when the result already fits")
+
+    assert fit_prefix(result, 2, build, budget=1000) is result
+
+
+def test_fit_prefix_keeps_the_longest_prefix_that_fits():
+    items = ["x" * 10] * 50
+    result = {"ok": True, "items": items}
+
+    def build(count: int) -> dict:
+        return {**result, "truncated": True, "items": items[:count]}
+
+    out = fit_prefix(result, len(items), build, budget=300)
+    kept = len(out["items"])
+    assert 0 < kept < len(items)
+    assert out["truncated"] is True
+    assert _byte_size(out) <= 300
+    assert _byte_size(build(kept + 1)) > 300
+
+
+def test_fit_prefix_returns_the_empty_prefix_when_nothing_fits():
+    result = {"txt": "é" * 500}
+    out = fit_prefix(result, 500, lambda chars: {"txt": result["txt"][:chars]}, budget=5)
+    assert out == {"txt": ""}
 
 
 def test_validate_filter_and_cap_severity():

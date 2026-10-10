@@ -22,7 +22,6 @@ and wraps the result in `enforce_budget`.
 
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 import sys
@@ -32,7 +31,7 @@ from typing import Callable, Optional, Sequence
 from ..analysis.suppressions import SUPPRESSION_SOURCE, suppressed_count
 from ..util.pathing import contained
 from ..util.process import run_in_group
-from ..util.response import BUDGET_BYTES, MAX_TEXT_BYTES, clip_utf8, enforce_budget
+from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget, fit_prefix
 from ..validators import SLOW_VALIDATORS, ValidatorRunner, count_severities
 from ..validators.attribution import normalize_path
 from .lint_validators import (
@@ -653,23 +652,10 @@ def lint_tool(
         # Keep a useful prefix of diagnostics when the byte budget is tighter
         # than the caller's issue limit. enforce_budget() drops the whole array
         # once it is oversized, which would hide every consumer location.
-        def fits_budget() -> bool:
-            return (
-                len(json.dumps(summary, ensure_ascii=False, default=str).encode("utf-8"))
-                <= BUDGET_BYTES
-            )
+        def clipped(count: int) -> dict:
+            return {**summary, "truncated": True, "issues": issues_capped[:count]}
 
-        if not fits_budget():
-            summary["truncated"] = True
-            low, high = 0, len(issues_capped)
-            while low < high:
-                middle = (low + high + 1) // 2
-                summary["issues"] = issues_capped[:middle]
-                if fits_budget():
-                    low = middle
-                else:
-                    high = middle - 1
-            summary["issues"] = issues_capped[:low]
+        summary = fit_prefix(summary, len(issues_capped), clipped)
 
     return enforce_budget(summary, heavy_keys=("issues",))
 

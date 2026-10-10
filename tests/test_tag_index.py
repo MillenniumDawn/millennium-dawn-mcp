@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from md_mcp.analysis.manifest import _ids_with_prefix, _indexed_country_records
+from md_mcp.analysis.manifest import _ids_for_tag, _indexed_country_records
 from md_mcp.indexes.base import GenericTxtIndex
 
 
@@ -92,9 +92,9 @@ def test_tag_lookups_match_case_insensitive_prefix_scan(tmp_path, cache_dir):
     assert expected_ids == ["USA_du_test", "USA_dup", "UsA_case", "usa_case2"]
     assert index.ids_for_tag("uSa") == expected_ids
     assert index.ids_for_tag("USA_du") == ["USA_du_test"]
-    assert _ids_with_prefix(index, "USA_") == expected_ids
-    assert _ids_with_prefix(index, "USA_DU") == ["USA_du_test", "USA_dup"]
-    assert _ids_with_prefix(index, "USA_DU_") == ["USA_du_test"]
+    assert _ids_for_tag(index, "USA") == expected_ids
+    assert _ids_for_tag(index, "USA_DU") == ["USA_du_test"]
+    assert _ids_for_tag(None, "USA") == []
     assert index.files_for_tag("usa") == ["common/tags/a.txt", "common/tags/z.txt"]
     assert index.files_for_tag("USA_du") == ["common/tags/a.txt"]
     assert index.ids_for_country_tag("USA_du") == ["USA_du_test", "nested_file_only"]

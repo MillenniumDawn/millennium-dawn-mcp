@@ -143,6 +143,102 @@ def test_validate_all_ok_when_every_validator_ok(fake_mod_root):
     assert result["counts"] == {"error": 1, "warning": 1, "info": 0}
 
 
+def test_validate_all_preserves_attribution_counts_like_named_run(fake_mod_root):
+    _plant(fake_mod_root, "good", _GOOD)
+
+    class Runner:
+        def run(self, name, **kwargs):
+            assert name == "good"
+            assert kwargs["files"] == ["events/test_events.txt"]
+            return {
+                "ok": True,
+                "validator": name,
+                "title": "Good",
+                "issues": [{"severity": "warning", "message": "in scope"}],
+                "counts": {"error": 0, "warning": 1, "info": 0},
+                "unattributed": 17,
+            }
+
+    runner = cast(Any, Runner())
+    named = validate_tool(
+        _settings(fake_mod_root), runner, validator="good", files=["events/test_events.txt"]
+    )
+    run_all = validate_tool(_settings(fake_mod_root), runner, files=["events/test_events.txt"])
+
+    assert named["unattributed"] == 17
+    assert run_all["unattributed"] == named["unattributed"]
+    assert run_all["validators"][0]["unattributed"] == named["unattributed"]
+    # Unattributed findings are metadata, not guessed into the scoped issue list.
+    assert run_all["issues"] == named["issues"]
+    assert run_all["counts"] == named["counts"]
+
+
+def test_validate_all_sums_zero_and_nonzero_attribution_counts(fake_mod_root):
+    _plant(fake_mod_root, "empty_attribution", _GOOD)
+    _plant(fake_mod_root, "unresolved", _GOOD)
+
+    class Runner:
+        def run(self, name, **kwargs):
+            # Like the real runner, a zero count is left out of the result.
+            return {
+                "ok": True,
+                "issues": [],
+                "counts": {"error": 0, "warning": 0, "info": 0},
+                **({} if name == "empty_attribution" else {"unattributed": 17}),
+            }
+
+    result = validate_tool(
+        _settings(fake_mod_root),
+        cast(Any, Runner()),
+        files=["events/test_events.txt"],
+        counts_only=True,
+    )
+
+    by_name = {entry["name"]: entry for entry in result["validators"]}
+    assert "unattributed" not in by_name["empty_attribution"]
+    assert by_name["unresolved"]["unattributed"] == 17
+    assert result["unattributed"] == 17
+    assert "issues" not in result
+    assert result["counts"] == {"error": 0, "warning": 0, "info": 0}
+
+
+def test_validate_all_delta_keeps_attribution_counts_outside_severity_totals(
+    fake_mod_root, monkeypatch
+):
+    _plant(fake_mod_root, "unresolved", _GOOD)
+
+    class Runner:
+        def run(self, name, **kwargs):
+            return {
+                "ok": True,
+                "issues": [{"severity": "warning", "message": "in scope"}],
+                "counts": {"error": 0, "warning": 1, "info": 0},
+                "unattributed": 17,
+            }
+
+    monkeypatch.setattr(validation_tools, "prepare_baseline", lambda *_: object())
+    monkeypatch.setattr(
+        validation_tools,
+        "new_issue_dicts",
+        lambda *_args, **_kwargs: SimpleNamespace(issues=[], unclassified=0, owners=[]),
+    )
+
+    result = validate_tool(
+        _settings(fake_mod_root),
+        cast(Any, Runner()),
+        files=["events/test_events.txt"],
+        delta=True,
+        baseline="main",
+        counts_only=True,
+    )
+
+    assert result["unattributed"] == 17
+    assert result["validators"][0]["unattributed"] == 17
+    assert result["counts"] == {"error": 0, "warning": 0, "info": 0}
+    assert result["unclassified"] == 0
+    assert "issues" not in result
+
+
 def test_validate_all_top_level_failure_when_any_validator_fails(fake_mod_root):
     # Regression: the run-all summary used to hardcode ok=True, burying a
     # broken validator in the per-validator list.

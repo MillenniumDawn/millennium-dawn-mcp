@@ -176,6 +176,7 @@ def validate_tool(
                 # reach back into the runner's own result.
                 "counts": dict(result.get("counts", {})),
                 "error": result.get("error"),
+                **({"unattributed": result["unattributed"]} if result.get("unattributed") else {}),
                 **(
                     {
                         "suppressed": result["suppressed"],
@@ -228,6 +229,7 @@ def validate_tool(
 
     kept, truncated, total = filter_and_cap(aggregated, severity_min=severity_min, limit=limit)
     suppressed = sum(suppressed_count(v) for v in per_validator)
+    unattributed = sum(v.get("unattributed", 0) for v in per_validator)
 
     summary: dict = {
         "ok": all(v["ok"] for v in per_validator),
@@ -240,6 +242,8 @@ def validate_tool(
     if suppressed:
         summary["suppressed"] = suppressed
         summary["suppression_source"] = SUPPRESSION_SOURCE
+    if unattributed:
+        summary["unattributed"] = unattributed
     if unclassified is not None:
         summary["unclassified"] = unclassified
     if not counts_only:

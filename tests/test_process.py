@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -20,7 +21,22 @@ def _alive(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    return True
+    # A killed process stays a zombie until it is reaped, and some sandboxes never reap orphans.
+    try:
+        status = Path(f"/proc/{pid}/status").read_text()
+    except OSError:
+        return True
+    return "\nState:\tZ" not in status
+
+
+@pytest.mark.skipif(not Path("/proc/self/status").exists(), reason="needs Linux /proc")
+def test_alive_treats_an_unreaped_child_as_dead():
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    try:
+        os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT)
+        assert not _alive(child.pid)
+    finally:
+        child.wait()
 
 
 def test_run_in_group_captures_output_and_exit_code(tmp_path):

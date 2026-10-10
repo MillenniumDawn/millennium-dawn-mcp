@@ -18,6 +18,9 @@
 
 ### Changed
 
+- `generate_loc_stub` no longer returns `bytes_to_write`. Over MCP the field arrived as the same
+  string as `txt`, so every response carried its content twice. `txt` still starts with the BOM
+  character when `bom_prefix=True`.
 - The lexer's string token no longer backtracks exponentially on an unterminated string with a
   long run of backslashes. Well-formed strings lex as before. An unterminated `"C:\dir\"` with no
   later quote is now a parse error; `hoiparser.ts` closes it by backtracking. See `docs/parser.md`.

@@ -125,32 +125,6 @@ def test_files_filter_resolves_nonuniform_issue_paths(fake_mod_root):
     assert result["counts"] == {"error": 0, "warning": 1, "info": 0}
 
 
-def test_scoped_run_reports_zero_unattributed_findings(fake_mod_root):
-    _plant(
-        fake_mod_root,
-        "clean",
-        _ISSUE_CLASS
-        + """
-class Validator:
-    TITLE = "Clean"
-
-    def __init__(self, mod_path, output_file=None, use_colors=True, staged_only=False, **kw):
-        self._issues = []
-
-    def run_all_validations(self):
-        self._issues = [
-            _Issue(severity="warning", category="x", message="known", file="events/test_events.txt")
-        ]
-""",
-    )
-
-    result = ValidatorRunner(fake_mod_root).run("clean", files=["events/test_events.txt"])
-
-    assert result["ok"] is True
-    assert result["unattributed"] == 0
-    assert result["counts"] == {"error": 0, "warning": 1, "info": 0}
-
-
 def test_available_validators_empty_for_fake_mod(fake_mod_root):
     # Our fixture has `tools/validation/` empty.
     infos = available_validators(fake_mod_root)

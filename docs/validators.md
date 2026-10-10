@@ -209,13 +209,14 @@ feedback on what you just touched.
 the wrapper runs the full validator and filters the resulting issue list by
 file. Slower than `staged_only` for big trees.
 
-For a file-scoped `validate`, each validator reports an `unattributed` count for
-issues whose files could not be resolved, and run-all also returns the sum at
-the top level. A scoped run reports zero explicitly when every issue was
-attributed. These findings are not added to the scoped `issues` list or
-severity `counts`; the metadata remains available with `counts_only=True` and
-in delta mode. Delta's separate `unclassified` count describes issues that
-could not be compared with the baseline.
+For a file-scoped `validate`, a validator reports an `unattributed` count when
+some of its issues name a file that could not be resolved. Run-all keeps that
+count on each validator entry and returns the sum at the top level. The key is
+left out when the count is zero, like `suppressed`. These findings are not
+added to the scoped `issues` list or severity `counts`. The counts are also
+returned with `counts_only=True` and in delta mode. Delta's separate
+`unclassified` count covers issues that could not be compared with the
+baseline.
 
 ## Running validators through `lint`
 

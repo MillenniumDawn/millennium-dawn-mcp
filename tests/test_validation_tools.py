@@ -149,7 +149,7 @@ def test_validate_all_preserves_attribution_counts_like_named_run(fake_mod_root)
     class Runner:
         def run(self, name, **kwargs):
             assert name == "good"
-            assert kwargs["files"] == ["events/a.txt"]
+            assert kwargs["files"] == ["events/test_events.txt"]
             return {
                 "ok": True,
                 "validator": name,
@@ -161,9 +161,9 @@ def test_validate_all_preserves_attribution_counts_like_named_run(fake_mod_root)
 
     runner = cast(Any, Runner())
     named = validate_tool(
-        _settings(fake_mod_root), runner, validator="good", files=["events/a.txt"]
+        _settings(fake_mod_root), runner, validator="good", files=["events/test_events.txt"]
     )
-    run_all = validate_tool(_settings(fake_mod_root), runner, files=["events/a.txt"])
+    run_all = validate_tool(_settings(fake_mod_root), runner, files=["events/test_events.txt"])
 
     assert named["unattributed"] == 17
     assert run_all["unattributed"] == named["unattributed"]
@@ -179,23 +179,23 @@ def test_validate_all_sums_zero_and_nonzero_attribution_counts(fake_mod_root):
 
     class Runner:
         def run(self, name, **kwargs):
-            unattributed = 0 if name == "empty_attribution" else 17
+            # Like the real runner, a zero count is left out of the result.
             return {
                 "ok": True,
                 "issues": [],
                 "counts": {"error": 0, "warning": 0, "info": 0},
-                "unattributed": unattributed,
+                **({} if name == "empty_attribution" else {"unattributed": 17}),
             }
 
     result = validate_tool(
         _settings(fake_mod_root),
         cast(Any, Runner()),
-        files=["events/a.txt"],
+        files=["events/test_events.txt"],
         counts_only=True,
     )
 
     by_name = {entry["name"]: entry for entry in result["validators"]}
-    assert by_name["empty_attribution"]["unattributed"] == 0
+    assert "unattributed" not in by_name["empty_attribution"]
     assert by_name["unresolved"]["unattributed"] == 17
     assert result["unattributed"] == 17
     assert "issues" not in result
@@ -226,7 +226,7 @@ def test_validate_all_delta_keeps_attribution_counts_outside_severity_totals(
     result = validate_tool(
         _settings(fake_mod_root),
         cast(Any, Runner()),
-        files=["events/a.txt"],
+        files=["events/test_events.txt"],
         delta=True,
         baseline="main",
         counts_only=True,

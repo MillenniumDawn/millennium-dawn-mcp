@@ -163,14 +163,9 @@ def validate_tool(
     issue_records: list[tuple[dict, str]] = []
     per_validator: list[dict] = []
     overall = {"error": 0, "warning": 0, "info": 0}
-    unattributed_total = 0
-    has_attribution_counts = False
 
     for v in targets:
         result = runner.run(v.name, staged_only=staged_only, files=validation_files)
-        if "unattributed" in result:
-            has_attribution_counts = True
-            unattributed_total += result["unattributed"]
         per_validator.append(
             {
                 "name": v.name,
@@ -181,7 +176,7 @@ def validate_tool(
                 # reach back into the runner's own result.
                 "counts": dict(result.get("counts", {})),
                 "error": result.get("error"),
-                **({"unattributed": result["unattributed"]} if "unattributed" in result else {}),
+                **({"unattributed": result["unattributed"]} if result.get("unattributed") else {}),
                 **(
                     {
                         "suppressed": result["suppressed"],
@@ -234,6 +229,7 @@ def validate_tool(
 
     kept, truncated, total = filter_and_cap(aggregated, severity_min=severity_min, limit=limit)
     suppressed = sum(suppressed_count(v) for v in per_validator)
+    unattributed = sum(v.get("unattributed", 0) for v in per_validator)
 
     summary: dict = {
         "ok": all(v["ok"] for v in per_validator),
@@ -246,8 +242,8 @@ def validate_tool(
     if suppressed:
         summary["suppressed"] = suppressed
         summary["suppression_source"] = SUPPRESSION_SOURCE
-    if has_attribution_counts:
-        summary["unattributed"] = unattributed_total
+    if unattributed:
+        summary["unattributed"] = unattributed
     if unclassified is not None:
         summary["unclassified"] = unclassified
     if not counts_only:

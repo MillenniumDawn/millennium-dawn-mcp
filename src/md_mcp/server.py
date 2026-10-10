@@ -333,7 +333,7 @@ def build_server(settings: Settings):
         delta: bool = False,
         baseline: Optional[str] = None,
     ) -> dict:
-        """Run validators; files scopes inputs, and missing paths return {ok: false, error, missing}; delta=True returns only issues new vs baseline."""
+        """Run validators, or only new issues with delta=True and explicit baseline; severity_min/limit narrow output. A files= path that does not exist returns {ok: false, missing}."""
         return await blocking_tools.run_serialized(
             validator_tools_lock,
             validate_tool,

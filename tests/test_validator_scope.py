@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import errno
 import importlib
 import json
 import subprocess
@@ -8,14 +7,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 run_validators_for_lint: Any = importlib.import_module(
     "md_mcp.tools.lint_validators"
 ).run_validators_for_lint
 ValidatorRunner: Any = importlib.import_module("md_mcp.validators").ValidatorRunner
 _shim: Any = importlib.import_module("md_mcp.validators._shim")
-_missing_scope_files: Any = importlib.import_module("md_mcp.validators.runner")._missing_scope_files
 
 _ISSUE = """
 class _Issue:
@@ -184,88 +180,6 @@ def test_scope_limits_primary_inputs_and_keeps_full_definition_lookups(tmp_path)
         _assert_primary_scope(tmp_path / mode / "Mod", mode)
 
 
-def test_missing_scope_paths_return_names_without_starting_isolated_child(tmp_path, monkeypatch):
-    root = tmp_path / "Mod"
-    _write_fixture(root, "missing_scope", _SCOPED_VALIDATOR)
-    runner = ValidatorRunner(root)
-
-    def unexpected_child(*args, **kwargs):
-        raise AssertionError("missing scope paths must fail before child execution")
-
-    monkeypatch.setattr(
-        importlib.import_module("md_mcp.validators.runner"), "run_in_group", unexpected_child
-    )
-    result = runner.run(
-        "missing_scope",
-        files=["events/Algeria.txt", "events/missing.txt", "common/missing.txt"],
-    )
-
-    assert result["ok"] is False
-    assert result["error"] == "scope file not found: events/missing.txt"
-    assert result["missing"] == ["events/missing.txt", "common/missing.txt"]
-
-
-@pytest.mark.parametrize(
-    "failure",
-    [
-        OSError(errno.EACCES, "Permission denied"),
-        OSError(errno.ENAMETOOLONG, "File name too long"),
-    ],
-    ids=["permission-denied", "path-too-long"],
-)
-def test_scope_stat_errors_return_structured_failure_before_child(tmp_path, monkeypatch, failure):
-    root = tmp_path / "Mod"
-    _write_fixture(root, "scope_stat_error", _SCOPED_VALIDATOR)
-    target = "events/Algeria.txt"
-    target_path = (root / target).resolve()
-    original_is_file = Path.is_file
-
-    def fail_target(path):
-        if path == target_path:
-            raise failure
-        return original_is_file(path)
-
-    def unexpected_child(*args, **kwargs):
-        raise AssertionError("scope inspection errors must fail before child execution")
-
-    monkeypatch.setattr(Path, "is_file", fail_target)
-    monkeypatch.setattr(
-        importlib.import_module("md_mcp.validators.runner"), "run_in_group", unexpected_child
-    )
-    result = ValidatorRunner(root).run("scope_stat_error", files=[target])
-
-    assert result["ok"] is False
-    assert result["path"] == target
-    assert "scope file could not be checked" in result["error"]
-    assert "Permission denied" in result["error"] or "File name too long" in result["error"]
-
-
-def test_scope_paths_check_overlay_first_then_base_fallback(tmp_path, monkeypatch):
-    mod_root = tmp_path / "Mod"
-    submod_root = tmp_path / "Submod"
-    rel = "events/scope.txt"
-    (mod_root / "events").mkdir(parents=True)
-    (submod_root / "events").mkdir(parents=True)
-    (mod_root / rel).write_text("base", encoding="utf-8")
-    (submod_root / rel).write_text("overlay", encoding="utf-8")
-
-    original_is_file = Path.is_file
-    checked: list[Path] = []
-
-    def record_is_file(path):
-        checked.append(path)
-        return original_is_file(path)
-
-    monkeypatch.setattr(Path, "is_file", record_is_file)
-    assert _missing_scope_files([rel], mod_root, submod_root) == []
-    assert checked[0] == submod_root / rel
-
-    checked.clear()
-    (submod_root / rel).unlink()
-    assert _missing_scope_files([rel], mod_root, submod_root) == []
-    assert checked[:2] == [submod_root / rel, mod_root / rel]
-
-
 _FULL_REPO_PASS_VALIDATOR = (
     _ISSUE
     + """
@@ -389,6 +303,24 @@ def test_lint_post_filter_preserves_unattributed_issues(tmp_path):
     ]
     assert [issue["file"] for issue in issues] == ["events/Algeria.txt", ""]
     assert issues[-1]["scope"] == "unattributed"
+
+
+def test_lint_scope_with_a_deleted_file_still_runs_the_validator(tmp_path):
+    # Staged lint keeps deleted paths in scope, so the runner must accept them.
+    root = tmp_path / "Mod"
+    _write_fixture(root, "scope_deleted", _SCOPED_VALIDATOR)
+    (root / "events" / "Brazil.txt").unlink()
+
+    entries, issues = run_validators_for_lint(
+        ValidatorRunner(root),
+        ["scope_deleted"],
+        staged_only=False,
+        relevant_set={"events/Algeria.txt", "events/Brazil.txt"},
+        mod_root=root,
+    )
+
+    assert entries[0]["ok"] is True
+    assert issues[0]["file"] == "events/Algeria.txt"
 
 
 def test_unsupported_collector_falls_back_to_full_scan_and_post_filter(tmp_path):

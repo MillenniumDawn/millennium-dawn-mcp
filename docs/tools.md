@@ -205,14 +205,11 @@ issues compared with a baseline snapshot.
 - **`staged_only=True`** — restrict to git-staged files. Much faster mid-edit.
 - **`files=[...]`** — scope validator inputs to these paths when the validator
   supports input scoping, then post-filter issues to the same paths. Each path
-  is checked in `submod_root` first and then `mod_root`; if any safe scoped path
-  is missing from both, validation stops before running a validator and returns
-  `{ok: false, error: "scope file not found: …", missing: [...]}` with every
-  missing path when it fits the response budget. If the filesystem cannot
-  inspect a path, it returns a structured `scope file could not be checked`
-  error naming that path. For very large scopes, the
-  `error` names the first missing path and `missing_dropped` plus
-  `size_truncated: true` report that the path list exceeded the budget.
+  is looked up in `submod_root`, then `mod_root`. If any is in neither, nothing
+  runs and the call returns `{ok: false, error: "scope file not found: …",
+  missing: [...]}`. The `error` names the first missing path. If the list is
+  over the response budget, `missing_dropped` and `size_truncated: true`
+  replace it.
 - **`strict=True`** — treat warnings as errors in the summary counts.
 - **`severity_min="info"`** — drop issues below this floor. `"info"`,
   `"warning"`, `"error"`.

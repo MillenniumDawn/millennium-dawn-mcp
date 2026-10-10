@@ -207,14 +207,13 @@ feedback on what you just touched.
 
 `files=[...]` scopes primary validator inputs when the upstream collector
 supports file scoping, while keeping definition passes unscoped; issues are
-also post-filtered to that file set. Requested paths are checked in
-`submod_root` first and then `mod_root`. If any safe path is absent from both,
-the runner returns `{ok: false, error: "scope file not found: …", missing: [...]}`
-before dispatching an isolated validator child or running in-process. The error
-names the first missing path; the list includes every missing path when it fits
-the response budget, otherwise `missing_dropped` and `size_truncated: true`
-report that the list was omitted. If the filesystem cannot inspect a path, the
-runner returns a structured `scope file could not be checked` error naming it.
+also post-filtered to that file set.
+
+The `validate` tool looks each path up in `submod_root`, then `mod_root`,
+before it runs anything. A path in neither returns `{ok: false, error: "scope
+file not found: …", missing: [...]}` and no validator child starts. The check
+lives in the tool, not in `ValidatorRunner.run`: `lint` passes Git-derived
+scopes to the runner, and those include staged deletions.
 
 For a file-scoped `validate`, a validator reports an `unattributed` count when
 some of its issues name a file that could not be resolved. Run-all keeps that

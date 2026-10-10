@@ -167,40 +167,39 @@ def test_validate_missing_non_english_localisation_fails_before_skip(fake_mod_ro
     }
 
 
-@pytest.mark.parametrize(
-    "failure",
-    [
-        OSError(errno.EACCES, "Permission denied"),
-        OSError(errno.ENAMETOOLONG, "File name too long"),
-    ],
-    ids=["permission-denied", "path-too-long"],
-)
-def test_validate_scope_stat_errors_return_structured_failure_before_dispatch(
-    fake_mod_root, monkeypatch, failure
-):
-    runner = ValidatorRunner(fake_mod_root)
-    path = "events/a.txt"
-    path_on_disk = (fake_mod_root / path).resolve()
-    path_on_disk.parent.mkdir(parents=True, exist_ok=True)
-    path_on_disk.write_text("content", encoding="utf-8")
-    original_is_file = Path.is_file
+def test_validate_scope_path_that_cannot_be_checked_is_reported_missing(fake_mod_root, monkeypatch):
+    path = "events/test_events.txt"
+    target = (fake_mod_root / path).resolve()
+    original_exists = Path.exists
 
-    def fail_target(candidate):
-        if candidate == path_on_disk:
-            raise failure
-        return original_is_file(candidate)
+    def fail_target(candidate, **kwargs):
+        if candidate == target:
+            raise OSError(errno.ENAMETOOLONG, "File name too long")
+        return original_exists(candidate, **kwargs)
 
-    def unexpected_run(*args, **kwargs):
-        pytest.fail("scope inspection errors must fail before validator dispatch")
+    monkeypatch.setattr(Path, "exists", fail_target)
+    result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root), files=[path])
 
-    monkeypatch.setattr(Path, "is_file", fail_target)
-    monkeypatch.setattr(runner, "run", unexpected_run)
-    result = validate_tool(_settings(fake_mod_root), runner, files=[path])
+    assert result == {"ok": False, "error": f"scope file not found: {path}", "missing": [path]}
 
-    assert result["ok"] is False
-    assert result["path"] == path
-    assert "scope file could not be checked" in result["error"]
-    assert "Permission denied" in result["error"] or "File name too long" in result["error"]
+
+def test_scope_files_resolve_against_the_submod_then_the_base_mod(fake_mod_root, tmp_path):
+    submod = tmp_path / "Submod"
+    (submod / "events").mkdir(parents=True)
+    (submod / "events" / "overlay.txt").write_text("x", encoding="utf-8")
+    settings = Settings(
+        mod_root=fake_mod_root,
+        vanilla_path=None,
+        cache_dir=fake_mod_root / ".md-mcp-cache",
+        submod_root=submod,
+    )
+
+    missing = validation_tools._missing_scope_files(
+        settings,
+        ["events/overlay.txt", "events\\test_events.txt", "events\\absent.txt", "../outside.txt"],
+    )
+
+    assert missing == ["events/absent.txt", "../outside.txt"]
 
 
 def test_validate_large_missing_scope_list_is_budgeted(fake_mod_root):

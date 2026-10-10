@@ -23,6 +23,9 @@
 - `validate` run-all results now keep each validator's scoped `unattributed` count and return
   the sum at the top level, including `counts_only` and delta responses. A named run already
   did. These findings stay outside severity totals and the scoped issue list.
+- Scoped validator runs check every requested path in the submod overlay and then the base mod
+  before execution; missing paths now return a structured error with the missing-path list when
+  it fits the response budget.
 - `line_starts` (and the GFX index's line-offset table) now scans with a `str.find` loop instead of
   a per-character Python loop, and the tokenizer builds its line table lazily on the first parse
   error rather than in `Tokenizer.__init__`. Output is unchanged; `parse_string` on `05_usa.txt` is

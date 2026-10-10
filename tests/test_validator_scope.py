@@ -12,6 +12,7 @@ run_validators_for_lint: Any = importlib.import_module(
 ).run_validators_for_lint
 ValidatorRunner: Any = importlib.import_module("md_mcp.validators").ValidatorRunner
 _shim: Any = importlib.import_module("md_mcp.validators._shim")
+_missing_scope_files: Any = importlib.import_module("md_mcp.validators.runner")._missing_scope_files
 
 _ISSUE = """
 class _Issue:
@@ -178,6 +179,53 @@ def _assert_primary_scope(root: Path, mode: str) -> None:
 def test_scope_limits_primary_inputs_and_keeps_full_definition_lookups(tmp_path):
     for mode in ("isolated", "in_process"):
         _assert_primary_scope(tmp_path / mode / "Mod", mode)
+
+
+def test_missing_scope_paths_return_names_without_starting_isolated_child(tmp_path, monkeypatch):
+    root = tmp_path / "Mod"
+    _write_fixture(root, "missing_scope", _SCOPED_VALIDATOR)
+    runner = ValidatorRunner(root)
+
+    def unexpected_child(*args, **kwargs):
+        raise AssertionError("missing scope paths must fail before child execution")
+
+    monkeypatch.setattr(
+        importlib.import_module("md_mcp.validators.runner"), "run_in_group", unexpected_child
+    )
+    result = runner.run(
+        "missing_scope",
+        files=["events/Algeria.txt", "events/missing.txt", "common/missing.txt"],
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "scope file not found: events/missing.txt"
+    assert result["missing"] == ["events/missing.txt", "common/missing.txt"]
+
+
+def test_scope_paths_check_overlay_first_then_base_fallback(tmp_path, monkeypatch):
+    mod_root = tmp_path / "Mod"
+    submod_root = tmp_path / "Submod"
+    rel = "events/scope.txt"
+    (mod_root / "events").mkdir(parents=True)
+    (submod_root / "events").mkdir(parents=True)
+    (mod_root / rel).write_text("base", encoding="utf-8")
+    (submod_root / rel).write_text("overlay", encoding="utf-8")
+
+    original_is_file = Path.is_file
+    checked: list[Path] = []
+
+    def record_is_file(path):
+        checked.append(path)
+        return original_is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", record_is_file)
+    assert _missing_scope_files([rel], mod_root, submod_root) == []
+    assert checked[0] == submod_root / rel
+
+    checked.clear()
+    (submod_root / rel).unlink()
+    assert _missing_scope_files([rel], mod_root, submod_root) == []
+    assert checked[:2] == [submod_root / rel, mod_root / rel]
 
 
 _FULL_REPO_PASS_VALIDATOR = (

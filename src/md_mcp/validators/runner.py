@@ -39,6 +39,7 @@ from typing import Iterable, Optional
 
 from ..analysis.suppressions import SUPPRESSION_SOURCE, suppress_issues
 from ..util.process import run_in_group
+from ..util.response import enforce_budget
 from .attribution import IssueAttributor
 
 logger = logging.getLogger(__name__)
@@ -157,6 +158,10 @@ class ValidatorRunner:
                 "validator": name,
                 "error": f"Unknown validator '{name}'. Use validate_list to see options.",
             }
+
+        missing = _missing_scope_files(files, self.mod_root, self.submod_root)
+        if missing:
+            return _scope_file_missing_result(missing, validator=info.name)
 
         if self.mode == "in_process":
             return self._run_inprocess(
@@ -292,6 +297,55 @@ _FULL_REPO_PASSES = (
     "validate_orphaned_tooltip_keys",
     "_script_written_variables",
 )
+
+
+def _missing_scope_files(
+    files: Optional[list[str]], mod_root: Path, submod_root: Optional[Path]
+) -> list[str]:
+    """Return safe, mod-relative scope paths absent from both content roots.
+
+    Submod overlays take precedence over the base mod, matching other scoped
+    readers. Unsafe paths are left for `_configure_file_scope` to reject as
+    before, so this preflight does not weaken the collector's containment guard.
+    """
+    if files is None:
+        return []
+
+    roots = [Path(root).resolve() for root in (submod_root, mod_root) if root is not None]
+    missing: list[str] = []
+    for raw in files:
+        normalized = raw.replace("\\", "/")
+        relative = Path(normalized)
+        if relative.is_absolute() or ".." in relative.parts:
+            continue
+
+        found = False
+        unsafe = False
+        for root in roots:
+            try:
+                candidate = (root / relative).resolve()
+                candidate.relative_to(root)
+            except (OSError, RuntimeError, ValueError):
+                unsafe = True
+                break
+            if candidate.is_file():
+                found = True
+                break
+        if not found and not unsafe:
+            missing.append(normalized)
+    return missing
+
+
+def _scope_file_missing_result(missing: list[str], *, validator: Optional[str] = None) -> dict:
+    """Build a bounded error while retaining all missing paths when they fit."""
+    result = {
+        "ok": False,
+        "error": f"scope file not found: {missing[0]}",
+        "missing": missing,
+    }
+    if validator is not None:
+        result["validator"] = validator
+    return enforce_budget(result, heavy_keys=("missing",))
 
 
 def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:

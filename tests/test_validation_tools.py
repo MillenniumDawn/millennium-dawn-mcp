@@ -114,6 +114,9 @@ def test_validate_list_budget_guard_drops_oversized_validator_page(fake_mod_root
 
 def test_validate_default_skips_non_english_localisation(fake_mod_root):
     _plant(fake_mod_root, "french_probe", _GOOD)
+    french_file = fake_mod_root / "localisation" / "french" / "probe_l_french.yml"
+    french_file.parent.mkdir(parents=True)
+    french_file.write_text("l_french:\n", encoding="utf-8")
 
     result = validate_tool(
         _settings(fake_mod_root),
@@ -125,6 +128,55 @@ def test_validate_default_skips_non_english_localisation(fake_mod_root):
     assert result["skipped_files"] == 1
     assert result["counts"] == {"error": 0, "warning": 0, "info": 0}
     assert result["issues"] == []
+
+
+def test_validate_run_all_returns_all_missing_paths_before_dispatch(fake_mod_root, monkeypatch):
+    runner = ValidatorRunner(fake_mod_root)
+
+    def unexpected_run(*args, **kwargs):
+        pytest.fail("missing scope paths must fail before validator dispatch")
+
+    monkeypatch.setattr(runner, "run", unexpected_run)
+    missing = ["events/missing_a.txt", "common/missing_b.txt"]
+    result = validate_tool(
+        _settings(fake_mod_root), runner, files=missing, delta=True, baseline=None
+    )
+
+    assert result == {
+        "ok": False,
+        "error": "scope file not found: events/missing_a.txt",
+        "missing": missing,
+    }
+
+
+def test_validate_missing_non_english_localisation_fails_before_skip(fake_mod_root, monkeypatch):
+    runner = ValidatorRunner(fake_mod_root)
+
+    def unexpected_run(*args, **kwargs):
+        pytest.fail("missing localization scope must fail before validator dispatch")
+
+    monkeypatch.setattr(runner, "run", unexpected_run)
+    path = "localisation/french/absent_l_french.yml"
+    result = validate_tool(_settings(fake_mod_root), runner, files=[path])
+
+    assert result == {
+        "ok": False,
+        "error": f"scope file not found: {path}",
+        "missing": [path],
+    }
+
+
+def test_validate_large_missing_scope_list_is_budgeted(fake_mod_root):
+    runner = ValidatorRunner(fake_mod_root)
+    files = [f"missing/{i:04}-{'x' * 24}.txt" for i in range(5_000)]
+
+    result = validate_tool(_settings(fake_mod_root), runner, files=files)
+
+    assert result["ok"] is False
+    assert result["error"] == f"scope file not found: {files[0]}"
+    assert result["missing_dropped"] == len(files)
+    assert result["size_truncated"] is True
+    assert len(json.dumps(result).encode("utf-8")) <= BUDGET_BYTES
 
 
 def test_validate_all_ok_when_every_validator_ok(fake_mod_root):

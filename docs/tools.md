@@ -598,8 +598,9 @@ When `duplicate_icons` is selected, the result also includes
 `duplicate_icons_summary: {groups, focuses}`, `total_duplicate_icons`,
 `returned_duplicate_icons`, `duplicate_icons_truncated`, and (unless
 `counts_only=true`) `duplicate_icons: [{icon, focuses: [{id, file, line}]}]`.
-`groups` counts distinct repeated icon ids; `focuses` counts focus definitions
-across those groups. Only direct `icon = ...` fields on focus definitions are
+`groups` counts repeated icon ids within individual focus files; `focuses`
+counts focus definitions across those groups. Icons are compared
+case-insensitively. Only direct `icon = ...` fields on focus definitions are
 checked; icon assignments nested in conditional or other blocks are omitted.
 This list uses the same `limit` and `offset` as `unresolved`. If the response
 budget drops the list, `duplicate_icons_dropped` gives the number of page groups

@@ -238,6 +238,30 @@ def test_duplicate_icons_groups_focus_sites_and_paginates(audit_mod):
     assert last_page["duplicate_icons_truncated"] is False
 
 
+def test_duplicate_icons_does_not_group_across_focus_files(audit_mod):
+    root, cache = audit_mod
+    focus_dir = root / "common" / "national_focus"
+    (focus_dir / "AAA.txt").write_text(
+        "focus_tree = { focus = { id = AAA_one icon = GFX_shared } }\n",
+        encoding="utf-8",
+    )
+    (focus_dir / "BBB.txt").write_text(
+        "focus_tree = { focus = { id = BBB_one icon = GFX_shared } }\n",
+        encoding="utf-8",
+    )
+
+    result = check_refs(
+        root,
+        files=["common/national_focus/AAA.txt", "common/national_focus/BBB.txt"],
+        kinds=["duplicate_icons"],
+        **_indexes(root, cache),
+    )
+
+    assert result["duplicate_icons"] == []
+    assert result["total_duplicate_icons"] == 0
+    assert result["duplicate_icons_summary"] == {"groups": 0, "focuses": 0}
+
+
 @pytest.mark.integration
 def test_duplicate_icons_matches_upstream_script_on_fixture(audit_mod, tmp_path, real_mod_root):
     """The upstream script counts repeated identical icon lines after the first."""

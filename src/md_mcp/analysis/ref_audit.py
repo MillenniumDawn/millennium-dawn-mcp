@@ -234,10 +234,10 @@ def check_refs(
 
     duplicate_icon_groups: list[dict] = []
     if "duplicate_icons" in selected_set:
-        grouped_icons: dict[str, list[dict]] = {}
-        display_icons: dict[str, str] = {}
+        grouped_icons: dict[tuple[str, str], list[dict]] = {}
+        display_icons: dict[tuple[str, str], str] = {}
         for entry in focus_icons:
-            key = entry["icon"].casefold()
+            key = (entry["file"], entry["icon"].casefold())
             display_icons.setdefault(key, entry["icon"])
             grouped_icons.setdefault(key, []).append(
                 {"id": entry["id"], "file": entry["file"], "line": entry["line"]}

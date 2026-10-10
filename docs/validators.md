@@ -213,7 +213,8 @@ the runner returns `{ok: false, error: "scope file not found: …", missing: [..
 before dispatching an isolated validator child or running in-process. The error
 names the first missing path; the list includes every missing path when it fits
 the response budget, otherwise `missing_dropped` and `size_truncated: true`
-report that the list was omitted.
+report that the list was omitted. If the filesystem cannot inspect a path, the
+runner returns a structured `scope file could not be checked` error naming it.
 
 For a file-scoped `validate`, a validator reports an `unattributed` count when
 some of its issues name a file that could not be resolved. Run-all keeps that

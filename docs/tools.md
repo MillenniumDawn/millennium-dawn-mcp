@@ -208,7 +208,9 @@ issues compared with a baseline snapshot.
   is checked in `submod_root` first and then `mod_root`; if any safe scoped path
   is missing from both, validation stops before running a validator and returns
   `{ok: false, error: "scope file not found: …", missing: [...]}` with every
-  missing path when it fits the response budget. For very large scopes, the
+  missing path when it fits the response budget. If the filesystem cannot
+  inspect a path, it returns a structured `scope file could not be checked`
+  error naming that path. For very large scopes, the
   `error` names the first missing path and `missing_dropped` plus
   `size_truncated: true` report that the path list exceeded the budget.
 - **`strict=True`** — treat warnings as errors in the summary counts.

@@ -39,7 +39,7 @@ from typing import Iterable, Optional
 
 from ..analysis.suppressions import SUPPRESSION_SOURCE, suppress_issues
 from ..util.process import run_in_group
-from ..util.response import enforce_budget
+from ..util.response import clip_utf8, enforce_budget
 from .attribution import IssueAttributor
 
 logger = logging.getLogger(__name__)
@@ -159,7 +159,10 @@ class ValidatorRunner:
                 "error": f"Unknown validator '{name}'. Use validate_list to see options.",
             }
 
-        missing = _missing_scope_files(files, self.mod_root, self.submod_root)
+        try:
+            missing = _missing_scope_files(files, self.mod_root, self.submod_root)
+        except _ScopeFileCheckError as exc:
+            return _scope_file_check_error_result(exc.path, exc.reason, validator=info.name)
         if missing:
             return _scope_file_missing_result(missing, validator=info.name)
 
@@ -299,6 +302,13 @@ _FULL_REPO_PASSES = (
 )
 
 
+class _ScopeFileCheckError(Exception):
+    def __init__(self, path: str, reason: str):
+        self.path = path
+        self.reason = reason
+        super().__init__(reason)
+
+
 def _missing_scope_files(
     files: Optional[list[str]], mod_root: Path, submod_root: Optional[Path]
 ) -> list[str]:
@@ -325,10 +335,16 @@ def _missing_scope_files(
             try:
                 candidate = (root / relative).resolve()
                 candidate.relative_to(root)
-            except (OSError, RuntimeError, ValueError):
+            except OSError as exc:
+                raise _ScopeFileCheckError(normalized, exc.strerror or "filesystem error") from exc
+            except (RuntimeError, ValueError):
                 unsafe = True
                 break
-            if candidate.is_file():
+            try:
+                is_file = candidate.is_file()
+            except OSError as exc:
+                raise _ScopeFileCheckError(normalized, exc.strerror or "filesystem error") from exc
+            if is_file:
                 found = True
                 break
         if not found and not unsafe:
@@ -346,6 +362,24 @@ def _scope_file_missing_result(missing: list[str], *, validator: Optional[str] =
     if validator is not None:
         result["validator"] = validator
     return enforce_budget(result, heavy_keys=("missing",))
+
+
+def _scope_file_check_error_result(
+    path: str, reason: str, *, validator: Optional[str] = None
+) -> dict:
+    """Build a bounded error when the filesystem cannot inspect a scope path."""
+    path, _, _, truncated = clip_utf8(path, 16_000)
+    reason, _, _, _ = clip_utf8(reason, 1_000)
+    result = {
+        "ok": False,
+        "error": f"scope file could not be checked: {path} ({reason})",
+        "path": path,
+    }
+    if truncated:
+        result["size_truncated"] = True
+    if validator is not None:
+        result["validator"] = validator
+    return enforce_budget(result)
 
 
 def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:

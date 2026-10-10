@@ -19,7 +19,12 @@ from ..validators import (
     available_validators,
     count_severities,
 )
-from ..validators.runner import _missing_scope_files, _scope_file_missing_result
+from ..validators.runner import (
+    _missing_scope_files,
+    _scope_file_check_error_result,
+    _scope_file_missing_result,
+    _ScopeFileCheckError,
+)
 
 
 def validate_list_tool(
@@ -102,11 +107,14 @@ def validate_tool(
       delta         — return only issues absent from a baseline snapshot
       baseline      — snapshot file/directory or cached ref; required in delta mode
     """
-    missing = _missing_scope_files(
-        files,
-        getattr(runner, "mod_root", settings.mod_root),
-        getattr(runner, "submod_root", settings.submod_root),
-    )
+    try:
+        missing = _missing_scope_files(
+            files,
+            getattr(runner, "mod_root", settings.mod_root),
+            getattr(runner, "submod_root", settings.submod_root),
+        )
+    except _ScopeFileCheckError as exc:
+        return _scope_file_check_error_result(exc.path, exc.reason)
     if missing:
         return _scope_file_missing_result(missing)
 

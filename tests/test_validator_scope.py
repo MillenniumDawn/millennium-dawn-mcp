@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import errno
 import importlib
 import json
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 run_validators_for_lint: Any = importlib.import_module(
     "md_mcp.tools.lint_validators"
@@ -200,6 +203,41 @@ def test_missing_scope_paths_return_names_without_starting_isolated_child(tmp_pa
     assert result["ok"] is False
     assert result["error"] == "scope file not found: events/missing.txt"
     assert result["missing"] == ["events/missing.txt", "common/missing.txt"]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        OSError(errno.EACCES, "Permission denied"),
+        OSError(errno.ENAMETOOLONG, "File name too long"),
+    ],
+    ids=["permission-denied", "path-too-long"],
+)
+def test_scope_stat_errors_return_structured_failure_before_child(tmp_path, monkeypatch, failure):
+    root = tmp_path / "Mod"
+    _write_fixture(root, "scope_stat_error", _SCOPED_VALIDATOR)
+    target = "events/Algeria.txt"
+    target_path = (root / target).resolve()
+    original_is_file = Path.is_file
+
+    def fail_target(path):
+        if path == target_path:
+            raise failure
+        return original_is_file(path)
+
+    def unexpected_child(*args, **kwargs):
+        raise AssertionError("scope inspection errors must fail before child execution")
+
+    monkeypatch.setattr(Path, "is_file", fail_target)
+    monkeypatch.setattr(
+        importlib.import_module("md_mcp.validators.runner"), "run_in_group", unexpected_child
+    )
+    result = ValidatorRunner(root).run("scope_stat_error", files=[target])
+
+    assert result["ok"] is False
+    assert result["path"] == target
+    assert "scope file could not be checked" in result["error"]
+    assert "Permission denied" in result["error"] or "File name too long" in result["error"]
 
 
 def test_scope_paths_check_overlay_first_then_base_fallback(tmp_path, monkeypatch):

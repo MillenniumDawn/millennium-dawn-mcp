@@ -6,6 +6,7 @@ must not report success while individual validators failed.
 
 from __future__ import annotations
 
+import errno
 import importlib
 import json
 from pathlib import Path
@@ -164,6 +165,42 @@ def test_validate_missing_non_english_localisation_fails_before_skip(fake_mod_ro
         "error": f"scope file not found: {path}",
         "missing": [path],
     }
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        OSError(errno.EACCES, "Permission denied"),
+        OSError(errno.ENAMETOOLONG, "File name too long"),
+    ],
+    ids=["permission-denied", "path-too-long"],
+)
+def test_validate_scope_stat_errors_return_structured_failure_before_dispatch(
+    fake_mod_root, monkeypatch, failure
+):
+    runner = ValidatorRunner(fake_mod_root)
+    path = "events/a.txt"
+    path_on_disk = (fake_mod_root / path).resolve()
+    path_on_disk.parent.mkdir(parents=True, exist_ok=True)
+    path_on_disk.write_text("content", encoding="utf-8")
+    original_is_file = Path.is_file
+
+    def fail_target(candidate):
+        if candidate == path_on_disk:
+            raise failure
+        return original_is_file(candidate)
+
+    def unexpected_run(*args, **kwargs):
+        pytest.fail("scope inspection errors must fail before validator dispatch")
+
+    monkeypatch.setattr(Path, "is_file", fail_target)
+    monkeypatch.setattr(runner, "run", unexpected_run)
+    result = validate_tool(_settings(fake_mod_root), runner, files=[path])
+
+    assert result["ok"] is False
+    assert result["path"] == path
+    assert "scope file could not be checked" in result["error"]
+    assert "Permission denied" in result["error"] or "File name too long" in result["error"]
 
 
 def test_validate_large_missing_scope_list_is_budgeted(fake_mod_root):

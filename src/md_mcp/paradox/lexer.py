@@ -23,7 +23,8 @@ from .nodes import Token
 _TOKEN_TYPES: list[tuple[str, str]] = [
     ("comment", r"#.*(?:[\r\n]|$)"),
     ("operator", r"[={}<>;,]|>=|<=|!="),
-    # The alternatives are disjoint so an unterminated string fails in linear time.
+    # Differs from hoiparser.ts on purpose (docs/parser.md): disjoint alternatives
+    # make an unterminated string fail in linear time.
     ("string", r'"(?:\\[\s\S]|[^"\\])*"'),
     ("symbol", r"(?:\d+\.)?[a-zA-Z_@\[\]][\w:\._@\[\]\-\?\^\/ -ɏ|]*"),
     ("unitnumber", r"(?:-?\d*\.\d+|-?\d+)(?:%%?)"),

@@ -68,6 +68,7 @@ _ALL_KINDS: tuple = (
     "trait",
     "scripted_effect",
     "scripted_trigger",
+    "duplicate_icons",
 )
 _MAX_FILES = 200
 
@@ -198,6 +199,7 @@ def check_refs(
     refs: list[dict] = []
     parse_errors: list[dict] = []
     focus_defs: list[dict] = []  # focus ids defined in scope, for loc coverage
+    focus_icons: list[dict] = []
 
     for parsed in iter_scope_files(
         scope_files, mod_root, vanilla_path, parse_errors, submod_root=submod_root
@@ -210,6 +212,7 @@ def check_refs(
             selected_set,
             refs,
             focus_defs,
+            focus_icons,
             referrer=None,
             scripted_effect_names=scripted_effect_names,
             scripted_trigger_names=scripted_trigger_names,
@@ -228,6 +231,22 @@ def check_refs(
                         "referrer": fd["id"],
                     }
                 )
+
+    duplicate_icon_groups: list[dict] = []
+    if "duplicate_icons" in selected_set:
+        grouped_icons: dict[str, list[dict]] = {}
+        display_icons: dict[str, str] = {}
+        for entry in focus_icons:
+            key = entry["icon"].casefold()
+            display_icons.setdefault(key, entry["icon"])
+            grouped_icons.setdefault(key, []).append(
+                {"id": entry["id"], "file": entry["file"], "line": entry["line"]}
+            )
+        duplicate_icon_groups = [
+            {"icon": display_icons[key], "focuses": focuses}
+            for key, focuses in sorted(grouped_icons.items())
+            if len(focuses) > 1
+        ]
 
     vanilla_sprites_set = vanilla_sprites or frozenset()
     resolvers: dict[str, Callable[[str], bool]] = {
@@ -304,8 +323,12 @@ def check_refs(
         "vanilla_manifest": vanilla_sprites is not None,
         "counts": {
             k: {
-                "checked": len(checked[k]),
-                "unresolved": sum(1 for e in unresolved if e["kind"] == k),
+                "checked": (len(focus_icons) if k == "duplicate_icons" else len(checked[k])),
+                "unresolved": (
+                    len(duplicate_icon_groups)
+                    if k == "duplicate_icons"
+                    else sum(1 for e in unresolved if e["kind"] == k)
+                ),
             }
             for k in selected
         },
@@ -317,8 +340,26 @@ def check_refs(
         result["parse_errors"] = parse_errors
     if not counts_only:
         result["unresolved"] = sliced
+    if "duplicate_icons" in selected_set:
+        duplicate_icon_page = (
+            duplicate_icon_groups[offset : offset + limit]
+            if limit >= 0
+            else duplicate_icon_groups[offset:]
+        )
+        total_duplicate_icons = len(duplicate_icon_groups)
+        result["duplicate_icons_summary"] = {
+            "groups": total_duplicate_icons,
+            "focuses": sum(len(group["focuses"]) for group in duplicate_icon_groups),
+        }
+        result["total_duplicate_icons"] = total_duplicate_icons
+        result["returned_duplicate_icons"] = len(duplicate_icon_page)
+        result["duplicate_icons_truncated"] = (
+            offset + len(duplicate_icon_page) < total_duplicate_icons
+        )
+        if not counts_only:
+            result["duplicate_icons"] = duplicate_icon_page
 
-    return enforce_budget(result, heavy_keys=("unresolved", "parse_errors"))
+    return enforce_budget(result, heavy_keys=("duplicate_icons", "unresolved", "parse_errors"))
 
 
 def _walk(
@@ -328,6 +369,7 @@ def _walk(
     kinds: set[str],
     refs: list[dict],
     focus_defs: list[dict],
+    focus_icons: list[dict],
     referrer: Optional[str],
     *,
     scripted_effect_names: set[str],
@@ -342,6 +384,17 @@ def _walk(
             if fid:
                 ctx = fid
                 focus_defs.append({"id": fid, "file": relpath, "line": node_line(child, starts)})
+                icon_node = _child_get(child, "icon")
+                icon = _symbol_or_str(icon_node)
+                if icon and icon_node is not None:
+                    focus_icons.append(
+                        {
+                            "id": fid,
+                            "icon": icon,
+                            "file": relpath,
+                            "line": node_line(icon_node, starts),
+                        }
+                    )
 
         if "focus" in kinds and name in ("prerequisite", "mutually_exclusive"):
             for m in child.children():
@@ -420,6 +473,7 @@ def _walk(
                 kinds,
                 refs,
                 focus_defs,
+                focus_icons,
                 ctx,
                 scripted_effect_names=scripted_effect_names,
                 scripted_trigger_names=scripted_trigger_names,

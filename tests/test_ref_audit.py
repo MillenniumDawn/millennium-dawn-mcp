@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import inspect
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -155,6 +158,163 @@ def test_counts_only_and_pagination(audit_mod):
     page = check_refs(root, files=["common/national_focus/TST_audit.txt"], limit=2, offset=0, **idx)
     assert len(page["unresolved"]) == 2
     assert page["truncated"] is True
+
+
+def test_duplicate_icons_groups_focus_sites_and_paginates(audit_mod):
+    root, cache = audit_mod
+    path = root / "common" / "national_focus" / "TST_audit.txt"
+    path.write_text(
+        """focus_tree = {
+    focus = {
+        id = TST_icon_one
+        icon = GFX_shared
+    }
+    focus = {
+        id = TST_icon_two
+        icon = gfx_shared
+    }
+    focus = {
+        id = TST_icon_three
+        icon = GFX_unique
+    }
+    focus = {
+        id = TST_icon_four
+        icon = GFX_zed
+    }
+    focus = {
+        id = TST_icon_five
+        icon = GFX_zed
+    }
+}
+""",
+        encoding="utf-8",
+    )
+    idx = _indexes(root, cache)
+    result = check_refs(
+        root,
+        files=["common/national_focus/TST_audit.txt"],
+        kinds=["duplicate_icons"],
+        limit=1,
+        **idx,
+    )
+    assert result["total_duplicate_icons"] == 2
+    assert result["duplicate_icons_summary"] == {"groups": 2, "focuses": 4}
+    assert result["duplicate_icons"] == [
+        {
+            "icon": "GFX_shared",
+            "focuses": [
+                {"id": "TST_icon_one", "file": "common/national_focus/TST_audit.txt", "line": 4},
+                {"id": "TST_icon_two", "file": "common/national_focus/TST_audit.txt", "line": 8},
+            ],
+        }
+    ]
+    counts_only = check_refs(
+        root,
+        files=["common/national_focus/TST_audit.txt"],
+        kinds=["duplicate_icons"],
+        counts_only=True,
+        **idx,
+    )
+    assert "duplicate_icons" not in counts_only
+    assert counts_only["total_duplicate_icons"] == 2
+    page = check_refs(
+        root,
+        files=["common/national_focus/TST_audit.txt"],
+        kinds=["duplicate_icons"],
+        limit=1,
+        **idx,
+    )
+    assert len(page["duplicate_icons"]) == 1
+    assert page["returned_duplicate_icons"] == 1
+    assert page["duplicate_icons_truncated"] is True
+    last_page = check_refs(
+        root,
+        files=["common/national_focus/TST_audit.txt"],
+        kinds=["duplicate_icons"],
+        limit=1,
+        offset=1,
+        **idx,
+    )
+    assert last_page["duplicate_icons_truncated"] is False
+
+
+@pytest.mark.integration
+def test_duplicate_icons_matches_upstream_script_on_fixture(audit_mod, tmp_path, real_mod_root):
+    """The upstream script counts repeated identical icon lines after the first."""
+    source_script = real_mod_root / "tools" / "assets" / "duplicate_icon.py"
+    root, cache = audit_mod
+    source = """focus_tree = {
+    focus = {
+        id = TST_icon_one
+        icon = GFX_shared
+    }
+    focus = {
+        id = TST_icon_two
+        icon = GFX_shared
+    }
+    focus = {
+        id = TST_icon_three
+        icon = GFX_shared
+    }
+}
+"""
+    file_name = "TST_icons.txt"
+    (root / "common" / "national_focus" / file_name).write_text(source, encoding="utf-8")
+    tools_dir = tmp_path / "tools"
+    (tools_dir / "assets").mkdir(parents=True)
+    shutil.copyfile(source_script, tools_dir / "assets" / "duplicate_icon.py")
+    focus_dir = tmp_path / "common" / "national_focus"
+    focus_dir.mkdir(parents=True)
+    (focus_dir / file_name).write_text(source, encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, "assets/duplicate_icon.py", file_name],
+        cwd=tools_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    # The script emits one line for each repeated line after the first. The
+    # API groups all focus definitions, so compare its occurrence count with
+    # len(group.focuses) - 1 rather than comparing output shape.
+    script_count = sum(
+        1 for line in proc.stdout.splitlines() if line.strip().lower() == "icon = gfx_shared"
+    )
+    result = check_refs(
+        root,
+        files=["common/national_focus/" + file_name],
+        kinds=["duplicate_icons"],
+        **_indexes(root, cache),
+    )
+    group = result["duplicate_icons"][0]
+    assert group["icon"].casefold() == "gfx_shared"
+    assert script_count == len(group["focuses"]) - 1
+
+
+@pytest.mark.integration
+def test_duplicate_icons_matches_upstream_script_on_usa_focus_file(real_mod_root, tmp_path):
+    """Normalize script output to duplicate occurrences per icon group."""
+    root = real_mod_root
+    source = root / "common" / "national_focus" / "05_usa.txt"
+    script = root / "tools" / "assets" / "duplicate_icon.py"
+    assert source.is_file()
+    assert script.is_file()
+    proc = subprocess.run(
+        [sys.executable, "assets/duplicate_icon.py", source.name],
+        cwd=root / "tools",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    script_count = int(proc.stdout.splitlines()[-1].split(" has ")[1].split()[0])
+    result = check_refs(
+        root,
+        files=["common/national_focus/05_usa.txt"],
+        kinds=["duplicate_icons"],
+        limit=-1,
+        **_indexes(root, tmp_path),
+    )
+    api_count = sum(len(group["focuses"]) - 1 for group in result["duplicate_icons"])
+    assert api_count == script_count
 
 
 def test_tag_scope(audit_mod):

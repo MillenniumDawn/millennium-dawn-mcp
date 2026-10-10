@@ -261,16 +261,17 @@ def validate_tool(
 
 
 def _missing_scope_files(settings: Settings, files: list[str]) -> list[str]:
-    """Scope paths found in neither the submod overlay nor the base mod."""
+    """Scope paths that are a file in neither the submod overlay nor the base mod."""
     missing: list[str] = []
     for raw in files:
         path = raw.replace("\\", "/")
         try:
             found = resolve_scope_file(path, settings.mod_root, None, settings.submod_root)
+            is_file = found is not None and found.is_file()
         except OSError:
             # Unreadable or overlong path: report it, don't crash the call.
-            found = None
-        if found is None:
+            is_file = False
+        if not is_file:
             missing.append(path)
     return missing
 

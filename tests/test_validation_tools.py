@@ -196,10 +196,17 @@ def test_scope_files_resolve_against_the_submod_then_the_base_mod(fake_mod_root,
 
     missing = validation_tools._missing_scope_files(
         settings,
-        ["events/overlay.txt", "events\\test_events.txt", "events\\absent.txt", "../outside.txt"],
+        [
+            "events/overlay.txt",
+            "events\\test_events.txt",
+            "events\\absent.txt",
+            "../outside.txt",
+            "events",
+        ],
     )
 
-    assert missing == ["events/absent.txt", "../outside.txt"]
+    # A directory is not a scope file: it would match no input and report nothing.
+    assert missing == ["events/absent.txt", "../outside.txt", "events"]
 
 
 def test_validate_large_missing_scope_list_is_budgeted(fake_mod_root):

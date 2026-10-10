@@ -57,6 +57,33 @@ def test_resolve_focus_reads_overlay_and_reports_overlay_line(fake_mod_root, tmp
     assert result["line"] == 4
 
 
+def test_resolve_focus_falls_back_to_the_indexed_record(fake_mod_root, cache_dir):
+    settings = _settings(fake_mod_root, cache_dir)
+    index = FocusIndex(fake_mod_root, cache_dir)
+    record = index.resolve("TST_root")
+    assert record is not None
+    indexed = {
+        "ok": True,
+        "id": "TST_root",
+        "file": record["file"],
+        "line": record["line"],
+        "kind": record["kind"],
+    }
+    source = fake_mod_root / record["file"]
+
+    # A second freshness check arms the debounce, so the index keeps the record
+    # while the file changes under it.
+    index.ensure_fresh()
+    source.write_text("focus_tree = { focus = { id = TST_root x = {{{", encoding="utf-8")
+    unparsable = resolve_focus_tool("TST_root", settings, index)
+    assert unparsable.pop("warning").startswith("Could not parse file for detail extraction")
+    assert unparsable == indexed
+
+    source.unlink()
+    missing = resolve_focus_tool("TST_root", settings, index)
+    assert missing == {**indexed, "warning": "File listed in index but no longer on disk"}
+
+
 def test_focus_index_persists_parse_errors(fake_mod_root, cache_dir):
     broken = fake_mod_root / "common" / "national_focus" / "broken.txt"
     broken.write_text("focus_tree = { focus = { id = TST_broken x = {{{", encoding="utf-8")

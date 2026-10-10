@@ -52,11 +52,6 @@ def test_unterminated_string_with_long_backslash_run_is_bounded():
     assert time.perf_counter() - started < 0.5
 
 
-def test_lexer_keeps_even_backslash_run_in_string_token():
-    token = Tokenizer('"path' + "\\" * 32 + '"').next()
-    assert token.type == "string"
-
-
 @pytest.mark.parametrize("backslash_count", [1, 2, 3, 4])
 def test_terminal_backslash_parity_matches_lexer_and_parser(backslash_count):
     literal = '"value' + "\\" * backslash_count + '"'

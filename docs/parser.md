@@ -62,7 +62,7 @@ From `lexer.py`:
 |---|---|---|
 | `comment` | `#.*(?:[\r\n]|$)` | `# this is a comment` |
 | `operator` | `[={}<>;,]` plus `>=`, `<=`, `!=` | `=`, `{`, `}`, `>=` |
-| `string` | `"(?:\\"|\\\\|\\(?!["\\])|[^"\\])*"` | `"localised key"` |
+| `string` | `"(?:\\[\s\S]|[^"\\])*"` | `"localised key"` |
 | `symbol` | `(?:\d+\.)?[a-zA-Z_@\[\]][\w:\._@\[\]\-\?\^\/ -ɏ|]*` | `ISR_idf`, `[VAR]`, `5.cycle_var` |
 | `unitnumber` | `(?:-?\d*\.\d+|-?\d+)(?:%%?)` | `5%`, `42%%` |
 | `number` | `-?\d*\.\d+|-?\d+|0x\d+` | `42`, `-3.5`, `0xFF` |
@@ -74,16 +74,14 @@ so that `539.productivity_state_var` parses as one symbol (the regex starts
 with optional `\d+\.`), not as the number `539` followed by an invalid
 `.productivity_state_var`.
 
-The string pattern keeps backslash escapes and ordinary characters in disjoint
-alternatives. It preserves escaped quote/backslash handling and literal unknown
-escapes while avoiding exponential backtracking on unterminated strings with a
-long run of backslashes. Immediately before a candidate closing quote, an odd
-run of backslashes escapes that quote (so the string remains unterminated unless
-another quote follows); an even run closes the string. Tests pin this behavior
-for runs of one through four backslashes in both the lexer and parser. For
-single-line strings, the GFX scanner follows the same quote-boundary parity.
-Its escaped-character branch uses `.` and therefore does not cross newlines,
-while the lexer permits newlines inside strings.
+The string pattern differs from `hoiparser.ts`, whose `[^"]` fallback also
+accepts backslashes and backtracks exponentially on an unterminated string with
+a long run of them. Here a backslash always takes the next character with it.
+An odd run of backslashes before a quote escapes that quote, and an even run
+leaves it as the terminator. Well-formed strings match as before. The one change
+is `"C:\dir\"` with no later quote: the TS pattern backtracks and closes the
+string there, and this one reports it as unterminated. The GFX scanner reads
+quotes the same way, except that its escape does not cross a newline.
 
 `Token.start` and `Token.end` are Python `str` indices into the source
 (code points, not UTF-8 bytes; they coincide for ASCII), not line/column.

@@ -4,6 +4,8 @@
 
 ### Added
 
+- `check_refs(kinds=["duplicate_icons"])` reports focus icon ids reused within a file, with
+  focus ids and file:line sites, pagination, and counts-only support. It runs only when named.
 - `loc_langs` setting (`MD_MCP_LOC_LANGS`, config.toml `loc_langs`; comma-separated ISO codes or
   `*`). The localisation index now covers only these languages, default `default_lang` plus
   `en` (the fallback is always indexed). Each language set has its own cache (`loc-en`,

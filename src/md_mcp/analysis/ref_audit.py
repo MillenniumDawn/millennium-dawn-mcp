@@ -56,7 +56,7 @@ from ..util.response import enforce_budget
 from .refs import KIND_ALIASES
 from .scope import iter_scope_files
 
-_ALL_KINDS: tuple = (
+_DEFAULT_KINDS: tuple = (
     "focus",
     "event",
     "idea",
@@ -69,6 +69,8 @@ _ALL_KINDS: tuple = (
     "scripted_effect",
     "scripted_trigger",
 )
+# Reused icons are common (163 groups in 05_usa.txt), so this one is opt-in.
+_ALL_KINDS: tuple = (*_DEFAULT_KINDS, "duplicate_icons")
 _MAX_FILES = 200
 
 _EVENT_NODES = frozenset({"country_event", "news_event"})
@@ -151,7 +153,7 @@ def check_refs(
     if not tag and not files:
         return {"ok": False, "error": "Pass tag= or files=[...] (mod-relative paths)."}
 
-    selected = list(kinds) if kinds else list(_ALL_KINDS)
+    selected = list(kinds) if kinds else list(_DEFAULT_KINDS)
     selected = [KIND_ALIASES.get(kind, kind) for kind in selected]
     unknown = [k for k in selected if k not in _ALL_KINDS]
     if unknown:
@@ -198,6 +200,7 @@ def check_refs(
     refs: list[dict] = []
     parse_errors: list[dict] = []
     focus_defs: list[dict] = []  # focus ids defined in scope, for loc coverage
+    focus_icons: list[dict] = []
 
     for parsed in iter_scope_files(
         scope_files, mod_root, vanilla_path, parse_errors, submod_root=submod_root
@@ -210,6 +213,7 @@ def check_refs(
             selected_set,
             refs,
             focus_defs,
+            focus_icons,
             referrer=None,
             scripted_effect_names=scripted_effect_names,
             scripted_trigger_names=scripted_trigger_names,
@@ -228,6 +232,17 @@ def check_refs(
                         "referrer": fd["id"],
                     }
                 )
+
+    # Group per file, as upstream `tools/assets/duplicate_icon.py` does.
+    icon_groups: dict[tuple[str, str], dict] = {}
+    for entry in focus_icons:
+        group = icon_groups.setdefault(
+            (entry["file"], entry["icon"].casefold()), {"icon": entry["icon"], "focuses": []}
+        )
+        group["focuses"].append({k: entry[k] for k in ("id", "file", "line")})
+    duplicate_icons = [
+        icon_groups[key] for key in sorted(icon_groups) if len(icon_groups[key]["focuses"]) > 1
+    ]
 
     vanilla_sprites_set = vanilla_sprites or frozenset()
     resolvers: dict[str, Callable[[str], bool]] = {
@@ -286,7 +301,8 @@ def check_refs(
     unresolved = sorted(unresolved_by_key.values(), key=lambda e: (e["kind"], e["ref"]))
     total = len(unresolved)
     offset = max(offset, 0)
-    sliced = unresolved[offset : offset + limit] if limit >= 0 else unresolved[offset:]
+    end = offset + limit if limit >= 0 else None
+    sliced = unresolved[offset:end]
 
     result: dict = {
         "ok": True,
@@ -317,8 +333,19 @@ def check_refs(
         result["parse_errors"] = parse_errors
     if not counts_only:
         result["unresolved"] = sliced
+    if "duplicate_icons" in selected_set:
+        page = duplicate_icons[offset:end]
+        result["counts"]["duplicate_icons"] = {
+            "checked": len(focus_icons),
+            "unresolved": len(duplicate_icons),
+        }
+        result["total_duplicate_icons"] = len(duplicate_icons)
+        result["returned_duplicate_icons"] = len(page)
+        result["duplicate_icons_truncated"] = offset + len(page) < len(duplicate_icons)
+        if not counts_only:
+            result["duplicate_icons"] = page
 
-    return enforce_budget(result, heavy_keys=("unresolved", "parse_errors"))
+    return enforce_budget(result, heavy_keys=("duplicate_icons", "unresolved", "parse_errors"))
 
 
 def _walk(
@@ -328,6 +355,7 @@ def _walk(
     kinds: set[str],
     refs: list[dict],
     focus_defs: list[dict],
+    focus_icons: list[dict],
     referrer: Optional[str],
     *,
     scripted_effect_names: set[str],
@@ -342,6 +370,17 @@ def _walk(
             if fid:
                 ctx = fid
                 focus_defs.append({"id": fid, "file": relpath, "line": node_line(child, starts)})
+                icon_node = _child_get(child, "icon") if "duplicate_icons" in kinds else None
+                icon = _symbol_or_str(icon_node)
+                if icon and icon_node is not None:
+                    focus_icons.append(
+                        {
+                            "id": fid,
+                            "icon": icon,
+                            "file": relpath,
+                            "line": node_line(icon_node, starts),
+                        }
+                    )
 
         if "focus" in kinds and name in ("prerequisite", "mutually_exclusive"):
             for m in child.children():
@@ -420,6 +459,7 @@ def _walk(
                 kinds,
                 refs,
                 focus_defs,
+                focus_icons,
                 ctx,
                 scripted_effect_names=scripted_effect_names,
                 scripted_trigger_names=scripted_trigger_names,

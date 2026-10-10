@@ -496,7 +496,7 @@ def build_server(settings: Settings):
         offset: int = 0,
         counts_only: bool = False,
     ) -> dict:
-        """Audit indexed focus/event/idea/sprite/loc/decision/tag/character/trait/scripted refs in tag focus files or explicit files=; returns deduped unresolved refs with file:line sites. kinds=[...] subsets."""
+        """Audit indexed focus/event/idea/sprite/loc/decision/tag/character/trait/scripted refs in tag focus files or explicit files=; returns deduped unresolved refs with file:line sites. kinds=[...] subsets; kinds=["duplicate_icons"] lists focus icons reused within a file."""
         return check_refs(
             settings.mod_root,
             focus_index=focus_index,

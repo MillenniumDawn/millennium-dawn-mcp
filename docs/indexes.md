@@ -30,7 +30,12 @@ For each contributing file, the manifest stores `[mtime_ns, size]`. On
    - **removed** — known file now missing
    - **added** — new file not in the manifest
    - **unchanged** — safe to reuse
-3. Reparse only `stale + added`. Drop `removed`. Keep `unchanged` from cache.
+3. Reparse only `stale + added`, plus any "unchanged" file whose cached data is
+   missing or unusable (the data file failed to load, or the file's entry is not a
+   valid record list; keyed records are also checked for non-null, hashable primary
+   keys so a malformed cache cannot crash the rebuild). Healthy entries and known parse
+   errors stay cache hits, and the reparse repairs + repersists the payload. Drop
+   `removed`. Keep the rest of `unchanged` from cache.
 4. Write the new data + manifest back, atomically (`.tmp` rename). Data is
    written first, manifest last, so a crash in between reads as stale (re-parse)
    rather than as trusted half-written state.

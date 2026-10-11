@@ -166,7 +166,7 @@ class IndexCache:
             # pi-lens-ignore: python-path-traversal
             with open(self.data_path, encoding="utf-8") as fh:
                 return json.loads(fh.read())
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             return None
 
     def save_data(self, payload: dict) -> None:
@@ -192,7 +192,7 @@ class IndexCache:
                 raw = json.loads(fh.read())
         except (OSError, ValueError):
             return None
-        if not isinstance(raw, dict) or raw.get("relpath") != relpath:
+        if not isinstance(raw, dict) or raw.get("relpath") != relpath or "records" not in raw:
             return None
         records = raw.get("records")
         error = raw.get("error")
@@ -663,29 +663,42 @@ class GenericTxtIndex:
                     to_parse.append(relpath)
                     continue
                 records, error = shard
-                if records is not None:
+                if records is not None and not self._cached_records_usable(records):
+                    logger.info(
+                        "%s index: re-parsing %s (cached records unusable)",
+                        self.cache_name,
+                        relpath,
+                    )
+                    to_parse.append(relpath)
+                elif records is not None:
                     new_by_file[relpath] = records
                 elif self.track_parse_errors:
                     new_parse_errors[relpath] = self._failure_message(error)
         else:
-            cached_data = self._cache.load_data() or {}
-            cached_files = cached_data.get("files", {})
-            if not isinstance(cached_files, dict):
-                cached_files = {}
+            cached_data = self._cache.load_data()
+            cached_files: dict[str, Any] = {}
+            cached_errors: dict[str, Any] = {}
+            if isinstance(cached_data, dict):
+                raw_files = cached_data.get("files")
+                if isinstance(raw_files, dict):
+                    cached_files = raw_files
+                raw_errors = cached_data.get("parse_errors")
+                if isinstance(raw_errors, dict):
+                    cached_errors = raw_errors
             for relpath in plan.staleness.unchanged:
-                if relpath in cached_files:
-                    new_by_file[relpath] = cached_files[relpath]
-            if self.track_parse_errors:
-                cached_errors = cached_data.get("parse_errors", {})
-                if not isinstance(cached_errors, dict):
-                    cached_errors = {}
-                new_parse_errors = {
-                    relpath: cached_errors[relpath]
-                    for relpath in plan.staleness.unchanged
-                    if relpath in cached_errors
-                }
-                for relpath in new_parse_errors:
-                    new_by_file.pop(relpath, None)
+                if self.track_parse_errors and isinstance(cached_errors.get(relpath), str):
+                    new_parse_errors[relpath] = cached_errors[relpath]
+                    continue
+                cached_records: Any = cached_files.get(relpath)
+                if self._cached_records_usable(cached_records):
+                    new_by_file[relpath] = cached_records
+                else:
+                    logger.info(
+                        "%s index: re-parsing %s (cached data unavailable)",
+                        self.cache_name,
+                        relpath,
+                    )
+                    to_parse.append(relpath)
 
         parsed = self._parse_results(to_parse)
         for relpath, (records, error) in parsed.items():
@@ -867,6 +880,20 @@ class GenericTxtIndex:
 
     def _record_key(self, record: dict) -> Any:
         return self._key_fn(record)
+
+    def _cached_records_usable(self, records: Any) -> bool:
+        """Validate cached records once during rebuild, never during queries."""
+        if not isinstance(records, list) or not set(map(type, records)) <= {dict}:
+            return False
+        for rec in records:
+            try:
+                key = self._record_key(rec)
+                if key is None:
+                    return False
+                hash(key)
+            except TypeError:
+                return False
+        return True
 
     def _build_key_fn(self) -> Callable[[dict], Any]:
         """Specialised key extractor — it runs once per record (hundreds of thousands for loc)."""

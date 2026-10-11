@@ -156,7 +156,9 @@ Look up an exact effect, trigger, or modifier key in the matching
 available keys. `kind` is `effect`, `trigger`, or `modifier`, or `doc` or
 `rule` for the Markdown files in `.claude/docs` and `.claude/rules` (aliases
 `docs`, `claude_docs`, `rules`, `claude_rules`); key matching is
-case-sensitive. Missing keys return up to five close-match `suggestions`,
+case-sensitive. `skill`/`skills` lists `.claude/skills/<name>/SKILL.md` and
+`references/*.md`, including parsed scalar frontmatter on exact results.
+Missing keys return up to five close-match `suggestions`,
 paginated by `limit` and `offset`.
 
 Exact results return every definition for the key in `entries`, preserving

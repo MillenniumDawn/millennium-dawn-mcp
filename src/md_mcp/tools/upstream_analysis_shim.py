@@ -8,6 +8,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 
 def _load_module(path: Path, name: str):
@@ -129,11 +130,98 @@ def _estimate_gdp(mod_root: Path, payload: dict) -> dict:
     }
 
 
+def _paginate_tree(value: Any, prefix: str, limit: int, offset: int, metadata: dict) -> Any:
+    if isinstance(value, list):
+        total = len(value)
+        nested = any(_contains_list(item) for item in value)
+        page = value if nested else value[offset : offset + limit]
+        metadata[prefix] = {
+            "total": total,
+            "returned": len(page),
+            "truncated": not nested and offset + limit < total,
+        }
+        return [
+            _paginate_tree(
+                item,
+                f"{prefix}[{index if nested else offset + index}]",
+                limit,
+                offset,
+                metadata,
+            )
+            for index, item in enumerate(page)
+        ]
+    if isinstance(value, dict):
+        return {
+            key: _paginate_tree(item, f"{prefix}.{key}" if prefix else key, limit, offset, metadata)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _contains_list(value: Any) -> bool:
+    if isinstance(value, list):
+        return True
+    if isinstance(value, dict):
+        return any(_contains_list(item) for item in value.values())
+    return False
+
+
+def _ai_path_report(mod_root: Path, payload: dict) -> dict:
+    tag = str(payload.get("tag", "")).upper()
+    if not re.fullmatch(r"[A-Z0-9]{2,4}", tag):
+        return {"ok": False, "error": "tag must be a 2-4 character country tag"}
+    try:
+        limit = max(0, int(payload.get("limit", 15)))
+        offset = max(0, int(payload.get("offset", 0)))
+    except (TypeError, ValueError, OverflowError) as exc:
+        return {"ok": False, "error": f"Invalid pagination values: {exc}"}
+    requested = payload.get("section")
+    if requested is None:
+        sections = list(
+            (
+                "rule",
+                "wiring",
+                "owners",
+                "matrix",
+                "graph",
+                "plans",
+                "rewards",
+                "mechanics",
+                "government",
+            )
+        )
+    elif isinstance(requested, str):
+        sections = [requested]
+    elif isinstance(requested, list) and all(isinstance(item, str) for item in requested):
+        sections = requested
+    else:
+        return {"ok": False, "error": "section must be a string or list of strings"}
+    script = mod_root / "tools" / "analysis" / "ai_path_report.py"
+    module = _load_module(script, "_md_mcp_upstream_ai_path_report")
+    allowed = set(module.SECTIONS) | {"all"}
+    if not sections or any(section not in allowed for section in sections):
+        return {"ok": False, "error": f"section must be one of: {', '.join(sorted(allowed))}"}
+    report = module.build_report(str(mod_root), tag, 0)
+    if "all" not in sections:
+        selected = set(sections)
+        if "wiring" in selected:
+            selected.add("rule")
+        for name in module.SECTIONS:
+            if name not in selected:
+                report.pop(name, None)
+    metadata: dict = {}
+    result = _paginate_tree(report, "", limit, offset, metadata)
+    result.update({"ok": True, "sections": sections, "pagination": metadata})
+    return result
+
+
 def run(operation: str, mod_root: Path, payload: dict) -> dict:
     if operation == "tick_audit":
         return _tick_audit(mod_root, payload)
     if operation == "estimate_gdp":
         return _estimate_gdp(mod_root, payload)
+    if operation == "ai_path_report":
+        return _ai_path_report(mod_root, payload)
     return {"ok": False, "error": f"Unknown operation: {operation}"}
 
 

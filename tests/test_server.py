@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 import pytest
 
@@ -124,6 +125,7 @@ EXPECTED_TOOLS = {
     "diff_summary",
     "check_encoding",
     "tick_audit",
+    "ai_path_report",
     "estimate_gdp",
     "calculate_days",
 }
@@ -136,6 +138,25 @@ def test_list_tools(server):
     tools = asyncio.new_event_loop().run_until_complete(go())
     names = {t.name for t in tools}
     assert names == EXPECTED_TOOLS
+
+
+def test_ai_path_report_offloads_blocking_work(server, monkeypatch):
+    import md_mcp.server as server_module
+
+    def slow_report(*args, **kwargs):
+        time.sleep(0.15)
+        return {"ok": True}
+
+    monkeypatch.setattr(server_module, "ai_path_report_tool", slow_report)
+
+    async def go():
+        task = asyncio.create_task(server.call_tool("ai_path_report", {"tag": "USA"}))
+        await asyncio.sleep(0.02)
+        still_running = not task.done()
+        await task
+        return still_running
+
+    assert asyncio.run(go()) is True
 
 
 @pytest.mark.parametrize(

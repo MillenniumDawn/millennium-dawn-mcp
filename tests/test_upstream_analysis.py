@@ -154,7 +154,7 @@ def test_calculate_days_rejects_invalid_dates():
 
 
 def test_shim_runs_in_a_process_group_with_timeout_and_json(monkeypatch, tmp_path):
-    observed = {}
+    observed: dict[str, Any] = {}
 
     def fake_run(command, **kwargs):
         observed["command"] = command
@@ -421,3 +421,81 @@ def test_shim_load_module_raises_for_directory(tmp_path):
 
     with pytest.raises(ImportError, match="Could not load"):
         shim._load_module(tmp_path, "nope")
+
+
+def test_ai_path_report_paginates_section_lists(tmp_path):
+    from md_mcp.tools.upstream_analysis_shim import _ai_path_report, run
+
+    script = tmp_path / "tools" / "analysis" / "ai_path_report.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        """
+SECTIONS = (
+    "rule", "wiring", "owners", "matrix", "graph", "plans", "rewards", "mechanics", "government"
+)
+def build_report(root, tag, limit):
+    return {
+        "tag": tag, "focus_count": 2,
+        "matrix": {"rows": [1, 2, 3]}, "plans": {"items": ["a", "b"]},
+        "mechanics": {"burdens": [
+            {"focus_cures": list(range(40))} for _ in range(20)
+        ]}
+    }
+""",
+        encoding="utf-8",
+    )
+    result = run(
+        "ai_path_report",
+        tmp_path,
+        {"tag": "USA", "section": "matrix", "limit": 1, "offset": 1},
+    )
+    assert result["ok"] is True
+    assert result["matrix"]["rows"] == [2]
+    assert result["pagination"]["matrix.rows"] == {"total": 3, "returned": 1, "truncated": True}
+    assert "plans" not in result
+    nested = _ai_path_report(
+        tmp_path, {"tag": "USA", "section": "mechanics", "limit": 10, "offset": 15}
+    )
+    assert len(nested["mechanics"]["burdens"]) == 20
+    assert nested["mechanics"]["burdens"][2]["focus_cures"] == list(range(15, 25))
+    assert _ai_path_report(tmp_path, {"tag": "bad!"})["ok"] is False
+    assert _ai_path_report(tmp_path, {"tag": "USA", "limit": "bad"})["ok"] is False
+    assert _ai_path_report(tmp_path, {"tag": "USA", "section": 3})["ok"] is False
+    assert _ai_path_report(tmp_path, {"tag": "USA", "section": "unknown"})["ok"] is False
+    assert _ai_path_report(tmp_path, {"tag": "USA"})["ok"] is True
+    assert _ai_path_report(tmp_path, {"tag": "USA", "section": ["matrix"]})["ok"] is True
+    assert (
+        upstream_analysis.ai_path_report_tool(tmp_path, "USA", limit=cast(Any, "bad"))["ok"]
+        is False
+    )
+
+
+def test_ai_path_report_tool_validates_offset_and_budget(monkeypatch, tmp_path):
+    observed: dict[str, Any] = {}
+
+    def fake_run(root, operation, payload, *, timeout):
+        observed.update(operation=operation, payload=payload, timeout=timeout)
+        return {"ok": True, "focus_count": 1}
+
+    monkeypatch.setattr(upstream_analysis, "_run_shim", fake_run)
+    result = upstream_analysis.ai_path_report_tool(tmp_path, "USA", limit=4, offset=2)
+    assert result["ok"] is True
+    assert observed["operation"] == "ai_path_report"
+    assert observed["payload"]["offset"] == 2
+    invalid = upstream_analysis.ai_path_report_tool(tmp_path, "USA", offset=cast(Any, "bad"))
+    assert invalid["ok"] is False
+
+
+@pytest.mark.integration
+def test_ai_path_report_real_checkout(real_mod_root):
+    result = upstream_analysis.ai_path_report_tool(real_mod_root, "USA", "matrix", limit=2)
+    assert result["ok"] is True
+    assert result["tag"] == "USA"
+    assert "matrix" in result
+    mechanics = upstream_analysis.ai_path_report_tool(
+        real_mod_root, "USA", "mechanics", limit=15, offset=15
+    )
+    assert mechanics["ok"] is True
+    burdens = mechanics["mechanics"]["burdens"]
+    assert len(burdens) == mechanics["pagination"]["mechanics.burdens"]["total"]
+    assert burdens[2]["focus_cures"]

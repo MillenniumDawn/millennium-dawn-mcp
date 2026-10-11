@@ -831,3 +831,14 @@ print(result)
 
 This bypasses MCP framing — exceptions surface directly, which is the easiest
 way to diagnose a tool that's misbehaving inside the protocol layer.
+
+### `summarize_game_log(path, top?, limit?, offset?, countries?, since?, until?) -> dict`
+
+Run upstream `tools/summarize_game_log.py` read-only for one explicit absolute
+`.log` or `.txt` path. Returns JSON parity for session, categories, active
+countries, conflicts, politics, annexations, economy, and inflation. `top` caps
+ranked countries; optional `countries` requests country deep dives and `since`
+and `until` apply the upstream date filters. `limit`/`offset` page conflict,
+politics, annexation, economy, inflation, and country-detail maps.
+Relative paths, other extensions, missing files, and logs without parsed MD
+entries return `{ok: false, error}`.

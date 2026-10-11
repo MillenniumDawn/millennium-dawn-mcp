@@ -129,11 +129,67 @@ def _estimate_gdp(mod_root: Path, payload: dict) -> dict:
     }
 
 
+def _game_log_summary(mod_root: Path, payload: dict) -> dict:
+    raw_path = payload.get("path")
+    if not isinstance(raw_path, str) or not Path(raw_path).is_absolute():
+        return {"ok": False, "error": "path must be an absolute path"}
+    log_path = Path(raw_path)
+    if log_path.suffix.lower() not in {".log", ".txt"}:
+        return {"ok": False, "error": "path must end in .log or .txt"}
+    if not log_path.is_file():
+        return {"ok": False, "error": f"Log file not found: {log_path}"}
+    try:
+        top = max(0, int(payload.get("top", 15)))
+        limit = max(0, int(payload.get("limit", 100)))
+        offset = max(0, int(payload.get("offset", 0)))
+        countries = payload.get("countries") or []
+        if not isinstance(countries, list) or any(not isinstance(item, str) for item in countries):
+            return {"ok": False, "error": "countries must be a list of country names"}
+        since = payload.get("since")
+        until = payload.get("until")
+    except (TypeError, ValueError, OverflowError) as exc:
+        return {"ok": False, "error": f"Invalid numeric parameter: {exc}"}
+    script = mod_root / "tools" / "summarize_game_log.py"
+    module = _load_module(script, "_md_mcp_upstream_game_log")
+    try:
+        data = module.parse(
+            str(log_path),
+            since=module.parse_date_arg(since),
+            until=module.parse_date_arg(until),
+        )
+    except (OSError, ValueError, IndexError) as exc:
+        return {"ok": False, "path": str(log_path), "error": str(exc)}
+    if data["stats"]["parsed"] == 0:
+        return {"ok": False, "path": str(log_path), "error": "No scripted MD log entries found"}
+    selected_countries = module.pick_countries(data, countries, 0)
+    summary = json.loads(module.to_json(data, countries=selected_countries, top=top))
+    paged = []
+    for key in ("conflicts", "politics", "annexations"):
+        records = summary.get(key, [])
+        page = records[offset : offset + limit]
+        summary[key] = page
+        paged.append((key, len(records), len(page), offset + limit < len(records)))
+    for key in ("economy", "inflation", "focus_countries"):
+        mapping = summary.get(key, {})
+        ordered = sorted(mapping)
+        page_keys = ordered[offset : offset + limit]
+        summary[key] = {country: mapping[country] for country in page_keys}
+        paged.append((key, len(ordered), len(page_keys), offset + limit < len(ordered)))
+    summary.update({"ok": True, "path": str(log_path), "offset": offset, "limit": limit})
+    for key, total, returned, truncated in paged:
+        summary[f"{key}_total"] = total
+        summary[f"{key}_returned"] = returned
+        summary[f"{key}_truncated"] = truncated
+    return summary
+
+
 def run(operation: str, mod_root: Path, payload: dict) -> dict:
     if operation == "tick_audit":
         return _tick_audit(mod_root, payload)
     if operation == "estimate_gdp":
         return _estimate_gdp(mod_root, payload)
+    if operation == "game_log_summary":
+        return _game_log_summary(mod_root, payload)
     return {"ok": False, "error": f"Unknown operation: {operation}"}
 
 

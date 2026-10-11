@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -421,3 +422,272 @@ def test_shim_load_module_raises_for_directory(tmp_path):
 
     with pytest.raises(ImportError, match="Could not load"):
         shim._load_module(tmp_path, "nope")
+
+
+def test_game_log_summary_requires_absolute_path_and_paginates_lists(tmp_path):
+    script = tmp_path / "tools" / "summarize_game_log.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        """
+import json
+from collections import Counter
+def parse(path, since=None, until=None):
+    return {"stats": {"parsed": 2}, "activity": Counter({"Brazil": 3}), "decisions": {}}
+def pick_countries(data, requested, top_countries):
+    chosen = []
+    for request in requested:
+        match = next(
+            (name for name in data["activity"] if request.lower() in name.lower()), request
+        )
+        if match not in chosen:
+            chosen.append(match)
+    if not chosen:
+        chosen = [data["activity"].most_common(1)[0][0]]
+    return chosen
+def to_json(data, countries=None, top=15):
+    return json.dumps({
+        "conflicts": [{"id": "a"}, {"id": "b"}],
+        "politics": [],
+        "annexations": [],
+        "most_active": [["USA", 2]][:top],
+        "focus_countries": {country: {"detail": True} for country in (countries or [])},
+    })
+def parse_date_arg(value):
+    return value
+""",
+        encoding="utf-8",
+    )
+    log = tmp_path / "game.log"
+    log.write_text("readonly", encoding="utf-8")
+    bad = upstream_analysis.game_log_summary_tool(tmp_path, "relative.log")
+    assert bad["ok"] is False
+    result = upstream_analysis.game_log_summary_tool(
+        tmp_path,
+        str(log),
+        limit=1,
+        offset=0,
+        countries=["USA"],
+        since="2001.1.1",
+        until="2002.1.1",
+    )
+    assert result["ok"] is True
+    assert result["conflicts"] == [{"id": "a"}]
+    assert result["conflicts_total"] == 2
+    assert result["focus_countries"] == {"USA": {"detail": True}}
+    assert result["focus_countries_total"] == 1
+    implicit = upstream_analysis.game_log_summary_tool(tmp_path, str(log))
+    partial = upstream_analysis.game_log_summary_tool(tmp_path, str(log), countries=["braz"])
+    lower = upstream_analysis.game_log_summary_tool(tmp_path, str(log), countries=["brazil"])
+    for resolved in (implicit, partial, lower):
+        assert resolved["focus_countries"] == {"Brazil": {"detail": True}}
+    next_page = upstream_analysis.game_log_summary_tool(tmp_path, str(log), limit=1, offset=1)
+    assert next_page["conflicts"] == [{"id": "b"}]
+    assert log.read_text(encoding="utf-8") == "readonly"
+
+
+def test_game_log_summary_rejects_invalid_numeric_options_before_running_shim(tmp_path):
+    result = upstream_analysis.game_log_summary_tool(
+        tmp_path, "/tmp/game.log", top=cast(Any, "many")
+    )
+
+    assert result["ok"] is False
+    assert "top must be an integer" in result["error"]
+
+
+def _write_summary_shim_script(root: Path, *, parsed: int = 2) -> None:
+    script = root / "tools" / "summarize_game_log.py"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(
+        f"""import json
+def parse(path, since=None, until=None):
+    return {{"stats": {{"parsed": {parsed}}}, "dates": (since, until)}}
+def parse_date_arg(value):
+    return value
+def pick_countries(data, requested, top_countries):
+    return requested or ["BRA"]
+def to_json(data, countries=None, top=15):
+    return json.dumps({{
+        "conflicts": [{{"id": "a"}}, {{"id": "b"}}],
+        "politics": [{{"id": "p1"}}, {{"id": "p2"}}, {{"id": "p3"}}],
+        "annexations": [],
+        "economy": {{"BRA": {{"gdp": 1}}, "CAN": {{"gdp": 2}}}},
+        "inflation": {{"BRA": {{"rate": 1}}, "CAN": {{"rate": 2}}}},
+        "focus_countries": {{
+            country: {{"focus": True}} for country in (countries or []) + ["MEX"]
+        }},
+        "most_active": countries[:top],
+    }})
+""",
+        encoding="utf-8",
+    )
+
+
+def test_shim_game_log_summary_validates_inputs_and_pages_summary_maps(tmp_path):
+    shim = _load_shim()
+    _write_summary_shim_script(tmp_path)
+    log = tmp_path / "game.log"
+    log.write_text("readonly", encoding="utf-8")
+
+    result = shim.run(
+        "game_log_summary",
+        tmp_path,
+        {
+            "path": str(log),
+            "top": 2,
+            "limit": 1,
+            "offset": 1,
+            "countries": ["CAN"],
+            "since": "2001.1.1",
+            "until": "2002.1.1",
+        },
+    )
+
+    assert result["ok"] is True
+    assert result["path"] == str(log)
+    assert result["offset"] == 1
+    assert result["limit"] == 1
+    assert result["conflicts"] == [{"id": "b"}]
+    assert result["conflicts_total"] == 2
+    assert result["conflicts_returned"] == 1
+    assert result["conflicts_truncated"] is False
+    assert result["politics"] == [{"id": "p2"}]
+    assert result["politics_total"] == 3
+    assert result["politics_truncated"] is True
+    assert result["economy"] == {"CAN": {"gdp": 2}}
+    assert result["inflation"] == {"CAN": {"rate": 2}}
+    assert result["focus_countries"] == {"MEX": {"focus": True}}
+    assert result["most_active"] == ["CAN"]
+
+
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [
+        ({"path": "relative.log"}, "absolute path"),
+        ({"path": "/tmp/session.csv"}, "end in .log or .txt"),
+        ({"path": "/tmp/missing.log"}, "Log file not found"),
+    ],
+)
+def test_shim_game_log_summary_rejects_invalid_paths(tmp_path, payload, error):
+    result = _load_shim().run("game_log_summary", tmp_path, payload)
+    assert result["ok"] is False
+    assert error in result["error"]
+
+
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [
+        ({"top": "many"}, "Invalid numeric parameter"),
+        ({"countries": ["BRA", 2]}, "countries must be a list"),
+    ],
+)
+def test_shim_game_log_summary_rejects_invalid_summary_options(tmp_path, payload, error):
+    _write_summary_shim_script(tmp_path)
+    log = tmp_path / "game.txt"
+    log.write_text("readonly", encoding="utf-8")
+    result = _load_shim().run("game_log_summary", tmp_path, {"path": str(log), **payload})
+    assert result["ok"] is False
+    assert error in result["error"]
+
+
+def test_shim_game_log_summary_rejects_logs_without_parsed_entries(tmp_path):
+    _write_summary_shim_script(tmp_path, parsed=0)
+    log = tmp_path / "empty.log"
+    log.write_text("not a scripted entry", encoding="utf-8")
+
+    result = _load_shim().run("game_log_summary", tmp_path, {"path": str(log)})
+
+    assert result == {
+        "ok": False,
+        "path": str(log),
+        "error": "No scripted MD log entries found",
+    }
+
+
+def test_shim_game_log_summary_reports_parser_errors(tmp_path):
+    script = tmp_path / "tools" / "summarize_game_log.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        "def parse(path, since=None, until=None):\n"
+        "    raise ValueError('invalid date range')\n"
+        "def parse_date_arg(value):\n"
+        "    return value\n",
+        encoding="utf-8",
+    )
+    log = tmp_path / "bad.log"
+    log.write_text("bad dates", encoding="utf-8")
+
+    result = _load_shim().run("game_log_summary", tmp_path, {"path": str(log)})
+
+    assert result == {
+        "ok": False,
+        "path": str(log),
+        "error": "invalid date range",
+    }
+
+
+def test_game_log_summary_bounds_large_economy_and_inflation_maps(tmp_path):
+    script = tmp_path / "tools" / "summarize_game_log.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        """
+import json
+def parse(path, since=None, until=None):
+    return {"stats": {"parsed": 1}}
+def parse_date_arg(value):
+    return value
+def pick_countries(data, requested, top_countries):
+    return requested
+def to_json(data, countries=None, top=15):
+    return json.dumps({"economy": {"C%03d" % i: {} for i in range(700)},
+                       "inflation": {"C%03d" % i: {} for i in range(700)},
+                       "conflicts": [], "politics": [], "annexations": [],
+                       "focus_countries": {}})
+""",
+        encoding="utf-8",
+    )
+    log = tmp_path / "large.txt"
+    log.write_text("readonly", encoding="utf-8")
+    result = upstream_analysis.game_log_summary_tool(tmp_path, str(log), top=1, limit=1)
+    assert result["ok"] is True
+    assert result["economy_total"] == 700
+    assert result["inflation_total"] == 700
+    assert len(result["economy"]) == len(result["inflation"]) == 1
+
+
+@pytest.mark.integration
+def test_game_log_summary_matches_cli_country_resolution_and_filters(real_mod_root, tmp_path):
+    script = real_mod_root / "tools" / "summarize_game_log.py"
+    log = tmp_path / "fixture.log"
+    log.write_text(
+        """
+[00:00:00][2002.01.01.01][effectbase.cpp:1]: 1:00, 1 Jan, 2002: Brazil: Decision first
+[00:00:01][2003.01.01.01][effectbase.cpp:1]: 1:00, 1 Jan, 2003: Brazil: Decision second
+[00:00:02][2004.01.01.01][effectbase.cpp:1]: 1:00, 1 Jan, 2004: Canada: Focus CAN_example
+""",
+        encoding="utf-8",
+    )
+    for country in (None, "brazil", "Bra"):
+        args = [sys.executable, str(script), str(log), "--json"]
+        if country is not None:
+            args.extend(["--country", country])
+        args.extend(["--since", "2003.1.1", "--until", "2004.12.31"])
+        cli = json.loads(subprocess.run(args, check=True, capture_output=True, text=True).stdout)
+        wrapped = upstream_analysis.game_log_summary_tool(
+            real_mod_root,
+            str(log),
+            countries=[country] if country else None,
+            since="2003.1.1",
+            until="2004.12.31",
+        )
+        for key in (
+            "session",
+            "categories",
+            "most_active",
+            "conflicts",
+            "politics",
+            "annexations",
+            "economy",
+            "inflation",
+            "focus_countries",
+        ):
+            assert wrapped[key] == cli[key]

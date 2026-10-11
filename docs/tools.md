@@ -159,7 +159,7 @@ where `value` is `null | str | num | {symbol: str} | [Node, ...]` (block) — se
 
 ## Script documentation
 
-### `lookup_docs(kind, key?, limit?, offset?) -> dict`
+### `lookup_docs(kind, key?, limit?, offset?, content_offset?, content_limit?) -> dict`
 
 Look up an exact effect, trigger, or modifier key in the matching
 `resources/documentation/*_documentation.md` file. Omit `key` to page the
@@ -177,7 +177,41 @@ Exact results return every definition for the key in `entries`, preserving
 repeated upstream definitions. Each definition includes the Markdown `content`,
 `file`, `line`, and `end_line`. List results include key and source location
 without content. Both modes return `total`, `returned`, and `truncated`, and
-are protected by the normal 100 KB output budget.
+are protected by the normal 100 KB output budget. When the size guard drops
+entries, `returned` and `truncated` reflect what was actually delivered.
+
+### Within-entry content windows
+
+A single documentation entry can exceed the whole response budget on its own
+(a 110 KB wall of `x` characters is a real failure mode). Dropping the entry
+would make its content unretrievable, so exact results accept two optional
+parameters, `content_offset` and `content_limit`, that return a bounded
+character window of `content` instead:
+
+- Offsets are **Unicode code points** (Python `str` indices) into the entry's
+  full `content`, never bytes or lines. This handles huge lines, multi-byte
+  characters, and JSON escaping expansion.
+- Each windowed definition carries `content_offset` (start actually
+  delivered), `content_total` (full length in characters),
+  `content_complete`, and `content_next_offset` (the offset to pass in the
+  next call, or `null` when done). Sequential calls starting at
+  `content_offset=0` and stepping to `content_next_offset` reconstruct the
+  content with no gaps.
+- The window applies per definition; for keys with repeated definitions,
+  each delivered entry gets its own window and continuation metadata.
+- The final chunk per entry is clipped below the requested characters when
+  the **serialized JSON** would exceed the budget. Control characters
+  (6-byte `\uXXXX` escapes), tabs, and newlines expand past their raw text
+  size, so `len(content)` may be smaller than `content_limit`. Continue with
+  `content_offset=content_next_offset`; nothing is lost.
+- `content_offset` and `content_limit` clamp negatives to `0` like the other
+  pagination bounds; a `content_limit=0` call returns entry provenance with
+  an empty window.
+
+Omitting both parameters keeps the original whole-entry behaviour: small
+documents are returned unchanged, and entries too large for one response are
+dropped by the size guard (`entries_dropped`). Call again with
+`content_offset`/`content_limit` to retrieve their content in windows.
 
 Returns `{ok, kind, key?, total, returned, truncated, entries}` on a hit or
 list, and `{ok: false, kind, key?, total, returned, truncated, error, suggestions}`

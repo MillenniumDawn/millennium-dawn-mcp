@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import difflib
 import html
+import json
 import re
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from ..config import Settings
-from ..util.response import coerce_int, enforce_budget, paginate
+from ..util.response import BUDGET_BYTES, coerce_int, enforce_budget, paginate
 
 _DOC_KINDS = frozenset(("effect", "trigger", "modifier"))
 _SYSTEM_DOC_KINDS = {
@@ -36,6 +37,8 @@ def lookup_docs_tool(
     key: Optional[str] = None,
     limit: int | float | str | None = 100,
     offset: int | float | str | None = 0,
+    content_offset: int | float | str | None = None,
+    content_limit: int | float | str | None = None,
 ) -> dict:
     normalized_kind = kind.lower() if isinstance(kind, str) else kind
     result_context = {"kind": kind}
@@ -54,9 +57,17 @@ def lookup_docs_tool(
             }
         )
 
+    windowed = content_offset is not None or content_limit is not None
     try:
         limit = coerce_int(limit, name="limit", default=100)
         offset = coerce_int(offset, name="offset", default=0)
+        content_offset = coerce_int(content_offset, name="content_offset", default=0)
+        if content_offset < 0:
+            content_offset = 0
+        if content_limit is not None:
+            content_limit = coerce_int(content_limit, name="content_limit", default=0)
+            if content_limit < 0:
+                content_limit = 0
     except ValueError as exc:
         return enforce_budget({"ok": False, **result_context, "error": str(exc)})
 
@@ -68,6 +79,9 @@ def lookup_docs_tool(
             key,
             limit,
             offset,
+            content_offset,
+            content_limit,
+            windowed,
         )
 
     relative_path = _DOC_RELATIVE_PATHS[normalized_kind]
@@ -111,19 +125,18 @@ def lookup_docs_tool(
             )
 
         first = definitions[0]
-        return _paged(
-            {
-                "ok": True,
-                "kind": normalized_kind,
-                "key": key,
-                "file": first["file"],
-                "line": first["line"],
-            },
-            "entries",
-            definitions,
-            limit,
-            offset,
-        )
+        leading = {
+            "ok": True,
+            "kind": normalized_kind,
+            "key": key,
+            "file": first["file"],
+            "line": first["line"],
+        }
+        if windowed:
+            return _windowed_page(
+                leading, "entries", definitions, limit, offset, content_offset, content_limit
+            )
+        return _paged(leading, "entries", definitions, limit, offset)
 
     summaries = [_entry_summary(definitions[0]) for definitions in entries.values()]
     return _paged({"ok": True, "kind": normalized_kind}, "entries", summaries, limit, offset)
@@ -136,6 +149,9 @@ def _lookup_system_docs(
     key: Optional[str],
     limit: int,
     offset: int,
+    content_offset: int = 0,
+    content_limit: Optional[int] = None,
+    windowed: bool = False,
 ) -> dict:
     directory = mod_root / relative_dir
     context = {"kind": kind}
@@ -192,13 +208,12 @@ def _lookup_system_docs(
                 offset,
             )
         first = matches[0]
-        return _paged(
-            {"ok": True, **context, "file": first["file"], "line": first["line"]},
-            "entries",
-            matches,
-            limit,
-            offset,
-        )
+        leading = {"ok": True, **context, "file": first["file"], "line": first["line"]}
+        if windowed:
+            return _windowed_page(
+                leading, "entries", matches, limit, offset, content_offset, content_limit
+            )
+        return _paged(leading, "entries", matches, limit, offset)
 
     summaries = [_entry_summary(document) | {"title": document["title"]} for document in documents]
     return _paged({"ok": True, **context}, "entries", summaries, limit, offset)
@@ -206,7 +221,7 @@ def _lookup_system_docs(
 
 def _paged(leading: dict, list_key: str, items: Sequence[Any], limit: int, offset: int) -> dict:
     page, truncated, total = paginate(items, offset=offset, limit=limit)
-    return enforce_budget(
+    result = enforce_budget(
         {
             **leading,
             "total": total,
@@ -216,6 +231,81 @@ def _paged(leading: dict, list_key: str, items: Sequence[Any], limit: int, offse
         },
         heavy_keys=(list_key,),
     )
+    # Budget trimming changes delivery counts.
+    if list_key not in result:
+        result["returned"] = 0
+        result["truncated"] = True
+    return result
+
+
+def _windowed_page(
+    leading: dict,
+    list_key: str,
+    items: Sequence[dict],
+    limit: int,
+    offset: int,
+    content_offset: int,
+    content_limit: Optional[int],
+) -> dict:
+    """Fit per-entry character windows to the serialized JSON budget."""
+    page, _, total = paginate(items, offset=offset, limit=limit)
+    page_offset = max(offset, 0)
+    entries: list[dict] = []
+
+    def result_with(delivered: list[dict]) -> dict:
+        return {
+            **leading,
+            "total": total,
+            "returned": len(delivered),
+            "truncated": (page_offset + len(delivered)) < total,
+            "content_offset": content_offset,
+            "content_limit": content_limit,
+            list_key: delivered,
+        }
+
+    def fits(delivered: list[dict]) -> bool:
+        return _json_size(result_with(delivered)) <= BUDGET_BYTES
+
+    for item in page:
+        window = _windowed_entry(item, content_offset, content_limit)
+        if fits([*entries, window]):
+            entries.append(window)
+            continue
+        # Full window overflows: shrink this entry's content until it fits.
+        empty = _windowed_entry(item, content_offset, 0)
+        if not fits([*entries, empty]):
+            break  # even an empty chunk does not fit; stop delivering entries
+        low, high = 0, len(window["content"])
+        while low < high:
+            middle = (low + high + 1) // 2
+            if fits([*entries, _windowed_entry(item, content_offset, middle)]):
+                low = middle
+            else:
+                high = middle - 1
+        entries.append(_windowed_entry(item, content_offset, low))
+
+    return enforce_budget(result_with(entries), heavy_keys=(list_key,))
+
+
+def _windowed_entry(entry: dict, offset: int, limit: Optional[int]) -> dict:
+    """Return `entry` with `content` clipped to the character window [offset, offset+limit)."""
+    content = entry.get("content") or ""
+    window = content[offset : offset + limit] if limit is not None else content[offset:]
+    delivered = len(window)
+    complete = offset + delivered >= len(content)
+    return {
+        **entry,
+        "content": window if window else "",
+        "content_offset": offset,
+        "content_total": len(content),
+        "content_complete": complete,
+        "content_next_offset": None if complete else offset + delivered,
+    }
+
+
+def _json_size(value: Any) -> int:
+    """UTF-8 byte length of `value`'s JSON encoding (mirrors util.response._jsize)."""
+    return len(json.dumps(value, ensure_ascii=False, default=str).encode("utf-8"))
 
 
 def _read_system_documents(directory: Path, relative_dir: Path) -> list[dict]:

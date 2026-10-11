@@ -129,11 +129,72 @@ def _estimate_gdp(mod_root: Path, payload: dict) -> dict:
     }
 
 
+def _event_load(mod_root: Path, payload: dict) -> dict:
+    script = mod_root / "tools" / "analysis" / "event_load.py"
+    module = _load_module(script, "_md_mcp_upstream_event_load")
+    tag = str(payload.get("tag", "USA")).upper()
+    if not re.fullmatch(r"[A-Z0-9]{2,4}", tag):
+        return {"ok": False, "error": "tag must be a 2-4 character country tag"}
+    try:
+        window = max(1, int(payload.get("window", 45)))
+        threshold = max(0, int(payload.get("threshold", 3)))
+        limit = max(0, int(payload.get("limit", 20)))
+        offset = max(0, int(payload.get("offset", 0)))
+    except (TypeError, ValueError, OverflowError) as exc:
+        return {"ok": False, "error": f"Invalid numeric parameter: {exc}"}
+    rows = {
+        year: deliveries
+        for year, deliveries in module.collect(tag, str(mod_root)).items()
+        if deliveries
+    }
+    years = []
+    flagged = []
+    for year in sorted(rows):
+        deliveries = sorted(rows[year], key=lambda item: item[1])
+        days = [day for _, day in deliveries]
+        peak = module.busiest(days, window)
+        events = deliveries[offset : offset + limit]
+        entry = {
+            "year": year,
+            "total": len(deliveries),
+            "busiest_window": peak,
+            "flagged": peak >= threshold,
+            "events_total": len(deliveries),
+            "events_returned": len(events),
+            "events_truncated": offset + limit < len(deliveries),
+            "events": [{"id": event, "day_offset": day} for event, day in events],
+        }
+        years.append(entry)
+        if peak >= threshold:
+            flagged.append(
+                {
+                    "year": year,
+                    "busiest_window": peak,
+                    "threshold": threshold,
+                    "events": entry["events"],
+                    "events_truncated": entry["events_truncated"],
+                }
+            )
+    return {
+        "ok": True,
+        "tag": tag,
+        "window": window,
+        "threshold": threshold,
+        "total": len(years),
+        "returned": len(years),
+        "truncated": any(year["events_truncated"] for year in years),
+        "years": years,
+        "flagged_years": flagged,
+    }
+
+
 def run(operation: str, mod_root: Path, payload: dict) -> dict:
     if operation == "tick_audit":
         return _tick_audit(mod_root, payload)
     if operation == "estimate_gdp":
         return _estimate_gdp(mod_root, payload)
+    if operation == "event_load":
+        return _event_load(mod_root, payload)
     return {"ok": False, "error": f"Unknown operation: {operation}"}
 
 

@@ -77,6 +77,7 @@ from .tools.standardize_tools import standardize_tool
 from .tools.upstream_analysis import (
     calculate_days_tool,
     estimate_gdp_tool,
+    event_load_tool,
     tick_audit_tool,
 )
 from .tools.validation_tools import validate_list_tool, validate_tool
@@ -456,6 +457,15 @@ def build_server(settings: Settings):
     def _estimate_gdp(tag: str) -> dict:
         """Estimate one country's starting GDP from upstream history. Requires a country tag."""
         return estimate_gdp_tool(settings.mod_root, tag)
+
+    @mcp.tool(name="event_load")
+    async def _event_load(
+        tag: str = "USA", window: int = 45, threshold: int = 3, limit: int = 20, offset: int = 0
+    ) -> dict:
+        """Summarize scheduled events by year with busiest windows and flagged event details."""
+        return await blocking_tools.run(
+            event_load_tool, settings.mod_root, tag, window, threshold, limit, offset
+        )
 
     @mcp.tool(name="calculate_days")
     def _calculate_days(year: int, month: int, day: int) -> dict:

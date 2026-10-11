@@ -195,9 +195,81 @@ def test_isolated_returns_issues_and_swallows_stdout(fake_mod_root):
 
 
 def test_isolated_forwards_staged_only(fake_mod_root):
+    import subprocess
+
     _plant(fake_mod_root, "plain", _PLAIN)
+    subprocess.run(["git", "init", str(fake_mod_root)], check=True, capture_output=True)
     result = ValidatorRunner(fake_mod_root).run("plain", staged_only=True)
     assert result["issues"][1]["message"] == "staged=True"
+
+
+def test_staged_file_environment_uses_utf8_nul_paths(tmp_path):
+    import subprocess
+
+    from md_mcp.validators.runner import _staged_files_env
+
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    path = tmp_path / "events" / "café.txt"
+    path.parent.mkdir()
+    path.write_text("x", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "--", "events/café.txt"], check=True)
+    assert _staged_files_env(tmp_path) == "events/café.txt"
+
+
+def test_staged_file_environment_includes_rename_source_and_destination(tmp_path):
+    import subprocess
+
+    from md_mcp.validators.runner import _staged_files_env
+
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    old = tmp_path / "events" / "café.txt"
+    old.parent.mkdir()
+    old.write_text("x", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "fixture",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    new = old.with_name("renamed.txt")
+    old.rename(new)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    assert set(_staged_files_env(tmp_path).splitlines()) == {
+        "events/café.txt",
+        "events/renamed.txt",
+    }
+
+
+def test_staged_file_environment_reports_git_failure(tmp_path):
+    import subprocess
+
+    from md_mcp.validators.runner import _staged_files_env
+
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / ".git" / "index").write_bytes(b"broken")
+    with pytest.raises(RuntimeError, match="Could not read staged paths"):
+        _staged_files_env(tmp_path)
+
+
+@pytest.mark.parametrize("mode", ["isolated", "in_process"])
+def test_staged_validator_reports_git_failure(fake_mod_root, mode):
+    _plant(fake_mod_root, "plain", _PLAIN)
+    (fake_mod_root / ".git").mkdir()
+    (fake_mod_root / ".git" / "index").write_bytes(b"broken")
+    result = ValidatorRunner(fake_mod_root, mode=mode).run("plain", staged_only=True)
+    assert result["ok"] is False
+    assert "Could not read staged paths" in result["error"]
 
 
 def test_isolated_survives_a_forking_validator(fake_mod_root):

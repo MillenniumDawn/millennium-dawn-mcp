@@ -43,6 +43,56 @@ from .attribution import IssueAttributor
 
 logger = logging.getLogger(__name__)
 
+
+def _staged_files_env(mod_root: Path) -> str:
+    """Return upstream's newline-delimited staged file cache from git's NUL output."""
+    proc = subprocess.run(
+        ["git", "-C", str(mod_root), "diff", "--cached", "--name-status", "-z"],
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode:
+        detail = proc.stderr.decode("utf-8", "replace").strip()
+        raise RuntimeError(
+            f"Could not read staged paths from git (exit {proc.returncode}): {detail}"
+        )
+    records = [part for part in proc.stdout.split(b"\0") if part]
+    paths: list[str] = []
+    index = 0
+    while index < len(records):
+        status = records[index].decode("ascii", "replace")
+        index += 1
+        path_count = 2 if status.startswith(("R", "C")) else 1
+        paths.extend(
+            records[index + offset].decode("utf-8", "surrogateescape")
+            for offset in range(min(path_count, len(records) - index))
+        )
+        index += path_count
+    invalid = [path for path in paths if "\n" in path or "\r" in path]
+    if invalid:
+        raise ValueError(
+            "Staged paths containing newline characters cannot be passed to upstream validators"
+        )
+    return "\n".join(paths)
+
+
+@contextlib.contextmanager
+def _temporary_staged_env(value: Optional[str]):
+    """Temporarily expose the staged path list to in-process upstream code."""
+    previous = os.environ.get("MD_STAGED_FILES")
+    if value is None:
+        os.environ.pop("MD_STAGED_FILES", None)
+    else:
+        os.environ["MD_STAGED_FILES"] = value
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("MD_STAGED_FILES", None)
+        else:
+            os.environ["MD_STAGED_FILES"] = previous
+
+
 _TITLE_RE = re.compile(
     r"""^TITLE(?:\s*:\s*str)?\s*=\s*(?P<literal>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*(?:#.*)?$"""
 )
@@ -181,14 +231,26 @@ class ValidatorRunner:
     ) -> dict:
         stderr_on_failure: list[str] = []
         try:
-            payload = _collect(
-                str(self.mod_root),
-                info.module_name,
-                staged_only,
-                files=files,
-                args=args,
-                stderr_on_failure=stderr_on_failure,
-            )
+            if staged_only:
+                staged = _staged_files_env(self.mod_root)
+                with _temporary_staged_env(staged):
+                    payload = _collect(
+                        str(self.mod_root),
+                        info.module_name,
+                        staged_only,
+                        files=files,
+                        args=args,
+                        stderr_on_failure=stderr_on_failure,
+                    )
+            else:
+                payload = _collect(
+                    str(self.mod_root),
+                    info.module_name,
+                    staged_only,
+                    files=files,
+                    args=args,
+                    stderr_on_failure=stderr_on_failure,
+                )
         except Exception as e:
             payload = {"ok": False, "error": f"{type(e).__name__}: {e}"}
             if stderr_on_failure:
@@ -259,7 +321,13 @@ class ValidatorRunner:
                 scope.write_text(json.dumps(files), encoding="utf-8")
                 cmd.extend(["--files", str(scope)])
             try:
-                proc = run_in_group([*cmd, "--out", str(out)], timeout=600)
+                env = os.environ.copy()
+                if staged_only:
+                    try:
+                        env["MD_STAGED_FILES"] = _staged_files_env(self.mod_root)
+                    except (ValueError, RuntimeError) as exc:
+                        return {"ok": False, "validator": info.name, "error": str(exc)}
+                proc = run_in_group([*cmd, "--out", str(out)], timeout=600, env=env)
             except subprocess.TimeoutExpired:
                 return {
                     "ok": False,

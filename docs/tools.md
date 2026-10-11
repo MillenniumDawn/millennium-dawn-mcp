@@ -203,6 +203,9 @@ issues compared with a baseline snapshot.
   etc.). Omit to run all *fast* validators (slow `unused_scripted` and
   `unused_textures` are skipped by default — call them by name when you want them).
 - **`staged_only=True`** — restrict to git-staged files. Much faster mid-edit.
+  The MCP passes Git's NUL-parsed staged paths to upstream validators through
+  `MD_STAGED_FILES`; paths containing newline characters are rejected because
+  upstream's environment format is newline-delimited.
 - **`files=[...]`** — scope validator inputs to these paths when the validator
   supports input scoping, then post-filter issues to the same paths. Each path
   is looked up in `submod_root`, then `mod_root`. If any is in neither, nothing

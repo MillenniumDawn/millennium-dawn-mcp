@@ -282,8 +282,8 @@ Returns `{ok, total, returned, truncated, validators}`.
 
 ### `lint(mode?, files?, checks?, validators?, severity_min?, limit?, counts_only?) -> dict`
 
-Run the **full linting suite**. Wraps three `Millennium-Dawn/tools/linting/`
-scripts and the mod-side `style` validator behind one tool, the one-stop-shop
+Run the **full linting suite**. Wraps the `Millennium-Dawn/tools/linting/`
+checks and the mod-side `style` validator behind one tool, the one-stop-shop
 for "check this code's quality."
 
 - **`mode`** — `"changed"` (default) | `"staged"` | `"all"`.
@@ -306,8 +306,10 @@ for "check this code's quality."
   - `common_mistakes` (`check_common_mistakes.py` — threat scale, scope, modifiers)
   - `mod_encoding` (`validate_mod_encoding.py` — `.mod` UTF-8 validity)
   - `loc_encoding` (`validate_localization_encoding.py` — English loc YAML BOM)
+  - `changelog` (`check_changelog.py` — ordering in the top version of `Changelog.txt`)
 
-  Omit to run all three.
+  Omit to run all checks. The changelog check runs when `Changelog.txt` is in
+  scope, or for `mode="all"`.
 
   Brace matching, basic style, and coding standards are no longer separate
   checks. They were absorbed into `tools/validation/validate_style.py` on the
@@ -449,11 +451,13 @@ read-only rule — the caller writes the returned `txt` back via Edit/Write.
 - `fixer`: `styling` (tab indent, `===`→`---` in comments, spacing) /
   `loc_yaml` (tabs, smart quotes, `key:0 "v"`, `key:"v"`, indent,
   unescaped quotes) / `line_endings` (CRLF→LF) / `log_ids` (mismatched
-  focus/decision log ids).
+  focus/decision log ids) / `changelog` (order top-version entries by
+  untagged first, then alphabetic tag).
 - `content`: text to fix — no file access at all. `path`: mod-relative
   source when `content` is omitted; always required for `log_ids` (scope is
   path-based). `loc_yaml` accepts `.yml` only (its tab→space rewrite
-  corrupts `.txt`) and `styling` accepts `.txt` only.
+  corrupts `.txt`), `styling` accepts `.txt` only, and `changelog` accepts
+  `Changelog.txt` only.
 
 Returns `{ok, fixer, file, source, changed, fixes, summary, warnings, txt,
 txt_bytes, txt_returned_bytes, txt_truncated}` plus `had_bom` when the source

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -421,3 +422,132 @@ def test_shim_load_module_raises_for_directory(tmp_path):
 
     with pytest.raises(ImportError, match="Could not load"):
         shim._load_module(tmp_path, "nope")
+
+
+def test_game_log_summary_requires_absolute_path_and_paginates_lists(tmp_path):
+    script = tmp_path / "tools" / "summarize_game_log.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        """
+import json
+from collections import Counter
+def parse(path, since=None, until=None):
+    return {"stats": {"parsed": 2}, "activity": Counter({"Brazil": 3}), "decisions": {}}
+def pick_countries(data, requested, top_countries):
+    chosen = []
+    for request in requested:
+        match = next(
+            (name for name in data["activity"] if request.lower() in name.lower()), request
+        )
+        if match not in chosen:
+            chosen.append(match)
+    if not chosen:
+        chosen = [data["activity"].most_common(1)[0][0]]
+    return chosen
+def to_json(data, countries=None, top=15):
+    return json.dumps({
+        "conflicts": [{"id": "a"}, {"id": "b"}],
+        "politics": [],
+        "annexations": [],
+        "most_active": [["USA", 2]][:top],
+        "focus_countries": {country: {"detail": True} for country in (countries or [])},
+    })
+def parse_date_arg(value):
+    return value
+""",
+        encoding="utf-8",
+    )
+    log = tmp_path / "game.log"
+    log.write_text("readonly", encoding="utf-8")
+    bad = upstream_analysis.game_log_summary_tool(tmp_path, "relative.log")
+    assert bad["ok"] is False
+    result = upstream_analysis.game_log_summary_tool(
+        tmp_path,
+        str(log),
+        limit=1,
+        offset=0,
+        countries=["USA"],
+        since="2001.1.1",
+        until="2002.1.1",
+    )
+    assert result["ok"] is True
+    assert result["conflicts"] == [{"id": "a"}]
+    assert result["conflicts_total"] == 2
+    assert result["focus_countries"] == {"USA": {"detail": True}}
+    assert result["focus_countries_total"] == 1
+    implicit = upstream_analysis.game_log_summary_tool(tmp_path, str(log))
+    partial = upstream_analysis.game_log_summary_tool(tmp_path, str(log), countries=["braz"])
+    lower = upstream_analysis.game_log_summary_tool(tmp_path, str(log), countries=["brazil"])
+    for resolved in (implicit, partial, lower):
+        assert resolved["focus_countries"] == {"Brazil": {"detail": True}}
+    next_page = upstream_analysis.game_log_summary_tool(tmp_path, str(log), limit=1, offset=1)
+    assert next_page["conflicts"] == [{"id": "b"}]
+    assert log.read_text(encoding="utf-8") == "readonly"
+
+
+def test_game_log_summary_bounds_large_economy_and_inflation_maps(tmp_path):
+    script = tmp_path / "tools" / "summarize_game_log.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        """
+import json
+def parse(path, since=None, until=None):
+    return {"stats": {"parsed": 1}}
+def parse_date_arg(value):
+    return value
+def pick_countries(data, requested, top_countries):
+    return requested
+def to_json(data, countries=None, top=15):
+    return json.dumps({"economy": {"C%03d" % i: {} for i in range(700)},
+                       "inflation": {"C%03d" % i: {} for i in range(700)},
+                       "conflicts": [], "politics": [], "annexations": [],
+                       "focus_countries": {}})
+""",
+        encoding="utf-8",
+    )
+    log = tmp_path / "large.txt"
+    log.write_text("readonly", encoding="utf-8")
+    result = upstream_analysis.game_log_summary_tool(tmp_path, str(log), top=1, limit=1)
+    assert result["ok"] is True
+    assert result["economy_total"] == 700
+    assert result["inflation_total"] == 700
+    assert len(result["economy"]) == len(result["inflation"]) == 1
+
+
+@pytest.mark.integration
+def test_game_log_summary_matches_cli_country_resolution_and_filters(real_mod_root, tmp_path):
+    script = real_mod_root / "tools" / "summarize_game_log.py"
+    log = tmp_path / "fixture.log"
+    log.write_text(
+        """
+[00:00:00][2002.01.01.01][effectbase.cpp:1]: 1:00, 1 Jan, 2002: Brazil: Decision first
+[00:00:01][2003.01.01.01][effectbase.cpp:1]: 1:00, 1 Jan, 2003: Brazil: Decision second
+[00:00:02][2004.01.01.01][effectbase.cpp:1]: 1:00, 1 Jan, 2004: Canada: Focus CAN_example
+""",
+        encoding="utf-8",
+    )
+    for country in (None, "brazil", "Bra"):
+        args = [sys.executable, str(script), str(log), "--json"]
+        if country is not None:
+            args.extend(["--country", country])
+        args.extend(["--since", "2003.1.1", "--until", "2004.12.31"])
+        cli = json.loads(subprocess.run(args, check=True, capture_output=True, text=True).stdout)
+        wrapped = upstream_analysis.game_log_summary_tool(
+            real_mod_root,
+            str(log),
+            countries=[country] if country else None,
+            since="2003.1.1",
+            until="2004.12.31",
+        )
+        for key in (
+            "session",
+            "categories",
+            "most_active",
+            "conflicts",
+            "politics",
+            "annexations",
+            "economy",
+            "inflation",
+            "focus_countries",
+        ):
+            assert wrapped[key] == cli[key]

@@ -77,6 +77,7 @@ from .tools.standardize_tools import standardize_tool
 from .tools.upstream_analysis import (
     calculate_days_tool,
     estimate_gdp_tool,
+    game_log_summary_tool,
     tick_audit_tool,
 )
 from .tools.validation_tools import validate_list_tool, validate_tool
@@ -456,6 +457,28 @@ def build_server(settings: Settings):
     def _estimate_gdp(tag: str) -> dict:
         """Estimate one country's starting GDP from upstream history. Requires a country tag."""
         return estimate_gdp_tool(settings.mod_root, tag)
+
+    @mcp.tool(name="summarize_game_log")
+    def _summarize_game_log(
+        path: str,
+        top: int = 15,
+        limit: int = 100,
+        offset: int = 0,
+        countries: Optional[list[str]] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+    ) -> dict:
+        """Summarize an absolute .log/.txt path; filter dates/countries and page output."""
+        return game_log_summary_tool(
+            settings.mod_root,
+            path,
+            top=top,
+            limit=limit,
+            offset=offset,
+            countries=countries,
+            since=since,
+            until=until,
+        )
 
     @mcp.tool(name="calculate_days")
     def _calculate_days(year: int, month: int, day: int) -> dict:

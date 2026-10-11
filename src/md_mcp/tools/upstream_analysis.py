@@ -76,6 +76,51 @@ def estimate_gdp_tool(mod_root: Path, tag: str) -> dict:
     return enforce_budget(result, heavy_keys=("breakdown",))
 
 
+def game_log_summary_tool(
+    mod_root: Path,
+    path: str,
+    *,
+    top: int = 15,
+    limit: int = 100,
+    offset: int = 0,
+    countries: Optional[list[str]] = None,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+) -> dict:
+    """Summarize one absolute game log path without modifying it."""
+    try:
+        top = coerce_int(top, name="top", default=15)
+        limit = coerce_int(limit, name="limit", default=100)
+        offset = coerce_int(offset, name="offset", default=0)
+    except ValueError as exc:
+        return enforce_budget({"ok": False, "path": path, "error": str(exc)})
+    result = _run_shim(
+        mod_root,
+        "game_log_summary",
+        {
+            "path": path,
+            "top": top,
+            "limit": limit,
+            "offset": offset,
+            "countries": countries,
+            "since": since,
+            "until": until,
+        },
+        timeout=120,
+    )
+    return enforce_budget(
+        result,
+        heavy_keys=(
+            "focus_countries",
+            "economy",
+            "inflation",
+            "conflicts",
+            "politics",
+            "annexations",
+        ),
+    )
+
+
 def calculate_days_tool(year: int, month: int, day: int) -> dict:
     """Calculate days since 2000; uses fixed non-leap years and validates year/month/day."""
     return enforce_budget(_calculate_days(year, month, day))

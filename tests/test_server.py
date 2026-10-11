@@ -125,6 +125,7 @@ EXPECTED_TOOLS = {
     "check_encoding",
     "tick_audit",
     "estimate_gdp",
+    "summarize_game_log",
     "calculate_days",
 }
 

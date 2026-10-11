@@ -234,10 +234,15 @@ def merge_gfx_text(
         kept_texfile = existing[name][0]
         if texfile and kept_texfile and texfile != kept_texfile:
             conflicts.append({"name": name, "kept": kept_texfile, "dropped": texfile})
-        line_start = original.rfind("\n", 0, start) + 1
-        line_end = original.find("\n", end)
-        span_end = line_end + 1 if line_end != -1 else len(original)
-        dup_spans.append((line_start, span_end))
+        # Remove only this duplicate block.  Deleting its whole line erases
+        # neighboring entries when two blocks share a line.
+        span_end = end
+        while span_end < len(original) and original[span_end] in " \t":
+            span_end += 1
+        if span_end < len(original) and original[span_end] == "#":
+            line_end = original.find("\n", span_end)
+            span_end = line_end if line_end != -1 else len(original)
+        dup_spans.append((start, span_end))
         deduped_names.append(name)
 
     new_names: list[str] = []
@@ -339,6 +344,23 @@ def _match_brace(text: str, open_idx: int) -> int:
     depth = 0
     i = open_idx
     while i < len(text):
+        if text[i] == "#":
+            newline = text.find("\n", i)
+            if newline == -1:
+                break
+            i = newline + 1
+            continue
+        if text[i] == '"':
+            i += 1
+            while i < len(text):
+                if text[i] == "\\":
+                    i += 2
+                    continue
+                if text[i] == '"':
+                    break
+                i += 1
+            i += 1
+            continue
         if text[i] == "{":
             depth += 1
         elif text[i] == "}":
@@ -351,7 +373,7 @@ def _match_brace(text: str, open_idx: int) -> int:
 
 def _parse_named_blocks(text: str):
     """Yield `(name, texturefile, start, end)` for every spriteType block."""
-    for m in _SPRITETYPE_RE.finditer(text):
+    for m in _iter_sprite_types(text):
         open_idx = m.end() - 1
         try:
             end = _match_brace(text, open_idx) + 1
@@ -360,3 +382,32 @@ def _parse_named_blocks(text: str):
         nm = _NAME_RE.search(text, m.start(), end)
         tx = _TEXTUREFILE_RE.search(text, m.start(), end)
         yield nm.group(1) if nm else None, tx.group(1) if tx else None, m.start(), end
+
+
+def _iter_sprite_types(text: str):
+    """Find spriteType declarations outside comments and quoted strings."""
+    i = 0
+    while i < len(text):
+        if text[i] == "#":
+            newline = text.find("\n", i)
+            if newline == -1:
+                return
+            i = newline + 1
+            continue
+        if text[i] == '"':
+            i += 1
+            while i < len(text):
+                if text[i] == "\\":
+                    i += 2
+                    continue
+                if text[i] == '"':
+                    i += 1
+                    break
+                i += 1
+            continue
+        match = _SPRITETYPE_RE.match(text, i)
+        if match and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
+            yield match
+            i = match.end()
+        else:
+            i += 1

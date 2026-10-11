@@ -754,6 +754,9 @@ Scan a texture directory and merge it into an existing `.gfx` file using the
 same merge rules as `Millennium-Dawn/tools/gfx_entry_generator.py`: unchanged
 entries stay byte-identical, texturefile changes replace in place, new names
 are appended, orphans are reported and never deleted. The server never writes.
+Duplicate blocks are removed by their exact source spans, and braces or
+`spriteType` text inside quoted strings and `#` comments are ignored while
+finding blocks.
 
 Sprite *naming* is not ported. Upstream hardcodes a rule per content generator,
 so you pass `prefix` and it applies to the whole directory.

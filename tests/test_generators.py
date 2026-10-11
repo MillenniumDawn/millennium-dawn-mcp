@@ -496,6 +496,38 @@ def test_merge_dedup_same_texture():
     assert out["would_write"] is True
 
 
+def test_merge_dedup_same_line_does_not_remove_neighboring_blocks():
+    original = (
+        'spriteTypes = { spriteType = { name = "GFX_a" texturefile = "gfx/a.dds" } '
+        'spriteType = { name = "GFX_a" texturefile = "gfx/a.dds" } '
+        'spriteType = { name = "GFX_b" texturefile = "gfx/b.dds" } }'
+    )
+
+    out = gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds", "GFX_b": "gfx/b.dds"}, _render)
+
+    assert out["deduped"] == ["GFX_a"]
+    assert out["txt"].count('name = "GFX_a"') == 1
+    assert out["txt"].count('name = "GFX_b"') == 1
+    assert out["txt"].startswith("spriteTypes = {")
+    assert out["txt"].rstrip().endswith("}")
+
+
+def test_merge_scanner_ignores_comments_and_string_braces():
+    original = (
+        'spriteTypes = { # spriteType = { name = "GFX_fake" }\n'
+        '  note = "brace } and spriteType = { name = \\"GFX_fake2\\" }"\n'
+        + _render("GFX_a", "gfx/a.dds")
+        + "}\n"
+    )
+
+    out = gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds"}, _render)
+
+    assert out["deduped"] == []
+    assert out["orphaned"] == []
+    assert 'name = "GFX_a"' in out["txt"]
+    assert out["txt"].count('name = "GFX_fake"') == 1  # comment is preserved, not parsed
+
+
 def test_merge_dedup_divergent_texture_is_reported():
     original = (
         "spriteTypes = {\n" + _render("GFX_a", "gfx/a.dds") + _render("GFX_a", "gfx/a2.dds") + "}\n"

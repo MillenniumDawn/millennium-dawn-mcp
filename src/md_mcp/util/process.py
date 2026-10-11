@@ -12,7 +12,7 @@ import contextlib
 import os
 import signal
 import subprocess
-from typing import Optional
+from typing import Mapping, Optional
 
 
 def run_in_group(
@@ -21,6 +21,7 @@ def run_in_group(
     timeout: float,
     cwd: Optional[str] = None,
     text: bool = False,
+    env: Optional[Mapping[str, str]] = None,
 ) -> subprocess.CompletedProcess:
     """``subprocess.run(capture_output=True)`` that kills the child's process group on timeout.
 
@@ -34,6 +35,7 @@ def run_in_group(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=text,
+        env=env,
         start_new_session=True,
     ) as proc:
         try:

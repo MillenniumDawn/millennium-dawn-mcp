@@ -10,6 +10,7 @@ Isolated-mode tests plant synthetic `validate_*.py` modules in the fake mod's
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -195,9 +196,81 @@ def test_isolated_returns_issues_and_swallows_stdout(fake_mod_root):
 
 
 def test_isolated_forwards_staged_only(fake_mod_root):
+    import subprocess
+
     _plant(fake_mod_root, "plain", _PLAIN)
+    subprocess.run(["git", "init", str(fake_mod_root)], check=True, capture_output=True)
     result = ValidatorRunner(fake_mod_root).run("plain", staged_only=True)
     assert result["issues"][1]["message"] == "staged=True"
+
+
+def test_staged_file_environment_uses_utf8_nul_paths(tmp_path):
+    import subprocess
+
+    from md_mcp.validators.runner import _staged_files_env
+
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    path = tmp_path / "events" / "café.txt"
+    path.parent.mkdir()
+    path.write_text("x", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "--", "events/café.txt"], check=True)
+    assert _staged_files_env(tmp_path) == "events/café.txt"
+
+
+def test_staged_file_environment_includes_rename_source_and_destination(tmp_path):
+    import subprocess
+
+    from md_mcp.validators.runner import _staged_files_env
+
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    old = tmp_path / "events" / "café.txt"
+    old.parent.mkdir()
+    old.write_text("x", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "fixture",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    new = old.with_name("renamed.txt")
+    old.rename(new)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    assert set(_staged_files_env(tmp_path).splitlines()) == {
+        "events/café.txt",
+        "events/renamed.txt",
+    }
+
+
+def test_staged_file_environment_reports_git_failure(tmp_path):
+    import subprocess
+
+    from md_mcp.validators.runner import _staged_files_env
+
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / ".git" / "index").write_bytes(b"broken")
+    with pytest.raises(RuntimeError, match="Could not read staged paths"):
+        _staged_files_env(tmp_path)
+
+
+@pytest.mark.parametrize("mode", ["isolated", "in_process"])
+def test_staged_validator_reports_git_failure(fake_mod_root, mode):
+    _plant(fake_mod_root, "plain", _PLAIN)
+    (fake_mod_root / ".git").mkdir()
+    (fake_mod_root / ".git" / "index").write_bytes(b"broken")
+    result = ValidatorRunner(fake_mod_root, mode=mode).run("plain", staged_only=True)
+    assert result["ok"] is False
+    assert "Could not read staged paths" in result["error"]
 
 
 def test_isolated_survives_a_forking_validator(fake_mod_root):
@@ -390,3 +463,108 @@ def test_shim_write_failure_returns_1(monkeypatch):
 
     monkeypatch.setattr(builtins, "open", _raising_open)
     assert _shim.main() == 1
+
+
+def test_staged_file_environment_empty_list_and_newline_rejection(tmp_path):
+    import subprocess
+
+    from md_mcp.validators.runner import _staged_files_env
+
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    assert _staged_files_env(tmp_path) == ""
+    path = tmp_path / "events" / "line\nbreak.txt"
+    path.parent.mkdir()
+    path.write_text("x", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "--", str(path)], check=True)
+    with pytest.raises(ValueError, match="newline characters"):
+        _staged_files_env(tmp_path)
+
+
+def test_staged_file_environment_rejects_malformed_records(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from md_mcp.validators import runner
+
+    monkeypatch.setattr(
+        runner.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout=b"R100\0only-old\0", stderr=b""
+        ),
+    )
+    with pytest.raises(ValueError, match="Malformed staged path record"):
+        runner._staged_files_env(tmp_path)
+
+
+def test_in_process_staged_environment_is_restored(fake_mod_root, monkeypatch):
+    import subprocess
+
+    import md_mcp.validators.runner as runner_module
+
+    _plant(fake_mod_root, "plain", _PLAIN)
+    subprocess.run(["git", "init", str(fake_mod_root)], check=True, capture_output=True)
+    staged = fake_mod_root / "events" / "café.txt"
+    staged.write_text("x", encoding="utf-8")
+    subprocess.run(["git", "-C", str(fake_mod_root), "add", "--", "events/café.txt"], check=True)
+    previous = os.environ.get("MD_STAGED_FILES")
+    os.environ["MD_STAGED_FILES"] = "previous-value"
+    observed = {}
+
+    def collect(*args, **kwargs):
+        observed["staged"] = os.environ.get("MD_STAGED_FILES")
+        return {"ok": True, "issues": []}
+
+    monkeypatch.setattr(runner_module, "_collect", collect)
+    try:
+        result = ValidatorRunner(fake_mod_root, mode="in_process").run("plain", staged_only=True)
+        assert result["ok"] is True
+        assert observed["staged"] == "events/café.txt"
+        assert os.environ["MD_STAGED_FILES"] == "previous-value"
+    finally:
+        if previous is None:
+            os.environ.pop("MD_STAGED_FILES", None)
+        else:
+            os.environ["MD_STAGED_FILES"] = previous
+
+
+def test_in_process_staged_environment_removes_temporary_value(fake_mod_root, monkeypatch):
+    import subprocess
+
+    import md_mcp.validators.runner as runner_module
+
+    _plant(fake_mod_root, "plain", _PLAIN)
+    subprocess.run(["git", "init", str(fake_mod_root)], check=True, capture_output=True)
+    original = os.environ.pop("MD_STAGED_FILES", None)
+    monkeypatch.setattr(
+        runner_module, "_collect", lambda *args, **kwargs: {"ok": True, "issues": []}
+    )
+    try:
+        result = ValidatorRunner(fake_mod_root, mode="in_process").run("plain", staged_only=True)
+        assert result["ok"] is True
+        assert "MD_STAGED_FILES" not in os.environ
+    finally:
+        if original is not None:
+            os.environ["MD_STAGED_FILES"] = original
+
+
+def test_staged_file_environment_rejects_unknown_status(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from md_mcp.validators import runner
+
+    monkeypatch.setattr(
+        runner.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=b"?\0odd\0", stderr=b""),
+    )
+    with pytest.raises(ValueError, match="Malformed staged path status"):
+        runner._staged_files_env(tmp_path)
+
+
+def test_temporary_staged_environment_removes_absent_previous_value(monkeypatch):
+    from md_mcp.validators.runner import _temporary_staged_env
+
+    monkeypatch.delenv("MD_STAGED_FILES", raising=False)
+    with _temporary_staged_env(None):
+        assert "MD_STAGED_FILES" not in os.environ
+    assert "MD_STAGED_FILES" not in os.environ

@@ -476,3 +476,34 @@ def test_event_load_matches_upstream_cli(real_mod_root):
         row = next(item for item in wrapped["years"] if item["year"] == year)
         assert row["total"] == summary["count"]
         assert row["busiest_window"] == summary["peak"]
+
+
+def test_event_load_defaults_validation_and_budget(tmp_path):
+    from md_mcp.tools.upstream_analysis_shim import _event_load, run
+
+    script = tmp_path / "tools" / "analysis" / "event_load.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        """
+def collect(tag, root):
+    return {"2000": [("e.%d" % i, i) for i in range(1800)]}
+def busiest(days, window):
+    return len(days)
+""",
+        encoding="utf-8",
+    )
+    defaults = run("event_load", tmp_path, {})
+    assert defaults["window"] == 45
+    assert defaults["threshold"] == 3
+    invalid = _event_load(tmp_path, {"tag": "USA.*"})
+    assert invalid["ok"] is False
+    invalid_num = _event_load(tmp_path, {"window": "bad"})
+    assert invalid_num["ok"] is False
+    large = upstream_analysis.event_load_tool(tmp_path, limit=1800)
+    assert large["size_truncated"] is True
+
+
+def test_event_load_missing_upstream_script_is_reported(tmp_path):
+    result = upstream_analysis.event_load_tool(tmp_path)
+    assert result["ok"] is False
+    assert "error" in result

@@ -459,11 +459,13 @@ def build_server(settings: Settings):
         return estimate_gdp_tool(settings.mod_root, tag)
 
     @mcp.tool(name="event_load")
-    def _event_load(
+    async def _event_load(
         tag: str = "USA", window: int = 45, threshold: int = 3, limit: int = 20, offset: int = 0
     ) -> dict:
         """Summarize scheduled events by year with busiest windows and flagged event details."""
-        return event_load_tool(settings.mod_root, tag, window, threshold, limit, offset)
+        return await blocking_tools.run(
+            event_load_tool, settings.mod_root, tag, window, threshold, limit, offset
+        )
 
     @mcp.tool(name="calculate_days")
     def _calculate_days(year: int, month: int, day: int) -> dict:

@@ -62,18 +62,20 @@ From `lexer.py`:
 | Token type | Pattern (Python-flavoured regex) | Examples |
 |---|---|---|
 | `comment` | `#.*(?:[\r\n]|$)` | `# this is a comment` |
-| `operator` | `[={}<>;,]` plus `>=`, `<=`, `!=` | `=`, `{`, `}`, `>=` |
+| `operator` | `>=`, `<=`, `!=` first, then `[={}<>;,]` | `=`, `{`, `}`, `>=` |
 | `string` | `"(?:\\[\s\S]|[^"\\])*"` | `"localised key"` |
-| `symbol` | `(?:\d+\.)?[a-zA-Z_@\[\]][\w:\._@\[\]\-\?\^\/ -ɏ|]*` | `ISR_idf`, `[VAR]`, `5.cycle_var` |
+| `symbol` | `(?:\d+\.)?[a-zA-Z_@\[\]][\w:\._@\[\]\-\?\^\/ -ɏ\|]*` | `ISR_idf`, `[VAR]`, `5.cycle_var` |
+| `date` | `\d+(?:\.\d+){2,}` | `1936.1.1`, `2030.1.1.12` |
 | `unitnumber` | `(?:-?\d*\.\d+|-?\d+)(?:%%?)` | `5%`, `42%%` |
-| `number` | `-?\d*\.\d+|-?\d+|0x\d+` | `42`, `-3.5`, `0xFF` |
+| `number` | `-?\d*\.\d+|-?\d+\.?|0x\d+` | `42`, `-3.5`, `1.`, `2030.1` |
 | `eof` | `$` | (end of stream) |
 <!-- markdownlint-enable MD060 -->
 
-The order in `_TOKEN_TYPES` matters: `symbol` must be tried before `number`
-so that `539.productivity_state_var` parses as one symbol (the regex starts
-with optional `\d+\.`), not as the number `539` followed by an invalid
-`.productivity_state_var`.
+The order in `_TOKEN_TYPES` matters: multi-character operators and dates must precede
+competing single-character/number patterns. `symbol` remains before `date` and `number`
+so `539.productivity_state_var` is one symbol. Dates are retained as `SymbolNode`s, not
+converted to floats. The integer number branch accepts a trailing dot (`0.`); the
+fraction branch precedes it so `2030.1` remains a decimal.
 
 The string pattern differs from `hoiparser.ts`, whose `[^"]` fallback also
 accepts backslashes and backtracks exponentially on an unterminated string with

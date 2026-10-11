@@ -528,6 +528,35 @@ def test_merge_scanner_ignores_comments_and_string_braces():
     assert out["txt"].count('name = "GFX_fake"') == 1  # comment is preserved, not parsed
 
 
+def test_merge_metadata_ignores_commented_assignments():
+    original = (
+        "spriteTypes = {\n"
+        "  spriteType = {\n"
+        '    # name = "GFX_fake" texturefile = "gfx/fake.dds"\n'
+        '    label = "name = \\"GFX_other\\" texturefile = \\"gfx/other.dds\\""\n'
+        '    name = "GFX_real"\n'
+        '    texturefile = "gfx/old.dds"\n'
+        "  }\n}\n"
+    )
+
+    out = gfx_mod.merge_gfx_text(original, {"GFX_real": "gfx/new.dds"}, _render)
+
+    assert out["changed"] == [("GFX_real", "gfx/old.dds")]
+    assert out["orphaned"] == []
+    assert "gfx/new.dds" in out["txt"]
+    assert "GFX_fake" not in out["orphaned"]
+
+
+def test_merge_appends_before_structural_root_brace_not_comment_brace():
+    original = "spriteTypes = {\n" + _render("GFX_a", "gfx/a.dds") + "} # }\n"
+
+    out = gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds", "GFX_b": "gfx/b.dds"}, _render)
+
+    assert out["txt"].count("spriteType = {") == 2
+    assert out["txt"].rstrip().endswith("} # }")
+    assert out["txt"].count("}\n") >= 2
+
+
 def test_merge_dedup_divergent_texture_is_reported():
     original = (
         "spriteTypes = {\n" + _render("GFX_a", "gfx/a.dds") + _render("GFX_a", "gfx/a2.dds") + "}\n"

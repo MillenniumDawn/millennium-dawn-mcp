@@ -13,7 +13,7 @@ import os
 import sys
 from dataclasses import replace
 from functools import partial
-from typing import Callable, Optional
+from typing import Any, Callable, Optional, TypeVar, cast
 
 from .analysis.diff_summary import diff_summary
 from .analysis.encoding import check_encoding
@@ -46,6 +46,7 @@ from .indexes import (
     ScriptedTriggerIndex,
     TraitIndex,
 )
+from .indexes.base import GenericTxtIndex
 from .resources import (
     decision_resource,
     event_resource,
@@ -77,6 +78,7 @@ from .tools.standardize_tools import standardize_tool
 from .tools.upstream_analysis import (
     calculate_days_tool,
     estimate_gdp_tool,
+    event_load_tool,
     game_log_summary_tool,
     tick_audit_tool,
 )
@@ -85,6 +87,7 @@ from .util.offload import BoundedOffloader
 from .validators import ValidatorRunner
 
 logger = logging.getLogger("md_mcp")
+_IndexT = TypeVar("_IndexT", bound=GenericTxtIndex)
 
 
 class _NamedPartial(partial):
@@ -100,7 +103,7 @@ def _bind_tool(
     return bound
 
 
-def _make_index(cls, settings: Settings):
+def _make_index(cls: type[_IndexT], settings: Settings) -> _IndexT:
     """Instantiate an index class from settings (localisation also gets `loc_langs`)."""
     kwargs: dict = {"submod_root": settings.submod_root}
     if issubclass(cls, LocalisationIndex):
@@ -123,8 +126,10 @@ def build_server(settings: Settings):
 
     mcp = FastMCP("md-mcp")
     blocking_tools = BoundedOffloader()
+    # Embedders and tests close this pool before any subsequent fork.
+    cast(Any, mcp)._md_blocking_tools = blocking_tools
 
-    def _index(cls):
+    def _index(cls: type[_IndexT]) -> _IndexT:
         return _make_index(cls, settings)
 
     focus_index = _index(FocusIndex)
@@ -264,7 +269,7 @@ def build_server(settings: Settings):
     )(_bind_tool(find_indexed_tool, scripted_trigger_index, "scripted_trigger"))
     mcp.tool(
         name="lookup_docs",
-        description="Look up an effect, trigger, or modifier in resources/documentation, or a doc/rule in .claude/docs and .claude/rules; pass key for exact docs or omit it for a paginated key list, with close-match suggestions on misses.",
+        description="Look up effects, triggers, modifiers, .claude/docs, .claude/rules, or skills; kind=skill|skills searches .claude/skills and references. Pass key for exact docs or omit it for a paginated list.",
     )(_bind_tool(lookup_docs_tool, settings))
 
     @mcp.tool(name="find_references")
@@ -398,7 +403,7 @@ def build_server(settings: Settings):
         path: Optional[str] = None,
         content: Optional[str] = None,
     ) -> dict:
-        """Apply an upstream lint fixer in-memory: fixer=styling|loc_yaml|line_endings|log_ids; give content= or mod-relative path= (path required for log_ids; loc_yaml=.yml only, styling=.txt only). Returns {txt, changed, fixes, summary, warnings}; txt omitted when unchanged, clipped with txt_truncated=true when oversized — never write clipped txt back. loc_yaml reports had_bom; preserve it when writing .yml."""
+        """Apply an upstream lint fixer in-memory: fixer=styling|loc_yaml|line_endings|log_ids|changelog; give content= or mod-relative path= (path required for log_ids; changelog=Changelog.txt). Returns {txt, changed, fixes, summary, warnings}; txt omitted when unchanged, clipped with txt_truncated=true when oversized — never write clipped txt back. loc_yaml reports had_bom; preserve it when writing .yml."""
         return fix_lint_tool(
             settings.mod_root,
             fixer=fixer,
@@ -457,6 +462,15 @@ def build_server(settings: Settings):
     def _estimate_gdp(tag: str) -> dict:
         """Estimate one country's starting GDP from upstream history. Requires a country tag."""
         return estimate_gdp_tool(settings.mod_root, tag)
+
+    @mcp.tool(name="event_load")
+    async def _event_load(
+        tag: str = "USA", window: int = 45, threshold: int = 3, limit: int = 20, offset: int = 0
+    ) -> dict:
+        """Summarize scheduled events by year with busiest windows and flagged event details."""
+        return await blocking_tools.run(
+            event_load_tool, settings.mod_root, tag, window, threshold, limit, offset
+        )
 
     @mcp.tool(name="summarize_game_log")
     def _summarize_game_log(

@@ -105,6 +105,16 @@ Categories: `focuses`, `events`, `event_files`, `decisions`, `ideas`,
 `scripted_effects`, `scripted_effect_files`, `scripted_triggers`, and
 `scripted_trigger_files`.
 
+Country history files include anchored `TAG - ...` names (including numbered
+variants) even when the name differs from the `common/country_tags/` country
+name, plus exact mapped country filenames. The tag ends at the ` - ` boundary,
+so a similar prefix such as `TAGX - ...` does not match. Event files match the
+tag prefix or the mapped country name, which covers long-name files such as
+`events/Afghanistan.txt`. Listed event IDs are the IDs in those associated
+files; they may describe shared content and do not imply exclusive ownership.
+The manifest does not infer ownership from mentions inside event bodies.
+Submod files take precedence over mod files at the same relative path.
+
 ```json
 {
   "ok": true,
@@ -156,7 +166,11 @@ Look up an exact effect, trigger, or modifier key in the matching
 available keys. `kind` is `effect`, `trigger`, or `modifier`, or `doc` or
 `rule` for the Markdown files in `.claude/docs` and `.claude/rules` (aliases
 `docs`, `claude_docs`, `rules`, `claude_rules`); key matching is
-case-sensitive. Missing keys return up to five close-match `suggestions`,
+case-sensitive. `skill`/`skills` lists `.claude/skills/<name>/SKILL.md` and
+`references/*.md`; a skill resolves by the skill directory name, its
+`SKILL.md` path, or its frontmatter `name`, and reference files by
+`<name>/<file>`, with parsed scalar frontmatter shown on exact results.
+Missing keys return up to five close-match `suggestions`,
 paginated by `limit` and `offset`.
 
 Exact results return every definition for the key in `entries`, preserving
@@ -203,6 +217,9 @@ issues compared with a baseline snapshot.
   etc.). Omit to run all *fast* validators (slow `unused_scripted` and
   `unused_textures` are skipped by default — call them by name when you want them).
 - **`staged_only=True`** — restrict to git-staged files. Much faster mid-edit.
+  The MCP passes Git's NUL-parsed staged paths to upstream validators through
+  `MD_STAGED_FILES`; paths containing newline characters are rejected because
+  upstream's environment format is newline-delimited.
 - **`files=[...]`** — scope validator inputs to these paths when the validator
   supports input scoping, then post-filter issues to the same paths. Each path
   is looked up in `submod_root`, then `mod_root`. If any is in neither, nothing
@@ -282,8 +299,8 @@ Returns `{ok, total, returned, truncated, validators}`.
 
 ### `lint(mode?, files?, checks?, validators?, severity_min?, limit?, counts_only?) -> dict`
 
-Run the **full linting suite**. Wraps three `Millennium-Dawn/tools/linting/`
-scripts and the mod-side `style` validator behind one tool, the one-stop-shop
+Run the **full linting suite**. Wraps the `Millennium-Dawn/tools/linting/`
+checks and the mod-side `style` validator behind one tool, the one-stop-shop
 for "check this code's quality."
 
 - **`mode`** — `"changed"` (default) | `"staged"` | `"all"`.
@@ -306,8 +323,10 @@ for "check this code's quality."
   - `common_mistakes` (`check_common_mistakes.py` — threat scale, scope, modifiers)
   - `mod_encoding` (`validate_mod_encoding.py` — `.mod` UTF-8 validity)
   - `loc_encoding` (`validate_localization_encoding.py` — English loc YAML BOM)
+  - `changelog` (`check_changelog.py` — ordering in the top version of `Changelog.txt`)
 
-  Omit to run all three.
+  Omit to run all checks. The changelog check runs when `Changelog.txt` is in
+  scope, or for `mode="all"`.
 
   Brace matching, basic style, and coding standards are no longer separate
   checks. They were absorbed into `tools/validation/validate_style.py` on the
@@ -364,6 +383,12 @@ for "check this code's quality."
 - **`limit=500`** — caps the issues array. `truncated` flags details omitted by
   this limit or the response byte budget.
 - **`counts_only=True`** — omit the issues array; return per-check + overall counts only.
+
+Overall severity counts and `issues_total_after_filter` include findings hidden
+by a check wrapper's own per-check cap (200 diagnostics) or byte-budget drop.
+`truncated` is true when a wrapper omits diagnostics, or when the requested
+issue limit or final response budget omits details. Per-check `total` remains
+the complete count even when fewer issues are available to return.
 
 Returns:
 
@@ -449,11 +474,13 @@ read-only rule — the caller writes the returned `txt` back via Edit/Write.
 - `fixer`: `styling` (tab indent, `===`→`---` in comments, spacing) /
   `loc_yaml` (tabs, smart quotes, `key:0 "v"`, `key:"v"`, indent,
   unescaped quotes) / `line_endings` (CRLF→LF) / `log_ids` (mismatched
-  focus/decision log ids).
+  focus/decision log ids) / `changelog` (order top-version entries by
+  untagged first, then alphabetic tag).
 - `content`: text to fix — no file access at all. `path`: mod-relative
   source when `content` is omitted; always required for `log_ids` (scope is
   path-based). `loc_yaml` accepts `.yml` only (its tab→space rewrite
-  corrupts `.txt`) and `styling` accepts `.txt` only.
+  corrupts `.txt`), `styling` accepts `.txt` only, and `changelog` accepts
+  `Changelog.txt` only.
 
 Returns `{ok, fixer, file, source, changed, fixes, summary, warnings, txt,
 txt_bytes, txt_returned_bytes, txt_truncated}` plus `had_bom` when the source
@@ -754,6 +781,9 @@ Scan a texture directory and merge it into an existing `.gfx` file using the
 same merge rules as `Millennium-Dawn/tools/gfx_entry_generator.py`: unchanged
 entries stay byte-identical, texturefile changes replace in place, new names
 are appended, orphans are reported and never deleted. The server never writes.
+Duplicate blocks are removed by their exact source spans. Block metadata and
+the outer closing brace are read structurally, so quoted strings and `#`
+comments cannot supply names, texture paths, braces, or block declarations.
 
 Sprite *naming* is not ported. Upstream hardcodes a rule per content generator,
 so you pass `prefix` and it applies to the whole directory.
@@ -831,6 +861,15 @@ print(result)
 
 This bypasses MCP framing — exceptions surface directly, which is the easiest
 way to diagnose a tool that's misbehaving inside the protocol layer.
+
+### `event_load(tag?, window?, threshold?, limit?, offset?) -> dict`
+
+Run upstream `tools/analysis/event_load.py` in an isolated process. Returns
+per-year scheduled delivery totals and busiest-window counts, with event
+details paginated by `limit`/`offset` independently within each year;
+`flagged_years` includes flagged event details. `years` retains all annual
+summaries so later event pages remain reachable. Defaults are USA, a 45-day
+window, threshold 3, limit 20, and offset 0.
 
 ### `summarize_game_log(path, top?, limit?, offset?, countries?, since?, until?) -> dict`
 

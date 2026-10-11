@@ -496,6 +496,89 @@ def test_merge_dedup_same_texture():
     assert out["would_write"] is True
 
 
+def test_merge_dedup_same_line_does_not_remove_neighboring_blocks():
+    original = (
+        'spriteTypes = { spriteType = { name = "GFX_a" texturefile = "gfx/a.dds" } '
+        'spriteType = { name = "GFX_a" texturefile = "gfx/a.dds" } '
+        'spriteType = { name = "GFX_b" texturefile = "gfx/b.dds" } }'
+    )
+
+    out = gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds", "GFX_b": "gfx/b.dds"}, _render)
+
+    assert out["deduped"] == ["GFX_a"]
+    assert out["txt"].count('name = "GFX_a"') == 1
+    assert out["txt"].count('name = "GFX_b"') == 1
+    assert out["txt"].startswith("spriteTypes = {")
+    assert out["txt"].rstrip().endswith("}")
+
+
+def test_merge_scanner_ignores_comments_and_string_braces():
+    original = (
+        'spriteTypes = { # spriteType = { name = "GFX_fake" }\n'
+        '  note = "brace } and spriteType = { name = \\"GFX_fake2\\" }"\n'
+        + _render("GFX_a", "gfx/a.dds")
+        + "}\n"
+    )
+
+    out = gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds"}, _render)
+
+    assert out["deduped"] == []
+    assert out["orphaned"] == []
+    assert 'name = "GFX_a"' in out["txt"]
+    assert out["txt"].count('name = "GFX_fake"') == 1  # comment is preserved, not parsed
+
+
+def test_merge_metadata_ignores_commented_assignments():
+    original = (
+        "spriteTypes = {\n"
+        "  spriteType = {\n"
+        '    # name = "GFX_fake" texturefile = "gfx/fake.dds"\n'
+        '    label = "name = \\"GFX_other\\" texturefile = \\"gfx/other.dds\\""\n'
+        '    name = "GFX_real"\n'
+        '    texturefile = "gfx/old.dds"\n'
+        "  }\n}\n"
+    )
+
+    out = gfx_mod.merge_gfx_text(original, {"GFX_real": "gfx/new.dds"}, _render)
+
+    assert out["changed"] == [("GFX_real", "gfx/old.dds")]
+    assert out["orphaned"] == []
+    assert "gfx/new.dds" in out["txt"]
+    assert "GFX_fake" not in out["orphaned"]
+
+
+def test_merge_appends_before_structural_root_brace_not_comment_brace():
+    original = "spriteTypes = {\n" + _render("GFX_a", "gfx/a.dds") + "} # }\n"
+
+    out = gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds", "GFX_b": "gfx/b.dds"}, _render)
+
+    assert out["txt"].count("spriteType = {") == 2
+    assert out["txt"].rstrip().endswith("} # }")
+    assert out["txt"].count("}\n") >= 2
+
+
+def test_merge_appends_inside_lowercase_spritetypes_root_staying_parseable_and_idempotent():
+    """Append inside a lowercase root and keep repeated merges unchanged."""
+    original = "spritetypes = {\n" + _render("GFX_a", "gfx/a.dds") + "}\n"
+    entries = {"GFX_a": "gfx/a.dds", "GFX_b": "gfx/b.dds"}
+
+    out = gfx_mod.merge_gfx_text(original, entries, _render)
+
+    from md_mcp.paradox import parse_string
+
+    tree = parse_string(out["txt"])
+    top = tree.children()
+    assert len(top) == 1
+
+    types_block = top[0]
+    sprite_blocks = [child for child in types_block.children() if child.name == "spriteType"]
+    assert len(sprite_blocks) == 2
+
+    again = gfx_mod.merge_gfx_text(out["txt"], entries, _render)
+    assert again["txt"] == out["txt"]
+    assert again["would_write"] is False
+
+
 def test_merge_dedup_divergent_texture_is_reported():
     original = (
         "spriteTypes = {\n" + _render("GFX_a", "gfx/a.dds") + _render("GFX_a", "gfx/a2.dds") + "}\n"

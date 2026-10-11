@@ -557,6 +557,33 @@ def test_merge_appends_before_structural_root_brace_not_comment_brace():
     assert out["txt"].count("}\n") >= 2
 
 
+def test_merge_appends_inside_lowercase_spritetypes_root_staying_parseable_and_idempotent():
+    """Real-mod MD_leader_portraits.gfx declares its root as lowercase `spritetypes`.
+
+    The insertion anchor must not be case-sensitive: a new block appended after the
+    root close leaves the document invalid, while the pre-#151 `rfind("}")` anchor
+    inserted inside it.
+    """
+    original = "spritetypes = {\n" + _render("GFX_a", "gfx/a.dds") + "}\n"
+    entries = {"GFX_a": "gfx/a.dds", "GFX_b": "gfx/b.dds"}
+
+    out = gfx_mod.merge_gfx_text(original, entries, _render)
+
+    from md_mcp.paradox import parse_string
+
+    tree = parse_string(out["txt"])
+    top = tree.children()
+    assert len(top) == 1
+
+    types_block = top[0]
+    sprite_blocks = [child for child in types_block.children() if child.name == "spriteType"]
+    assert len(sprite_blocks) == 2
+
+    again = gfx_mod.merge_gfx_text(out["txt"], entries, _render)
+    assert again["txt"] == out["txt"]
+    assert again["would_write"] is False
+
+
 def test_merge_dedup_divergent_texture_is_reported():
     original = (
         "spriteTypes = {\n" + _render("GFX_a", "gfx/a.dds") + _render("GFX_a", "gfx/a2.dds") + "}\n"

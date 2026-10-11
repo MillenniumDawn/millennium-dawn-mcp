@@ -27,7 +27,11 @@ SPRITETYPES_HEADER = "spriteTypes = {\n"
 _SPRITETYPE_RE = re.compile(r"[sS]priteType\s*=\s*\{")
 _NAME_RE = re.compile(r'name\s*=\s*"([^"]+)"')
 _TEXTUREFILE_RE = re.compile(r'texture[fF]ile\s*=\s*"([^"]+)"')
-_SPRITE_TYPES_RE = re.compile(r"spriteTypes\s*=\s*\{")
+# Case-insensitive: real mod files declare the root as `spriteTypes` mostly, but also
+# `spritetypes` (e.g. MD_leader_portraits.gfx); matching any casing matches GfxIndex.
+# Case-insensitive: real mod files declare the root as `spriteTypes` mostly, but also
+# `spritetypes` (e.g. MD_leader_portraits.gfx); matching any casing matches GfxIndex.
+_SPRITE_TYPES_RE = re.compile(r"spriteTypes\s*=\s*\{", re.IGNORECASE)
 
 _Render = Callable[[str, str], str]
 

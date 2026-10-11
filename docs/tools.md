@@ -881,3 +881,12 @@ and `until` apply the upstream date filters. `limit`/`offset` page conflict,
 politics, annexation, economy, inflation, and country-detail maps.
 Relative paths, other extensions, missing files, and logs without parsed MD
 entries return `{ok: false, error}`.
+
+### `ai_path_report(tag, section?, limit?, offset?) -> dict`
+
+Run upstream `tools/analysis/ai_path_report.py` for one country. `section` may
+select a report section (`rule`, `wiring`, `owners`, `matrix`, `graph`, `plans`,
+`rewards`, `mechanics`, or `government`); omit it for all sections. `limit` and
+`offset` page every list independently, and `pagination` reports each list's
+total and truncation. Output is budgeted; subprocess errors and invalid country
+tags return `{ok: false, error}`.

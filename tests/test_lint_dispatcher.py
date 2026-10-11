@@ -136,6 +136,64 @@ def test_lint_changelog_reports_upstream_line_diagnostics(tmp_path):
     ]
 
 
+def test_lint_changelog_unloadable_checker_fails(tmp_path):
+    # A checker that cannot load is a failure, not a quiet pass: the missing
+    # check must surface in failed_checks like any other wrapper error.
+    (tmp_path / "Changelog.txt").write_text("v1.0\nCategory:\n- entry\n", encoding="utf-8")
+
+    out = lint_tool(tmp_path, files=["Changelog.txt"], checks=["changelog"], validators=[])
+
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["changelog"]
+    (entry,) = [c for c in out["checks"] if c["name"] == "changelog"]
+    assert entry["ok"] is False
+    assert "check_changelog" in entry["error"]
+
+
+def test_lint_changelog_invalid_utf8_fails(tmp_path):
+    # Non-UTF-8 Changelog.txt fails the check instead of passing silently.
+    _make_script(
+        tmp_path,
+        "tools/linting/check_changelog.py",
+        "def check_lines(lines):\n    return []\n" "def order_lines(lines):\n    return lines\n",
+    )
+    (tmp_path / "Changelog.txt").write_bytes(b"v1.0\n\xff\xfe broken bytes \n")
+
+    out = lint_tool(tmp_path, files=["Changelog.txt"], checks=["changelog"], validators=[])
+
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["changelog"]
+    (entry,) = [c for c in out["checks"] if c["name"] == "changelog"]
+    assert entry["ok"] is False
+    assert "utf-8" in entry["error"]
+
+
+def test_lint_changelog_unreadable_changelog_fails(tmp_path):
+    # An unreadable Changelog.txt fails the check (skipped when tests run as root).
+    import os
+
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root ignores read permissions")
+    _make_script(
+        tmp_path,
+        "tools/linting/check_changelog.py",
+        "def check_lines(lines):\n    return []\n" "def order_lines(lines):\n    return lines\n",
+    )
+    changelog = tmp_path / "Changelog.txt"
+    changelog.write_text("v1.0\nCategory:\n- entry\n", encoding="utf-8")
+    changelog.chmod(0o000)
+    try:
+        out = lint_tool(tmp_path, files=["Changelog.txt"], checks=["changelog"], validators=[])
+    finally:
+        changelog.chmod(0o644)
+
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["changelog"]
+    (entry,) = [c for c in out["checks"] if c["name"] == "changelog"]
+    assert entry["ok"] is False
+    assert "Permission denied" in entry["error"]
+
+
 def test_lint_aggregates_issues_from_multiple_checks(tmp_path):
     _seed_all_scripts(
         tmp_path,

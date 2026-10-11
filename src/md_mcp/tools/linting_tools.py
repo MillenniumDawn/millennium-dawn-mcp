@@ -181,12 +181,7 @@ def lint_changelog_tool(
     *,
     submod_root: Optional[Path] = None,
 ) -> dict:
-    """Check Changelog.txt ordering with the upstream pure check_lines core.
-
-    An unloadable checker, unreadable file, or invalid UTF-8 is a failed check,
-    not a silent pass — a silently missing check would read as clean lint. Only
-    an absent Changelog.txt is a legitimate no-op.
-    """
+    """Check changelog ordering; absent files skip, checker and read errors fail."""
     roots = [root for root in (submod_root, mod_root) if root is not None]
     changelog = next(
         (root / "Changelog.txt" for root in roots if (root / "Changelog.txt").is_file()), None
@@ -201,20 +196,9 @@ def lint_changelog_tool(
         }
     try:
         module = _load_changelog_core(mod_root)
-    except ImportError as exc:
-        return {
-            "ok": False,
-            "total": 0,
-            "issues": [],
-            "error": (
-                f"Upstream changelog checker not loadable from {mod_root}/tools ({exc}); "
-                f"is this a Millennium-Dawn checkout with tools/linting?"
-            ),
-        }
-    try:
         text = changelog.read_bytes().decode("utf-8-sig")
         errors = module.check_lines(text.splitlines())
-    except (OSError, UnicodeDecodeError) as exc:
+    except (ImportError, OSError, UnicodeDecodeError) as exc:
         return {"ok": False, "total": 0, "issues": [], "error": str(exc)}
     issues = []
     for message in errors:

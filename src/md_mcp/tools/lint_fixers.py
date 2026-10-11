@@ -13,6 +13,7 @@ validator `_issues`; keep both sides in mind when upstream refactors):
   * `fix_loc_yaml.check_line` / `fix_line` — per-line loc YAML fixes
   * `check_common_mistakes._find_focus_log_mismatches` /
     `_find_decision_log_mismatches` — log-id detection (shared with the checker)
+  * `check_changelog.check_lines` / `order_lines` — changelog validation and ordering
 
 `fix_line_endings` has no importable core (its only entry point writes files),
 so its CRLF→LF byte transform is reimplemented inline.
@@ -30,7 +31,7 @@ from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget
 from ..util.upstream_modules import UpstreamModules
 from ..validators.attribution import normalize_path
 
-FIXERS: tuple[str, ...] = ("styling", "loc_yaml", "line_endings", "log_ids")
+FIXERS: tuple[str, ...] = ("styling", "loc_yaml", "line_endings", "log_ids", "changelog")
 
 # fix_log_ids only rewrites inside these directories (upstream _finder_for).
 LOG_ID_SCOPES: tuple[str, ...] = ("common/national_focus/", "common/decisions/")
@@ -40,6 +41,7 @@ _UPSTREAM_MODULES: tuple[str, ...] = (
     "fix_styling",
     "fix_loc_yaml",
     "check_common_mistakes",
+    "check_changelog",
 )
 
 # Per-fixer import sets: line_endings needs nothing upstream, and a broken
@@ -49,6 +51,7 @@ _UPSTREAM_IMPORTS: dict[str, tuple[str, ...]] = {
     "loc_yaml": ("fix_loc_yaml",),
     "log_ids": ("check_common_mistakes",),
     "line_endings": (),
+    "changelog": ("check_changelog",),
 }
 
 _UPSTREAM = UpstreamModules("linting", _UPSTREAM_MODULES)
@@ -110,6 +113,11 @@ def fix_lint_tool(
                 "ok": False,
                 "error": f"fixer=styling only applies to .txt files, got {norm_path}",
             }
+        if fixer == "changelog" and norm_path.casefold() != "changelog.txt":
+            return {
+                "ok": False,
+                "error": f"fixer=changelog only applies to Changelog.txt, got {norm_path}",
+            }
         try:
             roots = [r for r in (submod_root, mod_root) if r is not None]
             resolved = validate_user_path(norm_path, roots, require_file=True)
@@ -152,6 +160,9 @@ def fix_lint_tool(
     if fixer == "log_ids":
         assert norm_path is not None
         return _fix_log_ids(result, modules, text, norm_path)
+    if fixer == "changelog":
+        fixed = "".join(modules["check_changelog"].order_lines(text.splitlines(keepends=True)))
+        return _finish(result, text, fixed, int(fixed != text), {}, [])
     if fixer == "styling":
         fixed, fixes, summary, warnings = _fix_styling(modules, text)
     else:

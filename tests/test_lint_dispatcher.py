@@ -108,6 +108,34 @@ def test_lint_subset_only_runs_requested(tmp_path):
     assert ran == {"common_mistakes", "loc_encoding"}
 
 
+def test_lint_changelog_reports_upstream_line_diagnostics(tmp_path):
+    (tmp_path / "Changelog.txt").write_text(
+        "v1.0\nCategory:\n- [USA] tagged\n- untagged later\n", encoding="utf-8"
+    )
+    _make_script(
+        tmp_path,
+        "tools/linting/check_changelog.py",
+        "def check_lines(lines):\n"
+        "    return ['line 4: untagged entry must come before [USA] (line 3)']\n"
+        "def order_lines(lines):\n    return lines\n",
+    )
+
+    out = lint_tool(tmp_path, files=["Changelog.txt"], checks=["changelog"], validators=[])
+
+    assert out["ok"] is True
+    assert out["checks_run"] == ["changelog"]
+    assert out["issues_total_after_filter"] == 1
+    assert out["issues"] == [
+        {
+            "file": "Changelog.txt",
+            "line": 4,
+            "message": "untagged entry must come before [USA] (line 3)",
+            "severity": "warning",
+            "check": "changelog",
+        }
+    ]
+
+
 def test_lint_aggregates_issues_from_multiple_checks(tmp_path):
     _seed_all_scripts(
         tmp_path,

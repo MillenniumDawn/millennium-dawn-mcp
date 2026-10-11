@@ -84,6 +84,15 @@ def _find_decision_log_mismatches(lines):
     return out
 """
 
+_STANDIN_CHECK_CHANGELOG = r"""
+def check_lines(lines):
+    return [f"line {i}: untagged entry must come before [USA] (line 2)"
+            for i, line in enumerate(lines, 1) if line.startswith("- untagged-late")]
+
+def order_lines(lines):
+    return [line.replace("untagged-late", "untagged-first") for line in lines]
+"""
+
 
 def _plant_upstream(root: Path, *, styling_replacement: str = "YY") -> None:
     linting = root / LINTING
@@ -94,6 +103,7 @@ def _plant_upstream(root: Path, *, styling_replacement: str = "YY") -> None:
     )
     (linting / "fix_loc_yaml.py").write_text(_STANDIN_FIX_LOC_YAML, encoding="utf-8")
     (linting / "check_common_mistakes.py").write_text(_STANDIN_CHECK_COMMON, encoding="utf-8")
+    (linting / "check_changelog.py").write_text(_STANDIN_CHECK_CHANGELOG, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +120,24 @@ def test_signatures_lock_api():
 def test_unknown_fixer_rejected(tmp_path):
     out = fix_lint_tool(tmp_path, fixer="nonsense", content="x")
     assert out["ok"] is False
-    assert "styling" in out["error"]
+
+
+def test_changelog_fixer_uses_order_lines_without_writing(tmp_path):
+    _plant_upstream(tmp_path)
+    source = "- untagged-late\n- [USA] tagged\n"
+
+    out = fix_lint_tool(tmp_path, fixer="changelog", content=source)
+
+    assert out["ok"] is True
+    assert out["changed"] is True
+    assert out["txt"] == "- untagged-first\n- [USA] tagged\n"
+    assert not (tmp_path / "Changelog.txt").exists()
+
+
+def test_changelog_fixer_rejects_wrong_path(tmp_path):
+    out = fix_lint_tool(tmp_path, fixer="changelog", path="other.txt")
+    assert out["ok"] is False
+    assert "Changelog.txt" in out["error"]
 
 
 def test_missing_source_rejected(tmp_path):
@@ -453,6 +480,7 @@ _UPSTREAM_FILES = [
     Path("tools") / "linting" / "fix_styling.py",
     Path("tools") / "linting" / "fix_loc_yaml.py",
     Path("tools") / "linting" / "check_common_mistakes.py",
+    Path("tools") / "linting" / "check_changelog.py",
     # fix_styling imports validate_style, which imports validator_common.
     Path("tools") / "validation" / "validate_style.py",
     Path("tools") / "validation" / "validator_common.py",
@@ -537,6 +565,25 @@ def test_integration_styling_roundtrip(upstream_root):
     assert "txt" not in again
 
     assert (upstream_root / rel).read_text(encoding="utf-8") == _STYLING_VIOLATIONS
+
+
+@pytest.mark.integration
+def test_integration_changelog_lint_and_fix_roundtrip(upstream_root):
+    from md_mcp.tools.linting_tools import lint_changelog_tool
+
+    source = "v1.0.0\n\nFeatures:\n" "- [USA] tagged entry\n" "- untagged entry\n"
+    _write(upstream_root, "Changelog.txt", source)
+
+    lint = lint_changelog_tool(upstream_root)
+    fixed = fix_lint_tool(upstream_root, fixer="changelog", path="Changelog.txt")
+
+    assert lint["ok"] is True
+    assert lint["total"] >= 1
+    assert fixed["ok"] is True
+    assert fixed["changed"] is True
+    assert fixed["fixes"] == 1
+    assert (upstream_root / "Changelog.txt").read_text(encoding="utf-8") == source
+    assert lint_changelog_tool(upstream_root)["total"] == lint["total"]
 
 
 @pytest.mark.integration

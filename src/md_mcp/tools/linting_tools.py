@@ -32,6 +32,7 @@ from ..analysis.suppressions import SUPPRESSION_SOURCE, suppressed_count
 from ..util.pathing import contained
 from ..util.process import run_in_group
 from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget, fit_prefix
+from ..util.upstream_modules import UpstreamModules
 from ..validators import SLOW_VALIDATORS, ValidatorRunner, count_severities
 from ..validators.attribution import normalize_path
 from .lint_validators import (
@@ -43,6 +44,7 @@ from .lint_validators import (
 from .validation_tools import filter_and_cap
 
 _LINT_LINE_RE = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):\s*(?P<msg>.+)$")
+_CHANGELOG_CHECKER = UpstreamModules("linting", ("check_changelog",))
 
 # validate_mod_encoding emits one line per file on stdout/stderr.
 _MOD_ENC_OK_RE = re.compile(r"^(?P<file>.+?):\s+Valid UTF-8 encoding\s*$")
@@ -173,6 +175,53 @@ def lint_common_mistakes_tool(
         },
         cwd=submod_root,
     )
+
+
+def lint_changelog_tool(
+    mod_root: Path,
+    *,
+    submod_root: Optional[Path] = None,
+) -> dict:
+    """Check Changelog.txt ordering with the upstream pure check_lines core."""
+    roots = [root for root in (submod_root, mod_root) if root is not None]
+    changelog = next(
+        (root / "Changelog.txt" for root in roots if (root / "Changelog.txt").is_file()), None
+    )
+    if changelog is None:
+        return {
+            "ok": True,
+            "total": 0,
+            "issues": [],
+            "exit_code": 0,
+            "skipped": "Changelog.txt not found",
+        }
+    try:
+        module = _CHANGELOG_CHECKER.load(mod_root, ("check_changelog",))["check_changelog"]
+        text = changelog.read_bytes().decode("utf-8-sig")
+        errors = module.check_lines(text.splitlines())
+    except ImportError as exc:
+        return {
+            "ok": True,
+            "total": 0,
+            "issues": [],
+            "exit_code": 0,
+            "skipped": f"upstream changelog checker unavailable: {exc}",
+        }
+    except (OSError, UnicodeDecodeError) as exc:
+        return {"ok": False, "total": 0, "issues": [], "error": str(exc)}
+    issues = []
+    for message in errors:
+        match = re.match(r"line (\d+): (.*)", message)
+        if match:
+            issues.append(
+                {
+                    "file": "Changelog.txt",
+                    "line": int(match.group(1)),
+                    "message": match.group(2),
+                    "severity": "warning",
+                }
+            )
+    return {"ok": True, "total": len(issues), "issues": issues, "exit_code": 0}
 
 
 def review_branch_tool(
@@ -365,6 +414,7 @@ _ALL_CHECKS: tuple[str, ...] = (
     "common_mistakes",
     "mod_encoding",
     "loc_encoding",
+    "changelog",
 )
 
 
@@ -583,6 +633,13 @@ def lint_tool(
         "loc_encoding": lambda: _maybe(
             loc_files,
             lambda: lint_loc_encoding_tool(mod_root, files=loc_files, submod_root=submod_root),
+        ),
+        "changelog": lambda: _maybe(
+            ["Changelog.txt"]
+            if present_relevant is None
+            or any(path.casefold() == "changelog.txt" for path in present_relevant)
+            else [],
+            lambda: lint_changelog_tool(mod_root, submod_root=submod_root),
         ),
     }
 

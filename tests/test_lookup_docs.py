@@ -404,3 +404,36 @@ def test_skill_frontmatter_folded_description_and_escaped_quote(fake_mod_root, c
     )
     result = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "skill", key="diary")
     assert result["entries"][0]["description"] == "Write a country's diary with care."
+
+
+def test_skill_lookup_by_directory_name_without_frontmatter(fake_mod_root, cache_dir) -> None:
+    skill = fake_mod_root / ".claude" / "skills" / "plain" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("# Plain skill\nBody copy.\n", encoding="utf-8")
+
+    result = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "skill", key="plain")
+
+    assert result["ok"] is True
+    assert result["entries"][0]["file"] == ".claude/skills/plain/SKILL.md"
+    assert "frontmatter" not in result["entries"][0]
+
+
+def test_skill_unterminated_frontmatter_is_not_parsed(fake_mod_root, cache_dir) -> None:
+    skill = fake_mod_root / ".claude" / "skills" / "broken" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        (
+            "---\nname: broken\ndescription: desc line\n"
+            "# Broken skill\nname: leaked-from-body\nBody copy.\n"
+        ),
+        encoding="utf-8",
+    )
+    settings = _settings(fake_mod_root, cache_dir)
+
+    result = lookup_docs_tool(settings, "skill", key="broken")
+
+    assert result["ok"] is True
+    entry = result["entries"][0]
+    assert "frontmatter" not in entry
+    assert entry["title"] == "Broken skill"
+    assert lookup_docs_tool(settings, "skill", key="leaked-from-body")["ok"] is False

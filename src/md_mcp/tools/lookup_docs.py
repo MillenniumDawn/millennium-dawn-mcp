@@ -249,13 +249,20 @@ def _read_system_documents(directory: Path, relative_dir: Path) -> list[dict]:
                         skill_stem.replace("/references/", "/"),
                     ]
                 )
+            # The skill directory name must stay addressable even when the
+            # frontmatter is missing or malformed (issue #191: key=<name>).
+            if "/" in skill_key:
+                skill_name = skill_key.split("/", 1)[0]
+                if skill_name not in aliases:
+                    aliases.append(skill_name)
             document["aliases"] = tuple(aliases)
             frontmatter = _frontmatter(content)
             if frontmatter:
                 document["frontmatter"] = frontmatter
                 if frontmatter.get("name"):
                     document["title"] = frontmatter["name"]
-                    document["aliases"] = tuple([*document["aliases"], frontmatter["name"]])
+                    if frontmatter["name"] not in document["aliases"]:
+                        document["aliases"] = tuple([*document["aliases"], frontmatter["name"]])
                 document["description"] = frontmatter.get("description", "")
         documents.append(document)
     return documents
@@ -266,21 +273,25 @@ def _frontmatter(content: str) -> dict[str, str]:
     lines = content.splitlines()
     if not lines or lines[0].strip() != "---":
         return {}
+    # Require the closing delimiter: an unterminated block means this is not
+    # frontmatter, and parsing body lines as key/value pairs would let prose
+    # like ``name: ...`` hijack the skills' aliases and title (issue #191).
+    close = next(
+        (index for index in range(1, len(lines)) if lines[index].strip() == "---"),
+        None,
+    )
+    if close is None:
+        return {}
     result: dict[str, str] = {}
     index = 1
-    while index < len(lines):
-        line = lines[index]
-        if line.strip() == "---":
-            break
-        match = re.match(r"^([A-Za-z_][\w-]*):\s*(.*?)\s*$", line)
+    while index < close:
+        match = re.match(r"^([A-Za-z_][\w-]*):\s*(.*?)\s*$", lines[index])
         if match:
             value = match.group(2)
             if value in {">", ">-", ">+", "|", "|-", "|+"}:
                 chunks = []
                 index += 1
-                while index < len(lines) and (
-                    lines[index].startswith(" ") or not lines[index].strip()
-                ):
+                while index < close and (lines[index].startswith(" ") or not lines[index].strip()):
                     if lines[index].strip():
                         chunks.append(lines[index].strip())
                     index += 1

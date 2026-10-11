@@ -831,3 +831,12 @@ print(result)
 
 This bypasses MCP framing — exceptions surface directly, which is the easiest
 way to diagnose a tool that's misbehaving inside the protocol layer.
+
+### `event_load(tag?, window?, threshold?, limit?, offset?) -> dict`
+
+Run upstream `tools/analysis/event_load.py` in an isolated process. Returns
+per-year scheduled delivery totals and busiest-window counts, with event
+details paginated by `limit`/`offset` independently within each year;
+`flagged_years` includes flagged event details. `years` retains all annual
+summaries so later event pages remain reachable. Defaults are USA, a 45-day
+window, threshold 3, limit 20, and offset 0.

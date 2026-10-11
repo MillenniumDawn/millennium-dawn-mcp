@@ -12,6 +12,7 @@ from ..util.response import coerce_int, enforce_budget
 _SHIM = Path(__file__).with_name("upstream_analysis_shim.py")
 _TICK_TIMEOUT = 120
 _GDP_TIMEOUT = 120
+_EVENT_LOAD_TIMEOUT = 180
 _DAYS_PER_MONTH = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 
 
@@ -74,6 +75,30 @@ def estimate_gdp_tool(mod_root: Path, tag: str) -> dict:
         timeout=_GDP_TIMEOUT,
     )
     return enforce_budget(result, heavy_keys=("breakdown",))
+
+
+def event_load_tool(
+    mod_root: Path,
+    tag: str = "USA",
+    window: int = 45,
+    threshold: int = 3,
+    limit: int = 20,
+    offset: int = 0,
+) -> dict:
+    """Summarize scheduled event totals, busy windows, and flagged years."""
+    result = _run_shim(
+        mod_root,
+        "event_load",
+        {
+            "tag": tag,
+            "window": window,
+            "threshold": threshold,
+            "limit": limit,
+            "offset": offset,
+        },
+        timeout=_EVENT_LOAD_TIMEOUT,
+    )
+    return enforce_budget(result, heavy_keys=("years", "flagged_years"))
 
 
 def calculate_days_tool(year: int, month: int, day: int) -> dict:

@@ -421,3 +421,58 @@ def test_shim_load_module_raises_for_directory(tmp_path):
 
     with pytest.raises(ImportError, match="Could not load"):
         shim._load_module(tmp_path, "nope")
+
+
+def test_event_load_paginates_years_and_returns_flagged_details(tmp_path):
+    script = tmp_path / "tools" / "analysis" / "event_load.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        """
+def collect(tag, root):
+    return {"2000": [("a.1", 1), ("b.1", 2), ("c.1", 70)], "2001": [("d.1", 4)]}
+def busiest(days, window):
+    return 3 if len(days) > 1 else len(days)
+""",
+        encoding="utf-8",
+    )
+    result = upstream_analysis.event_load_tool(tmp_path, limit=1, offset=1, threshold=3)
+    assert result["ok"] is True
+    assert result["total"] == 2
+    assert result["years"][0]["events"][0] == {"id": "b.1", "day_offset": 2}
+    assert result["years"][0]["events_truncated"] is True
+    assert result["flagged_years"][0]["year"] == "2000"
+    assert result["flagged_years"][0]["events"][0] == {"id": "b.1", "day_offset": 2}
+
+
+@pytest.mark.integration
+def test_event_load_matches_upstream_cli(real_mod_root):
+    import sys
+
+    script = real_mod_root / "tools" / "analysis" / "event_load.py"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--tag",
+            "USA",
+            "--window",
+            "45",
+            "--threshold",
+            "3",
+            "--path",
+            str(real_mod_root),
+            "--json",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    cli = json.loads(completed.stdout)
+    wrapped = upstream_analysis.event_load_tool(
+        real_mod_root, tag="USA", window=45, threshold=3, limit=1000
+    )
+    assert wrapped["ok"] is True
+    for year, summary in cli["years"].items():
+        row = next(item for item in wrapped["years"] if item["year"] == year)
+        assert row["total"] == summary["count"]
+        assert row["busiest_window"] == summary["peak"]

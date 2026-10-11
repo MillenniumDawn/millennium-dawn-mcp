@@ -13,7 +13,7 @@ import os
 import sys
 from dataclasses import replace
 from functools import partial
-from typing import Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 from .analysis.diff_summary import diff_summary
 from .analysis.encoding import check_encoding
@@ -125,7 +125,7 @@ def build_server(settings: Settings):
     # Keep a handle for orderly shutdown in embedding/test contexts.  The CLI
     # process naturally tears down its workers at exit; tests must close them
     # before any subsequent fork.
-    mcp._md_blocking_tools = blocking_tools
+    cast(Any, mcp)._md_blocking_tools = blocking_tools
 
     def _index(cls):
         return _make_index(cls, settings)

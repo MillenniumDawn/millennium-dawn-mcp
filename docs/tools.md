@@ -105,6 +105,16 @@ Categories: `focuses`, `events`, `event_files`, `decisions`, `ideas`,
 `scripted_effects`, `scripted_effect_files`, `scripted_triggers`, and
 `scripted_trigger_files`.
 
+Country history files include anchored `TAG - ...` names (including numbered
+variants) even when the name differs from the `common/country_tags/` country
+name, plus exact mapped country filenames. The tag ends at the ` - ` boundary,
+so a similar prefix such as `TAGX - ...` does not match. Event files match the
+tag prefix or the mapped country name, which covers long-name files such as
+`events/Afghanistan.txt`. Listed event IDs are the IDs in those associated
+files; they may describe shared content and do not imply exclusive ownership.
+The manifest does not infer ownership from mentions inside event bodies.
+Submod files take precedence over mod files at the same relative path.
+
 ```json
 {
   "ok": true,

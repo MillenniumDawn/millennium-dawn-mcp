@@ -9,9 +9,10 @@ Country-owned files follow two conventions in Millennium Dawn (cf. CLAUDE.md and
 
   * Focus, decision, idea, MIO, history, OOB files often start with `TAG_` or `<int>_TAG_`
   * Localisation files are `MD_focus_TAG_l_english.yml` (one file per country)
-  * Events go in `events/<CountryName>.txt` — the filename uses the long name, not the
-    tag, so we cross-reference via the event index records that start with `<TAG>.` (e.g.
-    `Afghanistan.3` for tag AFG).
+  * Country history files match either an anchored `TAG - ` filename or the
+    explicit `common/country_tags/` country-file name. Event files match tag
+    prefixes or that mapped country name. These are file associations: events
+    within a shared file are not claimed to be exclusive to one country.
 
 Output-size aware. By default returns only counts and a small sample of each
 category; pass `include=[...]` to opt in to full lists for specific categories.
@@ -96,7 +97,9 @@ def list_country_content(
     focuses: list[str] = _ids_for_tag(focus_index, tag_upper)
     decisions: list[str] = _ids_for_tag(decision_index, tag_upper)
     ideas: list[str] = _ids_for_tag(idea_index, tag_upper)
-    events, event_files = _events(event_index, tag_upper, prefix)
+    country_file = _country_file(country_tag_index, tag_upper)
+    country_stem = Path(country_file).stem if country_file else None
+    events, event_files = _events(event_index, tag_upper, prefix, country_stem)
     loc_files: list[str] = _loc_files(loc_index, tag_upper)
     mio_files = _scan_files(
         mod_root,
@@ -105,7 +108,11 @@ def list_country_content(
         submod_root=submod_root,
     )
     history_files = _scan_files(
-        mod_root, "history/countries", prefix=tag_upper, submod_root=submod_root
+        mod_root,
+        "history/countries",
+        prefix=tag_upper,
+        submod_root=submod_root,
+        country_stem=country_stem,
     )
     oob_files = _scan_files(mod_root, "history/units", prefix=tag_upper, submod_root=submod_root)
     namelist_files = _scan_files(
@@ -180,7 +187,10 @@ def _ids_for_tag(index, tag_upper: str) -> list[str]:
 
 
 def _events(
-    event_index: Optional[EventIndex], tag_upper: str, prefix: str
+    event_index: Optional[EventIndex],
+    tag_upper: str,
+    prefix: str,
+    country_stem: Optional[str] = None,
 ) -> tuple[list[str], list[str]]:
     if event_index is None:
         return [], []
@@ -194,7 +204,8 @@ def _events(
             continue
         file = rec["file"]
         stem = Path(file).stem
-        if stem.upper() == tag_upper or stem.upper().startswith(prefix):
+        country_event_file = country_stem is not None and stem.casefold() == country_stem.casefold()
+        if stem.upper() == tag_upper or stem.upper().startswith(prefix) or country_event_file:
             events.append(eid)
             if file not in seen_files:
                 files.append(file)
@@ -259,6 +270,7 @@ def _scan_files(
     *,
     prefix: str,
     submod_root: Optional[Path] = None,
+    country_stem: Optional[str] = None,
 ) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
@@ -277,7 +289,25 @@ def _scan_files(
             matched = stem.startswith(prefix + "_") or stem == prefix
             if not matched and "_" in stem:
                 matched = stem.split("_")[1] == prefix
+            if not matched and country_stem:
+                # CountryTagIndex's country_file mapping is the ownership source
+                # for long-name history files; don't infer ownership from prose.
+                mapped = {country_stem.upper(), f"{prefix} - {country_stem}".upper()}
+                matched = stem in mapped
+            if not matched and subdir == "history/countries":
+                matched = stem.startswith(f"{prefix} - ") and len(stem) > len(prefix) + 3
             if matched:
                 seen.add(rel)
                 out.append(rel)
     return sorted(out)
+
+
+def _country_file(index: Optional[CountryTagIndex], tag_upper: str) -> Optional[str]:
+    """Return the explicit history-file mapping for a tag, if indexed."""
+    if index is None:
+        return None
+    record = index.resolve(tag_upper)
+    if record is None:
+        return None
+    value = record.get("country_file")
+    return str(value) if value else None

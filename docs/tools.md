@@ -365,6 +365,12 @@ for "check this code's quality."
   this limit or the response byte budget.
 - **`counts_only=True`** — omit the issues array; return per-check + overall counts only.
 
+Overall severity counts and `issues_total_after_filter` include findings hidden
+by a check wrapper's own per-check cap (200 diagnostics) or byte-budget drop.
+`truncated` is true when a wrapper omits diagnostics, or when the requested
+issue limit or final response budget omits details. Per-check `total` remains
+the complete count even when fewer issues are available to return.
+
 Returns:
 
 ```json

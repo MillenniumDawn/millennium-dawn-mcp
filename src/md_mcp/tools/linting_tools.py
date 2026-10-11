@@ -588,6 +588,7 @@ def lint_tool(
 
     per_check: list[dict] = []
     all_issues: list[dict] = []
+    omitted_by_severity: dict[str, int] = {}
     suppressed_total = 0
 
     for name in selected:
@@ -606,6 +607,12 @@ def lint_tool(
                 check_summary["stderr_tail"] = result["stderr_tail"]
         else:
             issues = result.get("issues", []) or []
+            omitted = max(0, int(result.get("total", len(issues))) - len(issues))
+            if omitted:
+                # Encoding wrappers cap their per-check diagnostic arrays. Their
+                # findings have a fixed severity, so preserve complete totals.
+                severity = "warning" if name == "common_mistakes" else "error"
+                omitted_by_severity[severity] = omitted_by_severity.get(severity, 0) + omitted
             # Tag each issue with which check produced it (helps the agent).
             for i in issues:
                 i.setdefault("check", name)
@@ -630,6 +637,17 @@ def lint_tool(
     issues_capped, truncated, issues_total = filter_and_cap(
         all_issues, severity_min=severity_min, limit=limit
     )
+    severity_counts = count_severities(all_issues)
+    for severity, omitted in omitted_by_severity.items():
+        severity_counts[severity] = severity_counts.get(severity, 0) + omitted
+    severity_order = {"info": 0, "warning": 1, "error": 2}
+    severity_floor = severity_order.get(severity_min, 0)
+    complete_total_after_filter = sum(
+        count
+        for severity, count in severity_counts.items()
+        if severity_order.get(severity, 0) >= severity_floor
+    )
+    truncated = truncated or complete_total_after_filter > len(issues_capped)
 
     failed_checks = [c["name"] for c in per_check if not c.get("ok")]
     summary: dict = {
@@ -638,8 +656,8 @@ def lint_tool(
         "checks_run": selected,
         "validators_run": validator_names if validators_ran else [],
         "failed_checks": failed_checks,
-        "counts": count_severities(all_issues),
-        "issues_total_after_filter": issues_total,
+        "counts": severity_counts,
+        "issues_total_after_filter": max(issues_total, complete_total_after_filter),
         "truncated": truncated,
         "checks": per_check,
     }

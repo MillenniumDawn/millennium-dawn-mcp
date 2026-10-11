@@ -9,6 +9,7 @@ issues, and respects the `checks=[...]` / `severity_min=` / `limit=` /
 from __future__ import annotations
 
 import inspect
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +25,7 @@ from md_mcp.tools.linting_tools import (
     lint_loc_encoding_tool,
     lint_tool,
 )
+from md_mcp.util.response import BUDGET_BYTES
 
 
 def _make_script(root: Path, rel: str, body: str) -> Path:
@@ -229,6 +231,198 @@ def test_lint_limit_truncates(tmp_path):
     assert out["issues_total_after_filter"] == 20
     assert len(out["issues"]) == 5
     assert out["truncated"] is True
+
+
+@pytest.mark.parametrize(
+    ("check", "script", "file_pattern", "diagnostic"),
+    [
+        (
+            "mod_encoding",
+            "tools/linting/validate_mod_encoding.py",
+            "descriptor_{i}.mod",
+            "descriptor_{i}.mod: Invalid UTF-8 encoding - bad byte",
+        ),
+        (
+            "loc_encoding",
+            "tools/linting/validate_localization_encoding.py",
+            "localisation/english/file_{i}_l_english.yml",
+            "localisation/english/file_{i}_l_english.yml: Missing UTF-8 BOM",
+        ),
+    ],
+)
+def test_lint_preserves_complete_counts_when_check_wrapper_caps_diagnostics(
+    tmp_path, check, script, file_pattern, diagnostic
+):
+    count = 225
+    lines = "\n".join(f"print({diagnostic.format(i=i)!r})" for i in range(count))
+    _make_script(tmp_path, script, lines + "\n")
+
+    out = lint_tool(
+        tmp_path,
+        files=[file_pattern.format(i=i) for i in range(count)],
+        checks=[check],
+        validators=[],
+        limit=500,
+    )
+
+    assert out["counts"]["error"] == count
+    assert out["issues_total_after_filter"] == count
+    assert len(out["issues"]) == 200
+    assert out["truncated"] is True
+
+
+@pytest.mark.parametrize(
+    ("check", "script", "file_pattern", "diagnostic"),
+    [
+        (
+            "mod_encoding",
+            "tools/linting/validate_mod_encoding.py",
+            "descriptor_{i}.mod",
+            "descriptor_{i}.mod: Invalid UTF-8 encoding - bad byte",
+        ),
+        (
+            "loc_encoding",
+            "tools/linting/validate_localization_encoding.py",
+            "localisation/english/file_{i}_l_english.yml",
+            "localisation/english/file_{i}_l_english.yml: Missing UTF-8 BOM",
+        ),
+    ],
+)
+def test_lint_encoding_wrapper_caps_preserve_counts_and_respect_limit(
+    tmp_path, check, script, file_pattern, diagnostic
+):
+    count = 225
+    files = [file_pattern.format(i=i) for i in range(count)]
+    body = "\n".join(f"print({diagnostic.format(i=i)!r})" for i in range(count))
+    _make_script(tmp_path, script, body + "\n")
+
+    out = lint_tool(
+        tmp_path,
+        files=files,
+        checks=[check],
+        validators=[],
+        limit=50,
+    )
+
+    assert out["counts"]["error"] == count
+    assert out["issues_total_after_filter"] == count
+    assert len(out["issues"]) == 50
+    assert out["truncated"] is True
+
+
+@pytest.mark.parametrize(
+    ("check", "script", "file_pattern", "diagnostic"),
+    [
+        (
+            "mod_encoding",
+            "tools/linting/validate_mod_encoding.py",
+            "descriptor_{i}.mod",
+            "descriptor_{i}.mod: Invalid UTF-8 encoding - bad byte",
+        ),
+        (
+            "loc_encoding",
+            "tools/linting/validate_localization_encoding.py",
+            "localisation/english/file_{i}_l_english.yml",
+            "localisation/english/file_{i}_l_english.yml: Missing UTF-8 BOM",
+        ),
+    ],
+)
+def test_lint_encoding_wrapper_counts_only_preserves_complete_totals(
+    tmp_path, check, script, file_pattern, diagnostic
+):
+    count = 225
+    body = "\n".join(f"print({diagnostic.format(i=i)!r})" for i in range(count))
+    _make_script(tmp_path, script, body + "\n")
+
+    out = lint_tool(
+        tmp_path,
+        files=[file_pattern.format(i=i) for i in range(count)],
+        checks=[check],
+        validators=[],
+        counts_only=True,
+    )
+
+    assert out["counts"]["error"] == count
+    assert out["issues_total_after_filter"] == count
+    assert "issues" not in out
+    assert out["truncated"] is True
+
+
+@pytest.mark.parametrize(
+    ("check", "script", "file_pattern", "diagnostic", "sample_file"),
+    [
+        (
+            "mod_encoding",
+            "tools/linting/validate_mod_encoding.py",
+            "descriptor_{i}.mod",
+            "descriptor_{i}.mod: Invalid UTF-8 encoding - bad byte",
+            "descriptor_0.mod",
+        ),
+        (
+            "loc_encoding",
+            "tools/linting/validate_localization_encoding.py",
+            "localisation/english/file_{i}_l_english.yml",
+            "localisation/english/file_{i}_l_english.yml: Missing UTF-8 BOM",
+            "localisation/english/file_0_l_english.yml",
+        ),
+    ],
+)
+def test_lint_mixed_check_totals_include_wrapper_omissions(
+    tmp_path, check, script, file_pattern, diagnostic, sample_file
+):
+    count = 225
+    _make_script(
+        tmp_path,
+        "tools/linting/check_common_mistakes.py",
+        'print("common/example.txt:1: warning")\n',
+    )
+    body = "\n".join(f"print({diagnostic.format(i=i)!r})" for i in range(count))
+    _make_script(tmp_path, script, body + "\n")
+
+    out = lint_tool(
+        tmp_path,
+        files=["common/example.txt", sample_file],
+        checks=["common_mistakes", check],
+        validators=[],
+        limit=500,
+    )
+
+    assert out["counts"] == {"error": count, "warning": 1, "info": 0}
+    assert out["issues_total_after_filter"] == count + 1
+    assert len(out["issues"]) == 201
+    assert out["truncated"] is True
+
+
+def test_lint_encoding_wrapper_byte_budget_drop_preserves_counts(tmp_path):
+    count = 225
+    # The localization collector uses a fixed diagnostic message, so oversized
+    # message suffixes are discarded. Put the payload in the parsed file path
+    # instead: paths are retained, and this makes the wrapper's issue array
+    # exceed its own JSON-byte budget before the dispatcher sees it.
+    long_path = "localisation/english/" + ("x" * 600) + "_l_english.yml"
+    paths = [long_path[: -len("_l_english.yml")] + f"_{i}_l_english.yml" for i in range(count)]
+    body = "\n".join(f"print({f'{path}: Missing UTF-8 BOM'!r})" for path in paths)
+    _make_script(tmp_path, "tools/linting/validate_localization_encoding.py", body + "\n")
+
+    wrapped = lint_loc_encoding_tool(tmp_path, limit=500)
+    assert wrapped["total"] == count
+    assert wrapped["size_truncated"] is True
+    assert wrapped["issues_dropped"] == count
+    assert "issues" not in wrapped
+
+    out = lint_tool(
+        tmp_path,
+        mode="all",
+        checks=["loc_encoding"],
+        validators=[],
+        limit=500,
+    )
+
+    assert out["counts"]["error"] == count
+    assert out["issues_total_after_filter"] == count
+    assert out["truncated"] is True
+    assert out["issues"] == []
+    assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
 
 
 def test_lint_per_check_failure_isolated(tmp_path):

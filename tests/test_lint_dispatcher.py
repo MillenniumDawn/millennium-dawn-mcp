@@ -231,6 +231,32 @@ def test_lint_limit_truncates(tmp_path):
     assert out["truncated"] is True
 
 
+def test_lint_preserves_complete_counts_when_check_wrapper_caps_diagnostics(tmp_path):
+    count = 225
+    lines = "\n".join(
+        f"print('localisation/english/file_{i}_l_english.yml: Missing UTF-8 BOM')"
+        for i in range(count)
+    )
+    _make_script(
+        tmp_path,
+        "tools/linting/validate_localization_encoding.py",
+        lines + "\n",
+    )
+
+    out = lint_tool(
+        tmp_path,
+        mode="all",
+        checks=["loc_encoding"],
+        validators=[],
+        limit=500,
+    )
+
+    assert out["counts"]["error"] == count
+    assert out["issues_total_after_filter"] == count
+    assert len(out["issues"]) == 200
+    assert out["truncated"] is True
+
+
 def test_lint_per_check_failure_isolated(tmp_path):
     """One missing script doesn't bring down the rest of the run.
 

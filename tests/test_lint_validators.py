@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from md_mcp.config import Settings
+from md_mcp.indexes import base as index_base
 from md_mcp.tools import lint_validators
 from md_mcp.tools.lint_validators import (
     SCAN_PREFIXES,
@@ -22,7 +23,14 @@ from md_mcp.tools.lint_validators import (
 from md_mcp.tools.linting_tools import lint_tool
 from md_mcp.tools.validation_tools import validate_tool
 from md_mcp.util.response import BUDGET_BYTES
-from md_mcp.validators import SLOW_VALIDATORS, ValidatorInfo, ValidatorRunner, available_validators
+from md_mcp.validators import (
+    SLOW_VALIDATORS,
+    ValidatorInfo,
+    ValidatorRunner,
+    available_validators,
+)
+from md_mcp.validators import attribution as attribution_module
+from md_mcp.validators import runner as runner_module
 
 from .test_lint_dispatcher import _git, _init_repo, _seed_all_scripts
 
@@ -44,8 +52,18 @@ _ALL_NAMES = sorted(
 class FakeRunner(ValidatorRunner):
     """Stands in for ValidatorRunner; records run() kwargs, returns canned results."""
 
-    def __init__(self, results: dict | None = None, names: list | None = None):
-        super().__init__(Path("/nonexistent"))
+    def __init__(
+        self,
+        results: dict | None = None,
+        names: list | None = None,
+        mod_root: Path | None = None,
+        submod_root: Path | None = None,
+    ):
+        # The lint bridge resolves through the runner-owned attributor, so a
+        # fake mirroring that contract must point at the real test tree.
+        super().__init__(
+            mod_root if mod_root is not None else Path("/nonexistent"), submod_root=submod_root
+        )
         self.results = results or {}
         self.names = names if names is not None else _ALL_NAMES
         self.calls: list = []
@@ -153,6 +171,7 @@ def test_auto_router_mixes_tools_and_content_paths_without_protocol_output(tmp_p
     assert captured.out == ""
     assert captured.err == ""
     routing = lint_validators._upstream_routing(str(tmp_path.resolve()))
+    assert routing is not None
     assert routing[0].SEEN_TOOL_PATHS == ["tools/validation/check.py"]
     assert routing[1].SEEN_CONTENT_PATHS == ["common/ideas/example.txt"]
 
@@ -867,6 +886,7 @@ def test_run_validators_attributes_fileless_issues_from_the_message(mod_with_fil
     # regexes don't match, so `file` lands empty. The filename is still in the
     # message: recover it, then scope on the real path.
     runner = FakeRunner(
+        mod_root=mod_with_files,
         results={
             "events": {
                 "ok": True,
@@ -875,7 +895,7 @@ def test_run_validators_attributes_fileless_issues_from_the_message(mod_with_fil
                     _issue("", message="BRA.1 - Brazil.txt"),
                 ],
             }
-        }
+        },
     )
     entries, issues = run_validators_for_lint(
         runner,
@@ -892,12 +912,13 @@ def test_run_validators_resolves_basename_only_issues(mod_with_files):
     # validate_localisation.py:92,102 emits os.path.basename(filename). Exact
     # matching dropped these outright: the drop half of the scoping bug.
     runner = FakeRunner(
+        mod_root=mod_with_files,
         results={
             "localisation": {
                 "ok": True,
                 "issues": [_issue("MD_focus_AST_l_english.yml", line=2, category="mangled")],
             }
-        }
+        },
     )
     entries, issues = run_validators_for_lint(
         runner,
@@ -915,7 +936,7 @@ def test_run_validators_caps_unattributable_issues(mod_with_files):
     # The flood half: 762 fileless `events` issues used to merge wholesale at
     # 137 KB regardless of scope. Report the count, sample the detail.
     many = [_issue("", message=f"{n} orphaned keys") for n in range(50)]
-    runner = FakeRunner(results={"events": {"ok": True, "issues": many}})
+    runner = FakeRunner(mod_root=mod_with_files, results={"events": {"ok": True, "issues": many}})
     entries, issues = run_validators_for_lint(
         runner,
         ["events"],
@@ -931,7 +952,8 @@ def test_run_validators_caps_unattributable_issues(mod_with_files):
 
 def test_run_validators_drops_off_scope_issues_resolved_from_message(mod_with_files):
     runner = FakeRunner(
-        results={"events": {"ok": True, "issues": [_issue("", message="BRA.1 - Brazil.txt")]}}
+        mod_root=mod_with_files,
+        results={"events": {"ok": True, "issues": [_issue("", message="BRA.1 - Brazil.txt")]}},
     )
     entries, issues = run_validators_for_lint(
         runner,
@@ -947,6 +969,7 @@ def test_run_validators_drops_off_scope_issues_resolved_from_message(mod_with_fi
 
 def test_run_validators_total_matches_issues_returned(mod_with_files):
     runner = FakeRunner(
+        mod_root=mod_with_files,
         results={
             "events": {
                 "ok": True,
@@ -956,7 +979,7 @@ def test_run_validators_total_matches_issues_returned(mod_with_files):
                     _issue("", message="BRA.1 - Brazil.txt"),
                 ],
             }
-        }
+        },
     )
     entries, issues = run_validators_for_lint(
         runner,
@@ -1462,6 +1485,153 @@ def test_lint_validators_severity_floor_applies(tmp_path):
     # counts stay pre-filter, same as lint checks
     assert out["counts"]["warning"] == 1
     assert out["counts"]["error"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Runner-owned attribution bridge (issue #174): lint and validate must resolve
+# through the same ValidatorRunner-owned IssueAttributor, with TTL-bounded
+# staleness so files created or deleted between tool calls become visible.
+# ---------------------------------------------------------------------------
+
+
+def test_lint_resolves_through_the_runner_owned_attributor(mod_with_files, monkeypatch):
+    def _poison(*args, **kwargs):
+        raise AssertionError("lint bridge built a second attribution index")
+
+    monkeypatch.setattr(lint_validators, "IssueAttributor", _poison)
+    runner = FakeRunner(
+        mod_root=mod_with_files,
+        results={"events": {"ok": True, "issues": [_issue("Algeria.txt")]}},
+    )
+    entries, issues = run_validators_for_lint(
+        runner,
+        ["events"],
+        staged_only=False,
+        relevant_set={"events/Algeria.txt"},
+        mod_root=mod_with_files,
+    )
+    assert entries[0]["total"] == 1
+    assert issues[0]["file"] == "events/Algeria.txt"
+
+
+def test_lint_attributor_costs_one_listing_per_ttl_across_calls(mod_with_files, monkeypatch):
+    real = attribution_module._list_mod_files
+    listings: list[int] = []
+
+    def counting(mod_root, submod_root=None):
+        listings.append(1)
+        return real(mod_root, submod_root)
+
+    monkeypatch.setattr(attribution_module, "_list_mod_files", counting)
+    now = [10.0]
+    monkeypatch.setattr(index_base.time, "monotonic", lambda: now[0])
+    runner = FakeRunner(
+        mod_root=mod_with_files,
+        results={"events": {"ok": True, "issues": [_issue("Algeria.txt")]}},
+    )
+    kwargs = {
+        "staged_only": False,
+        "relevant_set": {"events/Algeria.txt"},
+        "mod_root": mod_with_files,
+    }
+    run_validators_for_lint(runner, ["events"], **kwargs)
+    run_validators_for_lint(runner, ["events"], **kwargs)
+    # Warm reuse across lint calls: a second index build would have shown up
+    # as a second listing even without any TTL expiry.
+    assert listings == [1]
+
+    now[0] += 2.1
+    run_validators_for_lint(runner, ["events"], **kwargs)
+    assert listings == [1, 1]
+
+
+def test_lint_attributor_uses_runner_submod_root(tmp_path):
+    mod_root = tmp_path / "mod"
+    submod_root = tmp_path / "submod"
+    mod_root.mkdir()
+    submod_root.mkdir()
+    _init_repo(submod_root)
+    (submod_root / "events").mkdir()
+    (submod_root / "events" / "Algeria.txt").write_text("x", encoding="utf-8")
+    runner = FakeRunner(
+        mod_root=mod_root,
+        submod_root=submod_root,
+        results={"events": {"ok": True, "issues": [_issue("Algeria.txt")]}},
+    )
+    entries, issues = run_validators_for_lint(
+        runner,
+        ["events"],
+        staged_only=False,
+        relevant_set={"events/Algeria.txt"},
+        mod_root=mod_root,
+    )
+    assert entries[0]["total"] == 1
+    assert issues[0]["file"] == "events/Algeria.txt"
+
+
+def test_validate_files_resolves_new_untracked_bare_name_after_refresh(tmp_path, monkeypatch):
+    _init_repo(tmp_path)
+    validation = tmp_path / "tools" / "validation"
+    validation.mkdir(parents=True)
+    (validation / "validate_events.py").write_text("class Validator: pass\n", encoding="utf-8")
+    events = tmp_path / "events"
+    events.mkdir()
+    (events / "old.txt").write_text("x", encoding="utf-8")
+    _git(tmp_path, "add", "tools/validation/validate_events.py")
+    _git(tmp_path, "add", "events")
+    now = [10.0]
+    monkeypatch.setattr(index_base.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(
+        runner_module,
+        "_collect",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "issues": [_issue("new.txt", severity="warning")],
+        },
+    )
+    runner = ValidatorRunner(tmp_path, mode="in_process")
+    settings = Settings(mod_root=tmp_path, vanilla_path=None, cache_dir=tmp_path / "cache")
+    # Warm the runner-owned attribution index through the normal validate API.
+    first = validate_tool(settings, runner, validator="events", files=["events/old.txt"])
+    assert first["ok"] is True
+
+    (events / "new.txt").write_text("x", encoding="utf-8")
+    now[0] += 2.1
+    result = validate_tool(settings, runner, validator="events", files=["events/new.txt"])
+    assert result["issues"][0]["file"] == "events/new.txt"
+
+
+def test_lint_resolves_untracked_file_after_ttl_refresh(tmp_path, monkeypatch):
+    _init_repo(tmp_path)
+    events = tmp_path / "events"
+    events.mkdir()
+    (events / "old.txt").write_text("x", encoding="utf-8")
+    _git(tmp_path, "add", "events")
+    now = [10.0]
+    monkeypatch.setattr(index_base.time, "monotonic", lambda: now[0])
+    results = {"events": {"ok": True, "issues": [_issue("old.txt")]}}
+    runner = FakeRunner(mod_root=tmp_path, results=results)
+    kwargs = {
+        "staged_only": False,
+        "relevant_set": {"events/old.txt", "events/new.txt"},
+        "mod_root": tmp_path,
+    }
+
+    entries, issues = run_validators_for_lint(runner, ["events"], **kwargs)
+    assert [i["file"] for i in issues] == ["events/old.txt"]
+
+    # The agent creates a new event file between lint calls; the validator
+    # reports its issue as a bare basename, which only resolves once the TTL
+    # refresh picks the untracked file up.
+    (events / "new.txt").write_text("x", encoding="utf-8")
+    results["events"] = {"ok": True, "issues": [_issue("new.txt")]}
+    entries, issues = run_validators_for_lint(runner, ["events"], **kwargs)
+    assert entries[0].get("unattributed") == 1
+
+    now[0] += 2.1
+    entries, issues = run_validators_for_lint(runner, ["events"], **kwargs)
+    assert entries[0]["total"] == 1
+    assert [i["file"] for i in issues] == ["events/new.txt"]
 
 
 # ---------------------------------------------------------------------------

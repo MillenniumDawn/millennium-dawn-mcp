@@ -542,7 +542,7 @@ def run_validators_for_lint(
     matching degrades to exact comparison.
     """
     wanted = {os.path.normpath(f) for f in relevant_set} if relevant_set is not None else None
-    attributor = IssueAttributor(mod_root) if mod_root is not None else None
+    attributor = runner._attributor() if mod_root is not None else None
     context_changed = (
         _equipment_variant_context_changed(relevant_set, mod_root)
         if relevant_set is not None and "equipment_variants" in names

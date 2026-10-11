@@ -105,6 +105,12 @@ Categories: `focuses`, `events`, `event_files`, `decisions`, `ideas`,
 `scripted_effects`, `scripted_effect_files`, `scripted_triggers`, and
 `scripted_trigger_files`.
 
+Country history paths come from the tag's explicit `common/country_tags/`
+mapping, including long-name filenames such as `TAG - CountryName.txt`. Event
+files use the mapped country name when their filename is long-name based.
+Shared files are listed only where the tag mapping identifies the same country
+file; other event files are not attributed by mentions in their contents.
+
 ```json
 {
   "ok": true,

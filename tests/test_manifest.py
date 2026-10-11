@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from md_mcp.analysis.manifest import _scan_files, list_country_content
 from md_mcp.indexes import (
+    CountryTagIndex,
     DecisionIndex,
     EventIndex,
     FocusIndex,
@@ -103,3 +104,28 @@ def test_scan_files_skips_missing_roots(tmp_path):
     mod = tmp_path / "Mod"
     out = _scan_files(mod, "history/countries", prefix="TST")
     assert out == []
+
+
+def test_manifest_uses_explicit_country_file_mapping_for_long_names(fake_mod_root, cache_dir):
+    history = fake_mod_root / "history" / "countries" / "TST - Testland.txt"
+    history.parent.mkdir(parents=True, exist_ok=True)
+    history.write_text("capital = 1\n", encoding="utf-8")
+    event = fake_mod_root / "events" / "Testland.txt"
+    event.write_text(
+        "add_namespace = Testland\ncountry_event = { id = Testland.1 }\n",
+        encoding="utf-8",
+    )
+    tags = CountryTagIndex(fake_mod_root, cache_dir, include_vanilla=False)
+    events = EventIndex(fake_mod_root, cache_dir, include_vanilla=False)
+
+    result = list_country_content(
+        "TST",
+        fake_mod_root,
+        country_tag_index=tags,
+        event_index=events,
+        include=["events", "event_files", "history_files"],
+    )
+
+    assert result["event_files"] == ["events/Testland.txt"]
+    assert result["history_files"] == ["history/countries/TST - Testland.txt"]
+    assert result["events"] == ["Testland.1"]

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, cast
 
 import pytest
@@ -146,6 +147,7 @@ EXPECTED_TOOLS = {
     "check_encoding",
     "tick_audit",
     "estimate_gdp",
+    "event_load",
     "calculate_days",
 }
 
@@ -157,6 +159,41 @@ def test_list_tools(server):
     tools = _run(go())
     names = {t.name for t in tools}
     assert names == EXPECTED_TOOLS
+
+
+def test_event_load_server_route(server, monkeypatch):
+    import md_mcp.server as server_module
+
+    monkeypatch.setattr(
+        server_module,
+        "event_load_tool",
+        lambda *args, **kwargs: {"ok": True, "window": args[2]},
+    )
+
+    async def go():
+        return await server.call_tool("event_load", {})
+
+    result = asyncio.run(go())
+    assert json.loads(result[0].text) == {"ok": True, "window": 45}
+
+
+def test_event_load_offloads_slow_work(server, monkeypatch):
+    import md_mcp.server as server_module
+
+    def slow_tool(*args, **kwargs):
+        time.sleep(0.15)
+        return {"ok": True}
+
+    monkeypatch.setattr(server_module, "event_load_tool", slow_tool)
+
+    async def go():
+        task = asyncio.create_task(server.call_tool("event_load", {}))
+        await asyncio.sleep(0.02)
+        still_running = not task.done()
+        await task
+        return still_running
+
+    assert asyncio.run(go()) is True
 
 
 @pytest.mark.parametrize(

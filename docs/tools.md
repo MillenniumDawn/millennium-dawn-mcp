@@ -831,3 +831,12 @@ print(result)
 
 This bypasses MCP framing — exceptions surface directly, which is the easiest
 way to diagnose a tool that's misbehaving inside the protocol layer.
+
+### `ai_path_report(tag, section?, limit?, offset?) -> dict`
+
+Run upstream `tools/analysis/ai_path_report.py` for one country. `section` may
+select a report section (`rule`, `wiring`, `owners`, `matrix`, `graph`, `plans`,
+`rewards`, `mechanics`, or `government`); omit it for all sections. `limit` and
+`offset` page every list independently, and `pagination` reports each list's
+total and truncation. Output is budgeted; subprocess errors and invalid country
+tags return `{ok: false, error}`.

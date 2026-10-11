@@ -12,6 +12,7 @@ from ..util.response import coerce_int, enforce_budget
 _SHIM = Path(__file__).with_name("upstream_analysis_shim.py")
 _TICK_TIMEOUT = 120
 _GDP_TIMEOUT = 120
+_AI_PATH_TIMEOUT = 240
 _DAYS_PER_MONTH = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 
 
@@ -74,6 +75,30 @@ def estimate_gdp_tool(mod_root: Path, tag: str) -> dict:
         timeout=_GDP_TIMEOUT,
     )
     return enforce_budget(result, heavy_keys=("breakdown",))
+
+
+def ai_path_report_tool(
+    mod_root: Path,
+    tag: str,
+    section: Optional[str | list[str]] = None,
+    limit: int = 15,
+    offset: int = 0,
+) -> dict:
+    """Report one country's AI path with section selection and paged lists."""
+    try:
+        limit = coerce_int(limit, name="limit", default=15)
+        offset = coerce_int(offset, name="offset", default=0)
+    except ValueError as exc:
+        return enforce_budget({"ok": False, "tag": tag, "error": str(exc)})
+    result = _run_shim(
+        mod_root,
+        "ai_path_report",
+        {"tag": tag, "section": section, "limit": limit, "offset": offset},
+        timeout=_AI_PATH_TIMEOUT,
+    )
+    return enforce_budget(
+        result, heavy_keys=("pagination", "matrix", "graph", "plans", "mechanics")
+    )
 
 
 def calculate_days_tool(year: int, month: int, day: int) -> dict:

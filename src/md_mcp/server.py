@@ -75,6 +75,7 @@ from .tools.resolver_tools import (
 )
 from .tools.standardize_tools import standardize_tool
 from .tools.upstream_analysis import (
+    ai_path_report_tool,
     calculate_days_tool,
     estimate_gdp_tool,
     tick_audit_tool,
@@ -456,6 +457,15 @@ def build_server(settings: Settings):
     def _estimate_gdp(tag: str) -> dict:
         """Estimate one country's starting GDP from upstream history. Requires a country tag."""
         return estimate_gdp_tool(settings.mod_root, tag)
+
+    @mcp.tool(name="ai_path_report")
+    async def _ai_path_report(
+        tag: str, section: Optional[str] = None, limit: int = 15, offset: int = 0
+    ) -> dict:
+        """Report a country's AI path; section selects sections and limit/offset page every list."""
+        return await blocking_tools.run(
+            ai_path_report_tool, settings.mod_root, tag, section, limit, offset
+        )
 
     @mcp.tool(name="calculate_days")
     def _calculate_days(year: int, month: int, day: int) -> dict:

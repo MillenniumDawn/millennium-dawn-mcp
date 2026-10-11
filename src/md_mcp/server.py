@@ -13,7 +13,7 @@ import os
 import sys
 from dataclasses import replace
 from functools import partial
-from typing import Callable, Optional
+from typing import Any, Callable, Optional, TypeVar, cast
 
 from .analysis.diff_summary import diff_summary
 from .analysis.encoding import check_encoding
@@ -46,6 +46,7 @@ from .indexes import (
     ScriptedTriggerIndex,
     TraitIndex,
 )
+from .indexes.base import GenericTxtIndex
 from .resources import (
     decision_resource,
     event_resource,
@@ -84,6 +85,7 @@ from .util.offload import BoundedOffloader
 from .validators import ValidatorRunner
 
 logger = logging.getLogger("md_mcp")
+_IndexT = TypeVar("_IndexT", bound=GenericTxtIndex)
 
 
 class _NamedPartial(partial):
@@ -99,7 +101,7 @@ def _bind_tool(
     return bound
 
 
-def _make_index(cls, settings: Settings):
+def _make_index(cls: type[_IndexT], settings: Settings) -> _IndexT:
     """Instantiate an index class from settings (localisation also gets `loc_langs`)."""
     kwargs: dict = {"submod_root": settings.submod_root}
     if issubclass(cls, LocalisationIndex):
@@ -122,8 +124,10 @@ def build_server(settings: Settings):
 
     mcp = FastMCP("md-mcp")
     blocking_tools = BoundedOffloader()
+    # Embedders and tests close this pool before any subsequent fork.
+    cast(Any, mcp)._md_blocking_tools = blocking_tools
 
-    def _index(cls):
+    def _index(cls: type[_IndexT]) -> _IndexT:
         return _make_index(cls, settings)
 
     focus_index = _index(FocusIndex)

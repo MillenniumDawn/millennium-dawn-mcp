@@ -418,6 +418,26 @@ def test_skill_lookup_by_directory_name_without_frontmatter(fake_mod_root, cache
     assert "frontmatter" not in result["entries"][0]
 
 
+def test_skill_key_resolves_only_skill_doc_not_references(fake_mod_root, cache_dir) -> None:
+    skill = fake_mod_root / ".claude" / "skills" / "build" / "SKILL.md"
+    reference = skill.parent / "references" / "guide.md"
+    reference.parent.mkdir(parents=True)
+    skill.write_text("---\nname: build\n---\n# Build\nBody\n", encoding="utf-8")
+    reference.write_text("# Guide\nReference body\n", encoding="utf-8")
+    settings = _settings(fake_mod_root, cache_dir)
+
+    hit = lookup_docs_tool(settings, "skill", key="build")
+
+    assert hit["ok"] is True
+    assert hit["total"] == 1
+    assert hit["entries"][0]["file"] == ".claude/skills/build/SKILL.md"
+
+    resolved = lookup_docs_tool(settings, "skill", key="build/guide")
+
+    assert resolved["ok"] is True
+    assert resolved["entries"][0]["file"] == ".claude/skills/build/references/guide.md"
+
+
 def test_skill_unterminated_frontmatter_is_not_parsed(fake_mod_root, cache_dir) -> None:
     skill = fake_mod_root / ".claude" / "skills" / "broken" / "SKILL.md"
     skill.parent.mkdir(parents=True)

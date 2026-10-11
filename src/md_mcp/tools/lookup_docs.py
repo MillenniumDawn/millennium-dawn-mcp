@@ -249,10 +249,9 @@ def _read_system_documents(directory: Path, relative_dir: Path) -> list[dict]:
                         skill_stem.replace("/references/", "/"),
                     ]
                 )
-            # The skill directory name must stay addressable even when the
-            # frontmatter is missing or malformed (issue #191: key=<name>).
-            if "/" in skill_key:
-                skill_name = skill_key.split("/", 1)[0]
+            # issue #191: key=<name> resolves only the skill's own SKILL.md.
+            if skill_key.endswith("/SKILL.md"):
+                skill_name = skill_key[: -len("/SKILL.md")]
                 if skill_name not in aliases:
                     aliases.append(skill_name)
             document["aliases"] = tuple(aliases)
@@ -273,9 +272,7 @@ def _frontmatter(content: str) -> dict[str, str]:
     lines = content.splitlines()
     if not lines or lines[0].strip() != "---":
         return {}
-    # Require the closing delimiter: an unterminated block means this is not
-    # frontmatter, and parsing body lines as key/value pairs would let prose
-    # like ``name: ...`` hijack the skills' aliases and title (issue #191).
+    # Unterminated --- means this is not frontmatter; body prose must not leak in.
     close = next(
         (index for index in range(1, len(lines)) if lines[index].strip() == "---"),
         None,

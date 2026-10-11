@@ -12,6 +12,7 @@ from ..util.response import coerce_int, enforce_budget
 _SHIM = Path(__file__).with_name("upstream_analysis_shim.py")
 _TICK_TIMEOUT = 120
 _GDP_TIMEOUT = 120
+_EVENT_LOAD_TIMEOUT = 180
 _AI_PATH_TIMEOUT = 240
 _DAYS_PER_MONTH = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 
@@ -75,6 +76,75 @@ def estimate_gdp_tool(mod_root: Path, tag: str) -> dict:
         timeout=_GDP_TIMEOUT,
     )
     return enforce_budget(result, heavy_keys=("breakdown",))
+
+
+def event_load_tool(
+    mod_root: Path,
+    tag: str = "USA",
+    window: int = 45,
+    threshold: int = 3,
+    limit: int = 20,
+    offset: int = 0,
+) -> dict:
+    """Summarize scheduled event totals, busy windows, and flagged years."""
+    result = _run_shim(
+        mod_root,
+        "event_load",
+        {
+            "tag": tag,
+            "window": window,
+            "threshold": threshold,
+            "limit": limit,
+            "offset": offset,
+        },
+        timeout=_EVENT_LOAD_TIMEOUT,
+    )
+    return enforce_budget(result, heavy_keys=("years", "flagged_years"))
+
+
+def game_log_summary_tool(
+    mod_root: Path,
+    path: str,
+    *,
+    top: int = 15,
+    limit: int = 100,
+    offset: int = 0,
+    countries: Optional[list[str]] = None,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+) -> dict:
+    """Summarize one absolute game log path without modifying it."""
+    try:
+        top = coerce_int(top, name="top", default=15)
+        limit = coerce_int(limit, name="limit", default=100)
+        offset = coerce_int(offset, name="offset", default=0)
+    except ValueError as exc:
+        return enforce_budget({"ok": False, "path": path, "error": str(exc)})
+    result = _run_shim(
+        mod_root,
+        "game_log_summary",
+        {
+            "path": path,
+            "top": top,
+            "limit": limit,
+            "offset": offset,
+            "countries": countries,
+            "since": since,
+            "until": until,
+        },
+        timeout=120,
+    )
+    return enforce_budget(
+        result,
+        heavy_keys=(
+            "focus_countries",
+            "economy",
+            "inflation",
+            "conflicts",
+            "politics",
+            "annexations",
+        ),
+    )
 
 
 def ai_path_report_tool(

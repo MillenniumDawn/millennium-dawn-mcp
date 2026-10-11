@@ -9,6 +9,7 @@ issues, and respects the `checks=[...]` / `severity_min=` / `limit=` /
 from __future__ import annotations
 
 import inspect
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +25,7 @@ from md_mcp.tools.linting_tools import (
     lint_loc_encoding_tool,
     lint_tool,
 )
+from md_mcp.util.response import BUDGET_BYTES
 
 
 def _make_script(root: Path, rel: str, body: str) -> Path:
@@ -106,6 +108,88 @@ def test_lint_subset_only_runs_requested(tmp_path):
     assert out["ok"] is True
     ran = {c["name"] for c in out["checks"]}
     assert ran == {"common_mistakes", "loc_encoding"}
+
+
+def test_lint_changelog_reports_upstream_line_diagnostics(tmp_path):
+    (tmp_path / "Changelog.txt").write_text(
+        "v1.0\nCategory:\n- [USA] tagged\n- untagged later\n", encoding="utf-8"
+    )
+    _make_script(
+        tmp_path,
+        "tools/linting/check_changelog.py",
+        "def check_lines(lines):\n"
+        "    return ['line 4: untagged entry must come before [USA] (line 3)']\n"
+        "def order_lines(lines):\n    return lines\n",
+    )
+
+    out = lint_tool(tmp_path, files=["Changelog.txt"], checks=["changelog"], validators=[])
+
+    assert out["ok"] is True
+    assert out["checks_run"] == ["changelog"]
+    assert out["issues_total_after_filter"] == 1
+    assert out["issues"] == [
+        {
+            "file": "Changelog.txt",
+            "line": 4,
+            "message": "untagged entry must come before [USA] (line 3)",
+            "severity": "warning",
+            "check": "changelog",
+        }
+    ]
+
+
+def test_lint_changelog_unloadable_checker_fails(tmp_path):
+    (tmp_path / "Changelog.txt").write_text("v1.0\nCategory:\n- entry\n", encoding="utf-8")
+
+    out = lint_tool(tmp_path, files=["Changelog.txt"], checks=["changelog"], validators=[])
+
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["changelog"]
+    (entry,) = [c for c in out["checks"] if c["name"] == "changelog"]
+    assert entry["ok"] is False
+    assert "check_changelog" in entry["error"]
+
+
+def test_lint_changelog_invalid_utf8_fails(tmp_path):
+    _make_script(
+        tmp_path,
+        "tools/linting/check_changelog.py",
+        "def check_lines(lines):\n    return []\n" "def order_lines(lines):\n    return lines\n",
+    )
+    (tmp_path / "Changelog.txt").write_bytes(b"v1.0\n\xff\xfe broken bytes \n")
+
+    out = lint_tool(tmp_path, files=["Changelog.txt"], checks=["changelog"], validators=[])
+
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["changelog"]
+    (entry,) = [c for c in out["checks"] if c["name"] == "changelog"]
+    assert entry["ok"] is False
+    assert "utf-8" in entry["error"]
+
+
+def test_lint_changelog_unreadable_changelog_fails(tmp_path):
+    import os
+
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root ignores read permissions")
+    _make_script(
+        tmp_path,
+        "tools/linting/check_changelog.py",
+        "def check_lines(lines):\n    return []\n" "def order_lines(lines):\n    return lines\n",
+    )
+    changelog = tmp_path / "Changelog.txt"
+    changelog.write_text("v1.0\nCategory:\n- entry\n", encoding="utf-8")
+    changelog.chmod(0o000)
+    try:
+        out = lint_tool(tmp_path, files=["Changelog.txt"], checks=["changelog"], validators=[])
+    finally:
+        changelog.chmod(0o644)
+
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["changelog"]
+    (entry,) = [c for c in out["checks"] if c["name"] == "changelog"]
+    assert entry["ok"] is False
+    assert "Permission denied" in entry["error"]
 
 
 def test_lint_aggregates_issues_from_multiple_checks(tmp_path):
@@ -229,6 +313,198 @@ def test_lint_limit_truncates(tmp_path):
     assert out["issues_total_after_filter"] == 20
     assert len(out["issues"]) == 5
     assert out["truncated"] is True
+
+
+@pytest.mark.parametrize(
+    ("check", "script", "file_pattern", "diagnostic"),
+    [
+        (
+            "mod_encoding",
+            "tools/linting/validate_mod_encoding.py",
+            "descriptor_{i}.mod",
+            "descriptor_{i}.mod: Invalid UTF-8 encoding - bad byte",
+        ),
+        (
+            "loc_encoding",
+            "tools/linting/validate_localization_encoding.py",
+            "localisation/english/file_{i}_l_english.yml",
+            "localisation/english/file_{i}_l_english.yml: Missing UTF-8 BOM",
+        ),
+    ],
+)
+def test_lint_preserves_complete_counts_when_check_wrapper_caps_diagnostics(
+    tmp_path, check, script, file_pattern, diagnostic
+):
+    count = 225
+    lines = "\n".join(f"print({diagnostic.format(i=i)!r})" for i in range(count))
+    _make_script(tmp_path, script, lines + "\n")
+
+    out = lint_tool(
+        tmp_path,
+        files=[file_pattern.format(i=i) for i in range(count)],
+        checks=[check],
+        validators=[],
+        limit=500,
+    )
+
+    assert out["counts"]["error"] == count
+    assert out["issues_total_after_filter"] == count
+    assert len(out["issues"]) == 200
+    assert out["truncated"] is True
+
+
+@pytest.mark.parametrize(
+    ("check", "script", "file_pattern", "diagnostic"),
+    [
+        (
+            "mod_encoding",
+            "tools/linting/validate_mod_encoding.py",
+            "descriptor_{i}.mod",
+            "descriptor_{i}.mod: Invalid UTF-8 encoding - bad byte",
+        ),
+        (
+            "loc_encoding",
+            "tools/linting/validate_localization_encoding.py",
+            "localisation/english/file_{i}_l_english.yml",
+            "localisation/english/file_{i}_l_english.yml: Missing UTF-8 BOM",
+        ),
+    ],
+)
+def test_lint_encoding_wrapper_caps_preserve_counts_and_respect_limit(
+    tmp_path, check, script, file_pattern, diagnostic
+):
+    count = 225
+    files = [file_pattern.format(i=i) for i in range(count)]
+    body = "\n".join(f"print({diagnostic.format(i=i)!r})" for i in range(count))
+    _make_script(tmp_path, script, body + "\n")
+
+    out = lint_tool(
+        tmp_path,
+        files=files,
+        checks=[check],
+        validators=[],
+        limit=50,
+    )
+
+    assert out["counts"]["error"] == count
+    assert out["issues_total_after_filter"] == count
+    assert len(out["issues"]) == 50
+    assert out["truncated"] is True
+
+
+@pytest.mark.parametrize(
+    ("check", "script", "file_pattern", "diagnostic"),
+    [
+        (
+            "mod_encoding",
+            "tools/linting/validate_mod_encoding.py",
+            "descriptor_{i}.mod",
+            "descriptor_{i}.mod: Invalid UTF-8 encoding - bad byte",
+        ),
+        (
+            "loc_encoding",
+            "tools/linting/validate_localization_encoding.py",
+            "localisation/english/file_{i}_l_english.yml",
+            "localisation/english/file_{i}_l_english.yml: Missing UTF-8 BOM",
+        ),
+    ],
+)
+def test_lint_encoding_wrapper_counts_only_preserves_complete_totals(
+    tmp_path, check, script, file_pattern, diagnostic
+):
+    count = 225
+    body = "\n".join(f"print({diagnostic.format(i=i)!r})" for i in range(count))
+    _make_script(tmp_path, script, body + "\n")
+
+    out = lint_tool(
+        tmp_path,
+        files=[file_pattern.format(i=i) for i in range(count)],
+        checks=[check],
+        validators=[],
+        counts_only=True,
+    )
+
+    assert out["counts"]["error"] == count
+    assert out["issues_total_after_filter"] == count
+    assert "issues" not in out
+    assert out["truncated"] is True
+
+
+@pytest.mark.parametrize(
+    ("check", "script", "file_pattern", "diagnostic", "sample_file"),
+    [
+        (
+            "mod_encoding",
+            "tools/linting/validate_mod_encoding.py",
+            "descriptor_{i}.mod",
+            "descriptor_{i}.mod: Invalid UTF-8 encoding - bad byte",
+            "descriptor_0.mod",
+        ),
+        (
+            "loc_encoding",
+            "tools/linting/validate_localization_encoding.py",
+            "localisation/english/file_{i}_l_english.yml",
+            "localisation/english/file_{i}_l_english.yml: Missing UTF-8 BOM",
+            "localisation/english/file_0_l_english.yml",
+        ),
+    ],
+)
+def test_lint_mixed_check_totals_include_wrapper_omissions(
+    tmp_path, check, script, file_pattern, diagnostic, sample_file
+):
+    count = 225
+    _make_script(
+        tmp_path,
+        "tools/linting/check_common_mistakes.py",
+        'print("common/example.txt:1: warning")\n',
+    )
+    body = "\n".join(f"print({diagnostic.format(i=i)!r})" for i in range(count))
+    _make_script(tmp_path, script, body + "\n")
+
+    out = lint_tool(
+        tmp_path,
+        files=["common/example.txt", sample_file],
+        checks=["common_mistakes", check],
+        validators=[],
+        limit=500,
+    )
+
+    assert out["counts"] == {"error": count, "warning": 1, "info": 0}
+    assert out["issues_total_after_filter"] == count + 1
+    assert len(out["issues"]) == 201
+    assert out["truncated"] is True
+
+
+def test_lint_encoding_wrapper_byte_budget_drop_preserves_counts(tmp_path):
+    count = 225
+    # The localization collector uses a fixed diagnostic message, so oversized
+    # message suffixes are discarded. Put the payload in the parsed file path
+    # instead: paths are retained, and this makes the wrapper's issue array
+    # exceed its own JSON-byte budget before the dispatcher sees it.
+    long_path = "localisation/english/" + ("x" * 600) + "_l_english.yml"
+    paths = [long_path[: -len("_l_english.yml")] + f"_{i}_l_english.yml" for i in range(count)]
+    body = "\n".join(f"print({f'{path}: Missing UTF-8 BOM'!r})" for path in paths)
+    _make_script(tmp_path, "tools/linting/validate_localization_encoding.py", body + "\n")
+
+    wrapped = lint_loc_encoding_tool(tmp_path, limit=500)
+    assert wrapped["total"] == count
+    assert wrapped["size_truncated"] is True
+    assert wrapped["issues_dropped"] == count
+    assert "issues" not in wrapped
+
+    out = lint_tool(
+        tmp_path,
+        mode="all",
+        checks=["loc_encoding"],
+        validators=[],
+        limit=500,
+    )
+
+    assert out["counts"]["error"] == count
+    assert out["issues_total_after_filter"] == count
+    assert out["truncated"] is True
+    assert out["issues"] == []
+    assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
 
 
 def test_lint_per_check_failure_isolated(tmp_path):
@@ -505,7 +781,7 @@ def test_staged_files_splits_nul_delimited_output(tmp_path, monkeypatch):
         stdout = "events/café.txt\0events/a\nb.txt\0\0".encode()
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr=b"")
 
-    monkeypatch.setattr(linting_tools.subprocess, "run", nul_delimited_git)
+    monkeypatch.setattr(subprocess, "run", nul_delimited_git)
 
     assert _staged_files(tmp_path) == ["events/café.txt", "events/a\nb.txt"]
     assert "-z" in commands[0]
@@ -545,7 +821,7 @@ def test_git_scope_paths_decode_as_utf8_under_legacy_locale(tmp_path, monkeypatc
             kwargs.setdefault("encoding", "cp1252")
         return real_run(command, **kwargs)
 
-    monkeypatch.setattr(linting_tools.subprocess, "run", cp1252_locale_run)
+    monkeypatch.setattr(subprocess, "run", cp1252_locale_run)
 
     assert discover(tmp_path) == ["events/café.txt"]
 
@@ -608,7 +884,7 @@ def test_lint_git_scope_failures_return_structured_error(tmp_path, monkeypatch, 
         timeout_stderr = ("é" * 600 + "fatal: café XY").encode("utf-8")
         raise subprocess.TimeoutExpired(command, timeout=15, stderr=timeout_stderr)
 
-    monkeypatch.setattr(linting_tools.subprocess, "run", failed_git)
+    monkeypatch.setattr(subprocess, "run", failed_git)
 
     out = lint_tool(tmp_path, mode=mode, checks=["common_mistakes"], validators=[])
 
@@ -648,7 +924,7 @@ def test_lint_git_scope_undecodable_output_returns_structured_error(tmp_path, mo
         stdout = b"A  events/caf\xe9.txt\0"
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr=b"")
 
-    monkeypatch.setattr(linting_tools.subprocess, "run", latin1_git)
+    monkeypatch.setattr(subprocess, "run", latin1_git)
 
     out = lint_tool(tmp_path, mode=mode, checks=["common_mistakes"], validators=[])
 
@@ -669,7 +945,7 @@ def test_git_scope_discovery_uses_selected_worktree_cwd(tmp_path, monkeypatch, m
         assert kwargs["cwd"] == str(expected_cwd)
         return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
 
-    monkeypatch.setattr(linting_tools.subprocess, "run", successful_git)
+    monkeypatch.setattr(subprocess, "run", successful_git)
     discover = _changed_files if mode == "changed" else _staged_files
 
     assert discover(tmp_path, overlay if use_overlay else None) == []

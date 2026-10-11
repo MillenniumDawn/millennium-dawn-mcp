@@ -17,6 +17,8 @@ _SYSTEM_DOC_KINDS = {
     "rule": Path(".claude/rules"),
     "rules": Path(".claude/rules"),
     "claude_rules": Path(".claude/rules"),
+    "skill": Path(".claude/skills"),
+    "skills": Path(".claude/skills"),
 }
 _DOC_RELATIVE_PATHS = {
     "effect": Path("resources/documentation/effects_documentation.md"),
@@ -47,7 +49,7 @@ def lookup_docs_tool(
                 **result_context,
                 "error": (
                     "kind must be one of: effect, trigger, modifier, doc, docs, "
-                    "claude_docs, rule, rules, claude_rules"
+                    "claude_docs, rule, rules, claude_rules, skill, skills"
                 ),
             }
         )
@@ -226,18 +228,80 @@ def _read_system_documents(directory: Path, relative_dir: Path) -> list[dict]:
         lines = content.splitlines()
         key = relative_path.with_suffix("").as_posix()
         title = next((line.lstrip("#").strip() for line in lines if line.startswith("# ")), key)
-        documents.append(
-            {
-                "key": key,
-                "aliases": (key, relative_path.as_posix(), path.name, path.stem, title),
-                "title": title,
-                "content": content,
-                "file": relative_path.as_posix(),
-                "line": 1,
-                "end_line": len(lines),
-            }
-        )
+        aliases: list[str] = [key, relative_path.as_posix(), path.name, path.stem, title]
+        document: dict[str, Any] = {
+            "key": key,
+            "aliases": aliases,
+            "title": title,
+            "content": content,
+            "file": relative_path.as_posix(),
+            "line": 1,
+            "end_line": len(lines),
+        }
+        if relative_dir == Path(".claude/skills"):
+            skill_key = path.relative_to(directory).as_posix()
+            skill_stem = str(Path(skill_key).with_suffix(""))
+            aliases = [*document["aliases"], skill_key, skill_stem]
+            if "/references/" in skill_key:
+                aliases.extend(
+                    [
+                        skill_key.replace("/references/", "/"),
+                        skill_stem.replace("/references/", "/"),
+                    ]
+                )
+            # issue #191: key=<name> resolves only the skill's own SKILL.md.
+            if skill_key.endswith("/SKILL.md"):
+                skill_name = skill_key[: -len("/SKILL.md")]
+                if skill_name not in aliases:
+                    aliases.append(skill_name)
+            document["aliases"] = tuple(aliases)
+            frontmatter = _frontmatter(content)
+            if frontmatter:
+                document["frontmatter"] = frontmatter
+                if frontmatter.get("name"):
+                    document["title"] = frontmatter["name"]
+                    if frontmatter["name"] not in document["aliases"]:
+                        document["aliases"] = tuple([*document["aliases"], frontmatter["name"]])
+                document["description"] = frontmatter.get("description", "")
+        documents.append(document)
     return documents
+
+
+def _frontmatter(content: str) -> dict[str, str]:
+    """Parse simple scalar YAML frontmatter without adding a YAML dependency."""
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+    # Unterminated --- means this is not frontmatter; body prose must not leak in.
+    close = next(
+        (index for index in range(1, len(lines)) if lines[index].strip() == "---"),
+        None,
+    )
+    if close is None:
+        return {}
+    result: dict[str, str] = {}
+    index = 1
+    while index < close:
+        match = re.match(r"^([A-Za-z_][\w-]*):\s*(.*?)\s*$", lines[index])
+        if match:
+            value = match.group(2)
+            if value in {">", ">-", ">+", "|", "|-", "|+"}:
+                chunks = []
+                index += 1
+                while index < close and (lines[index].startswith(" ") or not lines[index].strip()):
+                    if lines[index].strip():
+                        chunks.append(lines[index].strip())
+                    index += 1
+                value = (" " if value.startswith(">") else "\n").join(chunks).replace("''", "'")
+                result[match.group(1)] = value
+                continue
+            if value.startswith("'") and value.endswith("'"):
+                value = value[1:-1].replace("''", "'")
+            elif value.startswith('"') and value.endswith('"'):
+                value = value[1:-1]
+            result[match.group(1)] = value
+        index += 1
+    return result
 
 
 def _read_entries(path: Path, relative_path: str) -> dict[str, list[dict]]:

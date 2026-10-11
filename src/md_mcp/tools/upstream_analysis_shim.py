@@ -130,6 +130,119 @@ def _estimate_gdp(mod_root: Path, payload: dict) -> dict:
     }
 
 
+def _event_load(mod_root: Path, payload: dict) -> dict:
+    script = mod_root / "tools" / "analysis" / "event_load.py"
+    module = _load_module(script, "_md_mcp_upstream_event_load")
+    tag = str(payload.get("tag", "USA")).upper()
+    if not re.fullmatch(r"[A-Z0-9]{2,4}", tag):
+        return {"ok": False, "error": "tag must be a 2-4 character country tag"}
+    try:
+        window = max(1, int(payload.get("window", 45)))
+        threshold = max(0, int(payload.get("threshold", 3)))
+        limit = max(0, int(payload.get("limit", 20)))
+        offset = max(0, int(payload.get("offset", 0)))
+    except (TypeError, ValueError, OverflowError) as exc:
+        return {"ok": False, "error": f"Invalid numeric parameter: {exc}"}
+    rows = {
+        year: deliveries
+        for year, deliveries in module.collect(tag, str(mod_root)).items()
+        if deliveries
+    }
+    years = []
+    flagged = []
+    for year in sorted(rows):
+        deliveries = sorted(rows[year], key=lambda item: item[1])
+        days = [day for _, day in deliveries]
+        peak = module.busiest(days, window)
+        events = deliveries[offset : offset + limit]
+        entry = {
+            "year": year,
+            "total": len(deliveries),
+            "busiest_window": peak,
+            "flagged": peak >= threshold,
+            "events_total": len(deliveries),
+            "events_returned": len(events),
+            "events_truncated": offset + limit < len(deliveries),
+            "events": [{"id": event, "day_offset": day} for event, day in events],
+        }
+        years.append(entry)
+        if peak >= threshold:
+            flagged.append(
+                {
+                    "year": year,
+                    "busiest_window": peak,
+                    "threshold": threshold,
+                    "events": entry["events"],
+                    "events_truncated": entry["events_truncated"],
+                }
+            )
+    return {
+        "ok": True,
+        "tag": tag,
+        "window": window,
+        "threshold": threshold,
+        "total": len(years),
+        "returned": len(years),
+        "truncated": any(year["events_truncated"] for year in years),
+        "years": years,
+        "flagged_years": flagged,
+    }
+
+
+def _game_log_summary(mod_root: Path, payload: dict) -> dict:
+    raw_path = payload.get("path")
+    if not isinstance(raw_path, str) or not Path(raw_path).is_absolute():
+        return {"ok": False, "error": "path must be an absolute path"}
+    log_path = Path(raw_path)
+    if log_path.suffix.lower() not in {".log", ".txt"}:
+        return {"ok": False, "error": "path must end in .log or .txt"}
+    if not log_path.is_file():
+        return {"ok": False, "error": f"Log file not found: {log_path}"}
+    try:
+        top = max(0, int(payload.get("top", 15)))
+        limit = max(0, int(payload.get("limit", 100)))
+        offset = max(0, int(payload.get("offset", 0)))
+        countries = payload.get("countries") or []
+        if not isinstance(countries, list) or any(not isinstance(item, str) for item in countries):
+            return {"ok": False, "error": "countries must be a list of country names"}
+        since = payload.get("since")
+        until = payload.get("until")
+    except (TypeError, ValueError, OverflowError) as exc:
+        return {"ok": False, "error": f"Invalid numeric parameter: {exc}"}
+    script = mod_root / "tools" / "summarize_game_log.py"
+    module = _load_module(script, "_md_mcp_upstream_game_log")
+    try:
+        data = module.parse(
+            str(log_path),
+            since=module.parse_date_arg(since),
+            until=module.parse_date_arg(until),
+        )
+    except (OSError, ValueError, IndexError) as exc:
+        return {"ok": False, "path": str(log_path), "error": str(exc)}
+    if data["stats"]["parsed"] == 0:
+        return {"ok": False, "path": str(log_path), "error": "No scripted MD log entries found"}
+    selected_countries = module.pick_countries(data, countries, 0)
+    summary = json.loads(module.to_json(data, countries=selected_countries, top=top))
+    paged = []
+    for key in ("conflicts", "politics", "annexations"):
+        records = summary.get(key, [])
+        page = records[offset : offset + limit]
+        summary[key] = page
+        paged.append((key, len(records), len(page), offset + limit < len(records)))
+    for key in ("economy", "inflation", "focus_countries"):
+        mapping = summary.get(key, {})
+        ordered = sorted(mapping)
+        page_keys = ordered[offset : offset + limit]
+        summary[key] = {country: mapping[country] for country in page_keys}
+        paged.append((key, len(ordered), len(page_keys), offset + limit < len(ordered)))
+    summary.update({"ok": True, "path": str(log_path), "offset": offset, "limit": limit})
+    for key, total, returned, truncated in paged:
+        summary[f"{key}_total"] = total
+        summary[f"{key}_returned"] = returned
+        summary[f"{key}_truncated"] = truncated
+    return summary
+
+
 def _paginate_tree(value: Any, prefix: str, limit: int, offset: int, metadata: dict) -> Any:
     if isinstance(value, list):
         total = len(value)
@@ -220,6 +333,10 @@ def run(operation: str, mod_root: Path, payload: dict) -> dict:
         return _tick_audit(mod_root, payload)
     if operation == "estimate_gdp":
         return _estimate_gdp(mod_root, payload)
+    if operation == "event_load":
+        return _event_load(mod_root, payload)
+    if operation == "game_log_summary":
+        return _game_log_summary(mod_root, payload)
     if operation == "ai_path_report":
         return _ai_path_report(mod_root, payload)
     return {"ok": False, "error": f"Unknown operation: {operation}"}

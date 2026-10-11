@@ -481,12 +481,13 @@ def test_staged_file_environment_empty_list_and_newline_rejection(tmp_path):
 
 
 def test_staged_file_environment_rejects_malformed_records(monkeypatch, tmp_path):
+    import subprocess
     from types import SimpleNamespace
 
     from md_mcp.validators import runner
 
     monkeypatch.setattr(
-        runner.subprocess,
+        subprocess,
         "run",
         lambda *args, **kwargs: SimpleNamespace(
             returncode=0, stdout=b"R100\0only-old\0", stderr=b""
@@ -548,12 +549,13 @@ def test_in_process_staged_environment_removes_temporary_value(fake_mod_root, mo
 
 
 def test_staged_file_environment_rejects_unknown_status(monkeypatch, tmp_path):
+    import subprocess
     from types import SimpleNamespace
 
     from md_mcp.validators import runner
 
     monkeypatch.setattr(
-        runner.subprocess,
+        subprocess,
         "run",
         lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=b"?\0odd\0", stderr=b""),
     )

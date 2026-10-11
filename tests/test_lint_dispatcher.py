@@ -108,6 +108,88 @@ def test_lint_subset_only_runs_requested(tmp_path):
     assert ran == {"common_mistakes", "loc_encoding"}
 
 
+def test_lint_changelog_reports_upstream_line_diagnostics(tmp_path):
+    (tmp_path / "Changelog.txt").write_text(
+        "v1.0\nCategory:\n- [USA] tagged\n- untagged later\n", encoding="utf-8"
+    )
+    _make_script(
+        tmp_path,
+        "tools/linting/check_changelog.py",
+        "def check_lines(lines):\n"
+        "    return ['line 4: untagged entry must come before [USA] (line 3)']\n"
+        "def order_lines(lines):\n    return lines\n",
+    )
+
+    out = lint_tool(tmp_path, files=["Changelog.txt"], checks=["changelog"], validators=[])
+
+    assert out["ok"] is True
+    assert out["checks_run"] == ["changelog"]
+    assert out["issues_total_after_filter"] == 1
+    assert out["issues"] == [
+        {
+            "file": "Changelog.txt",
+            "line": 4,
+            "message": "untagged entry must come before [USA] (line 3)",
+            "severity": "warning",
+            "check": "changelog",
+        }
+    ]
+
+
+def test_lint_changelog_unloadable_checker_fails(tmp_path):
+    (tmp_path / "Changelog.txt").write_text("v1.0\nCategory:\n- entry\n", encoding="utf-8")
+
+    out = lint_tool(tmp_path, files=["Changelog.txt"], checks=["changelog"], validators=[])
+
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["changelog"]
+    (entry,) = [c for c in out["checks"] if c["name"] == "changelog"]
+    assert entry["ok"] is False
+    assert "check_changelog" in entry["error"]
+
+
+def test_lint_changelog_invalid_utf8_fails(tmp_path):
+    _make_script(
+        tmp_path,
+        "tools/linting/check_changelog.py",
+        "def check_lines(lines):\n    return []\n" "def order_lines(lines):\n    return lines\n",
+    )
+    (tmp_path / "Changelog.txt").write_bytes(b"v1.0\n\xff\xfe broken bytes \n")
+
+    out = lint_tool(tmp_path, files=["Changelog.txt"], checks=["changelog"], validators=[])
+
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["changelog"]
+    (entry,) = [c for c in out["checks"] if c["name"] == "changelog"]
+    assert entry["ok"] is False
+    assert "utf-8" in entry["error"]
+
+
+def test_lint_changelog_unreadable_changelog_fails(tmp_path):
+    import os
+
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root ignores read permissions")
+    _make_script(
+        tmp_path,
+        "tools/linting/check_changelog.py",
+        "def check_lines(lines):\n    return []\n" "def order_lines(lines):\n    return lines\n",
+    )
+    changelog = tmp_path / "Changelog.txt"
+    changelog.write_text("v1.0\nCategory:\n- entry\n", encoding="utf-8")
+    changelog.chmod(0o000)
+    try:
+        out = lint_tool(tmp_path, files=["Changelog.txt"], checks=["changelog"], validators=[])
+    finally:
+        changelog.chmod(0o644)
+
+    assert out["ok"] is False
+    assert out["failed_checks"] == ["changelog"]
+    (entry,) = [c for c in out["checks"] if c["name"] == "changelog"]
+    assert entry["ok"] is False
+    assert "Permission denied" in entry["error"]
+
+
 def test_lint_aggregates_issues_from_multiple_checks(tmp_path):
     _seed_all_scripts(
         tmp_path,
@@ -505,7 +587,7 @@ def test_staged_files_splits_nul_delimited_output(tmp_path, monkeypatch):
         stdout = "events/café.txt\0events/a\nb.txt\0\0".encode()
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr=b"")
 
-    monkeypatch.setattr(linting_tools.subprocess, "run", nul_delimited_git)
+    monkeypatch.setattr(subprocess, "run", nul_delimited_git)
 
     assert _staged_files(tmp_path) == ["events/café.txt", "events/a\nb.txt"]
     assert "-z" in commands[0]
@@ -545,7 +627,7 @@ def test_git_scope_paths_decode_as_utf8_under_legacy_locale(tmp_path, monkeypatc
             kwargs.setdefault("encoding", "cp1252")
         return real_run(command, **kwargs)
 
-    monkeypatch.setattr(linting_tools.subprocess, "run", cp1252_locale_run)
+    monkeypatch.setattr(subprocess, "run", cp1252_locale_run)
 
     assert discover(tmp_path) == ["events/café.txt"]
 
@@ -608,7 +690,7 @@ def test_lint_git_scope_failures_return_structured_error(tmp_path, monkeypatch, 
         timeout_stderr = ("é" * 600 + "fatal: café XY").encode("utf-8")
         raise subprocess.TimeoutExpired(command, timeout=15, stderr=timeout_stderr)
 
-    monkeypatch.setattr(linting_tools.subprocess, "run", failed_git)
+    monkeypatch.setattr(subprocess, "run", failed_git)
 
     out = lint_tool(tmp_path, mode=mode, checks=["common_mistakes"], validators=[])
 
@@ -648,7 +730,7 @@ def test_lint_git_scope_undecodable_output_returns_structured_error(tmp_path, mo
         stdout = b"A  events/caf\xe9.txt\0"
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr=b"")
 
-    monkeypatch.setattr(linting_tools.subprocess, "run", latin1_git)
+    monkeypatch.setattr(subprocess, "run", latin1_git)
 
     out = lint_tool(tmp_path, mode=mode, checks=["common_mistakes"], validators=[])
 
@@ -669,7 +751,7 @@ def test_git_scope_discovery_uses_selected_worktree_cwd(tmp_path, monkeypatch, m
         assert kwargs["cwd"] == str(expected_cwd)
         return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
 
-    monkeypatch.setattr(linting_tools.subprocess, "run", successful_git)
+    monkeypatch.setattr(subprocess, "run", successful_git)
     discover = _changed_files if mode == "changed" else _staged_files
 
     assert discover(tmp_path, overlay if use_overlay else None) == []

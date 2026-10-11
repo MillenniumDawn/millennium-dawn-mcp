@@ -122,6 +122,10 @@ def build_server(settings: Settings):
 
     mcp = FastMCP("md-mcp")
     blocking_tools = BoundedOffloader()
+    # Keep a handle for orderly shutdown in embedding/test contexts.  The CLI
+    # process naturally tears down its workers at exit; tests must close them
+    # before any subsequent fork.
+    mcp._md_blocking_tools = blocking_tools
 
     def _index(cls):
         return _make_index(cls, settings)

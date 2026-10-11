@@ -35,8 +35,25 @@ def _run(coro):
 
 
 @pytest.fixture
-def server(fake_mod_root, cache_dir):
-    return build_server(_settings(fake_mod_root, cache_dir))
+def server_factory():
+    instances = []
+
+    def create(settings):
+        instance = build_server(settings)
+        instances.append(instance)
+        return instance
+
+    try:
+        yield create
+    finally:
+        for instance in instances:
+            instance._md_blocking_tools.close()
+
+
+@pytest.fixture
+def server(fake_mod_root, cache_dir, server_factory):
+    return server_factory(_settings(fake_mod_root, cache_dir))
+
 
 
 def test_lint_and_validate_serialize_shared_runner(server, monkeypatch):
@@ -203,12 +220,12 @@ def test_call_issue_18_resolvers_and_finders(server):
     assert payload["matches"][0]["id"] == "TST_test_character"
 
 
-def test_call_resolve_sprite_manifest_fallback(fake_mod_root, cache_dir):
+def test_call_resolve_sprite_manifest_fallback(fake_mod_root, cache_dir, server_factory):
     """Full wiring: no HOI4 install + a committed manifest resolves a vanilla-only sprite."""
     (fake_mod_root / "tools" / "validation" / "vanilla_sprites.txt").write_text(
         "GFX_vanilla_only\n", encoding="utf-8"
     )
-    srv = build_server(_settings(fake_mod_root, cache_dir))
+    srv = server_factory(_settings(fake_mod_root, cache_dir))
 
     async def go():
         return await srv.call_tool("resolve_sprite", {"name": "GFX_vanilla_only"})
@@ -218,12 +235,12 @@ def test_call_resolve_sprite_manifest_fallback(fake_mod_root, cache_dir):
     assert payload["source"] == "vanilla_manifest"
 
 
-def test_call_resolve_sprite_index_wins_over_manifest(fake_mod_root, cache_dir):
+def test_call_resolve_sprite_index_wins_over_manifest(fake_mod_root, cache_dir, server_factory):
     """An indexed sprite resolves from the .gfx index even when the manifest also lists it."""
     (fake_mod_root / "tools" / "validation" / "vanilla_sprites.txt").write_text(
         "GFX_test_sprite_one\n", encoding="utf-8"
     )
-    srv = build_server(_settings(fake_mod_root, cache_dir))
+    srv = server_factory(_settings(fake_mod_root, cache_dir))
 
     async def go():
         return await srv.call_tool("resolve_sprite", {"name": "GFX_test_sprite_one"})
@@ -373,10 +390,10 @@ def test_call_check_encoding_with_pagination(server, fake_mod_root):
     assert payload["truncated"] is False
 
 
-def test_call_review_branch_forwards_submod_root(fake_mod_root, cache_dir, tmp_path):
+def test_call_review_branch_forwards_submod_root(fake_mod_root, cache_dir, tmp_path, server_factory):
     submod = tmp_path / "Overlay"
     submod.mkdir()
-    overlay_server = build_server(
+    overlay_server = server_factory(
         Settings(
             mod_root=fake_mod_root,
             vanilla_path=None,
@@ -398,7 +415,7 @@ def test_call_review_branch_forwards_submod_root(fake_mod_root, cache_dir, tmp_p
     assert "review_branch.py not found" in payload["error"]
 
 
-def test_call_analysis_tools_forward_submod_root(fake_mod_root, cache_dir, tmp_path):
+def test_call_analysis_tools_forward_submod_root(fake_mod_root, cache_dir, tmp_path, server_factory):
     submod_root = tmp_path / "overlay"
     relpath = "common/national_focus/OVR_overlay_only.txt"
     focus = submod_root / relpath
@@ -415,7 +432,7 @@ def test_call_analysis_tools_forward_submod_root(fake_mod_root, cache_dir, tmp_p
 """,
         encoding="utf-8",
     )
-    srv = build_server(
+    srv = server_factory(
         Settings(
             mod_root=fake_mod_root,
             vanilla_path=None,
@@ -468,7 +485,7 @@ def test_call_generate_gfx_merge(server, fake_mod_root):
     assert payload["would_write"] is True
 
 
-def test_call_fix_lint(fake_mod_root, cache_dir):
+def test_call_fix_lint(fake_mod_root, cache_dir, server_factory):
     """fix_lint through FastMCP with upstream stand-ins planted in the mod root."""
     linting = fake_mod_root / "tools" / "linting"
     linting.mkdir(parents=True, exist_ok=True)
@@ -488,7 +505,7 @@ def test_call_fix_lint(fake_mod_root, cache_dir):
         "def _find_decision_log_mismatches(lines):\n    return []\n",
         encoding="utf-8",
     )
-    srv = build_server(_settings(fake_mod_root, cache_dir))
+    srv = server_factory(_settings(fake_mod_root, cache_dir))
 
     async def go():
         return await srv.call_tool("fix_lint", {"fixer": "styling", "content": "a XX b\n"})

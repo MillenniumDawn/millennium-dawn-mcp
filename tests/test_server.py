@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any, cast
 
 import pytest
 
@@ -31,12 +32,32 @@ def _text(result) -> str:
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)  # for pytest, no anyio dep
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 @pytest.fixture
-def server(fake_mod_root, cache_dir):
-    return build_server(_settings(fake_mod_root, cache_dir))
+def server_factory():
+    instances = []
+
+    def create(settings):
+        instance = build_server(settings)
+        instances.append(instance)
+        return instance
+
+    try:
+        yield create
+    finally:
+        for instance in instances:
+            cast(Any, instance)._md_blocking_tools.close()
+
+
+@pytest.fixture
+def server(fake_mod_root, cache_dir, server_factory):
+    return server_factory(_settings(fake_mod_root, cache_dir))
 
 
 def test_lint_and_validate_serialize_shared_runner(server, monkeypatch):
@@ -133,7 +154,7 @@ def test_list_tools(server):
     async def go():
         return await server.list_tools()
 
-    tools = asyncio.new_event_loop().run_until_complete(go())
+    tools = _run(go())
     names = {t.name for t in tools}
     assert names == EXPECTED_TOOLS
 
@@ -149,16 +170,14 @@ def test_list_tools(server):
     ],
 )
 def test_definition_finder_schema_keeps_kind_server_owned(server, name):
-    tools = asyncio.new_event_loop().run_until_complete(server.list_tools())
+    tools = _run(server.list_tools())
     tool = next(tool for tool in tools if tool.name == name)
 
     assert set(tool.inputSchema["properties"]) == {"query", "limit", "offset"}
 
 
 def test_definition_finder_ignores_client_kind_override(server):
-    result = asyncio.new_event_loop().run_until_complete(
-        server.call_tool("find_characters", {"kind": "trait", "query": "test"})
-    )
+    result = _run(server.call_tool("find_characters", {"kind": "trait", "query": "test"}))
     payload = json.loads(_text(result))
 
     assert payload["total"] == 1
@@ -169,7 +188,7 @@ def test_call_resolve_focus(server):
     async def go():
         return await server.call_tool("resolve_focus", {"focus_id": "TST_root"})
 
-    result = asyncio.new_event_loop().run_until_complete(go())
+    result = _run(go())
     payload = json.loads(_text(result))
     assert payload["ok"] is True
     assert payload["id"] == "TST_root"
@@ -180,7 +199,7 @@ def test_call_resolve_loc(server):
     async def go():
         return await server.call_tool("resolve_loc", {"key": "TST_root"})
 
-    result = asyncio.new_event_loop().run_until_complete(go())
+    result = _run(go())
     payload = json.loads(_text(result))
     assert payload["ok"] is True
     assert payload["value"] == "The Root Focus"
@@ -190,45 +209,45 @@ def test_call_issue_18_resolvers_and_finders(server):
     async def resolve():
         return await server.call_tool("resolve_country_tag", {"tag": "TST"})
 
-    payload = json.loads(_text(asyncio.new_event_loop().run_until_complete(resolve())))
+    payload = json.loads(_text(_run(resolve())))
     assert payload["ok"] is True
     assert payload["country_file"] == "countries/Testland.txt"
 
     async def find():
         return await server.call_tool("find_characters", {"query": "test", "limit": 1})
 
-    payload = json.loads(_text(asyncio.new_event_loop().run_until_complete(find())))
+    payload = json.loads(_text(_run(find())))
     assert payload["ok"] is True
     assert payload["total"] == 1
     assert payload["matches"][0]["id"] == "TST_test_character"
 
 
-def test_call_resolve_sprite_manifest_fallback(fake_mod_root, cache_dir):
+def test_call_resolve_sprite_manifest_fallback(fake_mod_root, cache_dir, server_factory):
     """Full wiring: no HOI4 install + a committed manifest resolves a vanilla-only sprite."""
     (fake_mod_root / "tools" / "validation" / "vanilla_sprites.txt").write_text(
         "GFX_vanilla_only\n", encoding="utf-8"
     )
-    srv = build_server(_settings(fake_mod_root, cache_dir))
+    srv = server_factory(_settings(fake_mod_root, cache_dir))
 
     async def go():
         return await srv.call_tool("resolve_sprite", {"name": "GFX_vanilla_only"})
 
-    payload = json.loads(_text(asyncio.new_event_loop().run_until_complete(go())))
+    payload = json.loads(_text(_run(go())))
     assert payload["ok"] is True
     assert payload["source"] == "vanilla_manifest"
 
 
-def test_call_resolve_sprite_index_wins_over_manifest(fake_mod_root, cache_dir):
+def test_call_resolve_sprite_index_wins_over_manifest(fake_mod_root, cache_dir, server_factory):
     """An indexed sprite resolves from the .gfx index even when the manifest also lists it."""
     (fake_mod_root / "tools" / "validation" / "vanilla_sprites.txt").write_text(
         "GFX_test_sprite_one\n", encoding="utf-8"
     )
-    srv = build_server(_settings(fake_mod_root, cache_dir))
+    srv = server_factory(_settings(fake_mod_root, cache_dir))
 
     async def go():
         return await srv.call_tool("resolve_sprite", {"name": "GFX_test_sprite_one"})
 
-    payload = json.loads(_text(asyncio.new_event_loop().run_until_complete(go())))
+    payload = json.loads(_text(_run(go())))
     assert payload["ok"] is True
     assert payload.get("source") != "vanilla_manifest"
     assert payload["file"] is not None
@@ -238,7 +257,7 @@ def test_call_parse_string(server):
     async def go():
         return await server.call_tool("parse_string", {"text": "a = 1"})
 
-    result = asyncio.new_event_loop().run_until_complete(go())
+    result = _run(go())
     payload = json.loads(_text(result))
     assert payload["ok"] is True
     assert payload["root"]["value"]["children"][0]["name"] == "a"
@@ -248,7 +267,7 @@ def test_call_parse_string_error(server):
     async def go():
         return await server.call_tool("parse_string", {"text": "a = {{{"})
 
-    result = asyncio.new_event_loop().run_until_complete(go())
+    result = _run(go())
     payload = json.loads(_text(result))
     assert payload["ok"] is False
     assert "error" in payload
@@ -258,7 +277,7 @@ def test_call_parse_string_error_reports_line_column(server):
     async def go():
         return await server.call_tool("parse_string", {"text": "a = 1\nb = {{{"})
 
-    result = asyncio.new_event_loop().run_until_complete(go())
+    result = _run(go())
     payload = json.loads(_text(result))
     assert payload["ok"] is False
     assert "error" in payload
@@ -272,7 +291,7 @@ def test_call_find_focuses_with_prereq(server):
             {"has_prereq": "TST_root", "limit": "1", "offset": 1},
         )
 
-    result = asyncio.new_event_loop().run_until_complete(go())
+    result = _run(go())
     payload = json.loads(_text(result))
     assert payload["ok"] is True
     assert payload["partial"] is False
@@ -291,7 +310,7 @@ def test_call_validate_list_with_pagination(server, fake_mod_root):
     async def go():
         return await server.call_tool("validate_list", {"limit": "1", "offset": 0})
 
-    result = asyncio.new_event_loop().run_until_complete(go())
+    result = _run(go())
     payload = json.loads(_text(result))
     assert payload["ok"] is True
     assert payload["total"] == 1
@@ -345,7 +364,7 @@ def check_created_variants(variants, index):
             },
         )
 
-    payload = json.loads(_text(asyncio.new_event_loop().run_until_complete(go())))
+    payload = json.loads(_text(_run(go())))
     assert payload["ok"] is True
     assert payload["valid"] is True
     assert payload["issues"] == []
@@ -365,7 +384,7 @@ def test_call_check_encoding_with_pagination(server, fake_mod_root):
             },
         )
 
-    result = asyncio.new_event_loop().run_until_complete(go())
+    result = _run(go())
     payload = json.loads(_text(result))
     assert payload["ok"] is True
     assert payload["total"] == 1
@@ -373,10 +392,12 @@ def test_call_check_encoding_with_pagination(server, fake_mod_root):
     assert payload["truncated"] is False
 
 
-def test_call_review_branch_forwards_submod_root(fake_mod_root, cache_dir, tmp_path):
+def test_call_review_branch_forwards_submod_root(
+    fake_mod_root, cache_dir, tmp_path, server_factory
+):
     submod = tmp_path / "Overlay"
     submod.mkdir()
-    overlay_server = build_server(
+    overlay_server = server_factory(
         Settings(
             mod_root=fake_mod_root,
             vanilla_path=None,
@@ -390,7 +411,7 @@ def test_call_review_branch_forwards_submod_root(fake_mod_root, cache_dir, tmp_p
     async def go():
         return await overlay_server.call_tool("review_branch", {"base": "main"})
 
-    result = asyncio.new_event_loop().run_until_complete(go())
+    result = _run(go())
     payload = json.loads(_text(result))
     # review_branch.py doesn't exist in the fake mod; the error must still shape
     # a valid payload, proving the tool wired submod_root through.
@@ -398,7 +419,9 @@ def test_call_review_branch_forwards_submod_root(fake_mod_root, cache_dir, tmp_p
     assert "review_branch.py not found" in payload["error"]
 
 
-def test_call_analysis_tools_forward_submod_root(fake_mod_root, cache_dir, tmp_path):
+def test_call_analysis_tools_forward_submod_root(
+    fake_mod_root, cache_dir, tmp_path, server_factory
+):
     submod_root = tmp_path / "overlay"
     relpath = "common/national_focus/OVR_overlay_only.txt"
     focus = submod_root / relpath
@@ -415,7 +438,7 @@ def test_call_analysis_tools_forward_submod_root(fake_mod_root, cache_dir, tmp_p
 """,
         encoding="utf-8",
     )
-    srv = build_server(
+    srv = server_factory(
         Settings(
             mod_root=fake_mod_root,
             vanilla_path=None,
@@ -432,7 +455,7 @@ def test_call_analysis_tools_forward_submod_root(fake_mod_root, cache_dir, tmp_p
             await srv.call_tool("check_refs", {"tag": "OVR", "kinds": ["event"]}),
         )
 
-    layout_result, refs_result = asyncio.new_event_loop().run_until_complete(go())
+    layout_result, refs_result = _run(go())
     layout = json.loads(_text(layout_result))
     refs = json.loads(_text(refs_result))
 
@@ -459,7 +482,7 @@ def test_call_generate_gfx_merge(server, fake_mod_root):
             },
         )
 
-    result = asyncio.new_event_loop().run_until_complete(go())
+    result = _run(go())
     payload = json.loads(_text(result))
     assert payload["ok"] is True
     assert payload["new"] == ["GFX_test_sprite_three"]
@@ -468,7 +491,7 @@ def test_call_generate_gfx_merge(server, fake_mod_root):
     assert payload["would_write"] is True
 
 
-def test_call_fix_lint(fake_mod_root, cache_dir):
+def test_call_fix_lint(fake_mod_root, cache_dir, server_factory):
     """fix_lint through FastMCP with upstream stand-ins planted in the mod root."""
     linting = fake_mod_root / "tools" / "linting"
     linting.mkdir(parents=True, exist_ok=True)
@@ -488,12 +511,12 @@ def test_call_fix_lint(fake_mod_root, cache_dir):
         "def _find_decision_log_mismatches(lines):\n    return []\n",
         encoding="utf-8",
     )
-    srv = build_server(_settings(fake_mod_root, cache_dir))
+    srv = server_factory(_settings(fake_mod_root, cache_dir))
 
     async def go():
         return await srv.call_tool("fix_lint", {"fixer": "styling", "content": "a XX b\n"})
 
-    payload = json.loads(_text(asyncio.new_event_loop().run_until_complete(go())))
+    payload = json.loads(_text(_run(go())))
     assert payload["ok"] is True
     assert payload["changed"] is True
     assert payload["txt"] == "a YY b\n"
@@ -506,7 +529,7 @@ def test_call_fix_lint_missing_upstream(server):
     async def go():
         return await server.call_tool("fix_lint", {"fixer": "styling", "content": "a\n"})
 
-    payload = json.loads(_text(asyncio.new_event_loop().run_until_complete(go())))
+    payload = json.loads(_text(_run(go())))
     assert payload["ok"] is False
     assert "tools" in payload["error"]
 
@@ -515,7 +538,7 @@ def test_resource_focus_raw(server):
     async def go():
         return await server.read_resource("md://focus/TST_root")
 
-    contents = asyncio.new_event_loop().run_until_complete(go())
+    contents = _run(go())
     text = contents[0].content if hasattr(contents[0], "content") else str(contents[0])
     assert "id = TST_root" in text
     assert "completion_reward" in text
@@ -525,6 +548,6 @@ def test_resource_loc_raw(server):
     async def go():
         return await server.read_resource("md://loc/TST_root")
 
-    contents = asyncio.new_event_loop().run_until_complete(go())
+    contents = _run(go())
     text = contents[0].content if hasattr(contents[0], "content") else str(contents[0])
     assert text == "The Root Focus"

@@ -61,6 +61,10 @@ Conftest provides two fixtures:
 - **`real_mod_root`** — resolves `MD_MOD_ROOT`; skips if unset or invalid.
   Use for integration tests that need realistic content volume.
 
+Tests that construct a server must close its bounded worker pool during fixture
+teardown (`server._md_blocking_tools.close()`). This prevents worker threads
+from surviving into later tests that fork processes.
+
 ## Repo conventions
 
 - **No `Co-Authored-By` lines** in commits (per workspace `CLAUDE.md`).

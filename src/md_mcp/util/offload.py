@@ -26,6 +26,10 @@ class BoundedOffloader:
         self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="md-mcp")
         self._capacity = asyncio.Semaphore(capacity)
 
+    def close(self) -> None:
+        """Wait for worker threads to finish and release the executor."""
+        self._executor.shutdown(wait=True, cancel_futures=True)
+
     async def run(self, function: Callable[..., T], /, *args: Any, **kwargs: Any) -> T:
         """Await a blocking function without occupying the event-loop thread."""
         return await self._run(None, function, *args, **kwargs)

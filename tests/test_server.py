@@ -73,6 +73,41 @@ def test_lint_and_validate_serialize_shared_runner(server, monkeypatch):
     assert peak_active == 1
 
 
+def test_call_summarize_game_log_routes_options(server, monkeypatch):
+    observed = {}
+
+    def fake_summary(mod_root, path, **kwargs):
+        observed.update({"mod_root": mod_root, "path": path, **kwargs})
+        return {"ok": True, "path": path, "offset": kwargs["offset"]}
+
+    monkeypatch.setattr("md_mcp.server.game_log_summary_tool", fake_summary)
+
+    async def call():
+        return await server.call_tool(
+            "summarize_game_log",
+            {
+                "path": "/tmp/session.log",
+                "top": 4,
+                "limit": 2,
+                "offset": 1,
+                "countries": ["Brazil"],
+                "since": "2001.1.1",
+                "until": "2002.1.1",
+            },
+        )
+
+    payload = json.loads(_text(asyncio.run(call())))
+
+    assert payload == {"ok": True, "path": "/tmp/session.log", "offset": 1}
+    assert observed["path"] == "/tmp/session.log"
+    assert observed["top"] == 4
+    assert observed["limit"] == 2
+    assert observed["offset"] == 1
+    assert observed["countries"] == ["Brazil"]
+    assert observed["since"] == "2001.1.1"
+    assert observed["until"] == "2002.1.1"
+
+
 EXPECTED_TOOLS = {
     # M1
     "resolve_focus",

@@ -485,6 +485,146 @@ def parse_date_arg(value):
     assert log.read_text(encoding="utf-8") == "readonly"
 
 
+def test_game_log_summary_rejects_invalid_numeric_options_before_running_shim(tmp_path):
+    result = upstream_analysis.game_log_summary_tool(
+        tmp_path, "/tmp/game.log", top=cast(Any, "many")
+    )
+
+    assert result["ok"] is False
+    assert "top must be an integer" in result["error"]
+
+
+def _write_summary_shim_script(root: Path, *, parsed: int = 2) -> None:
+    script = root / "tools" / "summarize_game_log.py"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(
+        f"""import json
+def parse(path, since=None, until=None):
+    return {{"stats": {{"parsed": {parsed}}}, "dates": (since, until)}}
+def parse_date_arg(value):
+    return value
+def pick_countries(data, requested, top_countries):
+    return requested or ["BRA"]
+def to_json(data, countries=None, top=15):
+    return json.dumps({{
+        "conflicts": [{{"id": "a"}}, {{"id": "b"}}],
+        "politics": [{{"id": "p1"}}, {{"id": "p2"}}, {{"id": "p3"}}],
+        "annexations": [],
+        "economy": {{"BRA": {{"gdp": 1}}, "CAN": {{"gdp": 2}}}},
+        "inflation": {{"BRA": {{"rate": 1}}, "CAN": {{"rate": 2}}}},
+        "focus_countries": {{
+            country: {{"focus": True}} for country in (countries or []) + ["MEX"]
+        }},
+        "most_active": countries[:top],
+    }})
+""",
+        encoding="utf-8",
+    )
+
+
+def test_shim_game_log_summary_validates_inputs_and_pages_summary_maps(tmp_path):
+    shim = _load_shim()
+    _write_summary_shim_script(tmp_path)
+    log = tmp_path / "game.log"
+    log.write_text("readonly", encoding="utf-8")
+
+    result = shim.run(
+        "game_log_summary",
+        tmp_path,
+        {
+            "path": str(log),
+            "top": 2,
+            "limit": 1,
+            "offset": 1,
+            "countries": ["CAN"],
+            "since": "2001.1.1",
+            "until": "2002.1.1",
+        },
+    )
+
+    assert result["ok"] is True
+    assert result["path"] == str(log)
+    assert result["offset"] == 1
+    assert result["limit"] == 1
+    assert result["conflicts"] == [{"id": "b"}]
+    assert result["conflicts_total"] == 2
+    assert result["conflicts_returned"] == 1
+    assert result["conflicts_truncated"] is False
+    assert result["politics"] == [{"id": "p2"}]
+    assert result["politics_total"] == 3
+    assert result["politics_truncated"] is True
+    assert result["economy"] == {"CAN": {"gdp": 2}}
+    assert result["inflation"] == {"CAN": {"rate": 2}}
+    assert result["focus_countries"] == {"MEX": {"focus": True}}
+    assert result["most_active"] == ["CAN"]
+
+
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [
+        ({"path": "relative.log"}, "absolute path"),
+        ({"path": "/tmp/session.csv"}, "end in .log or .txt"),
+        ({"path": "/tmp/missing.log"}, "Log file not found"),
+    ],
+)
+def test_shim_game_log_summary_rejects_invalid_paths(tmp_path, payload, error):
+    result = _load_shim().run("game_log_summary", tmp_path, payload)
+    assert result["ok"] is False
+    assert error in result["error"]
+
+
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [
+        ({"top": "many"}, "Invalid numeric parameter"),
+        ({"countries": ["BRA", 2]}, "countries must be a list"),
+    ],
+)
+def test_shim_game_log_summary_rejects_invalid_summary_options(tmp_path, payload, error):
+    _write_summary_shim_script(tmp_path)
+    log = tmp_path / "game.txt"
+    log.write_text("readonly", encoding="utf-8")
+    result = _load_shim().run("game_log_summary", tmp_path, {"path": str(log), **payload})
+    assert result["ok"] is False
+    assert error in result["error"]
+
+
+def test_shim_game_log_summary_rejects_logs_without_parsed_entries(tmp_path):
+    _write_summary_shim_script(tmp_path, parsed=0)
+    log = tmp_path / "empty.log"
+    log.write_text("not a scripted entry", encoding="utf-8")
+
+    result = _load_shim().run("game_log_summary", tmp_path, {"path": str(log)})
+
+    assert result == {
+        "ok": False,
+        "path": str(log),
+        "error": "No scripted MD log entries found",
+    }
+
+
+def test_shim_game_log_summary_reports_parser_errors(tmp_path):
+    script = tmp_path / "tools" / "summarize_game_log.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        "def parse(path, since=None, until=None):\n"
+        "    raise ValueError('invalid date range')\n"
+        "def parse_date_arg(value):\n"
+        "    return value\n",
+        encoding="utf-8",
+    )
+    log = tmp_path / "bad.log"
+    log.write_text("bad dates", encoding="utf-8")
+
+    result = _load_shim().run("game_log_summary", tmp_path, {"path": str(log)})
+
+    assert result == {
+        "ok": False,
+        "path": str(log),
+        "error": "invalid date range",
+    }
+
+
 def test_game_log_summary_bounds_large_economy_and_inflation_maps(tmp_path):
     script = tmp_path / "tools" / "summarize_game_log.py"
     script.parent.mkdir(parents=True)

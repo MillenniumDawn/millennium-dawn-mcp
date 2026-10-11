@@ -62,7 +62,11 @@ def _staged_files_env(mod_root: Path) -> str:
     while index < len(records):
         status = records[index].decode("ascii", "replace")
         index += 1
+        if status not in {"A", "D", "M", "T", "U", "X", "B"} and not status.startswith(("R", "C")):
+            raise ValueError(f"Malformed staged path status: {status!r}")
         path_count = 2 if status.startswith(("R", "C")) else 1
+        if len(records) - index < path_count:
+            raise ValueError(f"Malformed staged path record for status {status!r}")
         paths.extend(
             records[index + offset].decode("utf-8", "surrogateescape")
             for offset in range(min(path_count, len(records) - index))

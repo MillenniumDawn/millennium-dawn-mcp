@@ -269,7 +269,15 @@ def test_lookup_docs_mcp_registration_and_call(fake_mod_root, cache_dir) -> None
     tools, result, system_result = asyncio.run(go())
     description = next(tool.description for tool in tools if tool.name == "lookup_docs")
     assert description is not None
-    for advertised in ("effect", "trigger", "modifier", ".claude/docs", ".claude/rules"):
+    for advertised in (
+        "effect",
+        "trigger",
+        "modifier",
+        ".claude/docs",
+        ".claude/rules",
+        ".claude/skills",
+        "skill|skills",
+    ):
         assert advertised in description
     payload = json.loads(cast(Any, result)[0].text)
     assert payload["ok"] is True
@@ -358,3 +366,41 @@ def test_read_system_documents_skips_directories_named_like_docs(fake_mod_root, 
     assert result["ok"] is True
     keys = [entry["key"] for entry in result["entries"]]
     assert keys == [".claude/docs/workflow"]
+
+
+def test_lookup_docs_lists_skill_frontmatter_and_references(fake_mod_root, cache_dir) -> None:
+    skill = fake_mod_root / ".claude" / "skills" / "build" / "SKILL.md"
+    reference = skill.parent / "references" / "guide.md"
+    reference.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: Build skill\ndescription: Build safely\n---\n# Build\nBody\n", encoding="utf-8"
+    )
+    reference.write_text("# Guide\nReference body\n", encoding="utf-8")
+    settings = _settings(fake_mod_root, cache_dir)
+
+    listing = lookup_docs_tool(settings, "skills")
+    assert listing["ok"] is True
+    assert listing["total"] == 2
+    assert {entry["key"] for entry in listing["entries"]} == {
+        ".claude/skills/build/SKILL",
+        ".claude/skills/build/references/guide",
+    }
+    detail = lookup_docs_tool(settings, "skill", key="Build skill")
+    assert detail["ok"] is True
+    assert detail["entries"][0]["frontmatter"]["description"] == "Build safely"
+    assert lookup_docs_tool(settings, "skills", key="build/guide")["ok"] is True
+    assert lookup_docs_tool(settings, "skills", key="build/guide.md")["ok"] is True
+
+
+def test_skill_frontmatter_folded_description_and_escaped_quote(fake_mod_root, cache_dir) -> None:
+    skill = fake_mod_root / ".claude" / "skills" / "diary" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        (
+            "---\nname: Diary\ndescription: >-\n"
+            "  Write a country''s diary\n  with care.\n---\n# Diary\n"
+        ),
+        encoding="utf-8",
+    )
+    result = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "skill", key="diary")
+    assert result["entries"][0]["description"] == "Write a country's diary with care."

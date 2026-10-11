@@ -263,7 +263,7 @@ def build_server(settings: Settings):
     )(_bind_tool(find_indexed_tool, scripted_trigger_index, "scripted_trigger"))
     mcp.tool(
         name="lookup_docs",
-        description="Look up an effect, trigger, or modifier in resources/documentation, or a doc/rule in .claude/docs and .claude/rules; pass key for exact docs or omit it for a paginated key list, with close-match suggestions on misses.",
+        description="Look up effects, triggers, modifiers, .claude/docs, .claude/rules, or skills; kind=skill|skills searches .claude/skills and references. Pass key for exact docs or omit it for a paginated list.",
     )(_bind_tool(lookup_docs_tool, settings))
 
     @mcp.tool(name="find_references")

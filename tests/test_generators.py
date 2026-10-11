@@ -558,12 +558,7 @@ def test_merge_appends_before_structural_root_brace_not_comment_brace():
 
 
 def test_merge_appends_inside_lowercase_spritetypes_root_staying_parseable_and_idempotent():
-    """Real-mod MD_leader_portraits.gfx declares its root as lowercase `spritetypes`.
-
-    The insertion anchor must not be case-sensitive: a new block appended after the
-    root close leaves the document invalid, while the pre-#151 `rfind("}")` anchor
-    inserted inside it.
-    """
+    """Append inside a lowercase root and keep repeated merges unchanged."""
     original = "spritetypes = {\n" + _render("GFX_a", "gfx/a.dds") + "}\n"
     entries = {"GFX_a": "gfx/a.dds", "GFX_b": "gfx/b.dds"}
 

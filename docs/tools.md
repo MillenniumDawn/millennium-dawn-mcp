@@ -870,3 +870,14 @@ details paginated by `limit`/`offset` independently within each year;
 `flagged_years` includes flagged event details. `years` retains all annual
 summaries so later event pages remain reachable. Defaults are USA, a 45-day
 window, threshold 3, limit 20, and offset 0.
+
+### `summarize_game_log(path, top?, limit?, offset?, countries?, since?, until?) -> dict`
+
+Run upstream `tools/summarize_game_log.py` read-only for one explicit absolute
+`.log` or `.txt` path. Returns JSON parity for session, categories, active
+countries, conflicts, politics, annexations, economy, and inflation. `top` caps
+ranked countries; optional `countries` requests country deep dives and `since`
+and `until` apply the upstream date filters. `limit`/`offset` page conflict,
+politics, annexation, economy, inflation, and country-detail maps.
+Relative paths, other extensions, missing files, and logs without parsed MD
+entries return `{ok: false, error}`.

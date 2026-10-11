@@ -79,6 +79,7 @@ from .tools.upstream_analysis import (
     calculate_days_tool,
     estimate_gdp_tool,
     event_load_tool,
+    game_log_summary_tool,
     tick_audit_tool,
 )
 from .tools.validation_tools import validate_list_tool, validate_tool
@@ -469,6 +470,28 @@ def build_server(settings: Settings):
         """Summarize scheduled events by year with busiest windows and flagged event details."""
         return await blocking_tools.run(
             event_load_tool, settings.mod_root, tag, window, threshold, limit, offset
+        )
+
+    @mcp.tool(name="summarize_game_log")
+    def _summarize_game_log(
+        path: str,
+        top: int = 15,
+        limit: int = 100,
+        offset: int = 0,
+        countries: Optional[list[str]] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+    ) -> dict:
+        """Summarize an absolute .log/.txt path; filter dates/countries and page output."""
+        return game_log_summary_tool(
+            settings.mod_root,
+            path,
+            top=top,
+            limit=limit,
+            offset=offset,
+            countries=countries,
+            since=since,
+            until=until,
         )
 
     @mcp.tool(name="calculate_days")

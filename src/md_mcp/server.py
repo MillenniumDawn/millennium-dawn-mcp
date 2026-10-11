@@ -397,7 +397,7 @@ def build_server(settings: Settings):
         path: Optional[str] = None,
         content: Optional[str] = None,
     ) -> dict:
-        """Apply an upstream lint fixer in-memory: fixer=styling|loc_yaml|line_endings|log_ids; give content= or mod-relative path= (path required for log_ids; loc_yaml=.yml only, styling=.txt only). Returns {txt, changed, fixes, summary, warnings}; txt omitted when unchanged, clipped with txt_truncated=true when oversized — never write clipped txt back. loc_yaml reports had_bom; preserve it when writing .yml."""
+        """Apply an upstream lint fixer in-memory: fixer=styling|loc_yaml|line_endings|log_ids|changelog; give content= or mod-relative path= (path required for log_ids; changelog=Changelog.txt). Returns {txt, changed, fixes, summary, warnings}; txt omitted when unchanged, clipped with txt_truncated=true when oversized — never write clipped txt back. loc_yaml reports had_bom; preserve it when writing .yml."""
         return fix_lint_tool(
             settings.mod_root,
             fixer=fixer,

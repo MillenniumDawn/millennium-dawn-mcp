@@ -140,6 +140,29 @@ def test_changelog_fixer_rejects_wrong_path(tmp_path):
     assert "Changelog.txt" in out["error"]
 
 
+def test_changelog_helpers_are_reloaded_when_mod_root_changes(tmp_path):
+    from md_mcp.tools.linting_tools import lint_changelog_tool
+
+    root_a = tmp_path / "A"
+    root_b = tmp_path / "B"
+    for root, label in ((root_a, "A"), (root_b, "B")):
+        checker = root / LINTING / "check_changelog.py"
+        checker.parent.mkdir(parents=True, exist_ok=True)
+        checker.write_text(
+            "def check_lines(lines):\n    return []\n"
+            f"def order_lines(lines):\n    return [{label!r} + line for line in lines]\n",
+            encoding="utf-8",
+        )
+    (root_b / "Changelog.txt").write_text("entry\n", encoding="utf-8")
+
+    first = fix_lint_tool(root_a, fixer="changelog", content="entry\n")
+    lint_changelog_tool(root_b)
+    second = fix_lint_tool(root_a, fixer="changelog", content="entry\n")
+
+    assert first["txt"] == "Aentry\n"
+    assert second["txt"] == "Aentry\n"
+
+
 def test_missing_source_rejected(tmp_path):
     out = fix_lint_tool(tmp_path, fixer="styling")
     assert out["ok"] is False

@@ -32,9 +32,9 @@ from ..analysis.suppressions import SUPPRESSION_SOURCE, suppressed_count
 from ..util.pathing import contained
 from ..util.process import run_in_group
 from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget, fit_prefix
-from ..util.upstream_modules import UpstreamModules
 from ..validators import SLOW_VALIDATORS, ValidatorRunner, count_severities
 from ..validators.attribution import normalize_path
+from .lint_fixers import _load_changelog_core
 from .lint_validators import (
     EQUIPMENT_VARIANT_PREFIXES,
     STYLE_PREFIXES,
@@ -44,7 +44,6 @@ from .lint_validators import (
 from .validation_tools import filter_and_cap
 
 _LINT_LINE_RE = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):\s*(?P<msg>.+)$")
-_CHANGELOG_CHECKER = UpstreamModules("linting", ("check_changelog",))
 
 # validate_mod_encoding emits one line per file on stdout/stderr.
 _MOD_ENC_OK_RE = re.compile(r"^(?P<file>.+?):\s+Valid UTF-8 encoding\s*$")
@@ -196,7 +195,7 @@ def lint_changelog_tool(
             "skipped": "Changelog.txt not found",
         }
     try:
-        module = _CHANGELOG_CHECKER.load(mod_root, ("check_changelog",))["check_changelog"]
+        module = _load_changelog_core(mod_root)
         text = changelog.read_bytes().decode("utf-8-sig")
         errors = module.check_lines(text.splitlines())
     except ImportError as exc:

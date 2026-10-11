@@ -451,7 +451,8 @@ read-only rule — the caller writes the returned `txt` back via Edit/Write.
 - `fixer`: `styling` (tab indent, `===`→`---` in comments, spacing) /
   `loc_yaml` (tabs, smart quotes, `key:0 "v"`, `key:"v"`, indent,
   unescaped quotes) / `line_endings` (CRLF→LF) / `log_ids` (mismatched
-  focus/decision log ids).
+  focus/decision log ids) / `changelog` (order top-version entries by
+  untagged first, then alphabetic tag).
 - `content`: text to fix — no file access at all. `path`: mod-relative
   source when `content` is omitted; always required for `log_ids` (scope is
   path-based). `loc_yaml` accepts `.yml` only (its tab→space rewrite

@@ -63,6 +63,11 @@ def _load_fixer_modules(mod_root: Path, fixer: str) -> dict[str, ModuleType]:
     return _UPSTREAM.load(mod_root, names) if names else {}
 
 
+def _load_changelog_core(mod_root: Path) -> ModuleType:
+    """Load the upstream changelog helpers through the shared per-root loader."""
+    return _load_fixer_modules(mod_root, "changelog")["check_changelog"]
+
+
 def fix_lint_tool(
     mod_root: Path,
     *,
@@ -161,7 +166,7 @@ def fix_lint_tool(
         assert norm_path is not None
         return _fix_log_ids(result, modules, text, norm_path)
     if fixer == "changelog":
-        fixed = "".join(modules["check_changelog"].order_lines(text.splitlines(keepends=True)))
+        fixed = "".join(_load_changelog_core(mod_root).order_lines(text.splitlines(keepends=True)))
         return _finish(result, text, fixed, int(fixed != text), {}, [])
     if fixer == "styling":
         fixed, fixes, summary, warnings = _fix_styling(modules, text)

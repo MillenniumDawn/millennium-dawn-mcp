@@ -27,6 +27,7 @@ SPRITETYPES_HEADER = "spriteTypes = {\n"
 _SPRITETYPE_RE = re.compile(r"[sS]priteType\s*=\s*\{")
 _NAME_RE = re.compile(r'name\s*=\s*"([^"]+)"')
 _TEXTUREFILE_RE = re.compile(r'texture[fF]ile\s*=\s*"([^"]+)"')
+_SPRITE_TYPES_RE = re.compile(r"spriteTypes\s*=\s*\{")
 
 _Render = Callable[[str, str], str]
 
@@ -234,10 +235,15 @@ def merge_gfx_text(
         kept_texfile = existing[name][0]
         if texfile and kept_texfile and texfile != kept_texfile:
             conflicts.append({"name": name, "kept": kept_texfile, "dropped": texfile})
-        line_start = original.rfind("\n", 0, start) + 1
-        line_end = original.find("\n", end)
-        span_end = line_end + 1 if line_end != -1 else len(original)
-        dup_spans.append((line_start, span_end))
+        # Remove only this duplicate block.  Deleting its whole line erases
+        # neighboring entries when two blocks share a line.
+        span_end = end
+        while span_end < len(original) and original[span_end] in " \t":
+            span_end += 1
+        if span_end < len(original) and original[span_end] == "#":
+            line_end = original.find("\n", span_end)
+            span_end = line_end if line_end != -1 else len(original)
+        dup_spans.append((start, span_end))
         deduped_names.append(name)
 
     new_names: list[str] = []
@@ -274,7 +280,7 @@ def merge_gfx_text(
 
     if new_names:
         appended = "".join(render(name, entries[name]) for name in new_names)
-        insert_at = text.rfind("}")
+        insert_at = _sprite_types_close(text)
         if insert_at == -1:
             text = text + appended
         else:
@@ -339,6 +345,23 @@ def _match_brace(text: str, open_idx: int) -> int:
     depth = 0
     i = open_idx
     while i < len(text):
+        if text[i] == "#":
+            newline = text.find("\n", i)
+            if newline == -1:
+                break
+            i = newline + 1
+            continue
+        if text[i] == '"':
+            i += 1
+            while i < len(text):
+                if text[i] == "\\":
+                    i += 2
+                    continue
+                if text[i] == '"':
+                    break
+                i += 1
+            i += 1
+            continue
         if text[i] == "{":
             depth += 1
         elif text[i] == "}":
@@ -351,12 +374,96 @@ def _match_brace(text: str, open_idx: int) -> int:
 
 def _parse_named_blocks(text: str):
     """Yield `(name, texturefile, start, end)` for every spriteType block."""
-    for m in _SPRITETYPE_RE.finditer(text):
+    for m in _iter_sprite_types(text):
         open_idx = m.end() - 1
         try:
             end = _match_brace(text, open_idx) + 1
         except ValueError:
             continue
-        nm = _NAME_RE.search(text, m.start(), end)
-        tx = _TEXTUREFILE_RE.search(text, m.start(), end)
-        yield nm.group(1) if nm else None, tx.group(1) if tx else None, m.start(), end
+        name = _assignment_string(text, open_idx + 1, end - 1, _NAME_RE)
+        texture = _assignment_string(text, open_idx + 1, end - 1, _TEXTUREFILE_RE)
+        yield name, texture, m.start(), end
+
+
+def _assignment_string(text: str, start: int, end: int, pattern: re.Pattern[str]):
+    """Find a quoted assignment value while skipping comments and unrelated strings."""
+    i = start
+    while i < end:
+        if text[i] == "#":
+            newline = text.find("\n", i, end)
+            i = end if newline == -1 else newline + 1
+            continue
+        if text[i] == '"':
+            i = _quoted_end(text, i, end)
+            continue
+        match = pattern.match(text, i)
+        if match and (i == start or not (text[i - 1].isalnum() or text[i - 1] == "_")):
+            return match.group(1)
+        i += 1
+    return None
+
+
+def _quoted_end(text: str, start: int, end: Optional[int] = None) -> int:
+    """Return the position after a quoted string, honoring backslash escapes."""
+    stop = len(text) if end is None else end
+    i = start + 1
+    while i < stop:
+        if text[i] == "\\":
+            i += 2
+        elif text[i] == '"':
+            return i + 1
+        else:
+            i += 1
+    return stop
+
+
+def _sprite_types_close(text: str) -> int:
+    """Return the closing brace of the outer spriteTypes block, if present."""
+    i = 0
+    while i < len(text):
+        if text[i] == "#":
+            newline = text.find("\n", i)
+            if newline == -1:
+                return -1
+            i = newline + 1
+            continue
+        if text[i] == '"':
+            i = _quoted_end(text, i)
+            continue
+        match = _SPRITE_TYPES_RE.match(text, i)
+        if match and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
+            try:
+                return _match_brace(text, match.end() - 1)
+            except ValueError:
+                return -1
+        i += 1
+    return -1
+
+
+def _iter_sprite_types(text: str):
+    """Find spriteType declarations outside comments and quoted strings."""
+    i = 0
+    while i < len(text):
+        if text[i] == "#":
+            newline = text.find("\n", i)
+            if newline == -1:
+                return
+            i = newline + 1
+            continue
+        if text[i] == '"':
+            i += 1
+            while i < len(text):
+                if text[i] == "\\":
+                    i += 2
+                    continue
+                if text[i] == '"':
+                    i += 1
+                    break
+                i += 1
+            continue
+        match = _SPRITETYPE_RE.match(text, i)
+        if match and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
+            yield match
+            i = match.end()
+        else:
+            i += 1

@@ -9,10 +9,10 @@ Country-owned files follow two conventions in Millennium Dawn (cf. CLAUDE.md and
 
   * Focus, decision, idea, MIO, history, OOB files often start with `TAG_` or `<int>_TAG_`
   * Localisation files are `MD_focus_TAG_l_english.yml` (one file per country)
-  * Country history files are explicitly mapped in `common/country_tags/`; both
-    the mapped long-name filename and `<TAG> - <CountryName>.txt` are recognized.
-    Event files are matched by tag prefix or the mapped country name. Files shared
-    by multiple tags are listed only when the tag mapping points to that name.
+  * Country history files match either an anchored `TAG - ` filename or the
+    explicit `common/country_tags/` country-file name. Event files match tag
+    prefixes or that mapped country name. These are file associations: events
+    within a shared file are not claimed to be exclusive to one country.
 
 Output-size aware. By default returns only counts and a small sample of each
 category; pass `include=[...]` to opt in to full lists for specific categories.
@@ -187,7 +187,10 @@ def _ids_for_tag(index, tag_upper: str) -> list[str]:
 
 
 def _events(
-    event_index: Optional[EventIndex], tag_upper: str, prefix: str, country_stem: Optional[str] = None
+    event_index: Optional[EventIndex],
+    tag_upper: str,
+    prefix: str,
+    country_stem: Optional[str] = None,
 ) -> tuple[list[str], list[str]]:
     if event_index is None:
         return [], []
@@ -291,6 +294,8 @@ def _scan_files(
                 # for long-name history files; don't infer ownership from prose.
                 mapped = {country_stem.upper(), f"{prefix} - {country_stem}".upper()}
                 matched = stem in mapped
+            if not matched and subdir == "history/countries":
+                matched = stem.startswith(f"{prefix} - ") and len(stem) > len(prefix) + 3
             if matched:
                 seen.add(rel)
                 out.append(rel)

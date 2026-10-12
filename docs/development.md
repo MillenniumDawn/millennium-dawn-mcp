@@ -68,6 +68,8 @@ Markers are defined in [`pyproject.toml`](../pyproject.toml)
   in-process. The pool forks, and a pytest-xdist worker is already
   multi-threaded, so a pooled build there warns and can deadlock the child. A
   test of the pooled path deletes the variable with `monkeypatch.delenv`.
+  Integration tests are exempt and keep the pool: they index the real mod, and
+  `tests/test_perf.py` budgets the pooled cold build.
 
 Helpers that more than one test module uses live in `tests/support/`: mod
 roots, settings, and git repos in `mod.py`, index state helpers in

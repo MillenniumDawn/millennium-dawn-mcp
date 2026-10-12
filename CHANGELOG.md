@@ -23,6 +23,10 @@
 - `generate_gfx_merge` finds blocks with compiled patterns in place of four character loops. The
   merged text and the report are unchanged. On `interface/goals.gfx` (1.2 MB) the call drops from
   339 ms to 216 ms, and the block scan inside it from 165 ms to 47 ms.
+- The lexer's string token is spelled as plain runs separated by escapes. It matches the same
+  strings: all 756 k string tokens in the mod are unchanged. The old spelling kept about 210 bytes
+  of regex state per character while matching, 227 MB for a 1 MB string. Tokenizing the whole mod
+  takes the same time.
 - `Node` no longer stores `operator_token`, `value_attachment_token`, or `value_start_token`.
   Nothing read them, and each was held for every node. Trees for 8 MB of focus source drop from
   246 MB to 184 MB (44 files on the real mod); `05_usa.txt` alone from 41 MB to 29 MB. Parse

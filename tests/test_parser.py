@@ -58,6 +58,21 @@ def test_unterminated_string_with_long_backslash_run_is_bounded():
     assert time.perf_counter() - started < 0.5
 
 
+def test_long_string_token_keeps_no_regex_state_per_character():
+    import tracemalloc
+
+    source = 'x = "' + "a" * 200_000 + '"'
+    tracemalloc.start()
+    try:
+        token = _tokens(source)[2]
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert (token.type, len(token.value)) == ("string", 200_002)
+    # One alternation repeated per character held about 40 MB here.
+    assert peak < 5_000_000
+
+
 @pytest.mark.parametrize("backslash_count", [1, 2, 3, 4])
 def test_terminal_backslash_parity_matches_lexer_and_parser(backslash_count):
     literal = '"value' + "\\" * backslash_count + '"'

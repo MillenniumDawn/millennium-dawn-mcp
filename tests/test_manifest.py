@@ -12,12 +12,16 @@ from md_mcp.analysis.manifest import (
     list_country_content,
 )
 from md_mcp.indexes import (
+    CharacterIndex,
     CountryTagIndex,
     DecisionIndex,
     EventIndex,
     FocusIndex,
     IdeaIndex,
     LocalisationIndex,
+    ScriptedEffectIndex,
+    ScriptedTriggerIndex,
+    TraitIndex,
 )
 from md_mcp.indexes.event import _parse_event_file
 from tests.support.indexes import write_loc
@@ -203,6 +207,25 @@ def test_history_tag_separator_is_independent_of_country_long_name(fake_mod_root
     assert result["counts"]["history_files"] == 2
 
 
+def test_manifest_includes_definition_categories(fake_mod_root, cache_dir):
+    result = list_country_content(
+        "TST",
+        fake_mod_root,
+        country_tag_index=CountryTagIndex(fake_mod_root, cache_dir, include_vanilla=False),
+        character_index=CharacterIndex(fake_mod_root, cache_dir, include_vanilla=False),
+        trait_index=TraitIndex(fake_mod_root, cache_dir, include_vanilla=False),
+        scripted_effect_index=ScriptedEffectIndex(fake_mod_root, cache_dir, include_vanilla=False),
+        scripted_trigger_index=ScriptedTriggerIndex(
+            fake_mod_root, cache_dir, include_vanilla=False
+        ),
+        include=["country_tags", "characters", "character_files", "traits"],
+    )
+    assert result["country_tags"] == ["TST"]
+    assert result["characters"] == ["TST_test_character"]
+    assert result["character_files"] == ["common/characters/TST.txt"]
+    assert result["traits"] == ["TST_test_trait"]
+
+
 def test_manifest_loc_files_cover_every_language(tmp_path):
     root = make_mod_root(tmp_path / "Mod")
     write_loc(root, "localisation/english/MD_focus_USA_l_english.yml", "l_english", "K", "v")
@@ -236,6 +259,28 @@ def test_manifest_loc_files_include_vanilla_root(tmp_path):
             str(Path("localisation/english/USA_l_english.yml")),
         ]
     )
+
+
+def test_manifest_loc_files_skip_a_root_without_localisation(tmp_path):
+    root = make_mod_root(tmp_path / "Mod")
+    vanilla = tmp_path / "hoi4"
+    vanilla.mkdir()
+    write_loc(root, "localisation/english/USA_l_english.yml", "l_english", "K", "v")
+    index = LocalisationIndex(root, tmp_path / "cache", vanilla, langs=("en",))
+
+    assert _loc_files(index, "USA") == [str(Path("localisation/english/USA_l_english.yml"))]
+
+
+def test_history_files_are_empty_for_a_tag_the_index_does_not_know(fake_mod_root, cache_dir):
+    result = list_country_content(
+        "ZZZ",
+        fake_mod_root,
+        country_tag_index=CountryTagIndex(fake_mod_root, cache_dir, include_vanilla=False),
+        include=["history_files"],
+    )
+
+    assert result["history_files"] == []
+    assert result["counts"]["history_files"] == 0
 
 
 def test_tag_pattern_accepts_windows_separators():

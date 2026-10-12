@@ -62,6 +62,21 @@ def test_requires_scope(tmp_path):
     assert out["ok"] is False
 
 
+def test_tag_scope_requires_the_focus_index(tmp_path):
+    out = focus_layout(tmp_path, None, tag="TST")
+    assert out == {"ok": False, "error": "tag= scope requires the focus index."}
+
+
+def test_yes_or_no_is_not_a_coordinate(tmp_path):
+    body = "focus_tree = {\n    focus = { id = TST_flag x = yes y = 1 }\n}\n"
+    rel = _write_tree(tmp_path, body, name="TST_flag.txt")
+
+    out = focus_layout(tmp_path, None, file=rel)
+
+    assert out["resolved_count"] == 0
+    assert out["chain_errors"] == [{"focus": "TST_flag", "error": "missing_xy", "file": rel}]
+
+
 def test_file_scope_resolves_chains_and_collisions(tmp_path):
     rel = _write_tree(tmp_path)
     out = focus_layout(tmp_path, None, file=rel, include_positions=True)
@@ -104,23 +119,38 @@ def test_tag_scope_via_index(tmp_path):
     assert out["bounding_box"]["min_y"] == 0
 
 
-def test_positions_truncation(tmp_path):
+@pytest.mark.parametrize(
+    ("limit", "positions", "collisions", "chain_errors"),
+    [
+        (2, 2, 1, 2),
+        ("2", 2, 1, 2),
+        (2.9, 2, 1, 2),
+        (3, 3, 1, 2),
+        (4, 4, 1, 2),
+        (100, 4, 1, 2),
+        (None, 4, 1, 2),
+        (1, 1, 1, 1),
+        (0, 0, 0, 0),
+        (-5, 0, 0, 0),
+    ],
+)
+def test_limit_pages_each_list_and_reports_its_total(
+    tmp_path, limit, positions, collisions, chain_errors
+):
     rel = _write_tree(tmp_path)
-    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=2)
-    assert out["positions_total"] == 4  # 6 focuses, 2 unresolvable
-    assert len(out["positions"]) == 2
-    assert out["positions_truncated"] is True
 
+    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=limit)
 
-def test_collisions_and_chain_errors_report_totals_when_untruncated(tmp_path):
-    rel = _write_tree(tmp_path)
-    out = focus_layout(tmp_path, None, file=rel)
-    assert out["collisions_total"] == 1
-    assert len(out["collisions"]) == 1
-    assert out["collisions_truncated"] is False
-    assert out["chain_errors_total"] == 2
-    assert len(out["chain_errors"]) == 2
-    assert out["chain_errors_truncated"] is False
+    assert out["ok"] is True
+    # _TREE has six focuses, two unresolvable, one collision, two chain errors.
+    for key, returned, total in (
+        ("positions", positions, 4),
+        ("collisions", collisions, 1),
+        ("chain_errors", chain_errors, 2),
+    ):
+        assert len(out[key]) == returned
+        assert out[f"{key}_total"] == total
+        assert out[f"{key}_truncated"] is (returned < total)
 
 
 def test_collisions_truncation(tmp_path):
@@ -157,29 +187,6 @@ def test_missing_file_reported(tmp_path):
     assert out["ok"] is True
     assert out["focus_count"] == 0
     assert out["parse_errors"][0]["error"] == "not found"
-
-
-def test_limit_accepts_numeric_string(tmp_path):
-    rel = _write_tree(tmp_path)
-    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit="2")
-    assert out["ok"] is True
-    assert len(out["positions"]) == 2
-    assert out["positions_truncated"] is True
-
-
-def test_limit_none_uses_default(tmp_path):
-    rel = _write_tree(tmp_path)
-    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=None)
-    assert out["ok"] is True
-    assert out["positions_truncated"] is False
-
-
-def test_limit_accepts_float(tmp_path):
-    rel = _write_tree(tmp_path)
-    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=2.9)
-    assert out["ok"] is True
-    assert len(out["positions"]) == 2
-    assert out["positions_truncated"] is True
 
 
 def test_limit_uncoercible_returns_error_not_raise(tmp_path):
@@ -320,40 +327,6 @@ def test_missing_relative_still_reported_per_referrer(tmp_path):
     assert missing == ["TST_k1", "TST_k2", "TST_k3"]
 
 
-@pytest.mark.parametrize("limit", [-5, 0])
-def test_nonpositive_limit_clamped_to_empty_pages(tmp_path, limit):
-    rel = _write_tree(tmp_path)
-    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=limit)
-    assert out["positions"] == []
-    assert out["positions_total"] == 4
-    assert out["positions_truncated"] is True
-    assert out["collisions"] == []
-    assert out["collisions_total"] == 1
-    assert out["collisions_truncated"] is True
-    assert out["chain_errors"] == []
-    assert out["chain_errors_total"] == 2
-    assert out["chain_errors_truncated"] is True
-
-
-def test_limit_at_total_not_truncated(tmp_path):
-    rel = _write_tree(tmp_path)
-    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=4)
-    assert len(out["positions"]) == 4
-    assert out["positions_truncated"] is False
-    assert out["positions_total"] == 4
-    assert out["collisions_total"] == 1
-    assert out["collisions_truncated"] is False
-    assert out["chain_errors_total"] == 2
-    assert out["chain_errors_truncated"] is False
-
-
-def test_limit_one_below_total_truncated(tmp_path):
-    rel = _write_tree(tmp_path)
-    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=3)
-    assert len(out["positions"]) == 3
-    assert out["positions_truncated"] is True
-
-
 def test_negative_limit_without_positions_still_clamps(tmp_path):
     rel = _write_tree(tmp_path)
     out = focus_layout(tmp_path, None, file=rel, include_positions=False, limit=-1)
@@ -380,18 +353,6 @@ def test_negative_limit_empty_collisions_not_truncated(tmp_path):
     assert out["collisions_truncated"] is False
     assert out["chain_errors"] == []
     assert out["chain_errors_total"] == 0
-    assert out["chain_errors_truncated"] is False
-
-
-def test_limit_above_total_not_truncated(tmp_path):
-    rel = _write_tree(tmp_path)
-    out = focus_layout(tmp_path, None, file=rel, include_positions=True, limit=100)
-    assert len(out["positions"]) == 4
-    assert out["positions_total"] == 4
-    assert out["positions_truncated"] is False
-    assert len(out["collisions"]) == 1
-    assert out["collisions_truncated"] is False
-    assert len(out["chain_errors"]) == 2
     assert out["chain_errors_truncated"] is False
 
 

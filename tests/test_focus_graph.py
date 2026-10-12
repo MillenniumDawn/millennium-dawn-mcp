@@ -586,3 +586,20 @@ def test_focus_graph_quoted_relations_match_unquoted_twin(fake_mod_root, cache_d
             ("b", "a", "mutex"),
         },
     )
+
+
+def test_focus_graph_leaves_out_another_tags_focus_in_the_same_file(fake_mod_root, cache_dir):
+    mixed = fake_mod_root / "common" / "national_focus" / "TST_mixed.txt"
+    mixed.write_text(
+        "focus_tree = {\n"
+        "    focus = { id = TST_mixed x = 0 y = 0 }\n"
+        "    focus = { id = OTH_guest x = 1 y = 0 }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    g = focus_graph("TST", fake_mod_root, FocusIndex(fake_mod_root, cache_dir), detail="ids")
+
+    ids = {node["id"] for node in g["nodes"]}
+    assert "TST_mixed" in ids
+    assert "OTH_guest" not in ids

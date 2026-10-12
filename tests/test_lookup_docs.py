@@ -913,6 +913,35 @@ def test_skill_frontmatter_folded_description_and_escaped_quote(fake_mod_root, c
     assert result["entries"][0]["description"] == "Write a country's diary with care."
 
 
+def test_skill_frontmatter_unquotes_single_and_double_quoted_values(
+    fake_mod_root, cache_dir
+) -> None:
+    skill = fake_mod_root / ".claude" / "skills" / "quoted" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: 'Quoted skill'\ndescription: \"It's quoted\"\n---\n# Quoted\n",
+        encoding="utf-8",
+    )
+
+    result = lookup_docs_tool(in_process_settings(fake_mod_root, cache_dir), "skill", key="quoted")
+
+    assert result["entries"][0]["frontmatter"] == {
+        "name": "Quoted skill",
+        "description": "It's quoted",
+    }
+
+
+def test_lookup_docs_undecodable_script_documentation_is_graceful(fake_mod_root, cache_dir) -> None:
+    path = fake_mod_root / "resources" / "documentation" / "effects_documentation.md"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"\xff\xfe # broken bytes")
+
+    result = lookup_docs_tool(in_process_settings(fake_mod_root, cache_dir), "effect")
+
+    assert result["ok"] is False
+    assert result["file"] == "resources/documentation/effects_documentation.md"
+
+
 def test_skill_lookup_by_directory_name_without_frontmatter(fake_mod_root, cache_dir) -> None:
     skill = fake_mod_root / ".claude" / "skills" / "plain" / "SKILL.md"
     skill.parent.mkdir(parents=True)

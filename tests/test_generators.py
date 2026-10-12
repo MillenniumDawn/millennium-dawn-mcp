@@ -298,6 +298,22 @@ def test_idea_blocks_render_exactly():
     )
 
 
+def test_optional_arguments_each_emit_their_line():
+    decision = generate_decision(id="TST_dec", allowed="has_war = no", days_re_enable=14)["txt"]
+    assert "\t\tallowed = {\n\t\t\thas_war = no\n\t\t}" in decision
+    assert "\t\tdays_re_enable = 14" in decision
+
+    idea = generate_idea(id="TST_idea", allowed="has_war = no", removal_cost=10)["txt"]
+    assert "\t\t\tallowed = {\n\t\t\t\thas_war = no\n\t\t\t}" in idea
+    assert "\t\t\tremoval_cost = 10" in idea
+
+    event = generate_event(
+        namespace="X", number=1, fire_only_once=True, options=[{"ai_chance": "3"}]
+    )["txt"]
+    assert "\tfire_only_once = yes" in event
+    assert "\t\tai_chance = { base = 3 }" in event
+
+
 def test_event_and_focus_blocks_render_exactly():
     event = generate_event(
         namespace="tst",
@@ -373,6 +389,11 @@ def test_gfx_round_trips():
     [rec] = extract_sprite_records(root)
     assert rec["name"] == "GFX_test"
     assert rec["texturefile"] == "gfx/test.dds"
+    assert "\t\tnoOfFrames = 4" in r["txt"]
+    assert "legacyLazyLoad" not in r["txt"]
+
+    lazy = generate_gfx_entry(name="GFX_lazy", texturefile="gfx/lazy.dds", legacy_lazy_load=True)
+    assert "\t\tlegacyLazyLoad = yes" in lazy["txt"]
 
 
 def test_loc_stub_bom_and_escaping():
@@ -834,3 +855,16 @@ def test_generate_gfx_merge_rejects_gfx_file_escape(tmp_path):
     r = generate_gfx_merge(tmp_path, texture_dir="gfx", gfx_file="../outside.gfx", prefix="GFX_")
     assert r["ok"] is False
     assert "gfx_file escapes mod root" in r["error"]
+
+
+@pytest.mark.parametrize(
+    ("texture_dir", "gfx_file", "error"),
+    [
+        (" ", "interface/icons.gfx", "texture_dir is required"),
+        ("gfx", "", "gfx_file is required"),
+    ],
+)
+def test_generate_gfx_merge_requires_both_paths(tmp_path, texture_dir, gfx_file, error):
+    r = generate_gfx_merge(tmp_path, texture_dir=texture_dir, gfx_file=gfx_file, prefix="GFX_")
+
+    assert r == {"ok": False, "error": error, "texture_dir": texture_dir, "gfx_file": gfx_file}

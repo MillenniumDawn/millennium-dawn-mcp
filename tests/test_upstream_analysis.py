@@ -203,64 +203,44 @@ def test_subprocess_timeout_is_an_error(monkeypatch, tmp_path):
     assert result["error"].startswith("tick_audit timed out after 120s:")
 
 
-def test_subprocess_spawn_failure_is_an_error(monkeypatch, tmp_path):
-    def spawn_failed(*args, **kwargs):
-        raise OSError("exec failed")
+@pytest.mark.parametrize(
+    ("outcome", "error"),
+    [
+        pytest.param(OSError("exec failed"), "Could not run estimate_gdp", id="spawn-failure"),
+        pytest.param(
+            SimpleNamespace(returncode=3, stdout="", stderr="boom upstream\n"),
+            "exited with code 3: boom upstream",
+            id="nonzero-exit-with-stderr",
+        ),
+        pytest.param(
+            SimpleNamespace(returncode=2, stdout="stdout trace", stderr=""),
+            "exited with code 2: stdout trace",
+            id="nonzero-exit-falls-back-to-stdout",
+        ),
+        pytest.param(
+            SimpleNamespace(returncode=0, stdout="not json", stderr=""),
+            "returned invalid JSON",
+            id="invalid-json",
+        ),
+        pytest.param(
+            SimpleNamespace(returncode=0, stdout="[1]", stderr=""),
+            "non-object response",
+            id="non-object-json",
+        ),
+    ],
+)
+def test_shim_failure_is_a_shaped_error(monkeypatch, tmp_path, outcome, error):
+    def run(*args, **kwargs):
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
-    monkeypatch.setattr(upstream_analysis, "run_in_group", spawn_failed)
-
-    result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
-
-    assert result["ok"] is False
-    assert "Could not run estimate_gdp" in result["error"]
-
-
-def test_shim_nonzero_exit_surfaces_stderr_detail(monkeypatch, tmp_path):
-    def failing_run(*args, **kwargs):
-        return SimpleNamespace(returncode=3, stdout="", stderr="boom upstream\n")
-
-    monkeypatch.setattr(upstream_analysis, "run_in_group", failing_run)
-
-    result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
-
-    assert result["ok"] is False
-    assert "exited with code 3: boom upstream" in result["error"]
-
-
-def test_shim_nonzero_exit_without_stderr_falls_back_to_stdout(monkeypatch, tmp_path):
-    def failing_run(*args, **kwargs):
-        return SimpleNamespace(returncode=2, stdout="stdout trace", stderr="")
-
-    monkeypatch.setattr(upstream_analysis, "run_in_group", failing_run)
-
-    result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
-
-    assert result["ok"] is False
-    assert "exited with code 2: stdout trace" in result["error"]
-
-
-def test_shim_invalid_json_is_an_error(monkeypatch, tmp_path):
-    def garbage_run(*args, **kwargs):
-        return SimpleNamespace(returncode=0, stdout="not json", stderr="")
-
-    monkeypatch.setattr(upstream_analysis, "run_in_group", garbage_run)
+    monkeypatch.setattr(upstream_analysis, "run_in_group", run)
 
     result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
 
     assert result["ok"] is False
-    assert "returned invalid JSON" in result["error"]
-
-
-def test_shim_non_object_json_is_an_error(monkeypatch, tmp_path):
-    def list_run(*args, **kwargs):
-        return SimpleNamespace(returncode=0, stdout="[1]", stderr="")
-
-    monkeypatch.setattr(upstream_analysis, "run_in_group", list_run)
-
-    result = upstream_analysis.estimate_gdp_tool(tmp_path, "usa")
-
-    assert result["ok"] is False
-    assert "non-object response" in result["error"]
+    assert error in result["error"]
 
 
 def test_tick_audit_rejects_non_integer_pagination(tmp_path):

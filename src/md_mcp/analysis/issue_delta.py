@@ -8,10 +8,11 @@ import json
 import os
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import Any, NamedTuple, Optional
+from typing import Any, Callable, NamedTuple, Optional
 
 from ..validators.attribution import IssueAttributor
 
@@ -41,8 +42,12 @@ def _report_lib(mod_root: Path):
     models = importlib.import_module(f"{package_name}.models")
     dedupe = importlib.import_module(f"{package_name}.dedupe")
     baseline = importlib.import_module(f"{package_name}.baseline")
+    issue_key = getattr(baseline, "issue_key", None)
+    if not callable(issue_key):
+        raise ImportError(f"report_lib.baseline under {report_dir} has no callable issue_key")
     return SimpleNamespace(
         Issue=models.Issue,
+        issue_key=issue_key,
         dedupe=dedupe.dedupe,
         load_issues=baseline.load_issues,
         load_baseline=baseline.load_baseline,
@@ -163,13 +168,13 @@ def _read_issue_file(path: Path, issue_type) -> list:
     return [issue_type.from_dict(item) for item in data if isinstance(item, dict)]
 
 
-def _delta_key(issue) -> Optional[tuple]:
-    """Keep severity in the key and omit absent line numbers."""
+def _delta_key(issue, issue_key: Callable[[Any], Optional[tuple]]) -> Optional[tuple]:
+    """Use upstream located keys and keep file-level findings separate."""
+    if issue.line > 0:
+        return issue_key(issue)
     if not issue.category or not issue.file or not issue.message:
         return None
-    if issue.line > 0:
-        return (issue.severity, issue.category, issue.file, issue.line, issue.message)
-    return (issue.severity, issue.category, issue.file, issue.message)
+    return ("line0", issue.severity, issue.category, issue.file, issue.message)
 
 
 def _dedupe_key(issue) -> tuple:
@@ -182,7 +187,7 @@ def _dedupe_key(issue) -> tuple:
 @dataclass(frozen=True)
 class PreparedBaseline:
     report_lib: Any
-    keys: set
+    keys: Counter[tuple]
     attributor: IssueAttributor
 
 
@@ -203,7 +208,10 @@ def prepare_baseline(settings, baseline: Optional[str]) -> PreparedBaseline:
     for issue in raw_issues:
         _attribute(issue, attributor)
     deduped = report_lib.dedupe(raw_issues)
-    baseline_keys = {key for issue in deduped if (key := _delta_key(issue)) is not None}
+    baseline_keys: Counter[tuple] = Counter()
+    for issue in deduped:
+        if (key := _delta_key(issue, report_lib.issue_key)) is not None:
+            baseline_keys[key] += 1
     return PreparedBaseline(report_lib=report_lib, keys=baseline_keys, attributor=attributor)
 
 
@@ -215,14 +223,18 @@ def _owner(issue, reported: dict[tuple, list[tuple[str, str]]]) -> str:
     return issue.validator
 
 
-def _classify(current_issues: list, baseline_keys: set) -> tuple[list, int]:
+def _classify(current_issues: list, prepared: PreparedBaseline) -> tuple[list, int]:
+    """Consume occurrence counts without mutating the prepared baseline."""
+    unmatched = prepared.keys.copy()
     new_issues = []
     unclassified = 0
     for issue in current_issues:
-        key = _delta_key(issue)
+        key = _delta_key(issue, prepared.report_lib.issue_key)
         if key is None:
             unclassified += 1
-        elif key not in baseline_keys:
+        elif unmatched[key] > 0:
+            unmatched[key] -= 1
+        else:
             new_issues.append(issue)
     return new_issues, unclassified
 
@@ -245,7 +257,7 @@ def new_issue_dicts(
         reported.setdefault(_dedupe_key(issue), []).append((issue.validator, issue.severity))
 
     current_issues = report_lib.dedupe(current_issues)
-    new_issues, unclassified = _classify(current_issues, prepared.keys)
+    new_issues, unclassified = _classify(current_issues, prepared)
     return DeltaResult(
         issues=[issue.to_dict() for issue in new_issues],
         owners=[_owner(issue, reported) for issue in new_issues],

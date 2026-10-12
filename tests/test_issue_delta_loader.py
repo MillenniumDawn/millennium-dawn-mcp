@@ -61,14 +61,18 @@ class Issue:
         }
 """
 
-_BASELINE_SOURCE = """
+_BASELINE_SOURCE = r"""
 import json
+import re
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
 from . import models
 
 META_FILENAME = "baseline-meta.json"
+
+_LINE_REF = re.compile(r"(\.\w+:|\bline )\d+")
 
 
 class Baseline:
@@ -80,18 +84,27 @@ class Baseline:
 def issue_key(issue):
     if not issue.category or not issue.file or issue.line <= 0 or not issue.message:
         return None
-    return (issue.severity, issue.category, issue.file, issue.line, issue.message)
+    message = _LINE_REF.sub(r"\1#", issue.message)
+    return (issue.severity, issue.category, issue.file, message)
+
+
+def count_keys(issues):
+    return Counter(key for key in map(issue_key, issues) if key is not None)
 
 
 from .dedupe import dedupe
 
 
 def classify(issues, baseline):
-    new_issues = [
-        issue
-        for issue in issues
-        if issue_key(issue) is not None and issue_key(issue) not in baseline.keys
-    ]
+    unmatched = baseline.keys.copy()
+    new_issues = []
+    for issue in issues:
+        key = issue_key(issue)
+        if key is None or unmatched[key] <= 0:
+            if key is not None:
+                new_issues.append(issue)
+        else:
+            unmatched[key] -= 1
     return SimpleNamespace(new_issues=new_issues)
 
 
@@ -100,7 +113,10 @@ def load_issues(directory):
     for path in Path(directory).glob("*.json"):
         if path.name == META_FILENAME:
             continue
-        data = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
         if isinstance(data, list):
             issues.extend(models.Issue.from_dict(item, validator=path.stem) for item in data)
     return dedupe(issues)
@@ -119,9 +135,7 @@ def load_baseline(directory, expected_toolshash=None):
         return None
     if expected_toolshash and meta.get("toolshash") != expected_toolshash:
         return None
-    deduped = load_issues(directory)
-    keys = {issue_key(issue) for issue in deduped if issue_key(issue) is not None}
-    return Baseline(meta=meta, keys=keys)
+    return Baseline(meta=meta, keys=count_keys(load_issues(directory)))
 """
 
 _DEDUPE_SOURCE = """
@@ -643,7 +657,7 @@ def test_load_baseline_issues_sidecar_dir_uses_upstream_load_baseline(
         encoding="utf-8",
     )
 
-    with pytest.raises(FileNotFoundError, match="baseline-meta.json"):
+    with pytest.raises(FileNotFoundError, match=r"baseline-meta\.json"):
         _load_baseline_issues(_settings(fake_mod_root), str(sidecars), lib)
 
 
@@ -950,7 +964,7 @@ def test_new_issue_dicts_baseline_keeps_only_escalated_key(fake_mod_root: Path, 
     ]
 
     prepared = prepare_baseline(_settings(fake_mod_root), str(sidecars))
-    assert prepared.keys == {("error", "fake", "events/a.txt", 5, "shared")}
+    assert dict(prepared.keys) == {("error", "fake", "events/a.txt", "shared"): 1}
     result = new_issue_dicts(
         _settings(fake_mod_root), records, str(sidecars), prepared_baseline=prepared
     )

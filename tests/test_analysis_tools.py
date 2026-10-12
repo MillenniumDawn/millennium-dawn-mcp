@@ -9,16 +9,7 @@ from md_mcp.indexes import FocusIndex
 from md_mcp.tools import analysis_tools
 from md_mcp.tools.resolver_tools import resolve_focus_tool
 from md_mcp.util.response import BUDGET_BYTES
-
-
-def _settings(mod_root, cache_dir) -> Settings:
-    return Settings(
-        mod_root=mod_root,
-        vanilla_path=None,
-        cache_dir=cache_dir,
-        validator_mode="in_process",
-        default_lang="en",
-    )
+from tests.support.mod import in_process_settings
 
 
 def _focus_text(focus_id: str) -> str:
@@ -58,7 +49,7 @@ def test_resolve_focus_reads_overlay_and_reports_overlay_line(fake_mod_root, tmp
 
 
 def test_resolve_focus_falls_back_to_the_indexed_record(fake_mod_root, cache_dir):
-    settings = _settings(fake_mod_root, cache_dir)
+    settings = in_process_settings(fake_mod_root, cache_dir)
     index = FocusIndex(fake_mod_root, cache_dir)
     record = index.resolve("TST_root")
     assert record is not None
@@ -102,7 +93,7 @@ def test_focus_index_persists_parse_errors(fake_mod_root, cache_dir):
 
 def test_find_focuses_paginates_with_offset(fake_mod_root, cache_dir):
     out = analysis_tools.find_focuses_tool(
-        _settings(fake_mod_root, cache_dir),
+        in_process_settings(fake_mod_root, cache_dir),
         FocusIndex(fake_mod_root, cache_dir),
         has_prereq="TST_root",
         limit="1",
@@ -128,7 +119,9 @@ def test_find_focuses_budget_guard_drops_oversized_matches(fake_mod_root, cache_
     )
 
     out = analysis_tools.find_focuses_tool(
-        _settings(fake_mod_root, cache_dir), FocusIndex(fake_mod_root, cache_dir), limit=2_000
+        in_process_settings(fake_mod_root, cache_dir),
+        FocusIndex(fake_mod_root, cache_dir),
+        limit=2_000,
     )
 
     assert out["total"] == 2_000
@@ -143,7 +136,7 @@ def test_find_focuses_reports_index_parse_failures(fake_mod_root, cache_dir):
     broken.write_text("focus_tree = { focus = { id = TST_broken x = {{{", encoding="utf-8")
 
     out = analysis_tools.find_focuses_tool(
-        _settings(fake_mod_root, cache_dir),
+        in_process_settings(fake_mod_root, cache_dir),
         FocusIndex(fake_mod_root, cache_dir),
         has_prereq="TST_root",
     )
@@ -168,7 +161,7 @@ def test_find_focuses_reports_index_records_missing_after_reparse(
     monkeypatch.setattr(index._stale_check, "should_check", lambda: False)
 
     out = analysis_tools.find_focuses_tool(
-        _settings(fake_mod_root, cache_dir), index, has_prereq="TST_root"
+        in_process_settings(fake_mod_root, cache_dir), index, has_prereq="TST_root"
     )
 
     assert {match["id"] for match in out["matches"]} == {"TST_branch_a", "TST_branch_b"}
@@ -195,7 +188,7 @@ def test_find_focuses_bounds_partial_errors(fake_mod_root, cache_dir, monkeypatc
     monkeypatch.setattr(analysis_tools, "_MAX_PARTIAL_ERRORS", 1)
 
     out = analysis_tools.find_focuses_tool(
-        _settings(fake_mod_root, cache_dir),
+        in_process_settings(fake_mod_root, cache_dir),
         FocusIndex(fake_mod_root, cache_dir),
         has_prereq="TST_root",
     )

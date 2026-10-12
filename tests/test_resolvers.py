@@ -18,10 +18,7 @@ from md_mcp.indexes import FocusIndex
 from md_mcp.resources import focus_resource
 from md_mcp.tools.resolver_tools import resolve_focus_tool
 from md_mcp.util.index_anchor import IndexAnchorError
-
-
-def _settings(mod_root: Path, cache_dir: Path) -> Settings:
-    return Settings(mod_root=mod_root, vanilla_path=None, cache_dir=cache_dir)
+from tests.support.mod import mod_settings
 
 
 def _focus_mod(tmp_path: Path, *texts: str) -> tuple[Settings, FocusIndex]:
@@ -31,7 +28,7 @@ def _focus_mod(tmp_path: Path, *texts: str) -> tuple[Settings, FocusIndex]:
     focus_dir.mkdir(parents=True)
     for i, text in enumerate(texts):
         (focus_dir / f"focus_{i}.txt").write_text(text, encoding="utf-8")
-    settings = _settings(mod_root, tmp_path / ".md-mcp-cache")
+    settings = mod_settings(mod_root, tmp_path / ".md-mcp-cache")
     return settings, FocusIndex(mod_root, settings.cache_dir)
 
 
@@ -256,7 +253,7 @@ def test_index_anchor_error_is_a_keyerror():
 @pytest.mark.integration
 def test_resolve_focus_and_resource_smoke_on_real_mod(real_mod_root, tmp_path):
     """Smoke: on the real mod every focus id resolves ok and resources slice it."""
-    settings = _settings(real_mod_root, tmp_path / ".md-mcp-cache")
+    settings = mod_settings(real_mod_root, tmp_path / ".md-mcp-cache")
     index = FocusIndex(real_mod_root, settings.cache_dir)
 
     ids = [key for key in index.list_keys()[:3]]

@@ -10,20 +10,10 @@ from typing import Any, cast
 
 import pytest
 
-from md_mcp.config import Settings
 from md_mcp.server import build_server
 from md_mcp.tools.lookup_docs import lookup_docs_tool
 from md_mcp.util.response import BUDGET_BYTES
-
-
-def _settings(mod_root, cache_dir) -> Settings:
-    return Settings(
-        mod_root=mod_root,
-        vanilla_path=None,
-        cache_dir=cache_dir,
-        validator_mode="in_process",
-        default_lang="en",
-    )
+from tests.support.mod import in_process_settings
 
 
 def _write_docs(mod_root, kind: str, content: str) -> None:
@@ -81,7 +71,9 @@ Adds an advisor role.
 """,
     )
 
-    out = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "effect", key="add_advisor_role")
+    out = lookup_docs_tool(
+        in_process_settings(fake_mod_root, cache_dir), "effect", key="add_advisor_role"
+    )
 
     assert out["ok"] is True
     assert out["kind"] == "effect"
@@ -116,7 +108,7 @@ def test_lookup_docs_strips_html_spans_and_keeps_duplicate_definitions(
 """,
     )
 
-    settings = _settings(fake_mod_root, cache_dir)
+    settings = in_process_settings(fake_mod_root, cache_dir)
     exact = lookup_docs_tool(settings, "modifier", key="<IdeaGroup>_cost_factor")
     page = lookup_docs_tool(settings, "modifier", limit=1, offset=0)
 
@@ -144,7 +136,9 @@ def test_lookup_docs_miss_has_close_match_suggestions(fake_mod_root, cache_dir) 
 """,
     )
 
-    out = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "trigger", key="has_country_falg")
+    out = lookup_docs_tool(
+        in_process_settings(fake_mod_root, cache_dir), "trigger", key="has_country_falg"
+    )
 
     assert out["ok"] is False
     assert out["key"] == "has_country_falg"
@@ -165,7 +159,7 @@ def test_lookup_docs_paginates_miss_suggestions(fake_mod_root, cache_dir) -> Non
         "## test_effect_d\n\n"
         "## test_effect_e\n",
     )
-    settings = _settings(fake_mod_root, cache_dir)
+    settings = in_process_settings(fake_mod_root, cache_dir)
 
     all_suggestions = lookup_docs_tool(settings, "effect", key="test_effect", limit=5)
     page = lookup_docs_tool(settings, "effect", key="test_effect", limit=2, offset=1)
@@ -196,7 +190,9 @@ third
 """,
     )
 
-    out = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "effect", limit="1", offset=1.9)
+    out = lookup_docs_tool(
+        in_process_settings(fake_mod_root, cache_dir), "effect", limit="1", offset=1.9
+    )
 
     assert out["ok"] is True
     assert out["total"] == 3
@@ -206,7 +202,7 @@ third
 
 
 def test_lookup_docs_invalid_kind_budget(fake_mod_root, cache_dir) -> None:
-    out = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "x" * (BUDGET_BYTES + 1))
+    out = lookup_docs_tool(in_process_settings(fake_mod_root, cache_dir), "x" * (BUDGET_BYTES + 1))
 
     assert out["ok"] is False
     assert out["size_truncated"] is True
@@ -217,7 +213,9 @@ def test_lookup_docs_invalid_kind_budget(fake_mod_root, cache_dir) -> None:
 def test_lookup_docs_budget_drops_oversized_definition(fake_mod_root, cache_dir) -> None:
     _write_docs(fake_mod_root, "effect", f"# Effects\n\n## huge_effect\n{'x' * 110_000}\n")
 
-    out = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "effect", key="huge_effect")
+    out = lookup_docs_tool(
+        in_process_settings(fake_mod_root, cache_dir), "effect", key="huge_effect"
+    )
 
     assert out["ok"] is True
     assert out["size_truncated"] is True
@@ -234,7 +232,7 @@ def test_lookup_docs_huge_entry_content_window_reassembles(fake_mod_root, cache_
     """issue #168: sequential character windows reconstruct a single huge line exactly."""
     original = "x" * 110_000  # one huge line: line-only clipping would be useless here
     _write_docs(fake_mod_root, "effect", f"# Effects\n\n## huge_effect\n{original}\n")
-    settings = _settings(fake_mod_root, cache_dir)
+    settings = in_process_settings(fake_mod_root, cache_dir)
 
     chunks: list[str] = []
     offset = 0
@@ -261,7 +259,7 @@ def test_lookup_docs_content_window_shrinks_on_escaping_expansion(fake_mod_root,
     """The budget applies to serialised JSON: \x01 escapes need 6 bytes each."""
     original = "\x01" * 100_000
     _write_docs(fake_mod_root, "effect", f"# Effects\n\n## ctrl_effect\n{original}\n")
-    settings = _settings(fake_mod_root, cache_dir)
+    settings = in_process_settings(fake_mod_root, cache_dir)
 
     page = lookup_docs_tool(
         settings, "effect", key="ctrl_effect", content_offset=0, content_limit=100_000
@@ -294,7 +292,7 @@ def test_lookup_docs_content_window_offsets_count_characters(fake_mod_root, cach
     """Offsets are code points, not bytes or lines: multi-byte chars stay intact."""
     original = "🚀" * 30_000 + "é" * 30_000
     _write_docs(fake_mod_root, "effect", f"# Effects\n\n## unicode_effect\n{original}\n")
-    settings = _settings(fake_mod_root, cache_dir)
+    settings = in_process_settings(fake_mod_root, cache_dir)
 
     chunks: list[str] = []
     offset = 0
@@ -320,7 +318,9 @@ def test_lookup_docs_content_window_offsets_count_characters(fake_mod_root, cach
 def test_lookup_docs_small_doc_default_shape_unchanged(fake_mod_root, cache_dir) -> None:
     _write_docs(fake_mod_root, "effect", "# Effects\n\n## small_effect\nSmall.\n")
 
-    out = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "effect", key="small_effect")
+    out = lookup_docs_tool(
+        in_process_settings(fake_mod_root, cache_dir), "effect", key="small_effect"
+    )
 
     assert out["ok"] is True
     assert "content_offset" not in out
@@ -338,7 +338,7 @@ def test_lookup_docs_content_window_multiple_definitions_page_across(
         "effect",
         f"# Effects\n\n## doubled_effect\n{body}\n\n## doubled_effect\nZ{body}\n",
     )
-    settings = _settings(fake_mod_root, cache_dir)
+    settings = in_process_settings(fake_mod_root, cache_dir)
 
     first = lookup_docs_tool(settings, "effect", key="doubled_effect")
     assert first["ok"] is True
@@ -373,7 +373,7 @@ def test_lookup_docs_system_doc_content_window(fake_mod_root, cache_dir) -> None
     body = "w" * 150_000
     original = f"# Massive\n\n{body}\n"
     _write_system_doc(fake_mod_root, "docs", "massive", original)
-    settings = _settings(fake_mod_root, cache_dir)
+    settings = in_process_settings(fake_mod_root, cache_dir)
 
     page = lookup_docs_tool(settings, "doc", key="massive", content_offset=0)
 
@@ -436,7 +436,7 @@ def test_lookup_docs_oversized_metadata_keeps_content_retrievable(
     fake_mod_root, cache_dir, kind, tree, name, original, dropped
 ) -> None:
     _write_system_doc(fake_mod_root, tree, name, original)
-    settings = _settings(fake_mod_root, cache_dir)
+    settings = in_process_settings(fake_mod_root, cache_dir)
     chunks = []
     offset = 0
     for _ in range(20):
@@ -473,7 +473,7 @@ def test_lookup_docs_oversized_metadata_zero_window_keeps_provenance(
     original = "# " + "x" * 60_000 + "\nBody.\n"
     _write_system_doc(fake_mod_root, "docs", "large", original)
     page = lookup_docs_tool(
-        _settings(fake_mod_root, cache_dir), "doc", key="large", content_limit=0
+        in_process_settings(fake_mod_root, cache_dir), "doc", key="large", content_limit=0
     )
     assert page["returned"] == 1
     entry = page["entries"][0]
@@ -489,7 +489,7 @@ def test_lookup_docs_oversized_metadata_zero_window_keeps_provenance(
 def test_lookup_docs_small_window_keeps_optional_metadata(fake_mod_root, cache_dir) -> None:
     original = "---\nname: sample\ndescription: Short description\n---\n# Sample\nBody.\n"
     _write_system_doc(fake_mod_root, "skills", "sample/SKILL", original)
-    settings = _settings(fake_mod_root, cache_dir)
+    settings = in_process_settings(fake_mod_root, cache_dir)
     full = lookup_docs_tool(settings, "skill", key="sample")["entries"][0]
     windowed = lookup_docs_tool(settings, "skill", key="sample", content_limit=5)["entries"][0]
     assert "metadata_dropped" not in windowed
@@ -509,7 +509,7 @@ def test_lookup_docs_small_window_keeps_optional_metadata(fake_mod_root, cache_d
 
 def test_lookup_docs_content_window_edge_values(fake_mod_root, cache_dir) -> None:
     _write_docs(fake_mod_root, "trigger", "# Triggers\n\n## edge_effect\nabcdef\n")
-    settings = _settings(fake_mod_root, cache_dir)
+    settings = in_process_settings(fake_mod_root, cache_dir)
 
     # non-integer values fail like limit/offset do
     bad = lookup_docs_tool(settings, "trigger", key="edge_effect", content_limit="abc")
@@ -542,7 +542,10 @@ def test_lookup_docs_content_window_zero_limit_delivers_provenance(
     _write_docs(fake_mod_root, "modifier", "# Modifiers\n\n## probe_modifier\nxyz\n")
 
     out = lookup_docs_tool(
-        _settings(fake_mod_root, cache_dir), "modifier", key="probe_modifier", content_limit=0
+        in_process_settings(fake_mod_root, cache_dir),
+        "modifier",
+        key="probe_modifier",
+        content_limit=0,
     )
 
     entry = out["entries"][0]
@@ -554,7 +557,7 @@ def test_lookup_docs_content_window_zero_limit_delivers_provenance(
 
 
 def test_lookup_docs_missing_file(fake_mod_root, cache_dir) -> None:
-    out = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "modifier")
+    out = lookup_docs_tool(in_process_settings(fake_mod_root, cache_dir), "modifier")
 
     assert out["ok"] is False
     assert out["file"] == "resources/documentation/modifiers_documentation.md"
@@ -566,7 +569,7 @@ def test_lookup_docs_exposes_claude_docs_and_rules_with_budgeted_pages(
 ) -> None:
     _write_system_doc(fake_mod_root, "docs", "workflow", "# Workflow\n\nUse the safe workflow.\n")
     _write_system_doc(fake_mod_root, "rules", "content", "# Content Rules\n\nKeep edits scoped.\n")
-    settings = _settings(fake_mod_root, cache_dir)
+    settings = in_process_settings(fake_mod_root, cache_dir)
 
     docs = lookup_docs_tool(settings, "claude_docs")
     exact = lookup_docs_tool(settings, "doc", key="workflow")
@@ -583,7 +586,7 @@ def test_lookup_docs_exposes_claude_docs_and_rules_with_budgeted_pages(
 
 
 def test_lookup_docs_missing_claude_tree_is_graceful(fake_mod_root, cache_dir) -> None:
-    out = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "claude_rules")
+    out = lookup_docs_tool(in_process_settings(fake_mod_root, cache_dir), "claude_rules")
 
     assert out["ok"] is False
     assert ".claude/rules" in out["file"]
@@ -649,7 +652,7 @@ def test_lookup_docs_oversized_metadata_over_stdio(fake_mod_root, cache_dir) -> 
 def test_lookup_docs_mcp_registration_and_call(fake_mod_root, cache_dir) -> None:
     _write_docs(fake_mod_root, "effect", "# Effects\n\n## test_effect\nA test effect.\n")
     _write_system_doc(fake_mod_root, "docs", "workflow", "# Workflow\n\nUse the workflow.\n")
-    server = build_server(_settings(fake_mod_root, cache_dir))
+    server = build_server(in_process_settings(fake_mod_root, cache_dir))
 
     async def go():
         return (
@@ -765,7 +768,9 @@ def test_lookup_docs_real_mcp_stdio(real_mod_root, cache_dir) -> None:
 
 @pytest.mark.integration
 def test_lookup_docs_real_checkout(real_mod_root, cache_dir) -> None:
-    out = lookup_docs_tool(_settings(real_mod_root, cache_dir), "effect", key="add_advisor_role")
+    out = lookup_docs_tool(
+        in_process_settings(real_mod_root, cache_dir), "effect", key="add_advisor_role"
+    )
 
     assert out["ok"] is True
     assert out["entries"]
@@ -774,7 +779,7 @@ def test_lookup_docs_real_checkout(real_mod_root, cache_dir) -> None:
     assert out["file"] == "resources/documentation/effects_documentation.md"
     # windowed retrieval matches the full content on real data
     windowed = lookup_docs_tool(
-        _settings(real_mod_root, cache_dir),
+        in_process_settings(real_mod_root, cache_dir),
         "effect",
         key="add_advisor_role",
         content_offset=2,
@@ -787,7 +792,7 @@ def test_lookup_docs_real_checkout(real_mod_root, cache_dir) -> None:
 @pytest.mark.integration
 def test_lookup_docs_real_validation_pipeline_guide(real_mod_root, cache_dir) -> None:
     """Probe the real .claude/docs/validation-pipeline.md guide through lookup_docs."""
-    settings = _settings(real_mod_root, cache_dir)
+    settings = in_process_settings(real_mod_root, cache_dir)
     reference = (real_mod_root / ".claude/docs/validation-pipeline.md").read_text(encoding="utf-8")
     assert "validator" in reference.lower()
 
@@ -819,7 +824,7 @@ def test_lookup_docs_real_validation_pipeline_guide(real_mod_root, cache_dir) ->
 @pytest.mark.integration
 def test_lookup_docs_real_longest_definition_reassembles(real_mod_root, cache_dir) -> None:
     """Windowed continuation reconstructs the longest real documentation entry."""
-    settings = _settings(real_mod_root, cache_dir)
+    settings = in_process_settings(real_mod_root, cache_dir)
     listing = lookup_docs_tool(settings, "effect")
     assert listing["ok"] is True
     longest = max(listing["entries"], key=lambda entry: entry["end_line"] - entry["line"])
@@ -857,7 +862,9 @@ def test_lookup_docs_system_key_miss_suggests_close_matches(fake_mod_root, cache
     _write_system_doc(fake_mod_root, "docs", "workflow", "# Workflow\nUse the safe workflow.\n")
     _write_system_doc(fake_mod_root, "docs", "workloads", "# Workloads\nOther content.\n")
 
-    result = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "docs", key="workflow2")
+    result = lookup_docs_tool(
+        in_process_settings(fake_mod_root, cache_dir), "docs", key="workflow2"
+    )
 
     assert result["ok"] is False
     assert "No docs documentation found for 'workflow2'" in result["error"]
@@ -869,7 +876,7 @@ def test_lookup_docs_system_undecodable_document_is_graceful(fake_mod_root, cach
     bad.parent.mkdir(parents=True, exist_ok=True)
     bad.write_bytes(b"\xff\xfe # broken bytes")
 
-    result = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "docs")
+    result = lookup_docs_tool(in_process_settings(fake_mod_root, cache_dir), "docs")
 
     assert result["ok"] is False
     assert "Could not read documentation" in result["error"]
@@ -880,7 +887,7 @@ def test_read_system_documents_skips_directories_named_like_docs(fake_mod_root, 
     directory = fake_mod_root / ".claude" / "docs"
     (directory / "fake.md").mkdir(exist_ok=True)
 
-    result = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "docs")
+    result = lookup_docs_tool(in_process_settings(fake_mod_root, cache_dir), "docs")
 
     assert result["ok"] is True
     keys = [entry["key"] for entry in result["entries"]]
@@ -895,7 +902,7 @@ def test_lookup_docs_lists_skill_frontmatter_and_references(fake_mod_root, cache
         "---\nname: Build skill\ndescription: Build safely\n---\n# Build\nBody\n", encoding="utf-8"
     )
     reference.write_text("# Guide\nReference body\n", encoding="utf-8")
-    settings = _settings(fake_mod_root, cache_dir)
+    settings = in_process_settings(fake_mod_root, cache_dir)
 
     listing = lookup_docs_tool(settings, "skills")
     assert listing["ok"] is True
@@ -921,7 +928,7 @@ def test_skill_frontmatter_folded_description_and_escaped_quote(fake_mod_root, c
         ),
         encoding="utf-8",
     )
-    result = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "skill", key="diary")
+    result = lookup_docs_tool(in_process_settings(fake_mod_root, cache_dir), "skill", key="diary")
     assert result["entries"][0]["description"] == "Write a country's diary with care."
 
 
@@ -930,7 +937,7 @@ def test_skill_lookup_by_directory_name_without_frontmatter(fake_mod_root, cache
     skill.parent.mkdir(parents=True)
     skill.write_text("# Plain skill\nBody copy.\n", encoding="utf-8")
 
-    result = lookup_docs_tool(_settings(fake_mod_root, cache_dir), "skill", key="plain")
+    result = lookup_docs_tool(in_process_settings(fake_mod_root, cache_dir), "skill", key="plain")
 
     assert result["ok"] is True
     assert result["entries"][0]["file"] == ".claude/skills/plain/SKILL.md"
@@ -943,7 +950,7 @@ def test_skill_key_resolves_only_skill_doc_not_references(fake_mod_root, cache_d
     reference.parent.mkdir(parents=True)
     skill.write_text("---\nname: build\n---\n# Build\nBody\n", encoding="utf-8")
     reference.write_text("# Guide\nReference body\n", encoding="utf-8")
-    settings = _settings(fake_mod_root, cache_dir)
+    settings = in_process_settings(fake_mod_root, cache_dir)
 
     hit = lookup_docs_tool(settings, "skill", key="build")
 
@@ -967,7 +974,7 @@ def test_skill_unterminated_frontmatter_is_not_parsed(fake_mod_root, cache_dir) 
         ),
         encoding="utf-8",
     )
-    settings = _settings(fake_mod_root, cache_dir)
+    settings = in_process_settings(fake_mod_root, cache_dir)
 
     result = lookup_docs_tool(settings, "skill", key="broken")
 

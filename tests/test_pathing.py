@@ -12,6 +12,7 @@ from md_mcp.util.pathing import (
     resolve_scope_file,
     validate_user_path,
 )
+from tests.support.mod import make_mod_root
 
 
 def test_explicit_mod_root_wins(fake_mod_root):
@@ -206,15 +207,9 @@ def test_malformed_config_file_fails_loudly(tmp_path, monkeypatch):
         config._load_file_config()
 
 
-def _make_mod_root(path):
-    (path / "tools" / "validation").mkdir(parents=True)
-    (path / "descriptor.mod").write_text('name = "x"\n', encoding="utf-8")
-    return path
-
-
 def test_env_mod_root_wins_over_config_file(tmp_path, monkeypatch):
-    env_root = _make_mod_root(tmp_path / "EnvMod")
-    file_root = _make_mod_root(tmp_path / "FileMod")
+    env_root = make_mod_root(tmp_path / "EnvMod")
+    file_root = make_mod_root(tmp_path / "FileMod")
     cfg = tmp_path / "config.toml"
     cfg.write_text(f'mod_root = "{file_root}"\n', encoding="utf-8")
     monkeypatch.setattr(config, "CONFIG_PATH", cfg)
@@ -223,15 +218,15 @@ def test_env_mod_root_wins_over_config_file(tmp_path, monkeypatch):
 
 
 def test_explicit_mod_root_wins_over_env(tmp_path, monkeypatch):
-    explicit_root = _make_mod_root(tmp_path / "ExplicitMod")
-    env_root = _make_mod_root(tmp_path / "EnvMod")
+    explicit_root = make_mod_root(tmp_path / "ExplicitMod")
+    env_root = make_mod_root(tmp_path / "EnvMod")
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
     monkeypatch.setenv("MD_MOD_ROOT", str(env_root))
     assert config.load(str(explicit_root)).mod_root == explicit_root
 
 
 def test_unrecognized_validator_mode_fails_loudly(tmp_path, monkeypatch):
-    root = _make_mod_root(tmp_path / "Mod")
+    root = make_mod_root(tmp_path / "Mod")
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
     monkeypatch.setenv("MD_MCP_VALIDATOR_MODE", "in-process")
     with pytest.raises(RuntimeError, match="in-process"):
@@ -243,7 +238,7 @@ def test_unrecognized_validator_mode_fails_loudly(tmp_path, monkeypatch):
     [("subprocess", "isolated"), ("isolated", "isolated"), ("in_process", "in_process")],
 )
 def test_load_resolves_the_subprocess_mode_alias(tmp_path, monkeypatch, setting, expected):
-    root = _make_mod_root(tmp_path / "Mod")
+    root = make_mod_root(tmp_path / "Mod")
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
     monkeypatch.setenv("MD_MCP_VALIDATOR_MODE", setting)
     assert config.load(str(root)).validator_mode == expected
@@ -256,7 +251,7 @@ def test_load_resolves_the_subprocess_mode_alias(tmp_path, monkeypatch, setting,
 
 
 def test_submod_root_loads_from_env_and_moves_default_cache(tmp_path, monkeypatch):
-    root = _make_mod_root(tmp_path / "Mod")
+    root = make_mod_root(tmp_path / "Mod")
     submod = tmp_path / "Overlay"
     submod.mkdir()
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
@@ -267,7 +262,7 @@ def test_submod_root_loads_from_env_and_moves_default_cache(tmp_path, monkeypatc
 
 
 def test_submod_root_loads_from_toml_without_mod_layout(tmp_path, monkeypatch):
-    root = _make_mod_root(tmp_path / "Mod")
+    root = make_mod_root(tmp_path / "Mod")
     submod = tmp_path / "OverlayOnly"
     submod.mkdir()
     cfg = tmp_path / "config.toml"
@@ -279,7 +274,7 @@ def test_submod_root_loads_from_toml_without_mod_layout(tmp_path, monkeypatch):
 
 
 def test_invalid_submod_root_fails_loudly(tmp_path, monkeypatch):
-    root = _make_mod_root(tmp_path / "Mod")
+    root = make_mod_root(tmp_path / "Mod")
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
     with pytest.raises(RuntimeError, match="existing directory"):
         config.load(str(root), **{"submod_root": str(tmp_path / "missing-overlay")})

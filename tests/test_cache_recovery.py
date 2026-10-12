@@ -9,14 +9,13 @@ as cache hits, and persist the repair so the next start is a clean cache hit.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from md_mcp.indexes import FocusIndex, GenericTxtIndex, IdeaIndex, LocalisationIndex
-from tests.test_index_sharding import _spy_parse, _state
+from tests.support.indexes import index_state, scratch_state, spy_parse, write_stepped
 
 _IDEA_DIR = Path("common") / "ideas"
 _FOCUS_DIR = Path("common") / "national_focus"
@@ -28,23 +27,8 @@ def _idea(*ids: str) -> str:
     return f"ideas = {{\n\tcountry = {{\n{body}\t}}\n}}\n"
 
 
-def _write_file(path: Path, text: str, step: int) -> None:
-    """Write `path` and give it a distinct mtime so the signature always moves."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    ns = 1_700_000_000_000_000_000 + step * 1_000_000_000
-    os.utime(path, ns=(ns, ns))
-
-
 def _mk(root: Path, cache: Path) -> IdeaIndex:
     return IdeaIndex(root, cache, include_vanilla=False)
-
-
-def _scratch_state(cls: Any, root: Path, tmp_path: Path, tag: str) -> tuple:
-    """State of a brand-new instance with an empty cache: the ground truth."""
-    idx = cls(root, tmp_path / f"scratch-{tag}", include_vanilla=False)
-    idx.ensure_fresh()
-    return _state(idx)
 
 
 def _drop_data(idx: GenericTxtIndex) -> None:
@@ -71,15 +55,15 @@ def _rel(subdir: Path, name: str) -> str:
 @pytest.fixture
 def idea_root(tmp_path: Path) -> Path:
     root = tmp_path / "IdeaMod"
-    _write_file(root / _IDEA_DIR / "a.txt", _idea("TST_a"), 1)
+    write_stepped(root / _IDEA_DIR / "a.txt", _idea("TST_a"), 1)
     return root
 
 
 @pytest.fixture
 def two_idea_root(tmp_path: Path) -> Path:
     root = tmp_path / "IdeaMod2"
-    _write_file(root / _IDEA_DIR / "a.txt", _idea("TST_a"), 1)
-    _write_file(root / _IDEA_DIR / "b.txt", _idea("TST_b", "TST_shared"), 2)
+    write_stepped(root / _IDEA_DIR / "a.txt", _idea("TST_a"), 1)
+    write_stepped(root / _IDEA_DIR / "b.txt", _idea("TST_b", "TST_shared"), 2)
     return root
 
 
@@ -92,17 +76,17 @@ def test_missing_data_file_reparses_and_heals(idea_root, cache_dir, tmp_path, mo
     _drop_data(first)
 
     second = _mk(idea_root, cache_dir)
-    parsed = _spy_parse(second, monkeypatch)
+    parsed = spy_parse(second, monkeypatch)
     second.ensure_fresh()
     assert parsed == [[_rel(_IDEA_DIR, "a")]]
-    assert _state(second) == _scratch_state(IdeaIndex, idea_root, tmp_path, "missing")
+    assert index_state(second) == scratch_state(IdeaIndex, idea_root, tmp_path, "missing")
 
     # The repair was persisted: a third process parses nothing and matches.
     third = _mk(idea_root, cache_dir)
-    parsed = _spy_parse(third, monkeypatch)
+    parsed = spy_parse(third, monkeypatch)
     third.ensure_fresh()
     assert parsed == []
-    assert _state(third) == _state(second)
+    assert index_state(third) == index_state(second)
 
 
 @pytest.mark.parametrize(
@@ -135,17 +119,17 @@ def test_damaged_data_reparses_instead_of_dropping(
     _overwrite_data(first, garbage)
 
     second = _mk(idea_root, cache_dir)
-    parsed = _spy_parse(second, monkeypatch)
+    parsed = spy_parse(second, monkeypatch)
     second.ensure_fresh()
     assert parsed == [[_rel(_IDEA_DIR, "a")]]
     assert sorted(second.list_keys()) == ids
-    assert _state(second) == _scratch_state(IdeaIndex, idea_root, tmp_path, "damaged")
+    assert index_state(second) == scratch_state(IdeaIndex, idea_root, tmp_path, "damaged")
 
     third = _mk(idea_root, cache_dir)
-    parsed = _spy_parse(third, monkeypatch)
+    parsed = spy_parse(third, monkeypatch)
     third.ensure_fresh()
     assert parsed == []
-    assert _state(third) == _state(second)
+    assert index_state(third) == index_state(second)
 
 
 def test_invalid_utf8_data_reparses_and_heals(idea_root, cache_dir, monkeypatch):
@@ -154,12 +138,12 @@ def test_invalid_utf8_data_reparses_and_heals(idea_root, cache_dir, monkeypatch)
     first._cache.data_path.write_bytes(b"\xff")
 
     second = _mk(idea_root, cache_dir)
-    parsed = _spy_parse(second, monkeypatch)
+    parsed = spy_parse(second, monkeypatch)
     assert second.resolve("TST_a") is not None
     assert parsed == [[_rel(_IDEA_DIR, "a")]]
 
     third = _mk(idea_root, cache_dir)
-    parsed = _spy_parse(third, monkeypatch)
+    parsed = spy_parse(third, monkeypatch)
     assert third.resolve("TST_a") is not None
     assert parsed == []
 
@@ -173,19 +157,19 @@ def test_mixed_healthy_and_damaged_reparses_only_damaged(
     _damage_entry(first, b, "garbage")
 
     second = _mk(two_idea_root, cache_dir)
-    parsed = _spy_parse(second, monkeypatch)
+    parsed = spy_parse(second, monkeypatch)
     second.ensure_fresh()
     assert parsed == [[b]]
     rec_a = second.resolve("TST_a")
     assert rec_a is not None
     assert rec_a["file"] == a
-    assert _state(second) == _scratch_state(IdeaIndex, two_idea_root, tmp_path, "mixed")
+    assert index_state(second) == scratch_state(IdeaIndex, two_idea_root, tmp_path, "mixed")
 
     third = _mk(two_idea_root, cache_dir)
-    parsed = _spy_parse(third, monkeypatch)
+    parsed = spy_parse(third, monkeypatch)
     third.ensure_fresh()
     assert parsed == []
-    assert _state(third) == _state(second)
+    assert index_state(third) == index_state(second)
     # Last-write-wins against the healthy cached file is preserved.
     assert sorted(third.duplicates()) == sorted(second.duplicates())
 
@@ -193,8 +177,8 @@ def test_mixed_healthy_and_damaged_reparses_only_damaged(
 def test_repair_matches_cold_build_last_write_wins(two_idea_root, tmp_path):
     """The repaired winner/duplicate state must match a cold build."""
     root = tmp_path / "LWWMod"
-    _write_file(root / _IDEA_DIR / "a.txt", _idea("TST_d", "TST_only_a"), 1)
-    _write_file(root / _IDEA_DIR / "b.txt", _idea("TST_d"), 2)
+    write_stepped(root / _IDEA_DIR / "a.txt", _idea("TST_d", "TST_only_a"), 1)
+    write_stepped(root / _IDEA_DIR / "b.txt", _idea("TST_d"), 2)
     cache = tmp_path / "cache-lww"
     first = _mk(root, cache)
     first.ensure_fresh()
@@ -209,7 +193,7 @@ def test_repair_matches_cold_build_last_write_wins(two_idea_root, tmp_path):
     assert rec_d["file"] == b
     assert second.duplicates() == {"TST_d": [a]}
     assert second.resolve("TST_only_a") is not None
-    assert _state(second) == _scratch_state(IdeaIndex, root, tmp_path, "lww")
+    assert index_state(second) == scratch_state(IdeaIndex, root, tmp_path, "lww")
 
 
 def test_valid_empty_and_healthy_files_stay_cache_hits(two_idea_root, cache_dir, monkeypatch):
@@ -223,7 +207,7 @@ def test_valid_empty_and_healthy_files_stay_cache_hits(two_idea_root, cache_dir,
     )
 
     second = _mk(two_idea_root, cache_dir)
-    parsed = _spy_parse(second, monkeypatch)
+    parsed = spy_parse(second, monkeypatch)
     second.ensure_fresh()
     assert parsed == []
     assert second.records_for_file(a) == []
@@ -249,12 +233,12 @@ def test_repeated_queries_recover_without_source_edits(idea_root, cache_dir):
 
 def test_cached_parse_errors_not_reparsed_after_restart(tmp_path, monkeypatch):
     root = tmp_path / "FocusMod"
-    _write_file(
+    write_stepped(
         root / _FOCUS_DIR / "good.txt",
         "focus_tree = { focus = { id = TST_good x = 1 y = 0 } }",
         1,
     )
-    _write_file(root / _FOCUS_DIR / "bad.txt", "focus_tree = { focus = { id = TST_bad x = {{{", 2)
+    write_stepped(root / _FOCUS_DIR / "bad.txt", "focus_tree = { focus = { id = TST_bad x = {{{", 2)
     cache = tmp_path / "cache"
 
     first = FocusIndex(root, cache, include_vanilla=False)
@@ -263,7 +247,7 @@ def test_cached_parse_errors_not_reparsed_after_restart(tmp_path, monkeypatch):
     assert [e["file"] for e in expected_errors] == [_rel(_FOCUS_DIR, "bad")]
 
     second = FocusIndex(root, cache, include_vanilla=False)
-    parsed = _spy_parse(second, monkeypatch)
+    parsed = spy_parse(second, monkeypatch)
     assert second.parse_errors() == expected_errors
     assert second.resolve("TST_good") is not None
     assert parsed == []  # neither the good nor the known-bad file was reparsed
@@ -271,12 +255,12 @@ def test_cached_parse_errors_not_reparsed_after_restart(tmp_path, monkeypatch):
 
 def test_damaged_payload_does_not_lose_parse_errors(tmp_path, monkeypatch):
     root = tmp_path / "FocusMod2"
-    _write_file(
+    write_stepped(
         root / _FOCUS_DIR / "good.txt",
         "focus_tree = { focus = { id = TST_good x = 1 y = 0 } }",
         1,
     )
-    _write_file(root / _FOCUS_DIR / "bad.txt", "focus_tree = { focus = { id = TST_bad x = {{{", 2)
+    write_stepped(root / _FOCUS_DIR / "bad.txt", "focus_tree = { focus = { id = TST_bad x = {{{", 2)
     cache = tmp_path / "cache"
 
     first = FocusIndex(root, cache, include_vanilla=False)
@@ -290,14 +274,14 @@ def test_damaged_payload_does_not_lose_parse_errors(tmp_path, monkeypatch):
     )
 
     second = FocusIndex(root, cache, include_vanilla=False)
-    parsed = _spy_parse(second, monkeypatch)
+    parsed = spy_parse(second, monkeypatch)
     second.ensure_fresh()
     assert parsed == [[_rel(_FOCUS_DIR, "good")]]  # bad is a known error: not reparsed
     assert second.parse_errors() == expected_errors
     assert second.resolve("TST_good") is not None
 
     third = FocusIndex(root, cache, include_vanilla=False)
-    parsed = _spy_parse(third, monkeypatch)
+    parsed = spy_parse(third, monkeypatch)
     third.ensure_fresh()
     assert parsed == []
     assert third.parse_errors() == expected_errors
@@ -306,13 +290,13 @@ def test_damaged_payload_does_not_lose_parse_errors(tmp_path, monkeypatch):
 def test_repaired_error_file_recovers_when_source_is_fixed(tmp_path):
     root = tmp_path / "FocusMod3"
     bad = root / _FOCUS_DIR / "bad.txt"
-    _write_file(bad, "focus_tree = { focus = { id = TST_bad x = {{{", 1)
+    write_stepped(bad, "focus_tree = { focus = { id = TST_bad x = {{{", 1)
     cache = tmp_path / "cache"
     first = FocusIndex(root, cache, include_vanilla=False)
     first.ensure_fresh()
     assert first.parse_errors()
 
-    _write_file(bad, "focus_tree = { focus = { id = TST_bad x = 1 y = 0 } }", 10)
+    write_stepped(bad, "focus_tree = { focus = { id = TST_bad x = 1 y = 0 } }", 10)
     second = FocusIndex(root, cache, include_vanilla=False)
     second._stale_check.force_next()
     second.ensure_fresh()
@@ -335,8 +319,8 @@ def test_repaired_error_file_recovers_when_source_is_fixed(tmp_path):
 )
 def test_sharded_unusable_records_reparse_only_that_file(tmp_path, monkeypatch, bad_records):
     root = tmp_path / "LocMod"
-    _write_file(root / _LOC_DIR / "a_l_english.yml", 'l_english:\n K_a: "a"\n', 1)
-    _write_file(root / _LOC_DIR / "b_l_english.yml", 'l_english:\n K_b: "b"\n', 2)
+    write_stepped(root / _LOC_DIR / "a_l_english.yml", 'l_english:\n K_a: "a"\n', 1)
+    write_stepped(root / _LOC_DIR / "b_l_english.yml", 'l_english:\n K_b: "b"\n', 2)
     cache = tmp_path / "cache"
     first = LocalisationIndex(root, cache, include_vanilla=False)
     first.ensure_fresh()
@@ -347,7 +331,7 @@ def test_sharded_unusable_records_reparse_only_that_file(tmp_path, monkeypatch, 
         first._cache.save_shard(b, bad_records, None)
 
     second = LocalisationIndex(root, cache, include_vanilla=False)
-    parsed = _spy_parse(second, monkeypatch)
+    parsed = spy_parse(second, monkeypatch)
     second.ensure_fresh()
     assert parsed == [[b]]
     rec_a = second.resolve("K_a")
@@ -357,7 +341,7 @@ def test_sharded_unusable_records_reparse_only_that_file(tmp_path, monkeypatch, 
     assert rec_b["value"] == "b"
 
     third = LocalisationIndex(root, cache, include_vanilla=False)
-    parsed = _spy_parse(third, monkeypatch)
+    parsed = spy_parse(third, monkeypatch)
     third.ensure_fresh()
     assert parsed == []
-    assert _state(third) == _scratch_state(LocalisationIndex, root, tmp_path, "shard")
+    assert index_state(third) == scratch_state(LocalisationIndex, root, tmp_path, "shard")

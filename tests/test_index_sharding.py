@@ -12,20 +12,13 @@ import pytest
 
 from md_mcp.indexes import FocusIndex, IdeaIndex, LocalisationIndex
 from md_mcp.indexes.base import IndexCache, shard_filename
+from tests.support.indexes import index_state, scratch_state, spy_parse, write_stepped
 
 _LOC_DIR = Path("localisation") / "english"
 
 
 def _loc(root: Path, name: str) -> Path:
     return root / _LOC_DIR / f"{name}_l_english.yml"
-
-
-def _write(path: Path, text: str, step: int) -> None:
-    """Write `path` and give it a distinct mtime so the signature always moves."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    ns = 1_700_000_000_000_000_000 + step * 1_000_000_000
-    os.utime(path, ns=(ns, ns))
 
 
 def _loc_text(entries: dict[str, str]) -> str:
@@ -36,43 +29,17 @@ def _loc_text(entries: dict[str, str]) -> str:
 def loc_root(tmp_path: Path) -> Path:
     """Mod root with several loc files that share keys, so shadowing is exercised."""
     root = tmp_path / "LocMod"
-    _write(_loc(root, "a"), _loc_text({"K_shared": "from a", "K_only_a": "a"}), 1)
-    _write(_loc(root, "b"), _loc_text({"K_shared": "from b", "K_only_b": "b", "K_x": "b"}), 2)
-    _write(_loc(root, "c"), _loc_text({"K_shared": "from c", "K_x": "c"}), 3)
-    _write(_loc(root, "d"), _loc_text({"K_only_d": "d"}), 4)
+    write_stepped(_loc(root, "a"), _loc_text({"K_shared": "from a", "K_only_a": "a"}), 1)
+    write_stepped(
+        _loc(root, "b"), _loc_text({"K_shared": "from b", "K_only_b": "b", "K_x": "b"}), 2
+    )
+    write_stepped(_loc(root, "c"), _loc_text({"K_shared": "from c", "K_x": "c"}), 3)
+    write_stepped(_loc(root, "d"), _loc_text({"K_only_d": "d"}), 4)
     return root
 
 
 def _mk(root: Path, cache: Path) -> LocalisationIndex:
     return LocalisationIndex(root, cache, include_vanilla=False)
-
-
-def _state(idx) -> tuple:
-    idx.ensure_fresh()
-    return (
-        list(idx._by_file.items()),
-        idx._by_key,
-        idx._duplicates,
-        idx._parse_errors,
-    )
-
-
-def _scratch_state(cls, root: Path, tmp_path: Path, tag: str, **kwargs) -> tuple:
-    """State of a brand-new instance with an empty cache: the ground truth."""
-    return _state(cls(root, tmp_path / f"scratch-{tag}", include_vanilla=False, **kwargs))
-
-
-def _spy_parse(idx, monkeypatch) -> list[list[str]]:
-    """Record the relpaths each `_parse_parallel` call is asked to parse."""
-    calls: list[list[str]] = []
-    real = idx._parse_parallel
-
-    def spy(relpaths: list[str]) -> list:
-        calls.append(list(relpaths))
-        return real(relpaths)
-
-    monkeypatch.setattr(idx, "_parse_parallel", spy)
-    return calls
 
 
 def _shard_mtimes(idx) -> dict[str, int]:
@@ -103,13 +70,13 @@ def test_sharded_index_writes_one_shard_per_file_and_no_monolith(loc_root, cache
 def test_startup_from_shards_equals_full_rebuild(loc_root, cache_dir, tmp_path):
     _mk(loc_root, cache_dir).ensure_fresh()
     reloaded = _mk(loc_root, cache_dir)
-    assert _state(reloaded) == _scratch_state(LocalisationIndex, loc_root, tmp_path, "eq")
+    assert index_state(reloaded) == scratch_state(LocalisationIndex, loc_root, tmp_path, "eq")
 
 
 def test_startup_from_shards_does_not_reparse(loc_root, cache_dir, monkeypatch):
     _mk(loc_root, cache_dir).ensure_fresh()
     reloaded = _mk(loc_root, cache_dir)
-    calls = _spy_parse(reloaded, monkeypatch)
+    calls = spy_parse(reloaded, monkeypatch)
     reloaded.ensure_fresh()
     assert all(not rels for rels in calls)
     assert reloaded.resolve("K_shared")["value"] == "from c"  # type: ignore[index]
@@ -124,7 +91,7 @@ def test_one_file_edit_rewrites_exactly_one_shard(loc_root, cache_dir):
         os.utime(p, ns=(1, 1))
     before = _shard_mtimes(idx)
 
-    _write(_loc(loc_root, "b"), _loc_text({"K_shared": "from b2", "K_only_b": "b2"}), 10)
+    write_stepped(_loc(loc_root, "b"), _loc_text({"K_shared": "from b2", "K_only_b": "b2"}), 10)
     idx._stale_check.force_next()
     idx.ensure_fresh()
 
@@ -147,7 +114,7 @@ def test_removed_file_deletes_its_shard(loc_root, cache_dir):
     assert not shard.exists()
     assert idx.resolve("K_only_d") is None
     # A fresh process agrees.
-    assert _state(_mk(loc_root, cache_dir)) == _state(idx)
+    assert index_state(_mk(loc_root, cache_dir)) == index_state(idx)
 
 
 def test_removed_file_while_server_down_deletes_shard_on_next_start(loc_root, cache_dir):
@@ -166,7 +133,7 @@ def test_orphan_shards_are_pruned_on_rebuild(loc_root, cache_dir):
     # Another process's in-flight write must not be pruned out from under it.
     in_flight = idx._cache.shard_dir / "other-0000.json.4242.tmp"
     in_flight.write_text("partial", encoding="utf-8")
-    _write(_loc(loc_root, "a"), _loc_text({"K_only_a": "edited"}), 20)
+    write_stepped(_loc(loc_root, "a"), _loc_text({"K_only_a": "edited"}), 20)
     _mk(loc_root, cache_dir).ensure_fresh()
     assert not orphan.exists()
     assert in_flight.exists()
@@ -211,15 +178,15 @@ def test_corrupt_shard_reparses_only_that_file(loc_root, cache_dir, tmp_path, ga
     victim.write_text(garbage, encoding="utf-8")
 
     second = _mk(loc_root, cache_dir)
-    parsed = _spy_parse(second, monkeypatch)
+    parsed = spy_parse(second, monkeypatch)
     second.ensure_fresh()
 
     assert parsed == [[str(Path("localisation/english/c_l_english.yml"))]]
-    assert _state(second) == _scratch_state(LocalisationIndex, loc_root, tmp_path, "corrupt")
+    assert index_state(second) == scratch_state(LocalisationIndex, loc_root, tmp_path, "corrupt")
     # The shard was healed, so the next start parses nothing.
     third = _mk(loc_root, cache_dir)
     assert third._cache.load_shard(str(Path("localisation/english/c_l_english.yml"))) is not None
-    assert _state(third) == _state(second)
+    assert index_state(third) == index_state(second)
 
 
 def test_missing_shard_reparses_only_that_file(loc_root, cache_dir, tmp_path, monkeypatch):
@@ -228,8 +195,8 @@ def test_missing_shard_reparses_only_that_file(loc_root, cache_dir, tmp_path, mo
     first._cache.shard_path(str(Path("localisation/english/a_l_english.yml"))).unlink()
 
     second = _mk(loc_root, cache_dir)
-    parsed = _spy_parse(second, monkeypatch)
-    assert _state(second) == _scratch_state(LocalisationIndex, loc_root, tmp_path, "missing")
+    parsed = spy_parse(second, monkeypatch)
+    assert index_state(second) == scratch_state(LocalisationIndex, loc_root, tmp_path, "missing")
     assert parsed == [[str(Path("localisation/english/a_l_english.yml"))]]
 
 
@@ -257,8 +224,10 @@ def test_sharded_parse_errors_survive_restart(tmp_path, cache_dir):
 
     root = tmp_path / "FocusMod"
     focus_dir = root / "common" / "national_focus"
-    _write(focus_dir / "good.txt", "focus_tree = { focus = { id = TST_good x = 1 y = 0 } }", 1)
-    _write(focus_dir / "bad.txt", "focus_tree = { focus = { id = TST_bad x = {{{", 2)
+    write_stepped(
+        focus_dir / "good.txt", "focus_tree = { focus = { id = TST_good x = 1 y = 0 } }", 1
+    )
+    write_stepped(focus_dir / "bad.txt", "focus_tree = { focus = { id = TST_bad x = {{{", 2)
 
     first = ShardedFocus(root, cache_dir, include_vanilla=False)
     first.ensure_fresh()
@@ -275,9 +244,9 @@ def test_sharded_parse_errors_survive_restart(tmp_path, cache_dir):
 def test_edit_one_file_matches_scratch_rebuild(loc_root, cache_dir, tmp_path):
     idx = _mk(loc_root, cache_dir)
     idx.ensure_fresh()
-    _write(_loc(loc_root, "c"), _loc_text({"K_x": "c2", "K_new": "n"}), 10)
+    write_stepped(_loc(loc_root, "c"), _loc_text({"K_x": "c2", "K_new": "n"}), 10)
     idx._stale_check.force_next()
-    assert _state(idx) == _scratch_state(LocalisationIndex, loc_root, tmp_path, "edit")
+    assert index_state(idx) == scratch_state(LocalisationIndex, loc_root, tmp_path, "edit")
     # c stopped defining K_shared, so b now wins it and a is the only shadowed file.
     assert idx.resolve("K_shared")["file"].endswith("b_l_english.yml")  # type: ignore[index]
     assert idx.duplicates()[("l_english", "K_shared")] == [
@@ -292,7 +261,7 @@ def test_incremental_does_not_reload_or_rewrite_unrelated_state(loc_root, cache_
     monkeypatch.setattr(
         idx._cache, "load_shard", lambda *_: pytest.fail("warm refresh must not read shards")
     )
-    _write(_loc(loc_root, "a"), _loc_text({"K_only_a": "edited"}), 10)
+    write_stepped(_loc(loc_root, "a"), _loc_text({"K_only_a": "edited"}), 10)
     idx._stale_check.force_next()
     idx.ensure_fresh()
     assert idx._by_key[("l_english", "K_only_d")] is untouched
@@ -307,7 +276,7 @@ def test_removing_shadowing_file_unshadows_duplicate(loc_root, cache_dir, tmp_pa
     idx._stale_check.force_next()
     assert idx.resolve("K_shared")["value"] == "from b"  # type: ignore[index]
     assert idx.resolve("K_x")["value"] == "b"  # type: ignore[index]
-    assert _state(idx) == _scratch_state(LocalisationIndex, loc_root, tmp_path, "rm")
+    assert index_state(idx) == scratch_state(LocalisationIndex, loc_root, tmp_path, "rm")
 
     _loc(loc_root, "b").unlink()
     idx._stale_check.force_next()
@@ -319,10 +288,10 @@ def test_removing_shadowing_file_unshadows_duplicate(loc_root, cache_dir, tmp_pa
 def test_adding_a_later_file_shadows_existing_key(loc_root, cache_dir, tmp_path):
     idx = _mk(loc_root, cache_dir)
     idx.ensure_fresh()
-    _write(_loc(loc_root, "z"), _loc_text({"K_shared": "from z"}), 10)
+    write_stepped(_loc(loc_root, "z"), _loc_text({"K_shared": "from z"}), 10)
     idx._stale_check.force_next()
     assert idx.resolve("K_shared")["value"] == "from z"  # type: ignore[index]
-    assert _state(idx) == _scratch_state(LocalisationIndex, loc_root, tmp_path, "add")
+    assert index_state(idx) == scratch_state(LocalisationIndex, loc_root, tmp_path, "add")
     assert idx.duplicates()[("l_english", "K_shared")] == [
         str(Path("localisation/english/a_l_english.yml")),
         str(Path("localisation/english/b_l_english.yml")),
@@ -333,22 +302,22 @@ def test_adding_a_later_file_shadows_existing_key(loc_root, cache_dir, tmp_path)
 def test_adding_an_earlier_file_does_not_take_the_win(loc_root, cache_dir, tmp_path):
     idx = _mk(loc_root, cache_dir)
     idx.ensure_fresh()
-    _write(_loc(loc_root, "0first"), _loc_text({"K_shared": "from 0"}), 10)
+    write_stepped(_loc(loc_root, "0first"), _loc_text({"K_shared": "from 0"}), 10)
     idx._stale_check.force_next()
     assert idx.resolve("K_shared")["value"] == "from c"  # type: ignore[index]
-    assert _state(idx) == _scratch_state(LocalisationIndex, loc_root, tmp_path, "early")
+    assert index_state(idx) == scratch_state(LocalisationIndex, loc_root, tmp_path, "early")
     assert list(idx._by_file) == sorted(idx._by_file)
 
 
 def test_same_file_duplicate_keys_survive_incremental(tmp_path, cache_dir):
     root = tmp_path / "SameFile"
-    _write(_loc(root, "a"), _loc_text({"K": "1"}) + ' K: "2"\n', 1)
-    _write(_loc(root, "b"), _loc_text({"K": "3"}), 2)
+    write_stepped(_loc(root, "a"), _loc_text({"K": "1"}) + ' K: "2"\n', 1)
+    write_stepped(_loc(root, "b"), _loc_text({"K": "3"}), 2)
     idx = _mk(root, cache_dir)
     idx.ensure_fresh()
-    _write(_loc(root, "b"), _loc_text({"K": "4", "K2": "x"}), 10)
+    write_stepped(_loc(root, "b"), _loc_text({"K": "4", "K2": "x"}), 10)
     idx._stale_check.force_next()
-    assert _state(idx) == _scratch_state(LocalisationIndex, root, tmp_path, "same")
+    assert index_state(idx) == scratch_state(LocalisationIndex, root, tmp_path, "same")
     assert idx.resolve("K")["value"] == "4"  # type: ignore[index]
 
 
@@ -367,7 +336,7 @@ def test_incremental_rebuild_matches_scratch_over_random_edits(tmp_path, cache_d
 
     idx = _mk(root, cache_dir)
     for name in names[:3]:
-        _write(_loc(root, name), random_text(), 0)
+        write_stepped(_loc(root, name), random_text(), 0)
         live.add(name)
     idx.ensure_fresh()
 
@@ -377,14 +346,16 @@ def test_incremental_rebuild_matches_scratch_over_random_edits(tmp_path, cache_d
             _loc(root, name).unlink()
             live.discard(name)
         else:
-            _write(_loc(root, name), random_text(), step)
+            write_stepped(_loc(root, name), random_text(), step)
             live.add(name)
         idx._stale_check.force_next()
-        assert _state(idx) == _scratch_state(
+        assert index_state(idx) == scratch_state(
             LocalisationIndex, root, tmp_path, f"r{step}"
         ), f"diverged at step {step}"
         # And what is on disk agrees too.
-        assert _state(_mk(root, cache_dir)) == _state(idx), f"cache diverged at step {step}"
+        assert index_state(_mk(root, cache_dir)) == index_state(
+            idx
+        ), f"cache diverged at step {step}"
 
 
 def test_incremental_equals_scratch_for_monolithic_index(tmp_path, cache_dir):
@@ -395,24 +366,24 @@ def test_incremental_equals_scratch_for_monolithic_index(tmp_path, cache_dir):
         body = "".join(f"\t\t{i} = {{ picture = generic_idea }}\n" for i in ids)
         return "ideas = {\n\tcountry = {\n" + body + "\t}\n}\n"
 
-    _write(ideas / "a.txt", idea("TST_dup", "TST_a"), 1)
-    _write(ideas / "b.txt", idea("TST_dup", "TST_b"), 2)
+    write_stepped(ideas / "a.txt", idea("TST_dup", "TST_a"), 1)
+    write_stepped(ideas / "b.txt", idea("TST_dup", "TST_b"), 2)
     idx = IdeaIndex(root, cache_dir, include_vanilla=False)
     idx.ensure_fresh()
     assert idx.duplicates() == {"TST_dup": [str(Path("common/ideas/a.txt"))]}
 
-    _write(ideas / "b.txt", idea("TST_b"), 10)
+    write_stepped(ideas / "b.txt", idea("TST_b"), 10)
     idx._stale_check.force_next()
-    assert _state(idx) == _scratch_state(IdeaIndex, root, tmp_path, "m1")
+    assert index_state(idx) == scratch_state(IdeaIndex, root, tmp_path, "m1")
     assert idx.duplicates() == {}
     assert idx.resolve("TST_dup")["file"] == str(Path("common/ideas/a.txt"))  # type: ignore[index]
 
     (ideas / "a.txt").unlink()
     idx._stale_check.force_next()
-    assert _state(idx) == _scratch_state(IdeaIndex, root, tmp_path, "m2")
+    assert index_state(idx) == scratch_state(IdeaIndex, root, tmp_path, "m2")
     assert idx.resolve("TST_dup") is None
     # data.json was rewritten from the incremental state.
-    assert _state(IdeaIndex(root, cache_dir, include_vanilla=False)) == _state(idx)
+    assert index_state(IdeaIndex(root, cache_dir, include_vanilla=False)) == index_state(idx)
 
 
 def test_incremental_duplicate_warning_fires_once_for_newly_duplicated_key(
@@ -421,12 +392,12 @@ def test_incremental_duplicate_warning_fires_once_for_newly_duplicated_key(
     root = tmp_path / "WarnMod"
     ideas = root / "common" / "ideas"
     body = "ideas = {\n\tcountry = {\n\t\tTST_w = { picture = generic_idea }\n\t}\n}\n"
-    _write(ideas / "a.txt", body, 1)
+    write_stepped(ideas / "a.txt", body, 1)
     idx = IdeaIndex(root, cache_dir, include_vanilla=False)
     idx.ensure_fresh()
     assert not [r for r in caplog.records if "Duplicate key" in r.getMessage()]
 
-    _write(ideas / "b.txt", body, 2)
+    write_stepped(ideas / "b.txt", body, 2)
     idx._stale_check.force_next()
     with caplog.at_level(logging.WARNING):
         idx.ensure_fresh()
@@ -436,21 +407,21 @@ def test_incremental_duplicate_warning_fires_once_for_newly_duplicated_key(
 def test_incremental_tracks_parse_errors(tmp_path, cache_dir):
     root = tmp_path / "ErrMod"
     focus_dir = root / "common" / "national_focus"
-    _write(focus_dir / "a.txt", "focus_tree = { focus = { id = TST_a x = 1 y = 0 } }", 1)
+    write_stepped(focus_dir / "a.txt", "focus_tree = { focus = { id = TST_a x = 1 y = 0 } }", 1)
     idx = FocusIndex(root, cache_dir, include_vanilla=False)
     idx.ensure_fresh()
     assert idx.parse_errors() == []
 
-    _write(focus_dir / "a.txt", "focus_tree = { focus = { id = TST_a x = {{{", 10)
+    write_stepped(focus_dir / "a.txt", "focus_tree = { focus = { id = TST_a x = {{{", 10)
     idx._stale_check.force_next()
     assert [e["file"] for e in idx.parse_errors()] == [str(Path("common/national_focus/a.txt"))]
     assert idx.resolve("TST_a") is None
 
-    _write(focus_dir / "a.txt", "focus_tree = { focus = { id = TST_a x = 1 y = 0 } }", 20)
+    write_stepped(focus_dir / "a.txt", "focus_tree = { focus = { id = TST_a x = 1 y = 0 } }", 20)
     idx._stale_check.force_next()
     assert idx.parse_errors() == []
     assert idx.resolve("TST_a") is not None
-    assert _state(idx) == _scratch_state(FocusIndex, root, tmp_path, "err")
+    assert index_state(idx) == scratch_state(FocusIndex, root, tmp_path, "err")
 
 
 def test_unchanged_refresh_leaves_state_objects_alone(loc_root, cache_dir):
@@ -469,12 +440,12 @@ def test_one_file_edit_is_fast_on_a_large_loc_tree(tmp_path, cache_dir):
     root = tmp_path / "BigLoc"
     for f in range(40):
         entries = {f"BIG_{f}_{i}": f"value {i}" for i in range(1500)}
-        _write(_loc(root, f"big{f:02d}"), _loc_text(entries), 1)
+        write_stepped(_loc(root, f"big{f:02d}"), _loc_text(entries), 1)
     idx = _mk(root, cache_dir)
     idx.ensure_fresh()
     assert len(idx._by_key) == 60_000
 
-    _write(_loc(root, "big07"), _loc_text({"BIG_7_0": "edited"}), 10)
+    write_stepped(_loc(root, "big07"), _loc_text({"BIG_7_0": "edited"}), 10)
     idx._stale_check.force_next()
     t0 = time.perf_counter()
     idx.ensure_fresh()

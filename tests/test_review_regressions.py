@@ -10,15 +10,9 @@ from md_mcp.analysis.manifest import _loc_files, _tag_file_pattern
 from md_mcp.indexes import FocusIndex
 from md_mcp.indexes import localisation as loc_mod
 from md_mcp.indexes.localisation import LocalisationIndex, cache_name_for
+from tests.support.mod import make_mod_root
 
 _LOC = '\ufeff{lang}:\n {key}:0 "{value}"\n'
-
-
-def _mod_root(tmp_path: Path) -> Path:
-    root = tmp_path / "Mod"
-    (root / "tools" / "validation").mkdir(parents=True)
-    (root / "descriptor.mod").write_text('name = "x"\n', encoding="utf-8")
-    return root
 
 
 def _write_loc(root: Path, rel: str, lang: str, key: str, value: str) -> Path:
@@ -29,7 +23,7 @@ def _write_loc(root: Path, rel: str, lang: str, key: str, value: str) -> Path:
 
 
 def test_scan_lang_survives_a_file_that_failed_to_parse(tmp_path, monkeypatch):
-    root = _mod_root(tmp_path)
+    root = make_mod_root(tmp_path / "Mod")
     good = _write_loc(root, "localisation/german/a_l_german.yml", "l_german", "A", "a")
     bad = _write_loc(root, "localisation/german/b_l_german.yml", "l_german", "B", "b")
     index = LocalisationIndex(root, tmp_path / "cache", None, langs=("en",))
@@ -61,7 +55,7 @@ def test_scan_lang_survives_a_file_that_failed_to_parse(tmp_path, monkeypatch):
 
 
 def test_unknown_default_lang_does_not_abort_startup(tmp_path, monkeypatch):
-    root = _mod_root(tmp_path)
+    root = make_mod_root(tmp_path / "Mod")
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
     monkeypatch.delenv("MD_MCP_LOC_LANGS", raising=False)
     monkeypatch.setenv("MD_MCP_DEFAULT_LANG", "english")
@@ -73,7 +67,7 @@ def test_unknown_default_lang_does_not_abort_startup(tmp_path, monkeypatch):
 
 
 def test_explicit_unknown_loc_langs_still_rejected(tmp_path, monkeypatch):
-    root = _mod_root(tmp_path)
+    root = make_mod_root(tmp_path / "Mod")
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
     monkeypatch.setenv("MD_MCP_LOC_LANGS", "klingon")
     try:
@@ -85,7 +79,7 @@ def test_explicit_unknown_loc_langs_still_rejected(tmp_path, monkeypatch):
 
 
 def test_non_iterable_toml_loc_langs_is_a_config_error(tmp_path, monkeypatch):
-    root = _mod_root(tmp_path)
+    root = make_mod_root(tmp_path / "Mod")
     cfg = tmp_path / "config.toml"
     cfg.write_text("loc_langs = 1\n", encoding="utf-8")
     monkeypatch.setattr(config, "CONFIG_PATH", cfg)
@@ -99,7 +93,7 @@ def test_non_iterable_toml_loc_langs_is_a_config_error(tmp_path, monkeypatch):
 
 
 def test_manifest_loc_files_cover_every_language(tmp_path):
-    root = _mod_root(tmp_path)
+    root = make_mod_root(tmp_path / "Mod")
     _write_loc(root, "localisation/english/MD_focus_USA_l_english.yml", "l_english", "K", "v")
     _write_loc(root, "localisation/german/MD_focus_USA_l_german.yml", "l_german", "K", "v")
     _write_loc(root, "localisation/english/MD_focus_ISR_l_english.yml", "l_english", "K", "v")
@@ -119,7 +113,7 @@ def test_manifest_loc_files_cover_every_language(tmp_path):
 
 
 def test_manifest_loc_files_include_vanilla_root(tmp_path):
-    root = _mod_root(tmp_path)
+    root = make_mod_root(tmp_path / "Mod")
     vanilla = tmp_path / "hoi4"
     _write_loc(root, "localisation/english/MD_focus_USA_l_english.yml", "l_english", "K", "v")
     _write_loc(vanilla, "localisation/english/USA_l_english.yml", "l_english", "K", "v")
@@ -135,7 +129,7 @@ def test_manifest_loc_files_include_vanilla_root(tmp_path):
 
 def test_language_sets_do_not_share_a_cache(tmp_path):
     """A process with fewer languages must not delete another's shards."""
-    root = _mod_root(tmp_path)
+    root = make_mod_root(tmp_path / "Mod")
     cache = tmp_path / "cache"
     _write_loc(root, "localisation/english/a_l_english.yml", "l_english", "K_EN", "e")
     _write_loc(root, "localisation/german/a_l_german.yml", "l_german", "K_DE", "d")
@@ -173,7 +167,7 @@ def _refresh(index) -> None:
 
 
 def _two_loc_indexes(tmp_path):
-    root = _mod_root(tmp_path)
+    root = make_mod_root(tmp_path / "Mod")
     cache = tmp_path / "cache"
     _write_loc(root, "localisation/english/x_l_english.yml", "l_english", "K_X", "x1")
     _write_loc(root, "localisation/english/z_l_english.yml", "l_english", "K_Z", "z1")
@@ -233,7 +227,7 @@ def test_file_edited_by_another_process_is_reparsed(tmp_path):
 
 
 def test_file_removed_by_another_process_monolithic_index(tmp_path):
-    root = _mod_root(tmp_path)
+    root = make_mod_root(tmp_path / "Mod")
     cache = tmp_path / "cache"
     d = root / "common" / "national_focus"
     d.mkdir(parents=True)
@@ -275,7 +269,7 @@ def test_failed_cache_write_does_not_fail_the_refresh(tmp_path, monkeypatch, cap
 
     from md_mcp.indexes import base as base_mod
 
-    root = _mod_root(tmp_path)
+    root = make_mod_root(tmp_path / "Mod")
     _write_loc(root, "localisation/english/a_l_english.yml", "l_english", "K_A", "a")
     index = LocalisationIndex(root, tmp_path / "cache", None, langs=("en",))
 

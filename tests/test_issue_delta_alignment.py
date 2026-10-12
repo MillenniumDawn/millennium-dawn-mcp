@@ -24,17 +24,15 @@ from md_mcp.analysis.issue_delta import (
     new_issue_dicts,
     prepare_baseline,
 )
-from tests.test_issue_delta_loader import (
-    _plant_report_lib,
-    _settings,
-)
+from tests.support.mod import mod_settings
+from tests.support.upstream import plant_report_lib
 
 # --------------------------------------------------------------------- fixtures
 
 
 @pytest.fixture(autouse=True)
 def fake_report_lib(fake_mod_root: Path) -> None:
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
 
 
 @pytest.fixture
@@ -130,7 +128,7 @@ def test_prepared_baseline_keys_are_occurrence_counter(fake_mod_root: Path, tmp_
         ],
     )
 
-    prepared = prepare_baseline(_settings(fake_mod_root), str(snapshot))
+    prepared = prepare_baseline(mod_settings(fake_mod_root), str(snapshot))
 
     assert prepared.keys == Counter(
         {
@@ -148,7 +146,7 @@ def test_new_issue_dicts_matches_shifted_lines(fake_mod_root: Path, tmp_path: Pa
     snapshot = _snapshot(tmp_path / "baseline.json", [_issue_dict(line=3, message="known")])
     records = [_record(line=77, message="known"), _record(line=1, message="fresh")]
 
-    result = new_issue_dicts(_settings(fake_mod_root), records, str(snapshot))
+    result = new_issue_dicts(mod_settings(fake_mod_root), records, str(snapshot))
 
     assert [issue["message"] for issue in result.issues] == ["fresh"]
     assert result.unclassified == 0
@@ -164,7 +162,7 @@ def test_new_issue_dicts_matches_shifted_embedded_locations(
     )
     records = [_record(line=40, message="events/a.txt:88 flagged")]
 
-    result = new_issue_dicts(_settings(fake_mod_root), records, str(snapshot))
+    result = new_issue_dicts(mod_settings(fake_mod_root), records, str(snapshot))
 
     assert result.issues == []
     assert result.unclassified == 0
@@ -177,7 +175,7 @@ def test_one_baseline_occurrence_marks_only_first_duplicate(
     snapshot = _snapshot(tmp_path / "baseline.json", [_issue_dict(line=5, message="dup")])
     records = [_record(line=5, message="dup"), _record(line=9, message="dup")]
 
-    result = new_issue_dicts(_settings(fake_mod_root), records, str(snapshot))
+    result = new_issue_dicts(mod_settings(fake_mod_root), records, str(snapshot))
 
     assert len(result.issues) == 1
     assert result.issues[0]["line"] == 9
@@ -192,7 +190,7 @@ def test_escalation_to_error_reads_as_new_even_when_counted(
         _record(line=5, message="m"),
         _record(severity="error", line=5, message="m"),
     ]
-    result = new_issue_dicts(_settings(fake_mod_root), records_full, str(snapshot))
+    result = new_issue_dicts(mod_settings(fake_mod_root), records_full, str(snapshot))
 
     # The error key differs from the baseline warning key (alarm direction).
     assert [issue["severity"] for issue in result.issues] == ["error"]
@@ -215,7 +213,7 @@ def test_cross_validator_ownership_tracks_escalated_severity(
         ),
     ]
 
-    result = new_issue_dicts(_settings(fake_mod_root), records, str(snapshot))
+    result = new_issue_dicts(mod_settings(fake_mod_root), records, str(snapshot))
 
     # Severity is in the upstream key, so escalation is NEW and owned by the
     # validator that reported the escalated severity.
@@ -235,7 +233,7 @@ def test_line_zero_file_finding_matches_without_becoming_unclassified(
     )
     records = [_record(line=0, message="whole-file warning")]
 
-    result = new_issue_dicts(_settings(fake_mod_root), records, str(snapshot))
+    result = new_issue_dicts(mod_settings(fake_mod_root), records, str(snapshot))
 
     assert result.issues == []
     assert result.unclassified == 0
@@ -249,17 +247,17 @@ def test_repeat_classification_reuses_prepared_baseline(
         tmp_path / "baseline.json",
         [_issue_dict(line=5, message="m"), _issue_dict(line=9, message="dup")],
     )
-    prepared = prepare_baseline(_settings(fake_mod_root), str(snapshot))
+    prepared = prepare_baseline(mod_settings(fake_mod_root), str(snapshot))
     before = dict(prepared.keys)
 
     records_a = [_record(line=5, message="m")]
     records_b = [_record(line=5, message="m"), _record(line=99, message="dup")]
 
     first = new_issue_dicts(
-        _settings(fake_mod_root), records_a, str(snapshot), prepared_baseline=prepared
+        mod_settings(fake_mod_root), records_a, str(snapshot), prepared_baseline=prepared
     )
     second = new_issue_dicts(
-        _settings(fake_mod_root), records_b, str(snapshot), prepared_baseline=prepared
+        mod_settings(fake_mod_root), records_b, str(snapshot), prepared_baseline=prepared
     )
     assert dict(prepared.keys) == before
 
@@ -271,7 +269,7 @@ def test_repeat_classification_reuses_prepared_baseline(
 def test_classify_is_idempotent_for_repeated_lists(fake_mod_root: Path, tmp_path: Path) -> None:
     """Calling _classify twice on the same list yields the same NEW set."""
     snapshot = _snapshot(tmp_path / "baseline.json", [_issue_dict(line=5, message="m")])
-    prepared = prepare_baseline(_settings(fake_mod_root), str(snapshot))
+    prepared = prepare_baseline(mod_settings(fake_mod_root), str(snapshot))
     report_lib = issue_delta._report_lib(fake_mod_root)
     issues = [
         report_lib.Issue.from_dict(_issue_dict(line=5, message="m")),
@@ -298,7 +296,7 @@ def test_unattributable_current_findings_stay_unclassified_and_out_of_new(
     snapshot = _snapshot(tmp_path / "baseline.json", [_issue_dict(file="dup.txt", line=3)])
     records = [_record(file="dup.txt", line=9)]
 
-    result = new_issue_dicts(_settings(fake_mod_root), records, str(snapshot))
+    result = new_issue_dicts(mod_settings(fake_mod_root), records, str(snapshot))
 
     assert result.issues == []
     assert result.unclassified == 1
@@ -311,7 +309,7 @@ def test_unattributable_current_findings_stay_unclassified_and_out_of_new(
 def test_delta_matches_real_upstream_baseline_contract(real_mod_root: Path, tmp_path: Path) -> None:
     """End-to-end against the real mod's report_lib: mask + count semantics."""
 
-    settings = _settings(real_mod_root)
+    settings = mod_settings(real_mod_root)
     report_file = "common/national_focus/05_usa.txt"
     base_issue = {
         "severity": "warning",

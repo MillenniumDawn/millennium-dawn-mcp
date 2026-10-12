@@ -23,135 +23,9 @@ from md_mcp.analysis.issue_delta import (
     new_issue_dicts,
     prepare_baseline,
 )
-from md_mcp.config import Settings
 from md_mcp.tools.validation_tools import validate_tool
-
-_MODELS_SOURCE = """
-class Issue:
-    def __init__(self, **values):
-        self.severity = values.get("severity", "error")
-        self.category = values.get("category", "")
-        self.message = values.get("message", "")
-        self.file = values.get("file", "")
-        self.line = values.get("line", 0)
-        self.validator = values.get("validator", "")
-        self.detected_by = values.get("detected_by", [])
-
-    @classmethod
-    def from_dict(cls, values, validator=""):
-        return cls(
-            severity=values.get("severity", "error"),
-            category=values.get("category", ""),
-            message=values.get("message", ""),
-            file=values.get("file", ""),
-            line=int(values.get("line", 0) or 0),
-            validator=values.get("validator", validator),
-            detected_by=list(values.get("detected_by", [])),
-        )
-
-    def to_dict(self):
-        return {
-            "severity": self.severity,
-            "category": self.category,
-            "message": self.message,
-            "file": self.file,
-            "line": self.line,
-            "validator": self.validator,
-            "detected_by": self.detected_by,
-        }
-"""
-
-_BASELINE_SOURCE = r"""
-import json
-import re
-from collections import Counter
-from pathlib import Path
-from types import SimpleNamespace
-
-from . import models
-
-META_FILENAME = "baseline-meta.json"
-
-_LINE_REF = re.compile(r"(\.\w+:|\bline )\d+")
-
-
-class Baseline:
-    def __init__(self, meta, keys):
-        self.meta = meta
-        self.keys = keys
-
-
-def issue_key(issue):
-    if not issue.category or not issue.file or issue.line <= 0 or not issue.message:
-        return None
-    message = _LINE_REF.sub(r"\1#", issue.message)
-    return (issue.severity, issue.category, issue.file, message)
-
-
-def count_keys(issues):
-    return Counter(key for key in map(issue_key, issues) if key is not None)
-
-
-from .dedupe import dedupe
-
-
-def classify(issues, baseline):
-    unmatched = baseline.keys.copy()
-    new_issues = []
-    for issue in issues:
-        key = issue_key(issue)
-        if key is None or unmatched[key] <= 0:
-            if key is not None:
-                new_issues.append(issue)
-        else:
-            unmatched[key] -= 1
-    return SimpleNamespace(new_issues=new_issues)
-
-
-def load_issues(directory):
-    issues = []
-    for path in Path(directory).glob("*.json"):
-        if path.name == META_FILENAME:
-            continue
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if isinstance(data, list):
-            issues.extend(models.Issue.from_dict(item, validator=path.stem) for item in data)
-    return dedupe(issues)
-
-
-def load_baseline(directory, expected_toolshash=None):
-    base = Path(directory)
-    meta_path = base / META_FILENAME
-    if not meta_path.is_file():
-        return None
-    try:
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(meta, dict):
-        return None
-    if expected_toolshash and meta.get("toolshash") != expected_toolshash:
-        return None
-    return Baseline(meta=meta, keys=count_keys(load_issues(directory)))
-"""
-
-_DEDUPE_SOURCE = """
-def dedupe(issues):
-    merged = {}
-    for issue in issues:
-        key = (issue.category, issue.file, issue.line, issue.message)
-        kept = merged.setdefault(key, issue)
-        if kept is issue:
-            continue
-        if issue.validator not in (kept.validator, *kept.detected_by):
-            kept.detected_by.append(issue.validator)
-        if issue.severity == "error" and kept.severity == "warning":
-            kept.severity = "error"
-    return list(merged.values())
-"""
+from tests.support.mod import mod_settings
+from tests.support.upstream import plant_report_lib
 
 _VALIDATOR_SOURCE = """
 class Validator:
@@ -173,18 +47,6 @@ def _drop_cached_report_lib_packages():
             sys.modules.pop(name, None)
 
 
-def _plant_report_lib(mod_root: Path) -> None:
-    lib_dir = mod_root / "tools" / "report_lib"
-    lib_dir.mkdir(parents=True, exist_ok=True)
-    (lib_dir / "models.py").write_text(_MODELS_SOURCE, encoding="utf-8")
-    (lib_dir / "baseline.py").write_text(_BASELINE_SOURCE, encoding="utf-8")
-    (lib_dir / "dedupe.py").write_text(_DEDUPE_SOURCE, encoding="utf-8")
-
-
-def _settings(mod_root: Path) -> Settings:
-    return Settings(mod_root=mod_root, vanilla_path=None, cache_dir=mod_root / ".md-mcp-cache")
-
-
 class _FakeRunner:
     def __init__(self, issues):
         self.issues = issues
@@ -199,7 +61,7 @@ class _FakeRunner:
 
 
 def test_report_lib_loads_models_dedupe_and_baseline(fake_mod_root: Path):
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
 
     lib = _report_lib(fake_mod_root)
 
@@ -224,7 +86,7 @@ def test_safe_ref_sanitizes_hostile_refs():
 
 
 def test_load_baseline_issues_accepts_snapshot_directory(fake_mod_root: Path, tmp_path: Path):
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     lib = _report_lib(fake_mod_root)
     snapshot_dir = tmp_path / "snapshot"
     snapshot_dir.mkdir()
@@ -233,36 +95,36 @@ def test_load_baseline_issues_accepts_snapshot_directory(fake_mod_root: Path, tm
     (snapshot_dir / "junk.json").write_text('{"not": "a list"}', encoding="utf-8")
     (snapshot_dir / "baseline-meta.json").write_text("{}", encoding="utf-8")
 
-    issues, meta = _load_baseline_issues(_settings(fake_mod_root), str(snapshot_dir), lib)
+    issues, meta = _load_baseline_issues(mod_settings(fake_mod_root), str(snapshot_dir), lib)
 
     assert meta == {}
     assert [i.message for i in issues] == ["m"]
 
 
 def test_load_baseline_issues_accepts_snapshot_file(fake_mod_root: Path, tmp_path: Path):
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     lib = _report_lib(fake_mod_root)
     snapshot = tmp_path / "baseline.json"
     single = [{"severity": "error", "category": "c", "message": "m", "file": "f", "line": 2}]
     snapshot.write_text(json.dumps(single), encoding="utf-8")
 
-    issues, _meta = _load_baseline_issues(_settings(fake_mod_root), str(snapshot), lib)
+    issues, _meta = _load_baseline_issues(mod_settings(fake_mod_root), str(snapshot), lib)
     assert [i.message for i in issues] == ["m"]
 
 
 def test_load_baseline_issues_missing_absolute_path_raises(fake_mod_root: Path, tmp_path: Path):
     """Absolute paths that don't exist are caller typos, not missing refs."""
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     lib = _report_lib(fake_mod_root)
 
     with pytest.raises(FileNotFoundError, match="Baseline snapshot not found"):
-        _load_baseline_issues(_settings(fake_mod_root), str(tmp_path / "gone.json"), lib)
+        _load_baseline_issues(mod_settings(fake_mod_root), str(tmp_path / "gone.json"), lib)
 
 
 def test_load_baseline_issues_resolves_named_refs_from_cache(fake_mod_root: Path):
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     lib = _report_lib(fake_mod_root)
-    settings = _settings(fake_mod_root)
+    settings = mod_settings(fake_mod_root)
     (settings.cache_dir / "validator-baselines").mkdir(parents=True)
     snapshot = settings.cache_dir / "validator-baselines" / "feature-x.json"
     ref = [{"severity": "warning", "category": "c", "message": "m", "file": "f", "line": 5}]
@@ -273,11 +135,11 @@ def test_load_baseline_issues_resolves_named_refs_from_cache(fake_mod_root: Path
 
 
 def test_load_baseline_issues_missing_ref_raises(fake_mod_root: Path):
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     lib = _report_lib(fake_mod_root)
 
     with pytest.raises(FileNotFoundError, match="Baseline snapshot not found"):
-        _load_baseline_issues(_settings(fake_mod_root), "nope", lib)
+        _load_baseline_issues(mod_settings(fake_mod_root), "nope", lib)
 
 
 def test_read_issue_file_rejects_unreadable_and_malformed_payloads(tmp_path: Path):
@@ -324,8 +186,8 @@ def _poisoned_issue() -> dict:
 def test_validate_delta_surfaces_new_issue_dicts_failure_for_single_validator(
     fake_mod_root: Path, monkeypatch
 ):
-    _plant_report_lib(fake_mod_root)
-    settings = _settings(fake_mod_root)
+    plant_report_lib(fake_mod_root)
+    settings = mod_settings(fake_mod_root)
     snapshot = settings.cache_dir / "validator-baselines" / "main.json"
     snapshot.parent.mkdir(parents=True, exist_ok=True)
     snapshot.write_text(json.dumps([]), encoding="utf-8")
@@ -347,9 +209,9 @@ def _plant_simple_validator(mod_root: Path, name: str) -> None:
 def test_validate_delta_surfaces_new_issue_dicts_failure_for_all_validators(
     fake_mod_root: Path, monkeypatch
 ):
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     _plant_simple_validator(fake_mod_root, "allp")
-    settings = _settings(fake_mod_root)
+    settings = mod_settings(fake_mod_root)
     snapshot = settings.cache_dir / "validator-baselines" / "main.json"
     snapshot.parent.mkdir(parents=True, exist_ok=True)
     snapshot.write_text(json.dumps([]), encoding="utf-8")
@@ -363,10 +225,10 @@ def test_validate_delta_surfaces_new_issue_dicts_failure_for_all_validators(
 
 
 def test_new_issue_dicts_classifies_against_planted_report_lib(fake_mod_root: Path, tmp_path: Path):
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     (fake_mod_root / "events").mkdir(exist_ok=True)
     (fake_mod_root / "events" / "a.txt").write_text("synthetic", encoding="utf-8")
-    settings = _settings(fake_mod_root)
+    settings = mod_settings(fake_mod_root)
     snapshot = tmp_path / "baseline.json"
     snapshot.write_text(
         json.dumps(
@@ -423,7 +285,7 @@ def _sidecar_issue(file: str, message: str = "known", line: int = 3) -> dict:
 def test_new_issue_dicts_matches_bare_sidecar_path_to_attributed_current_path(
     fake_mod_root: Path, tmp_path: Path
 ):
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     (fake_mod_root / "events").mkdir(exist_ok=True)
     (fake_mod_root / "events" / "a.txt").write_text("synthetic", encoding="utf-8")
     sidecars = tmp_path / "sidecars"
@@ -432,7 +294,7 @@ def test_new_issue_dicts_matches_bare_sidecar_path_to_attributed_current_path(
     (sidecars / "baseline-meta.json").write_text("{}", encoding="utf-8")
 
     result = new_issue_dicts(
-        _settings(fake_mod_root), [(_sidecar_issue("a.txt"), "fake")], str(sidecars)
+        mod_settings(fake_mod_root), [(_sidecar_issue("a.txt"), "fake")], str(sidecars)
     )
 
     assert result.issues == []
@@ -440,7 +302,7 @@ def test_new_issue_dicts_matches_bare_sidecar_path_to_attributed_current_path(
 
 
 def test_new_issue_dicts_keeps_ambiguous_basename_unclassified(fake_mod_root: Path, tmp_path: Path):
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     for directory in ("events", "common"):
         (fake_mod_root / directory).mkdir(exist_ok=True)
         (fake_mod_root / directory / "dup.txt").write_text("synthetic", encoding="utf-8")
@@ -448,7 +310,7 @@ def test_new_issue_dicts_keeps_ambiguous_basename_unclassified(fake_mod_root: Pa
     snapshot.write_text("[]", encoding="utf-8")
 
     result = new_issue_dicts(
-        _settings(fake_mod_root), [(_sidecar_issue("dup.txt"), "fake")], str(snapshot)
+        mod_settings(fake_mod_root), [(_sidecar_issue("dup.txt"), "fake")], str(snapshot)
     )
 
     assert result.issues == []
@@ -467,9 +329,9 @@ def test_load_baseline_issues_slash_ref_falls_back_to_cache_lookup(
     path and raised FileNotFoundError when neither file nor dir existed. The
     loader must try file/dir first, then resolve as a ref.
     """
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     lib = _report_lib(fake_mod_root)
-    settings = _settings(fake_mod_root)
+    settings = mod_settings(fake_mod_root)
     baseline_dir = settings.cache_dir / "validator-baselines"
     baseline_dir.mkdir(parents=True)
     payload = [{"severity": "error", "category": "c", "message": "ref-hit", "file": "f", "line": 1}]
@@ -485,9 +347,9 @@ def test_load_baseline_issues_uses_existing_snapshot_dir_when_present(
     fake_mod_root: Path, tmp_path: Path
 ):
     """A real directory on disk wins over the ref lookup even if its name contains a slash."""
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     lib = _report_lib(fake_mod_root)
-    settings = _settings(fake_mod_root)
+    settings = mod_settings(fake_mod_root)
     sidecars = tmp_path / "real" / "sub"
     sidecars.mkdir(parents=True)
     (sidecars / "synth.json").write_text(
@@ -513,9 +375,9 @@ def test_load_baseline_issues_uses_existing_snapshot_dir_when_present(
 
 def test_prepare_baseline_requires_explicit_baseline(fake_mod_root: Path):
     """Delta mode must error when no baseline is given; no implicit main."""
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     with pytest.raises(FileNotFoundError, match="Delta mode requires an explicit"):
-        prepare_baseline(_settings(fake_mod_root), None)
+        prepare_baseline(mod_settings(fake_mod_root), None)
 
 
 def test_new_issue_dicts_line_zero_file_finding_matches_by_severity_category_file_message(
@@ -528,7 +390,7 @@ def test_new_issue_dicts_line_zero_file_finding_matches_by_severity_category_fil
     needed to match. The delta keyer drops line from the tuple for line=0 cases
     so they compare on the four real fields.
     """
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     (fake_mod_root / "events").mkdir(exist_ok=True)
     (fake_mod_root / "events" / "a.txt").write_text("synthetic", encoding="utf-8")
     snapshot = tmp_path / "baseline.json"
@@ -559,7 +421,7 @@ def test_new_issue_dicts_line_zero_file_finding_matches_by_severity_category_fil
         )
     ]
 
-    result = new_issue_dicts(_settings(fake_mod_root), records, str(snapshot))
+    result = new_issue_dicts(mod_settings(fake_mod_root), records, str(snapshot))
 
     assert result.issues == []
     assert result.unclassified == 0
@@ -573,7 +435,7 @@ def test_new_issue_dicts_line_zero_file_finding_distinguishes_severity(
     Severity is still part of the line-zero key, so an existing warning that
     escalates to an error reads as NEW (the alarm direction).
     """
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     (fake_mod_root / "events").mkdir(exist_ok=True)
     (fake_mod_root / "events" / "a.txt").write_text("synthetic", encoding="utf-8")
     snapshot = tmp_path / "baseline.json"
@@ -604,7 +466,7 @@ def test_new_issue_dicts_line_zero_file_finding_distinguishes_severity(
         )
     ]
 
-    result = new_issue_dicts(_settings(fake_mod_root), records, str(snapshot))
+    result = new_issue_dicts(mod_settings(fake_mod_root), records, str(snapshot))
 
     assert [issue["message"] for issue in result.issues] == ["m"]
 
@@ -613,7 +475,7 @@ def test_new_issue_dicts_line_zero_with_no_file_stays_unclassified(
     fake_mod_root: Path, tmp_path: Path
 ):
     """Findings with no file at all are unkeyable in any direction and stay unclassified."""
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     snapshot = tmp_path / "baseline.json"
     snapshot.write_text("[]", encoding="utf-8")
     issue = {
@@ -624,7 +486,7 @@ def test_new_issue_dicts_line_zero_with_no_file_stays_unclassified(
         "line": 0,
     }
 
-    result = new_issue_dicts(_settings(fake_mod_root), [(issue, "fake")], str(snapshot))
+    result = new_issue_dicts(mod_settings(fake_mod_root), [(issue, "fake")], str(snapshot))
 
     assert result.issues == []
     assert result.unclassified == 1
@@ -638,7 +500,7 @@ def test_load_baseline_issues_sidecar_dir_uses_upstream_load_baseline(
     The fixture report_lib defines a `load_baseline` that returns None when no
     meta file exists. The loader surfaces that as an actionable FileNotFoundError.
     """
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     lib = _report_lib(fake_mod_root)
     sidecars = tmp_path / "sidecars"
     sidecars.mkdir()
@@ -658,7 +520,7 @@ def test_load_baseline_issues_sidecar_dir_uses_upstream_load_baseline(
     )
 
     with pytest.raises(FileNotFoundError, match=r"baseline-meta\.json"):
-        _load_baseline_issues(_settings(fake_mod_root), str(sidecars), lib)
+        _load_baseline_issues(mod_settings(fake_mod_root), str(sidecars), lib)
 
 
 def test_load_baseline_issues_sidecar_dir_toolshash_mismatch_raises(
@@ -669,7 +531,7 @@ def test_load_baseline_issues_sidecar_dir_toolshash_mismatch_raises(
     Without this check, every output-shape change between generations reads as
     NEW, which would silently break delta comparisons against stale baselines.
     """
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     lib = _report_lib(fake_mod_root)
     sidecars = tmp_path / "sidecars"
     sidecars.mkdir()
@@ -694,16 +556,16 @@ def test_load_baseline_issues_sidecar_dir_toolshash_mismatch_raises(
     )
 
     with pytest.raises(ValueError, match="Baseline toolshash mismatch"):
-        _load_baseline_issues(_settings(fake_mod_root), str(sidecars), lib)
+        _load_baseline_issues(mod_settings(fake_mod_root), str(sidecars), lib)
 
 
 def test_load_baseline_issues_sidecar_dir_matching_toolshash_loads_keys(
     fake_mod_root: Path, tmp_path: Path
 ):
     """When the meta's toolshash matches the locally recomputed one, load proceeds."""
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     lib = _report_lib(fake_mod_root)
-    settings = _settings(fake_mod_root)
+    settings = mod_settings(fake_mod_root)
     sidecars = tmp_path / "sidecars"
     sidecars.mkdir()
     (sidecars / "synth.json").write_text(
@@ -808,7 +670,7 @@ def test_new_issue_dicts_unchanged_line_zero_sidecar_finding_matches(
     and runs them through the same `_delta_key` path as the snapshot branch,
     so they compare cleanly.
     """
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     (fake_mod_root / "events").mkdir(exist_ok=True)
     (fake_mod_root / "events" / "a.txt").write_text("synthetic", encoding="utf-8")
     sidecars = tmp_path / "sidecars"
@@ -842,7 +704,7 @@ def test_new_issue_dicts_unchanged_line_zero_sidecar_finding_matches(
         )
     ]
 
-    result = new_issue_dicts(_settings(fake_mod_root), records, str(sidecars))
+    result = new_issue_dicts(mod_settings(fake_mod_root), records, str(sidecars))
 
     assert result.issues == []
     assert result.unclassified == 0
@@ -852,7 +714,7 @@ def test_new_issue_dicts_mixed_severity_duplicate_baseline_dedupes(
     fake_mod_root: Path, tmp_path: Path
 ):
     """Both sides dedupe duplicate findings to the same escalated severity."""
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     sidecars = tmp_path / "sidecars"
     sidecars.mkdir()
     (sidecars / "validator_a.json").write_text(
@@ -908,7 +770,7 @@ def test_new_issue_dicts_mixed_severity_duplicate_baseline_dedupes(
         ),
     ]
 
-    result = new_issue_dicts(_settings(fake_mod_root), records, str(sidecars))
+    result = new_issue_dicts(mod_settings(fake_mod_root), records, str(sidecars))
 
     assert result.issues == []
     assert result.owners == []
@@ -917,7 +779,7 @@ def test_new_issue_dicts_mixed_severity_duplicate_baseline_dedupes(
 
 def test_new_issue_dicts_baseline_keeps_only_escalated_key(fake_mod_root: Path, tmp_path: Path):
     """A warning-only subset differs from an error-escalated baseline, as upstream does."""
-    _plant_report_lib(fake_mod_root)
+    plant_report_lib(fake_mod_root)
     sidecars = tmp_path / "sidecars"
     sidecars.mkdir()
     (sidecars / "validator_a.json").write_text(
@@ -963,10 +825,10 @@ def test_new_issue_dicts_baseline_keeps_only_escalated_key(fake_mod_root: Path, 
         )
     ]
 
-    prepared = prepare_baseline(_settings(fake_mod_root), str(sidecars))
+    prepared = prepare_baseline(mod_settings(fake_mod_root), str(sidecars))
     assert dict(prepared.keys) == {("error", "fake", "events/a.txt", "shared"): 1}
     result = new_issue_dicts(
-        _settings(fake_mod_root), records, str(sidecars), prepared_baseline=prepared
+        mod_settings(fake_mod_root), records, str(sidecars), prepared_baseline=prepared
     )
 
     assert len(result.issues) == 1

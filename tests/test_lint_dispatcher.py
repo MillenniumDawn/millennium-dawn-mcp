@@ -12,7 +12,6 @@ import inspect
 import json
 import subprocess
 import sys
-from pathlib import Path
 from typing import Callable
 
 import pytest
@@ -26,27 +25,8 @@ from md_mcp.tools.linting_tools import (
     lint_tool,
 )
 from md_mcp.util.response import BUDGET_BYTES
-
-
-def _make_script(root: Path, rel: str, body: str) -> Path:
-    p = root / rel
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text("#!/usr/bin/env python3\n" + body, encoding="utf-8")
-    p.chmod(0o755)
-    return p
-
-
-def _seed_all_scripts(root: Path, body_map: dict[str, str]) -> None:
-    """Create stub scripts for every linter, defaulting to clean (exit 0, no output)."""
-    defaults = {
-        "tools/linting/check_common_mistakes.py": "import sys\nsys.exit(0)\n",
-        "tools/linting/validate_mod_encoding.py": "import sys\nsys.exit(0)\n",
-        "tools/linting/validate_localization_encoding.py": "import sys\nsys.exit(0)\n",
-    }
-    defaults.update(body_map)
-    for rel, body in defaults.items():
-        _make_script(root, rel, body)
-
+from tests.support.mod import git, init_repo
+from tests.support.upstream import make_script, seed_all_scripts
 
 # ---------------------------------------------------------------------------
 # Secondary wrapper signatures + happy paths
@@ -64,7 +44,7 @@ def test_secondary_wrapper_signatures():
 
 
 def test_loc_encoding_parses_missing_bom(tmp_path):
-    _make_script(
+    make_script(
         tmp_path,
         "tools/linting/validate_localization_encoding.py",
         """import sys
@@ -85,7 +65,7 @@ sys.exit(1)
 
 
 def test_lint_runs_every_script_check_when_validators_disabled(tmp_path):
-    _seed_all_scripts(tmp_path, {})
+    seed_all_scripts(tmp_path, {})
     (tmp_path / "descriptor.mod").write_text('name = "x"\n')
     out = lint_tool(tmp_path, mode="all", validators=[])
     assert out["ok"] is True
@@ -96,14 +76,14 @@ def test_lint_runs_every_script_check_when_validators_disabled(tmp_path):
 
 
 def test_lint_rejects_unknown_check(tmp_path):
-    _seed_all_scripts(tmp_path, {})
+    seed_all_scripts(tmp_path, {})
     out = lint_tool(tmp_path, checks=["common_mistakes", "bogus"])
     assert out["ok"] is False
     assert "Unknown check(s)" in out["error"]
 
 
 def test_lint_subset_only_runs_requested(tmp_path):
-    _seed_all_scripts(tmp_path, {})
+    seed_all_scripts(tmp_path, {})
     out = lint_tool(tmp_path, checks=["common_mistakes", "loc_encoding"], mode="all", validators=[])
     assert out["ok"] is True
     ran = {c["name"] for c in out["checks"]}
@@ -114,7 +94,7 @@ def test_lint_changelog_reports_upstream_line_diagnostics(tmp_path):
     (tmp_path / "Changelog.txt").write_text(
         "v1.0\nCategory:\n- [USA] tagged\n- untagged later\n", encoding="utf-8"
     )
-    _make_script(
+    make_script(
         tmp_path,
         "tools/linting/check_changelog.py",
         "def check_lines(lines):\n"
@@ -151,7 +131,7 @@ def test_lint_changelog_unloadable_checker_fails(tmp_path):
 
 
 def test_lint_changelog_invalid_utf8_fails(tmp_path):
-    _make_script(
+    make_script(
         tmp_path,
         "tools/linting/check_changelog.py",
         "def check_lines(lines):\n    return []\n" "def order_lines(lines):\n    return lines\n",
@@ -172,7 +152,7 @@ def test_lint_changelog_unreadable_changelog_fails(tmp_path):
 
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         pytest.skip("root ignores read permissions")
-    _make_script(
+    make_script(
         tmp_path,
         "tools/linting/check_changelog.py",
         "def check_lines(lines):\n    return []\n" "def order_lines(lines):\n    return lines\n",
@@ -193,7 +173,7 @@ def test_lint_changelog_unreadable_changelog_fails(tmp_path):
 
 
 def test_lint_aggregates_issues_from_multiple_checks(tmp_path):
-    _seed_all_scripts(
+    seed_all_scripts(
         tmp_path,
         {
             "tools/linting/check_common_mistakes.py": """import sys
@@ -221,7 +201,7 @@ sys.exit(1)
 
 
 def test_lint_severity_floor_filters_warnings(tmp_path):
-    _seed_all_scripts(
+    seed_all_scripts(
         tmp_path,
         {
             "tools/linting/check_common_mistakes.py": """import sys
@@ -250,7 +230,7 @@ sys.exit(1)
 
 
 def test_lint_counts_only_omits_issues(tmp_path):
-    _seed_all_scripts(
+    seed_all_scripts(
         tmp_path,
         {
             "tools/linting/check_common_mistakes.py": """import sys
@@ -275,7 +255,7 @@ def test_lint_common_mistakes_reports_total_per_check(tmp_path):
     # lint_common_mistakes_tool returns its count as `count`; the dispatcher's
     # per-check summary reads `total`. Regression: total used to stay 0 even
     # when the check produced issues.
-    _seed_all_scripts(
+    seed_all_scripts(
         tmp_path,
         {
             "tools/linting/check_common_mistakes.py": """import sys
@@ -297,7 +277,7 @@ sys.exit(1)
 
 def test_lint_limit_truncates(tmp_path):
     body = "\n".join(f'print("common/a.txt:{i}: msg{i}")' for i in range(1, 21))
-    _seed_all_scripts(
+    seed_all_scripts(
         tmp_path,
         {
             "tools/linting/check_common_mistakes.py": f"import sys\n{body}\nsys.exit(1)\n",
@@ -337,7 +317,7 @@ def test_lint_preserves_complete_counts_when_check_wrapper_caps_diagnostics(
 ):
     count = 225
     lines = "\n".join(f"print({diagnostic.format(i=i)!r})" for i in range(count))
-    _make_script(tmp_path, script, lines + "\n")
+    make_script(tmp_path, script, lines + "\n")
 
     out = lint_tool(
         tmp_path,
@@ -376,7 +356,7 @@ def test_lint_encoding_wrapper_caps_preserve_counts_and_respect_limit(
     count = 225
     files = [file_pattern.format(i=i) for i in range(count)]
     body = "\n".join(f"print({diagnostic.format(i=i)!r})" for i in range(count))
-    _make_script(tmp_path, script, body + "\n")
+    make_script(tmp_path, script, body + "\n")
 
     out = lint_tool(
         tmp_path,
@@ -414,7 +394,7 @@ def test_lint_encoding_wrapper_counts_only_preserves_complete_totals(
 ):
     count = 225
     body = "\n".join(f"print({diagnostic.format(i=i)!r})" for i in range(count))
-    _make_script(tmp_path, script, body + "\n")
+    make_script(tmp_path, script, body + "\n")
 
     out = lint_tool(
         tmp_path,
@@ -453,13 +433,13 @@ def test_lint_mixed_check_totals_include_wrapper_omissions(
     tmp_path, check, script, file_pattern, diagnostic, sample_file
 ):
     count = 225
-    _make_script(
+    make_script(
         tmp_path,
         "tools/linting/check_common_mistakes.py",
         'print("common/example.txt:1: warning")\n',
     )
     body = "\n".join(f"print({diagnostic.format(i=i)!r})" for i in range(count))
-    _make_script(tmp_path, script, body + "\n")
+    make_script(tmp_path, script, body + "\n")
 
     out = lint_tool(
         tmp_path,
@@ -484,7 +464,7 @@ def test_lint_encoding_wrapper_byte_budget_drop_preserves_counts(tmp_path):
     long_path = "localisation/english/" + ("x" * 600) + "_l_english.yml"
     paths = [long_path[: -len("_l_english.yml")] + f"_{i}_l_english.yml" for i in range(count)]
     body = "\n".join(f"print({f'{path}: Missing UTF-8 BOM'!r})" for path in paths)
-    _make_script(tmp_path, "tools/linting/validate_localization_encoding.py", body + "\n")
+    make_script(tmp_path, "tools/linting/validate_localization_encoding.py", body + "\n")
 
     wrapped = lint_loc_encoding_tool(tmp_path, limit=500)
     assert wrapped["total"] == count
@@ -513,7 +493,7 @@ def test_lint_per_check_failure_isolated(tmp_path):
     In `mode=all` both checks always invoke (script-side auto-discovery).
     Delete one script and confirm the other still completes ok.
     """
-    _seed_all_scripts(tmp_path, {})
+    seed_all_scripts(tmp_path, {})
     (tmp_path / "tools" / "linting" / "check_common_mistakes.py").unlink()
     out = lint_tool(tmp_path, checks=["common_mistakes", "loc_encoding"], mode="all", validators=[])
     assert out["ok"] is False
@@ -544,7 +524,7 @@ def test_lint_per_check_failure_isolated(tmp_path):
     ],
 )
 def test_lint_script_crash_without_recognized_output_fails(tmp_path, check, script, files):
-    _seed_all_scripts(tmp_path, {script: "raise RuntimeError('synthetic crash')\n"})
+    seed_all_scripts(tmp_path, {script: "raise RuntimeError('synthetic crash')\n"})
 
     out = lint_tool(tmp_path, checks=[check], files=files, validators=[])
 
@@ -582,7 +562,7 @@ def test_lint_script_crash_without_recognized_output_fails(tmp_path, check, scri
 def test_lint_unexpected_exit_code_fails_even_with_parsed_issue(
     tmp_path, check, script, files, diagnostic
 ):
-    _seed_all_scripts(tmp_path, {script: f"import sys\n{diagnostic}\nsys.exit(2)\n"})
+    seed_all_scripts(tmp_path, {script: f"import sys\n{diagnostic}\nsys.exit(2)\n"})
 
     out = lint_tool(tmp_path, checks=[check], files=files, validators=[])
 
@@ -592,7 +572,7 @@ def test_lint_unexpected_exit_code_fails_even_with_parsed_issue(
 
 
 def test_lint_negative_exit_code_is_a_failure(tmp_path, monkeypatch):
-    _seed_all_scripts(tmp_path, {})
+    seed_all_scripts(tmp_path, {})
 
     def killed(command, **kwargs):
         return subprocess.CompletedProcess(
@@ -641,7 +621,7 @@ def test_lint_negative_exit_code_is_a_failure(tmp_path, monkeypatch):
 def test_lint_traceback_with_parsed_issue_is_a_failure(tmp_path, check, script, files, diagnostic):
     """Regression: exit 1 + a parseable issue used to read as success even when
     the script crashed mid-scan and the issues were partial."""
-    _seed_all_scripts(tmp_path, {script: f"import sys\n{diagnostic}\nraise RuntimeError('boom')\n"})
+    seed_all_scripts(tmp_path, {script: f"import sys\n{diagnostic}\nraise RuntimeError('boom')\n"})
 
     out = lint_tool(tmp_path, checks=[check], files=files, validators=[])
 
@@ -656,7 +636,7 @@ def test_lint_traceback_with_parsed_issue_is_a_failure(tmp_path, check, script, 
 
 def test_lint_traceback_exit_0_is_a_failure(tmp_path, monkeypatch):
     """A script that prints a traceback but exits 0 still aborted its scan."""
-    _seed_all_scripts(tmp_path, {})
+    seed_all_scripts(tmp_path, {})
 
     def traced(command, **kwargs):
         return subprocess.CompletedProcess(
@@ -684,34 +664,12 @@ def test_lint_traceback_exit_0_is_a_failure(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def _git(repo: Path, *args: str) -> str:
-    out = subprocess.run(
-        ["git", *args],
-        cwd=str(repo),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return out.stdout
-
-
-def _init_repo(repo: Path) -> None:
-    """Init a quiet test repo with a baseline commit so subsequent diffs are meaningful."""
-    _git(repo, "init", "-q")
-    _git(repo, "config", "user.email", "t@example.com")
-    _git(repo, "config", "user.name", "t")
-    _git(repo, "config", "commit.gpgsign", "false")
-    (repo / "baseline.txt").write_text("baseline\n")
-    _git(repo, "add", "baseline.txt")
-    _git(repo, "commit", "-qm", "baseline")
-
-
 def test_changed_files_picks_up_staged_unstaged_and_untracked(tmp_path):
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
 
     # Modify the tracked file and stage it.
     (tmp_path / "baseline.txt").write_text("staged change\n")
-    _git(tmp_path, "add", "baseline.txt")
+    git(tmp_path, "add", "baseline.txt")
 
     # Edit it again — that delta is now unstaged.
     (tmp_path / "baseline.txt").write_text("staged + unstaged change\n")
@@ -724,7 +682,7 @@ def test_changed_files_picks_up_staged_unstaged_and_untracked(tmp_path):
 
 
 def test_changed_files_skips_deletions(tmp_path):
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     (tmp_path / "baseline.txt").unlink()
     removed: list[str] = []
     assert _changed_files(tmp_path, removed=removed) == []
@@ -732,8 +690,8 @@ def test_changed_files_skips_deletions(tmp_path):
 
 
 def test_changed_files_handles_renames(tmp_path):
-    _init_repo(tmp_path)
-    _git(tmp_path, "mv", "baseline.txt", "renamed.txt")
+    init_repo(tmp_path)
+    git(tmp_path, "mv", "baseline.txt", "renamed.txt")
     removed: list[str] = []
     found = set(_changed_files(tmp_path, removed=removed))
     assert "renamed.txt" in found
@@ -754,22 +712,22 @@ def test_git_scope_discovery_non_repo_reports_error(tmp_path, discover, mode):
 
 def test_changed_files_non_ascii_paths_arrive_verbatim(tmp_path):
     """`-z` output is unquoted; without it git C-quotes `café.txt` into escapes."""
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     (tmp_path / "café.txt").write_text("x\n", encoding="utf-8")
     assert "café.txt" in _changed_files(tmp_path)
 
 
 def test_staged_files_returns_index_only(tmp_path):
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     (tmp_path / "staged.txt").write_text("x\n")
-    _git(tmp_path, "add", "staged.txt")
+    git(tmp_path, "add", "staged.txt")
     (tmp_path / "unstaged.txt").write_text("y\n")  # untracked, NOT staged
     assert _staged_files(tmp_path) == ["staged.txt"]
 
 
 def test_staged_files_lists_both_sides_of_renames(tmp_path):
-    _init_repo(tmp_path)
-    _git(tmp_path, "mv", "baseline.txt", "renamed.txt")
+    init_repo(tmp_path)
+    git(tmp_path, "mv", "baseline.txt", "renamed.txt")
     assert set(_staged_files(tmp_path)) == {"baseline.txt", "renamed.txt"}
 
 
@@ -790,8 +748,8 @@ def test_staged_files_splits_nul_delimited_output(tmp_path, monkeypatch):
 
 def test_staged_files_returns_unquoted_special_paths(tmp_path):
     """Default `core.quotePath` C-quotes non-ASCII and control characters without `-z`."""
-    _init_repo(tmp_path)
-    _git(tmp_path, "config", "core.quotePath", "true")
+    init_repo(tmp_path)
+    git(tmp_path, "config", "core.quotePath", "true")
     names = ["events/café.txt", "events/with space.txt", "events/plain.txt"]
     if sys.platform != "win32":
         # Windows rejects control characters in filenames.
@@ -799,7 +757,7 @@ def test_staged_files_returns_unquoted_special_paths(tmp_path):
     (tmp_path / "events").mkdir()
     for name in names:
         (tmp_path / name).write_text("x\n", encoding="utf-8")
-        _git(tmp_path, "add", "--", name)
+        git(tmp_path, "add", "--", name)
 
     staged = _staged_files(tmp_path)
 
@@ -810,10 +768,10 @@ def test_staged_files_returns_unquoted_special_paths(tmp_path):
 @pytest.mark.parametrize("discover", [_changed_files, _staged_files])
 def test_git_scope_paths_decode_as_utf8_under_legacy_locale(tmp_path, monkeypatch, discover):
     """Windows before Python 3.15 decodes text-mode pipes with a legacy code page."""
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     (tmp_path / "events").mkdir()
     (tmp_path / "events" / "café.txt").write_text("x\n", encoding="utf-8")
-    _git(tmp_path, "add", "--", "events/café.txt")
+    git(tmp_path, "add", "--", "events/café.txt")
     real_run = subprocess.run
 
     def cp1252_locale_run(command, **kwargs):
@@ -828,8 +786,8 @@ def test_git_scope_paths_decode_as_utf8_under_legacy_locale(tmp_path, monkeypatc
 
 def test_lint_default_mode_is_changed(tmp_path):
     """No `mode` arg → uses `changed`, which surfaces unstaged + untracked."""
-    _init_repo(tmp_path)
-    _seed_all_scripts(
+    init_repo(tmp_path)
+    seed_all_scripts(
         tmp_path,
         {
             "tools/linting/check_common_mistakes.py": """import sys
@@ -855,11 +813,11 @@ sys.exit(0)
 @pytest.mark.parametrize("mode", ["changed", "staged"])
 def test_lint_clean_git_scope_is_clean_run(tmp_path, mode):
     """A successful empty Git query is a valid no-op for both scoped modes."""
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     # Commit the stubs so the tree is genuinely clean.
-    _git(tmp_path, "add", "-A")
-    _git(tmp_path, "commit", "-qm", "stubs")
+    git(tmp_path, "add", "-A")
+    git(tmp_path, "commit", "-qm", "stubs")
     out = lint_tool(tmp_path, mode=mode, validators=[])
     assert out["ok"] is True
     assert out["mode"] == mode
@@ -952,11 +910,11 @@ def test_git_scope_discovery_uses_selected_worktree_cwd(tmp_path, monkeypatch, m
 
 
 def test_lint_staged_mode_passes_non_ascii_path_to_checks(tmp_path, monkeypatch):
-    _init_repo(tmp_path)
-    _git(tmp_path, "config", "core.quotePath", "true")
+    init_repo(tmp_path)
+    git(tmp_path, "config", "core.quotePath", "true")
     (tmp_path / "events").mkdir()
     (tmp_path / "events" / "café.txt").write_text("x\n", encoding="utf-8")
-    _git(tmp_path, "add", "--", "events/café.txt")
+    git(tmp_path, "add", "--", "events/café.txt")
     received: list[list[str]] = []
 
     def record_files(mod_root, *, files, **kwargs):
@@ -971,22 +929,6 @@ def test_lint_staged_mode_passes_non_ascii_path_to_checks(tmp_path, monkeypatch)
     assert received == [["events/café.txt"]]
 
 
-def test_lint_staged_mode_runs_default_validator_for_non_ascii_path(tmp_path):
-    from .test_lint_validators import FakeRunner
-
-    _init_repo(tmp_path)
-    _git(tmp_path, "config", "core.quotePath", "true")
-    (tmp_path / "events").mkdir()
-    (tmp_path / "events" / "café.txt").write_text("x\n", encoding="utf-8")
-    _git(tmp_path, "add", "--", "events/café.txt")
-    runner = FakeRunner(names=["style"])
-
-    out = lint_tool(tmp_path, mode="staged", checks=["mod_encoding"], validator_runner=runner)
-
-    assert out["validators_run"] == ["style"]
-    assert [Path(f).as_posix() for f in runner.scope_calls[0]["files"]] == ["events/café.txt"]
-
-
 @pytest.mark.parametrize(
     "scope_kwargs",
     [
@@ -995,7 +937,7 @@ def test_lint_staged_mode_runs_default_validator_for_non_ascii_path(tmp_path):
     ],
 )
 def test_lint_explicit_and_all_modes_skip_git_discovery(tmp_path, monkeypatch, scope_kwargs):
-    _seed_all_scripts(tmp_path, {})
+    seed_all_scripts(tmp_path, {})
 
     def unexpected_discovery(*args, **kwargs):
         pytest.fail("explicit and all-file scopes must not invoke Git discovery")
@@ -1009,8 +951,8 @@ def test_lint_explicit_and_all_modes_skip_git_discovery(tmp_path, monkeypatch, s
 
 
 def test_lint_empty_files_scope_skips_every_check(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     out = lint_tool(tmp_path, files=[], validators=[])
     assert out["ok"] is True
     assert out["mode"] == "files"
@@ -1020,8 +962,8 @@ def test_lint_empty_files_scope_skips_every_check(tmp_path):
 @pytest.mark.parametrize("absolute", [False, True])
 def test_lint_files_scope_normalises_paths(tmp_path, absolute):
     """Relative and contained absolute paths reach checkers in mod-relative form."""
-    _init_repo(tmp_path)
-    _seed_all_scripts(
+    init_repo(tmp_path)
+    seed_all_scripts(
         tmp_path,
         {
             "tools/linting/check_common_mistakes.py": """import sys
@@ -1061,7 +1003,7 @@ def test_lint_rejects_absolute_symlink_escape(tmp_path):
 
 def test_lint_common_mistakes_only_gets_script_txt_files(tmp_path):
     """Images, .gfx, loc, and .txt outside the script folders never reach the checker."""
-    _seed_all_scripts(
+    seed_all_scripts(
         tmp_path,
         {
             "tools/linting/check_common_mistakes.py": """import sys
@@ -1090,7 +1032,7 @@ sys.exit(0)
 
 
 def test_lint_non_script_scope_skips_common_mistakes(tmp_path):
-    _seed_all_scripts(tmp_path, {})
+    seed_all_scripts(tmp_path, {})
     out = lint_tool(
         tmp_path,
         checks=["common_mistakes"],
@@ -1108,8 +1050,8 @@ def test_lint_invalid_mode_rejected(tmp_path):
 
 def test_lint_skips_mod_encoding_without_mod_files(tmp_path):
     """No .mod file in scope -> mod_encoding is skipped rather than auto-discovering."""
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     (tmp_path / "descriptor.mod").write_text('name = "x"\n')
     loc = tmp_path / "localisation" / "english" / "x_l_english.yml"
     loc.parent.mkdir(parents=True)
@@ -1123,7 +1065,7 @@ def test_lint_skips_mod_encoding_without_mod_files(tmp_path):
 
 def test_lint_all_mode_skips_mod_encoding_without_mod_files(tmp_path):
     """mode=all on a tree with no .mod files -> mod_encoding is skipped, not failed."""
-    _seed_all_scripts(tmp_path, {})
+    seed_all_scripts(tmp_path, {})
 
     out = lint_tool(tmp_path, mode="all", validators=[], checks=["mod_encoding"])
     assert out["ok"] is True

@@ -10,22 +10,12 @@ from __future__ import annotations
 
 import inspect
 import json
-from pathlib import Path
 from typing import Any, cast
 
 from md_mcp.tools import linting_tools
 from md_mcp.tools.linting_tools import lint_mod_encoding_tool, review_branch_tool
 from md_mcp.util.response import BUDGET_BYTES  # pyright: ignore[reportMissingImports]
-
-
-def _make_script(root: Path, rel: str, body: str) -> Path:
-    """Write an executable Python script at root/rel. Returns the path."""
-    p = root / rel
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text("#!/usr/bin/env python3\n" + body, encoding="utf-8")
-    p.chmod(0o755)
-    return p
-
+from tests.support.upstream import make_script
 
 # ---------------------------------------------------------------------------
 # Signature guards
@@ -70,7 +60,7 @@ def test_changed_files_uses_submod_worktree_cwd(tmp_path, monkeypatch):
 def test_review_branch_uses_submod_worktree_cwd(tmp_path):
     submod = tmp_path / "submod"
     submod.mkdir()
-    _make_script(
+    make_script(
         tmp_path,
         "tools/analysis/review_branch.py",
         "import os\nprint(os.getcwd())\n",
@@ -84,7 +74,7 @@ def test_review_branch_uses_submod_worktree_cwd(tmp_path):
 
 
 def test_review_branch_clips_report_by_utf8_bytes(tmp_path):
-    _make_script(
+    make_script(
         tmp_path,
         "tools/analysis/review_branch.py",
         'print("€" * 50_000)\n',
@@ -125,7 +115,7 @@ def test_review_branch_failure_path_is_budget_guarded(tmp_path, monkeypatch):
 
 def test_lint_mod_encoding_auto_discovers_mod_files(tmp_path):
     (tmp_path / "descriptor.mod").write_text('name = "x"\n', encoding="utf-8")
-    _make_script(
+    make_script(
         tmp_path,
         "tools/linting/validate_mod_encoding.py",
         """import sys
@@ -142,7 +132,7 @@ sys.exit(0)
 
 def test_lint_mod_encoding_reports_invalid(tmp_path):
     (tmp_path / "descriptor.mod").write_text('name = "x"\n', encoding="utf-8")
-    _make_script(
+    make_script(
         tmp_path,
         "tools/linting/validate_mod_encoding.py",
         """import sys
@@ -168,7 +158,7 @@ def test_lint_mod_encoding_missing_script(tmp_path):
 
 def test_lint_mod_encoding_no_files_skipped(tmp_path):
     """No .mod files found → skipped rather than running the script with empty args."""
-    _make_script(
+    make_script(
         tmp_path,
         "tools/linting/validate_mod_encoding.py",
         "import sys\nsys.exit(0)\n",
@@ -182,7 +172,7 @@ def test_lint_mod_encoding_no_files_skipped(tmp_path):
 
 def test_lint_mod_encoding_explicit_empty_files_skipped(tmp_path):
     """files=[] is an empty scope, same as discovering nothing."""
-    _make_script(
+    make_script(
         tmp_path,
         "tools/linting/validate_mod_encoding.py",
         "import sys\nprint('should not run')\nsys.exit(1)\n",
@@ -204,7 +194,7 @@ def test_lint_mod_encoding_caps_at_limit(tmp_path):
     issues_block = "\n".join(
         f"f{i}.mod: Invalid UTF-8 encoding - byte 0x80 at position {i}" for i in range(1, 51)
     )
-    _make_script(
+    make_script(
         tmp_path,
         "tools/linting/validate_mod_encoding.py",
         f"""import sys
@@ -229,7 +219,7 @@ def test_lint_mod_encoding_discovers_overlay_first_and_skips_shadowed(tmp_path):
     (base / "base_only.mod").write_text("x", encoding="utf-8")
     (submod / "descriptor.mod").write_text("x", encoding="utf-8")
     (submod / "overlay_only.mod").write_text("x", encoding="utf-8")
-    _make_script(
+    make_script(
         base,
         "tools/linting/validate_mod_encoding.py",
         """import sys

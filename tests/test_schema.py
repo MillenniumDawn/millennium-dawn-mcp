@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 from md_mcp.paradox import parse_string
+from md_mcp.paradox.nodes import Node
 from md_mcp.paradox.schema import (
     extract_decision_records,
     extract_event_records,
@@ -116,6 +119,17 @@ def test_extract_focus_records_relations_drop_non_text_values():
     assert rec["mutually_exclusive"] == ["C"]
 
 
+def test_extract_focus_records_skips_a_focus_without_an_id():
+    assert extract_focus_records(parse_string("focus_tree = { focus = { x = 1 } }")) == []
+
+
+def test_extract_focus_records_reads_yes_and_no_as_bools():
+    source = "shared_focus = { id = A x = yes y = no }"
+    (rec,) = extract_focus_records(parse_string(source))
+
+    assert (rec["x"], rec["y"]) == (True, False)
+
+
 def test_to_json_with_lines_emits_line_numbers():
     root = parse_string(SAMPLE)
     j = to_json_with_lines(root, SAMPLE)
@@ -124,6 +138,20 @@ def test_to_json_with_lines_emits_line_numbers():
     assert focus_tree["name"] == "focus_tree"
     # SAMPLE's `focus_tree = {` is line 2 (line 1 is the leading blank line).
     assert focus_tree["line"] == 2
+
+
+def test_to_json_with_lines_numbers_every_sibling():
+    src = "a = 1\nb = 2\nc = { d = 3 }"
+    children = to_json_with_lines(parse_string(src), src)["value"]["children"]
+
+    assert [(child["name"], child["line"]) for child in children] == [("a", 1), ("b", 2), ("c", 3)]
+
+
+def test_to_json_with_lines_rejects_a_value_it_cannot_represent():
+    node = Node(name="a", value=cast(Any, object()))
+
+    with pytest.raises(TypeError, match="Unrepresentable value of type object"):
+        to_json_with_lines(node, "")
 
 
 EVENTS_SAMPLE = """add_namespace = TST
@@ -166,14 +194,8 @@ def test_extract_event_records_pins_kind_namespace_and_line():
     assert by_id["TST.1"]["line"] == 3
     assert by_id["TST.2"]["line"] == 8
     assert by_id["TST.3"]["line"] == 15
-
-
-def test_extract_event_records_skips_event_without_id():
-    root = parse_string(EVENTS_SAMPLE)
-    records = extract_event_records(root, source=EVENTS_SAMPLE)
-    # TST.4's block has no `id` key, so it must not appear as a record at all.
-    assert "TST.4" not in {r["id"] for r in records}
-    assert len(records) == 3
+    # The fourth block has no `id` key, so it is not a record at all.
+    assert [r["id"] for r in records] == ["TST.1", "TST.2", "TST.3"]
 
 
 def test_extract_event_records_file_namespaces_include_later_declarations():
@@ -231,44 +253,24 @@ def test_extract_sprite_records_pins_kind_parent_and_line():
     assert by_name["GFX_a"]["kind"] == "spriteType"
     assert by_name["GFX_a"]["parent"] == "spriteTypes"
     assert by_name["GFX_b"]["kind"] == "corneredTileSpriteType"
+    # The spriteTypes prefix matches without regard to case.
+    assert by_name["GFX_d"]["parent"] == "SpriteTypes_extra"
     # Line numbers are hand-counted from SPRITES_SAMPLE: each `spriteType = {` line.
     assert by_name["GFX_a"]["line"] == 6
     assert by_name["GFX_b"]["line"] == 10
     assert by_name["GFX_d"]["line"] == 28
 
 
-def test_extract_sprite_records_skips_non_sprite_child():
-    root = parse_string(SPRITES_SAMPLE)
-    records = extract_sprite_records(root, source=SPRITES_SAMPLE)
-    # someOtherBlock isn't a recognised sprite kind, so GFX_c must not appear.
-    assert "GFX_c" not in {r["name"] for r in records}
+def test_extract_sprite_records_keeps_only_named_sprites_of_a_known_kind():
+    records = extract_sprite_records(parse_string(SPRITES_SAMPLE), source=SPRITES_SAMPLE)
 
-
-def test_extract_sprite_records_skips_non_spritetypes_top_level_block():
-    root = parse_string(SPRITES_SAMPLE)
-    records = extract_sprite_records(root, source=SPRITES_SAMPLE)
-    # bitmapfonts isn't a spriteTypes-prefixed block, so it must be skipped entirely.
-    assert "not_a_sprite_block" not in {r["name"] for r in records}
-
-
-def test_extract_sprite_records_skips_sprite_without_name():
-    root = parse_string(SPRITES_SAMPLE)
-    records = extract_sprite_records(root, source=SPRITES_SAMPLE)
-    assert "gfx/no_name.dds" not in {r["texturefile"] for r in records}
-
-
-def test_extract_sprite_records_skips_sprite_with_non_string_name():
-    root = parse_string(SPRITES_SAMPLE)
-    records = extract_sprite_records(root, source=SPRITES_SAMPLE)
-    assert "gfx/numeric_name.dds" not in {r["texturefile"] for r in records}
-
-
-def test_extract_sprite_records_matches_spritetypes_prefix_case_insensitively():
-    root = parse_string(SPRITES_SAMPLE)
-    records = extract_sprite_records(root, source=SPRITES_SAMPLE)
-    by_name = {r["name"]: r for r in records}
-
-    assert by_name["GFX_d"]["parent"] == "SpriteTypes_extra"
+    # Skipped: the bitmapfonts block (not spriteTypes), GFX_c (someOtherBlock is
+    # not a sprite kind), the sprite with no name, and the one named with a number.
+    assert [(r["name"], r["texturefile"]) for r in records] == [
+        ("GFX_a", "gfx/a.dds"),
+        ("GFX_b", "gfx/b.dds"),
+        ("GFX_d", "gfx/d.dds"),
+    ]
 
 
 DECISIONS_SAMPLE = """some_category = {
@@ -297,6 +299,13 @@ def test_extract_decision_records_pins_category_and_line():
     assert by_id["TST_second_decision"]["line"] == 8
 
 
+def test_extract_decision_records_skips_scalars_at_both_levels():
+    source = "version = 1\nsome_category = { note = 5 TST_decision = { cost = 1 } }"
+    records = extract_decision_records(parse_string(source))
+
+    assert [r["id"] for r in records] == ["TST_decision"]
+
+
 IDEAS_SAMPLE = """ideas = {
 \tcountry = {
 \t\tTST_first_idea = {
@@ -321,3 +330,79 @@ def test_extract_idea_records_pins_category_slot_and_line():
     # Line numbers are hand-counted from IDEAS_SAMPLE: each idea's `= {` line.
     assert by_id["TST_first_idea"]["line"] == 3
     assert by_id["TST_second_idea"]["line"] == 7
+
+
+def _ideas(script: str) -> dict[str, dict]:
+    return {r["id"]: r for r in extract_idea_records(parse_string(script))}
+
+
+def test_extract_idea_records_without_an_ideas_block_is_empty():
+    assert _ideas("country = { TST_idea = { picture = x } }") == {}
+
+
+def test_extract_idea_records_skips_scalars_at_both_levels():
+    recs = _ideas(
+        "ideas = { note = 1 country = { law = yes cost = 5 TST_idea = { picture = x } } }"
+    )
+
+    assert list(recs) == ["TST_idea"]
+
+
+def test_extract_idea_records_reads_ideas_inside_a_slot_wrapper():
+    recs = _ideas(
+        """ideas = {
+            country = {
+                TST_slot = {
+                    law = yes
+                    note = 1
+                    TST_inner = { picture = x }
+                }
+            }
+        }"""
+    )
+
+    # The wrapper is the slot, not an idea, and its scalars are not ideas either.
+    assert recs == {
+        "TST_inner": {"id": "TST_inner", "category": "country", "slot": "TST_slot", "line": None}
+    }
+
+
+# _looks_like_slot_wrapper once misread the next three shapes (issue #57).
+
+
+def test_empty_idea_block_is_indexed_as_idea():
+    assert "TST_empty" in _ideas("ideas = { country = { TST_empty = {} } }")
+
+
+def test_idea_with_only_unknown_property_keys_is_indexed():
+    recs = _ideas(
+        """ideas = {
+            country = {
+                TST_weird = {
+                    some_future_key = yes
+                    another_unknown = 3
+                }
+            }
+        }"""
+    )
+    assert "TST_weird" in recs
+    # Its scalar children must not be promoted to ideas of their own.
+    assert "some_future_key" not in recs
+    assert "another_unknown" not in recs
+
+
+def test_slot_keyword_beside_an_idea_is_not_an_idea():
+    recs = _ideas(
+        """ideas = {
+            tank_manufacturer = {
+                designer = yes
+                TST_acme = {
+                    cost = 150
+                    picture = company_default
+                }
+            }
+        }"""
+    )
+    assert "TST_acme" in recs
+    assert recs["TST_acme"]["category"] == "tank_manufacturer"
+    assert "designer" not in recs

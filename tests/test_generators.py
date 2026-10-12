@@ -180,6 +180,18 @@ def test_idea_round_trips():
     assert "original_tag = TST" in r["txt"]
 
 
+def test_decision_icon_contract_is_verbatim():
+    bare = generate_decision(id="TST_bare", icon="generic_construction")
+    assert "\t\ticon = generic_construction" in bare["txt"]
+    assert "GFX_decision_generic_construction" not in bare["txt"]
+
+    full = generate_decision(id="TST_full", icon="GFX_decision_generic_form_nation")
+    assert "\t\ticon = GFX_decision_generic_form_nation" in full["txt"]
+
+    default = generate_decision(id="TST_none")
+    assert "\t\ticon = generic_decision" in default["txt"]
+
+
 def test_decision_blocks_render_exactly():
     r = generate_decision(
         id="TST_dec",
@@ -232,6 +244,19 @@ def test_decision_blocks_render_exactly():
             "\t}",
         ]
     )
+
+
+def test_idea_picture_contract_is_verbatim():
+    bare = generate_idea(id="TST_bare", picture="international_treaty2")
+    assert "\t\t\tpicture = international_treaty2" in bare["txt"]
+    assert "picture = GFX_idea_international_treaty2" not in bare["txt"]
+
+    full = generate_idea(id="TST_full", picture="GFX_idea_x")
+    assert "\t\t\tpicture = GFX_idea_x" in full["txt"]
+    assert "\t\t\tpicture = x\n" not in full["txt"]
+
+    default = generate_idea(id="TST_none")
+    assert "\t\t\tpicture = generic_idea" in default["txt"]
 
 
 def test_idea_blocks_render_exactly():

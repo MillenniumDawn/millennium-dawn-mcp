@@ -36,7 +36,7 @@ def generate_idea(
     Args:
       id                   — idea id (typically `TAG_<thing>_idea`)
       tag                  — country tag for the auto-allowed `original_tag = TAG`
-      picture              — GFX picture; placeholder if omitted
+      picture              — idea picture, emitted verbatim; generic_idea if omitted
       modifier             — raw script for `modifier = { ... }`
       research_bonus       — raw script for `research_bonus = { ... }`
       equipment_bonus      — raw script for `equipment_bonus = { ... }`

@@ -804,9 +804,20 @@ Returns `{txt, namespace_directive, loc_yml_keys}`. If the file is new, prepend
 
 Scaffold a decision. Goes inside an existing `<category> = { ... }` container.
 
+`icon` is emitted verbatim, unlike the `GFX_` normalization applied to focus
+`icon` and event `picture`. Upstream `validate_decisions.py` checks a bare
+value `X` as `X`, `GFX_decision_X`, or `GFX_X`; it checks a full `GFX_` id
+verbatim. This generator never strips or adds a prefix. Omit `icon` for
+`icon = generic_decision`.
+
 ### `generate_idea(id, ...) -> dict`
 
 Scaffold an idea. Goes inside `ideas = { <category> = { ... } }`.
+
+`picture` is also emitted verbatim. Upstream `validate_ideas.py` checks
+`GFX_idea_<picture>`, so use a bare suffix such as `international_treaty2` to
+match that validator. A full `GFX_...` id is not stripped; the validator checks
+`GFX_idea_<full-id>`. Omit `picture` for `picture = generic_idea`.
 
 ### `generate_gfx_entry(name, texturefile, kind?, frames?, legacy_lazy_load?) -> dict`
 

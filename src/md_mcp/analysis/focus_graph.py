@@ -45,7 +45,6 @@ _VALID_DETAIL = ("summary", "ids", "full", "paths")
 
 _DEFAULT_FOCUS_COST = 10.0  # vanilla default when a focus omits `cost`
 _DAYS_PER_COST = 7.0
-_MAX_PATH_GROUPS = 4096
 _MAX_EXPANSION_ROUNDS = 256
 _MAX_PRUNE_PASSES = 8
 
@@ -200,15 +199,15 @@ def _path_entry(
 ) -> dict:
     """Resolve one focus's approximate completion set and timing estimate.
 
-    The set is greedy: each candidate closure iteratively takes the cheapest
-    known member of each OR group. It does not optimize shared ancestors or
-    prove mutex feasibility. The result is an approximation, **not** a
+    The set is greedy: each OR group takes the member with the cheapest
+    standalone closure. It does not fully optimize shared ancestors or prove
+    mutex feasibility. The result is an approximation, **not** a
     proven-minimum-cost plan; every found entry sets
     `estimate_approximate: True`. What the heuristic could not resolve is
     reported distinctly rather than folded into the estimate:
 
     * `estimate_unreliable` (str) — set when the closure contains a
-      prerequisite cycle, or a candidate-closure/expansion/prune budget stopped early.
+      prerequisite cycle, or the expansion/prune budget stopped early.
     * `mutex_conflicts` — mutually exclusive focuses that still co-occur in the
       chosen set (an alternative member that avoids the overlap is preferred
       when one exists; unresolved overlaps are caveats, not dropped members).
@@ -219,39 +218,26 @@ def _path_entry(
     if real is None:
         return {"focus": requested, "found": False}
 
-    closure_budget_hit = False
-
     def cost_of(fid: str) -> float:
         return _read_cost(by_id[fid].get("cost"))[0]
 
     closure_cache: dict[str, tuple[frozenset, float]] = {}
 
-    def closure_of(fid: str) -> tuple[frozenset, float]:
-        """Estimate each candidate closure once per path."""
-        nonlocal closure_budget_hit
+    def closure_of(fid: str, visiting: frozenset = frozenset()) -> tuple[frozenset, float]:
+        """Cheapest standalone closure: each OR group takes its cheapest member closure."""
         if fid in closure_cache:
             return closure_cache[fid]
+        if fid in visiting:
+            # Cycle: count self only; the entry is flagged unreliable below.
+            return frozenset({fid}), cost_of(fid)
         closure = {fid}
-        seen_groups: set[tuple[str, int]] = set()
-        pending = [(fid, i) for i in range(len(by_id[fid]["prerequisites"]))]
-        while pending and len(seen_groups) < _MAX_PATH_GROUPS:
-            owner, group_index = pending.pop()
-            key = (owner, group_index)
-            if key in seen_groups:
+        for group in by_id[fid]["prerequisites"]:
+            if closure.intersection(group):
                 continue
-            seen_groups.add(key)
-            group = by_id[owner]["prerequisites"][group_index]
-            if set(group) & closure:
-                continue
-            candidates = [member for member in group if member in by_id]
-            if not candidates:
-                continue
-            member = min(candidates, key=lambda item: (cost_of(item), item))
-            if member not in closure:
-                closure.add(member)
-                pending.extend((member, i) for i in range(len(by_id[member]["prerequisites"])))
-        if pending:
-            closure_budget_hit = True
+            options = [closure_of(m, visiting | {fid}) for m in group if m in by_id]
+            if options:
+                # min keeps the first-declared member on a cost tie.
+                closure |= min(options, key=lambda option: option[1])[0]
         result = (frozenset(closure), sum(cost_of(item) for item in closure))
         closure_cache[fid] = result
         return result
@@ -327,9 +313,6 @@ def _path_entry(
                 if set(group) & pool == {cand}:
                     return True
         return False
-
-    if closure_budget_hit:
-        reliability.append("candidate closure budget stopped early; estimate may be incomplete")
 
     for pass_no in range(_MAX_PRUNE_PASSES):
         progress = False

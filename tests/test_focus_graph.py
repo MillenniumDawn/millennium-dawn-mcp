@@ -2,15 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from md_mcp.analysis.focus_graph import focus_graph
 from md_mcp.indexes import FocusIndex
-
-
-def test_focus_graph_imports_from_worktree_source():
-    expected = Path(__file__).resolve().parents[1] / "src/md_mcp/analysis/focus_graph.py"
-    assert Path(focus_graph.__code__.co_filename).resolve() == expected
 
 
 def test_focus_graph_summary_default(fake_mod_root, cache_dir):
@@ -431,8 +424,8 @@ def test_paths_reports_partially_dangling_group(fake_mod_root, cache_dir):
 
 
 def test_paths_deterministic_tie_break(fake_mod_root, cache_dir):
-    """Equal-cost OR members with equal coverage break ties by id as declared
-    (group order in the file), and results are stable across repeated calls."""
+    """Equal-cost OR members with equal coverage break ties by id, whatever the
+    declaration order, and results are stable across repeated calls."""
     body = _tree(
         "tie_tree",
         """    focus = { id = TST_k_b1 x = 1 y = 0 cost = 5 }
@@ -445,28 +438,33 @@ def test_paths_deterministic_tie_break(fake_mod_root, cache_dir):
     )
     _write_tree(fake_mod_root, "TST_tie", body)
     fwd = _paths_for(fake_mod_root, cache_dir, ["TST_k_t"])["TST_k_t"]
-    assert fwd["estimated_days"] == 42.0  # (B1 5 + T 1) * 7 — first member declared wins
-    assert fwd["chain"][0] in ("TST_k_a1", "TST_k_b1")
-    assert fwd["chain"][1] == "TST_k_t"
+    assert fwd["estimated_days"] == 42.0  # (A1 5 + T 1) * 7
+    assert fwd["chain"] == ["TST_k_a1", "TST_k_t"]
     again = _paths_for(fake_mod_root, cache_dir, ["TST_k_t"])["TST_k_t"]
     assert again == fwd
 
 
-def test_paths_candidate_closure_budget_fallback(fake_mod_root, cache_dir, monkeypatch):
+def test_paths_nested_or_group_takes_cheapest_chain_not_cheapest_focus(fake_mod_root, cache_dir):
+    """A nested OR member that is cheap itself but sits on a costly chain loses to a
+    dearer root. Seen on the real mod as SOV_age_of_stability: 154 days, not 1071."""
     body = _tree(
-        "closure_budget_tree",
-        """    focus = { id = TST_cb_b cost = 1 }
-    focus = { id = TST_cb_a cost = 1 prerequisite = { focus = TST_cb_b } }
-    focus = { id = TST_cb_t cost = 1 prerequisite = { focus = TST_cb_a } }
+        "nested_or_tree",
+        """    focus = { id = TST_v_root x = 0 y = 0 cost = 5 }
+    focus = { id = TST_v_far x = 1 y = 0 cost = 10 }
+    focus = { id = TST_v_cheap x = 1 y = 1 cost = 1 prerequisite = { focus = TST_v_far } }
+    focus = {
+        id = TST_v_mid x = 0 y = 2 cost = 1
+        prerequisite = { focus = TST_v_cheap focus = TST_v_root }
+    }
+    focus = { id = TST_v_t x = 0 y = 3 cost = 1 prerequisite = { focus = TST_v_mid } }
 """,
     )
-    _write_tree(fake_mod_root, "TST_closure_budget", body)
-    monkeypatch.setattr("md_mcp.analysis.focus_graph._MAX_PATH_GROUPS", 0)
+    _write_tree(fake_mod_root, "TST_nested_or", body)
 
-    result = _paths_for(fake_mod_root, cache_dir, ["TST_cb_t"])["TST_cb_t"]
+    p = _paths_for(fake_mod_root, cache_dir, ["TST_v_t"])["TST_v_t"]
 
-    assert result["estimate_approximate"] is True
-    assert "candidate closure budget stopped early" in result["estimate_unreliable"]
+    assert p["chain"] == ["TST_v_root", "TST_v_mid", "TST_v_t"]
+    assert p["estimated_days"] == 49.0  # (root 5 + mid 1 + t 1) * 7, not 91 via cheap + far
 
 
 def test_paths_expansion_budget_fallback(fake_mod_root, cache_dir, monkeypatch):

@@ -42,7 +42,7 @@ src/md_mcp/
 ├── analysis/     Queries: focus graph and layout, refs, manifest, diff, issue delta
 ├── tools/        Tool implementations behind the @mcp.tool() wrappers
 └── util/         Shared helpers: response budgets, encoding, pathing, line numbers,
-                  process groups, thread offload, upstream module loading
+                  process groups, git, thread offload, upstream module loading
 ```
 
 Shared code goes in `util/`; there is no separate `lib/`.

@@ -23,7 +23,6 @@ Safety notes (see issue #32):
 from __future__ import annotations
 
 import re
-import subprocess
 from pathlib import Path
 from subprocess import TimeoutExpired
 from typing import Any, Optional, Union
@@ -35,6 +34,7 @@ from ..paradox.schema import (
     extract_focus_records,
     extract_idea_records,
 )
+from ..util.git import GitError, run_git
 from ..util.response import enforce_budget
 
 # 30s for `git diff` (commits, rename detection, multi-file scans).
@@ -87,6 +87,15 @@ def _truncate_err(err: str) -> str:
     if len(err) > GIT_ERR_MAX_BYTES:
         return err[:GIT_ERR_MAX_BYTES] + "...[truncated]"
     return err
+
+
+def _no_exit_error(verb: str, exc: GitError, timeout: float) -> str:
+    """Error text for a git that never exited: missing, timed out, or unstartable."""
+    if isinstance(exc.__cause__, FileNotFoundError):
+        return "git not found on PATH"
+    if isinstance(exc.__cause__, TimeoutExpired):
+        return f"git {verb} timed out after {timeout:g}s"
+    return f"git {verb} failed: {exc.reason}"
 
 
 def diff_summary(
@@ -239,33 +248,16 @@ def _git_diff_files(mod_root: Path, base: str) -> Any:
     Returns either a list of `{status, old_path, new_path}` dicts (possibly empty),
     or a dict `{"ok": False, "error": ..., "error_msg": ...}` on failure.
     """
-    argv = [
-        "git",
-        "diff",
-        "--name-status",
-        "-z",
-        "-M",
-        "--end-of-options",
-        f"{base}..HEAD",
-    ]
     try:
-        proc = subprocess.run(
-            argv,
-            cwd=str(mod_root),
-            capture_output=True,
-            text=True,
-            check=False,
+        raw = run_git(
+            ["diff", "--name-status", "-z", "-M", "--end-of-options", f"{base}..HEAD"],
+            cwd=mod_root,
             timeout=GIT_TIMEOUT_DIFF,
         )
-    except FileNotFoundError:
-        return {"ok": False, "error": "git not found on PATH"}
-    except TimeoutExpired:
-        return {
-            "ok": False,
-            "error": f"git diff timed out after {GIT_TIMEOUT_DIFF:g}s",
-        }
-    if proc.returncode != 0:
-        msg = (proc.stderr or "").strip() or proc.stdout.strip()
+    except GitError as exc:
+        if exc.exit_code is None:
+            return {"ok": False, "error": _no_exit_error("diff", exc, GIT_TIMEOUT_DIFF)}
+        msg = exc.detail
         # `git diff` on an unborn HEAD or unknown base prints a clear error.
         # Anything else (e.g. not a git repo) is treated as a hard failure
         # rather than a silent empty result.
@@ -277,7 +269,7 @@ def _git_diff_files(mod_root: Path, base: str) -> Any:
             "error_msg": _truncate_err(msg),
         }
 
-    return _parse_name_status_z(proc.stdout)
+    return _parse_name_status_z(raw.decode("utf-8", "replace"))
 
 
 def _parse_name_status_z(raw: str) -> list[dict[str, str]]:
@@ -332,29 +324,17 @@ def _read_at(mod_root: Path, rev: str, path: str) -> Union[str, _GitReadError]:
     except _GitRevError as exc:
         return _GitReadError(str(exc))
 
-    argv = [
-        "git",
-        "show",
-        "--end-of-options",
-        f"{rev}:{path}",
-    ]
     try:
-        proc = subprocess.run(
-            argv,
-            cwd=str(mod_root),
-            capture_output=True,
-            text=True,
-            check=False,
+        raw = run_git(
+            ["show", "--end-of-options", f"{rev}:{path}"],
+            cwd=mod_root,
             timeout=GIT_TIMEOUT_SHOW,
         )
-    except FileNotFoundError:
-        return _GitReadError("git not found on PATH")
-    except TimeoutExpired:
-        return _GitReadError(f"git show timed out after {GIT_TIMEOUT_SHOW:g}s")
-    if proc.returncode != 0:
-        msg = (proc.stderr or "").strip() or proc.stdout.strip()
-        return _GitReadError("git show failed", _truncate_err(msg))
-    text = proc.stdout
+    except GitError as exc:
+        if exc.exit_code is None:
+            return _GitReadError(_no_exit_error("show", exc, GIT_TIMEOUT_SHOW))
+        return _GitReadError("git show failed", _truncate_err(exc.detail))
+    text = raw.decode("utf-8", "replace")
     # git emits a trailing newline after `show` that we don't want lingering
     # in the parser input.
     if text.endswith("\n"):

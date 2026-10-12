@@ -101,3 +101,20 @@ def test_detects_missing_bom_on_loc_yml(fake_mod_root):
     r = check_encoding(fake_mod_root)
     bad = [v for v in r["violations"] if v["file"].endswith("test_l_english.yml")]
     assert bad and bad[0]["expected"] == "bom"
+
+
+def test_check_encoding_reports_a_limit_it_cannot_read(fake_mod_root):
+    assert check_encoding(fake_mod_root, limit="many") == {
+        "ok": False,
+        "error": "limit must be an integer, got 'many'",
+    }
+
+
+def test_check_encoding_skips_a_listed_file_that_is_missing(fake_mod_root):
+    bad = fake_mod_root / "common" / "national_focus" / "test.txt"
+    bad.write_bytes(b"\xef\xbb\xbf" + bad.read_bytes())
+    files = ["common/national_focus/gone.txt", "common/national_focus/test.txt"]
+
+    result = check_encoding(fake_mod_root, files=files)
+
+    assert [v["file"] for v in result["violations"]] == ["common/national_focus/test.txt"]

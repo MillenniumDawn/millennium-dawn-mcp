@@ -623,12 +623,17 @@ Prereq/mutex DAG for a tag's focuses, with **four detail tiers**:
   ~70 KB for ISR.
 - **`detail="full"`** — full per-node metadata (x, y, cost, icon, prereqs, mutex,
   ai_will_do). Always combine with `focus_ids=[...]` or `node_limit` for big tags.
-- **`detail="paths"`** (requires `focus_ids=[...]`) — per focus: the cheapest
+- **`detail="paths"`** (requires `focus_ids=[...]`) — per focus: an approximate
   completion set through its prerequisite closure, `estimated_days` (7 days per
-  cost point, focus rush, cheapest member per OR group, shared prereqs counted
-  once, missing cost counted as 10), the `chain` in completion order, and the
-  focus's `ai_will_do` summary. Answers "how long until the AI/player can have
-  X" and "will the AI ever pick this branch".
+  cost point, focus rush, cheapest prerequisite chain per OR group, shared
+  prereqs counted once, missing cost counted as 10), the `chain` in completion
+  order, and the focus's `ai_will_do` summary. Answers "how long until the
+  AI/player can have X" and "will the AI ever pick this branch". The set is a
+  greedy estimate, not a proven minimum: every found entry has
+  `estimate_approximate: true`. It prefers OR members that avoid a mutually
+  exclusive pair. Entries add `mutex_conflicts` when a pair remains,
+  `unresolved_prereq_groups` when every member of a group is missing, and
+  `estimate_unreliable` for a prerequisite cycle or an exhausted budget.
 
 `cycles` and `dangling_prereqs` are always computed (they're small and
 load-bearing for review).

@@ -20,10 +20,11 @@ has three detail tiers:
       pin a subset.
 
   * `detail="paths"` (requires `focus_ids=[...]`)
-      Per requested focus: the transitive prerequisite closure resolved to a
-      cheapest completion set, its estimated days (7 days per cost point,
-      focus-rush, cheapest member per OR group, shared prereqs counted once),
-      the chain in completion order, and the focus's `ai_will_do` summary.
+      Per requested focus: an **approximate** completion set (greedy closure,
+      not a proven-minimum plan), estimated days (7 days per cost point,
+      focus-rush), the chain in completion order, and the focus's `ai_will_do`
+      summary. Per-path entries carry `estimate_approximate` and explicit
+      cycle, mutex, and unresolved-prerequisite caveats.
       Entries are capped by `node_limit`.
 
 Cycles and dangling prereqs are always computed and returned because they're
@@ -44,6 +45,8 @@ _VALID_DETAIL = ("summary", "ids", "full", "paths")
 
 _DEFAULT_FOCUS_COST = 10.0  # vanilla default when a focus omits `cost`
 _DAYS_PER_COST = 7.0
+_MAX_EXPANSION_ROUNDS = 256
+_MAX_PRUNE_PASSES = 8
 
 
 def focus_graph(
@@ -143,7 +146,8 @@ def focus_graph(
         result["paths_truncated"] = paths_truncated
         result["note"] = (
             "estimated_days = 7 days per cost point, uninterrupted focus rush, "
-            "cheapest member per OR prerequisite group, shared prereqs counted once. "
+            "approximate greedy completion set: cheapest known member per OR "
+            "prerequisite group, not a proven-optimal plan (see path caveats). "
             f"Focuses without an explicit cost count as {_DEFAULT_FOCUS_COST:g}."
         )
         return enforce_budget(result, heavy_keys=("paths", "dangling_prereqs", "cycles", "roots"))
@@ -193,42 +197,151 @@ def _read_cost(c) -> tuple[float, bool]:
 def _path_entry(
     requested: str, real: Optional[str], by_id: dict[str, dict], cycle_ids: set
 ) -> dict:
-    """Resolve one focus's cheapest completion set and timing estimate."""
+    """Resolve one focus's approximate completion set and timing estimate.
+
+    The set is greedy: each OR group takes the member with the cheapest
+    standalone closure. It does not fully optimize shared ancestors or prove
+    mutex feasibility. The result is an approximation, **not** a
+    proven-minimum-cost plan; every found entry sets
+    `estimate_approximate: True`. What the heuristic could not resolve is
+    reported distinctly rather than folded into the estimate:
+
+    * `estimate_unreliable` (str) — set when the closure contains a
+      prerequisite cycle, or the expansion/prune budget stopped early.
+    * `mutex_conflicts` — mutually exclusive focuses that still co-occur in the
+      chosen set (an alternative member that avoids the overlap is preferred
+      when one exists; unresolved overlaps are caveats, not dropped members).
+    * `unresolved_prereq_groups` — groups whose every member is a dangling id,
+      dropped from the plan because nothing in them can complete.
+    * `dangling_prereqs` — prerequisite ids not found in any focus file.
+    """
     if real is None:
         return {"focus": requested, "found": False}
-
-    memo: dict[str, tuple] = {}
-    dangling: set = set()
 
     def cost_of(fid: str) -> float:
         return _read_cost(by_id[fid].get("cost"))[0]
 
-    def solve(fid: str, visiting: frozenset) -> Optional[tuple]:
-        """Returns (chosen frozenset incl fid, total cost) or None if fid unknown."""
-        if fid not in by_id:
-            dangling.add(fid)
-            return None
-        if fid in memo:
-            return memo[fid]
-        if fid in visiting:
-            # Cycle: count self only; cycles are reported at the top level.
-            return (frozenset({fid}), cost_of(fid))
-        chosen = {fid}
-        for group in by_id[fid]["prerequisites"]:
-            best: Optional[tuple] = None
-            for member in group:
-                r = solve(member, visiting | {fid})
-                if r is not None and (best is None or r[1] < best[1]):
-                    best = r
-            if best is not None:
-                chosen |= best[0]
-        res = (frozenset(chosen), sum(cost_of(f) for f in chosen))
-        memo[fid] = res
-        return res
+    closure_cache: dict[str, tuple[frozenset, float]] = {}
 
-    solved = solve(real, frozenset())
-    assert solved is not None  # real is in by_id
-    chosen, total_cost = solved
+    def closure_of(fid: str, visiting: frozenset = frozenset()) -> tuple[frozenset, float]:
+        """Cheapest standalone closure: each OR group takes its cheapest member closure."""
+        if fid in closure_cache:
+            return closure_cache[fid]
+        if fid in visiting:
+            # Cycle: count self only; the entry is flagged unreliable below.
+            return frozenset({fid}), cost_of(fid)
+        closure = {fid}
+        for group in by_id[fid]["prerequisites"]:
+            if closure.intersection(group):
+                continue
+            options = [closure_of(m, visiting | {fid}) for m in group if m in by_id]
+            if options:
+                # min keeps the first-declared member on a cost tie.
+                closure |= min(options, key=lambda option: option[1])[0]
+        result = (frozenset(closure), sum(cost_of(item) for item in closure))
+        closure_cache[fid] = result
+        return result
+
+    def _closure_clashes(cs: frozenset, against: set) -> bool:
+        """True if adding cs would put two mutually exclusive focuses in the plan."""
+        for a in cs:
+            for b in by_id[a]["mutually_exclusive"]:
+                if a != b and (b in cs or b in against):
+                    return True
+        for s in against:
+            for b in by_id[s]["mutually_exclusive"]:
+                if b in cs:
+                    return True
+        return False
+
+    chosen: set[str] = {real}
+    decided: set[tuple[str, int]] = set()  # (focus id, group index) already handled
+    unresolved: list[dict] = []
+    reliability: list[str] = []
+    rounds = 0
+    while True:
+        pending: list[tuple[str, int, list[str]]] = []
+        for owner in sorted(chosen):
+            for gi, group in enumerate(by_id[owner]["prerequisites"]):
+                if (owner, gi) in decided or (set(group) & chosen):
+                    continue
+                pending.append((owner, gi, group))
+        if not pending:
+            break
+        rounds += 1
+        if rounds > _MAX_EXPANSION_ROUNDS:
+            reliability.append("expansion budget stopped early; closure may be incomplete")
+            break
+        for owner, gi, group in pending:
+            if (owner, gi) in decided or (set(group) & chosen):
+                continue  # satisfied by an earlier addition this round
+            resolvable = [m for m in group if m in by_id]
+            if not resolvable:
+                decided.add((owner, gi))
+                unresolved.append({"focus": owner, "group": sorted(set(group))})
+                continue
+
+            # Rank: cheapest standalone closure, then widest coverage of the
+            # round's still-pending groups (shared ancestors), then id, for
+            # deterministic ties. Precomputed tuples; the id is unique so the
+            # sort never compares the closures themselves.
+            scored: list[tuple[float, int, str, frozenset]] = []
+            for m in resolvable:
+                cs, ccost = closure_of(m)
+                covers = sum(1 for _o, _gi, g2 in pending if set(g2) & cs)
+                scored.append((ccost, -covers, m, cs))
+            scored.sort()
+
+            pick_cs: Optional[frozenset] = None
+            for _ccost, _covers, _m, cs in scored:
+                if not _closure_clashes(cs, chosen):
+                    pick_cs = cs
+                    break
+            if pick_cs is None:
+                # Every candidate clashes with the plan; keep the best-ranked
+                # (cheapest) one and let the final mutex scan report it.
+                pick_cs = scored[0][3]
+            chosen |= set(pick_cs)
+            decided.add((owner, gi))
+
+    def _needed_solely(cand: str, pool: set) -> bool:
+        """True if some other member of pool is only satisfied by cand right now."""
+        for owner in pool:
+            if owner == cand:
+                continue
+            for group in by_id[owner]["prerequisites"]:
+                if set(group) & pool == {cand}:
+                    return True
+        return False
+
+    for pass_no in range(_MAX_PRUNE_PASSES):
+        progress = False
+        for cand in sorted(chosen - {real}, key=lambda f2: (-cost_of(f2), f2)):
+            if cand not in chosen:
+                continue
+            if not _needed_solely(cand, chosen):
+                chosen.discard(cand)
+                progress = True
+        if not progress:
+            break
+        if pass_no == _MAX_PRUNE_PASSES - 1:
+            reliability.append("pruning budget stopped early; estimate may be larger than needed")
+
+    dangling = {
+        m for f2 in chosen for group in by_id[f2]["prerequisites"] for m in group if m not in by_id
+    }
+    unresolved = [u for u in unresolved if u["focus"] in chosen]
+    mutex_conflicts = [
+        {"focus": lo, "mutually_exclusive_with": hi}
+        for lo, hi in sorted(
+            {
+                tuple(sorted((a, b)))
+                for a in chosen
+                for b in by_id[a]["mutually_exclusive"]
+                if b in chosen and a != b
+            }
+        )
+    ]
 
     # Completion order: prereq depth within the chosen set, ties by id.
     depth: dict[str, int] = {}
@@ -251,16 +364,23 @@ def _path_entry(
     entry: dict = {
         "focus": real,
         "found": True,
+        # Bounded greedy closure + prune — approximate by construction.
+        "estimate_approximate": True,
         "estimated_focus_count": len(chosen),
-        "estimated_days": round(total_cost * _DAYS_PER_COST, 1),
+        "estimated_days": round(sum(cost_of(f) for f in chosen) * _DAYS_PER_COST, 1),
         "chain": chain[:100],
         "chain_truncated": len(chain) > 100,
         "ai_will_do": by_id[real].get("ai_will_do"),
     }
     if chosen & cycle_ids:
-        # The greedy cheapest-set solve is only correct on a DAG; a prereq cycle in
-        # the closure can truncate it. Flag rather than trust the numbers.
-        entry["estimate_unreliable"] = "prerequisite cycle in closure; see top-level cycles"
+        # The closure includes a prereq cycle; the estimate cannot be trusted.
+        reliability.insert(0, "prerequisite cycle in closure; see top-level cycles")
+    if reliability:
+        entry["estimate_unreliable"] = "; ".join(reliability)
+    if mutex_conflicts:
+        entry["mutex_conflicts"] = mutex_conflicts
+    if unresolved:
+        entry["unresolved_prereq_groups"] = unresolved
     if dangling:
         entry["dangling_prereqs"] = sorted(dangling)
     if defaulted:

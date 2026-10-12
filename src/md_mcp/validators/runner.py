@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from ..analysis.suppressions import SUPPRESSION_SOURCE, suppress_issues
+from ..util.git import GitError, run_git
 from ..util.process import run_in_group
 from .attribution import IssueAttributor
 
@@ -46,17 +47,15 @@ logger = logging.getLogger(__name__)
 
 def _staged_files_env(mod_root: Path) -> str:
     """Return upstream's newline-delimited staged file cache from git's NUL output."""
-    proc = subprocess.run(
-        ["git", "-C", str(mod_root), "diff", "--cached", "--name-status", "-z"],
-        capture_output=True,
-        check=False,
-    )
-    if proc.returncode:
-        detail = proc.stderr.decode("utf-8", "replace").strip()
+    try:
+        stdout = run_git(["diff", "--cached", "--name-status", "-z"], cwd=mod_root, timeout=15)
+    except GitError as exc:
+        if exc.exit_code is None:
+            raise RuntimeError(f"Could not read staged paths from git: {exc.reason}") from exc
         raise RuntimeError(
-            f"Could not read staged paths from git (exit {proc.returncode}): {detail}"
-        )
-    records = [part for part in proc.stdout.split(b"\0") if part]
+            f"Could not read staged paths from git (exit {exc.exit_code}): {exc.detail}"
+        ) from exc
+    records = [part for part in stdout.split(b"\0") if part]
     paths: list[str] = []
     index = 0
     while index < len(records):

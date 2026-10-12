@@ -765,6 +765,35 @@ months/days. Returns `{ok: true, days}` or `{ok: false, error}`.
 the mod or vanilla installation. List-bearing responses enforce the normal
 output budget.
 
+### `event_load(tag?, window?, threshold?, limit?, offset?) -> dict`
+
+Run upstream `tools/analysis/event_load.py` in an isolated process. Returns
+per-year scheduled delivery totals and busiest-window counts, with event
+details paginated by `limit`/`offset` independently within each year;
+`flagged_years` includes flagged event details. `years` retains all annual
+summaries so later event pages remain reachable. Defaults are USA, a 45-day
+window, threshold 3, limit 20, and offset 0.
+
+### `summarize_game_log(path, top?, limit?, offset?, countries?, since?, until?) -> dict`
+
+Run upstream `tools/summarize_game_log.py` read-only for one explicit absolute
+`.log` or `.txt` path. Returns JSON parity for session, categories, active
+countries, conflicts, politics, annexations, economy, and inflation. `top` caps
+ranked countries; optional `countries` requests country deep dives and `since`
+and `until` apply the upstream date filters. `limit`/`offset` page conflict,
+politics, annexation, economy, inflation, and country-detail maps.
+Relative paths, other extensions, missing files, and logs without parsed MD
+entries return `{ok: false, error}`.
+
+### `ai_path_report(tag, section?, limit?, offset?) -> dict`
+
+Run upstream `tools/analysis/ai_path_report.py` for one country. `section` may
+select a report section (`rule`, `wiring`, `owners`, `matrix`, `graph`, `plans`,
+`rewards`, `mechanics`, or `government`); omit it for all sections. `limit` and
+`offset` page every list independently, and `pagination` reports each list's
+total and truncation. Output is budgeted; subprocess errors and invalid country
+tags return `{ok: false, error}`.
+
 ---
 
 ## Generators — return strings, never write
@@ -907,49 +936,5 @@ spaces. (HOI4 IDs by convention don't contain either.)
 
 ## Calling tools from Python (debugging)
 
-The tools are plain functions; you can call them directly without spinning up
-the MCP server:
-
-```python
-from md_mcp.config import load
-from md_mcp.indexes import FocusIndex
-from md_mcp.analysis.focus_graph import focus_graph
-
-settings = load("/path/to/Millennium-Dawn")
-focus_index = FocusIndex(settings.mod_root, settings.cache_dir, settings.vanilla_path)
-
-result = focus_graph("ISR", settings.mod_root, focus_index, detail="summary")
-print(result)
-```
-
-This bypasses MCP framing — exceptions surface directly, which is the easiest
-way to diagnose a tool that's misbehaving inside the protocol layer.
-
-### `event_load(tag?, window?, threshold?, limit?, offset?) -> dict`
-
-Run upstream `tools/analysis/event_load.py` in an isolated process. Returns
-per-year scheduled delivery totals and busiest-window counts, with event
-details paginated by `limit`/`offset` independently within each year;
-`flagged_years` includes flagged event details. `years` retains all annual
-summaries so later event pages remain reachable. Defaults are USA, a 45-day
-window, threshold 3, limit 20, and offset 0.
-
-### `summarize_game_log(path, top?, limit?, offset?, countries?, since?, until?) -> dict`
-
-Run upstream `tools/summarize_game_log.py` read-only for one explicit absolute
-`.log` or `.txt` path. Returns JSON parity for session, categories, active
-countries, conflicts, politics, annexations, economy, and inflation. `top` caps
-ranked countries; optional `countries` requests country deep dives and `since`
-and `until` apply the upstream date filters. `limit`/`offset` page conflict,
-politics, annexation, economy, inflation, and country-detail maps.
-Relative paths, other extensions, missing files, and logs without parsed MD
-entries return `{ok: false, error}`.
-
-### `ai_path_report(tag, section?, limit?, offset?) -> dict`
-
-Run upstream `tools/analysis/ai_path_report.py` for one country. `section` may
-select a report section (`rule`, `wiring`, `owners`, `matrix`, `graph`, `plans`,
-`rewards`, `mechanics`, or `government`); omit it for all sections. `limit` and
-`offset` page every list independently, and `pagination` reports each list's
-total and truncation. Output is budgeted; subprocess errors and invalid country
-tags return `{ok: false, error}`.
+The tools are plain functions. To call one without the MCP server, see
+[Direct tool calls](./development.md#direct-tool-calls-bypass-mcp).

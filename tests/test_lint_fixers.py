@@ -110,9 +110,32 @@ def _plant_upstream(root: Path, *, styling_replacement: str = "YY") -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_unknown_fixer_rejected(tmp_path):
-    out = fix_lint_tool(tmp_path, fixer="nonsense", content="x")
+@pytest.mark.parametrize(
+    ("arguments", "error"),
+    [
+        pytest.param({"fixer": "nonsense", "content": "x"}, "", id="unknown-fixer"),
+        pytest.param(
+            {"fixer": "changelog", "path": "other.txt"}, "Changelog.txt", id="changelog-wrong-path"
+        ),
+        pytest.param({"fixer": "styling"}, "content= or path=", id="no-source"),
+        pytest.param(
+            {"fixer": "log_ids", "content": "log = x"}, "log_ids", id="log-ids-needs-a-path"
+        ),
+        pytest.param({"fixer": "loc_yaml", "path": "script.txt"}, ".yml", id="loc-yaml-given-txt"),
+        pytest.param({"fixer": "styling", "path": "loc.yml"}, ".txt", id="styling-given-yml"),
+        pytest.param({"fixer": "styling", "path": "../outside.txt"}, "", id="path-traversal"),
+        pytest.param({"fixer": "styling", "path": "common/nope.txt"}, "", id="missing-file"),
+    ],
+)
+def test_fix_lint_rejects_bad_arguments(tmp_path, arguments, error):
+    _plant_upstream(tmp_path)
+    (tmp_path / "script.txt").write_text("a = b", encoding="utf-8")
+    (tmp_path / "loc.yml").write_text("K: v", encoding="utf-8")
+
+    out = fix_lint_tool(tmp_path, **arguments)
+
     assert out["ok"] is False
+    assert error in out["error"]
 
 
 def test_changelog_fixer_uses_order_lines_without_writing(tmp_path):
@@ -125,12 +148,6 @@ def test_changelog_fixer_uses_order_lines_without_writing(tmp_path):
     assert out["changed"] is True
     assert out["txt"] == "- untagged-first\n- [USA] tagged\n"
     assert not (tmp_path / "Changelog.txt").exists()
-
-
-def test_changelog_fixer_rejects_wrong_path(tmp_path):
-    out = fix_lint_tool(tmp_path, fixer="changelog", path="other.txt")
-    assert out["ok"] is False
-    assert "Changelog.txt" in out["error"]
 
 
 def test_changelog_helpers_are_reloaded_when_mod_root_changes(tmp_path):
@@ -154,46 +171,6 @@ def test_changelog_helpers_are_reloaded_when_mod_root_changes(tmp_path):
 
     assert first["txt"] == "Aentry\n"
     assert second["txt"] == "Aentry\n"
-
-
-def test_missing_source_rejected(tmp_path):
-    out = fix_lint_tool(tmp_path, fixer="styling")
-    assert out["ok"] is False
-    assert "content= or path=" in out["error"]
-
-
-def test_log_ids_requires_path(tmp_path):
-    out = fix_lint_tool(tmp_path, fixer="log_ids", content="log = x")
-    assert out["ok"] is False
-    assert "log_ids" in out["error"]
-
-
-def test_loc_yaml_rejects_txt(tmp_path):
-    _plant_upstream(tmp_path)
-    (tmp_path / "script.txt").write_text("a = b", encoding="utf-8")
-    out = fix_lint_tool(tmp_path, fixer="loc_yaml", path="script.txt")
-    assert out["ok"] is False
-    assert ".yml" in out["error"]
-
-
-def test_styling_rejects_yml(tmp_path):
-    _plant_upstream(tmp_path)
-    (tmp_path / "loc.yml").write_text("K: v", encoding="utf-8")
-    out = fix_lint_tool(tmp_path, fixer="styling", path="loc.yml")
-    assert out["ok"] is False
-    assert ".txt" in out["error"]
-
-
-def test_path_traversal_rejected(tmp_path):
-    _plant_upstream(tmp_path)
-    out = fix_lint_tool(tmp_path, fixer="styling", path="../outside.txt")
-    assert out["ok"] is False
-
-
-def test_missing_file_rejected(tmp_path):
-    _plant_upstream(tmp_path)
-    out = fix_lint_tool(tmp_path, fixer="styling", path="common/nope.txt")
-    assert out["ok"] is False
 
 
 # ---------------------------------------------------------------------------

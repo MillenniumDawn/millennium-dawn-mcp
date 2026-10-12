@@ -386,6 +386,27 @@ def test_validate_single_validator_non_strict_counts_unchanged(fake_mod_root):
     assert result["counts"] == {"error": 0, "warning": 2, "info": 0}
 
 
+def test_validate_single_validator_counts_only_omits_the_issues(fake_mod_root):
+    plant_validator(fake_mod_root, "warnonly", _WARNING_ONLY)
+    result = validate_tool(
+        mod_settings(fake_mod_root),
+        ValidatorRunner(fake_mod_root),
+        validator="warnonly",
+        counts_only=True,
+    )
+    assert result["ok"] is True
+    assert "issues" not in result
+    assert result["issues_total_after_filter"] == 2
+    assert result["counts"] == {"error": 0, "warning": 2, "info": 0}
+
+
+def test_validate_list_reports_a_limit_it_cannot_read(fake_mod_root):
+    assert validate_list_tool(mod_settings(fake_mod_root), limit="many") == {
+        "ok": False,
+        "error": "limit must be an integer, got 'many'",
+    }
+
+
 def test_validate_all_strict_still_folds_aggregate_counts(fake_mod_root):
     plant_validator(fake_mod_root, "warnonly", _WARNING_ONLY)
     result = validate_tool(mod_settings(fake_mod_root), ValidatorRunner(fake_mod_root), strict=True)

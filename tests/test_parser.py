@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from md_mcp.paradox import ParseError, parse_string
 from md_mcp.paradox.lexer import LexError, Tokenizer
 from md_mcp.paradox.nodes import SymbolNode, Token
 from md_mcp.util.encoding import read_text
+from md_mcp.util.line_numbers import line_and_column, line_starts, pos_to_line
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -153,6 +155,66 @@ def test_parse_error_mentions_exact_line_and_column():
 def test_parse_error_uses_previous_position_for_invalid_name():
     with pytest.raises(ParseError, match=r"at \(1, 1\)"):
         parse_string("= 1")
+
+
+@pytest.mark.parametrize(
+    ("src", "message"),
+    [
+        ("a = 1 }", "File content can't be completely parsed"),
+        ("a = }", "Expect string, number, symbol, or {"),
+    ],
+)
+def test_parse_error_names_what_was_expected(src, message):
+    with pytest.raises(ParseError, match=re.escape(message)):
+        parse_string(src)
+
+
+def test_separators_after_bare_keywords_and_values_are_skipped():
+    root = parse_string("list = { a, b; c }\nx = 1, y = 2;")
+    listed, x, y = root.children()
+    assert [child.name for child in listed.children()] == ["a", "b", "c"]
+    assert (x.value, y.value) == (1, 2)
+
+
+def test_token_starts_map_to_their_source_lines():
+    src = "focus = {\n    id = X\n    x = 0\n}\n"
+    starts = line_starts(src)
+    tok = Tokenizer(src)
+    assert pos_to_line(tok.peek().start, starts) == 1
+    tok.next()  # focus
+    tok.next()  # =
+    tok.next()  # {
+    id_tok = tok.next()
+    assert id_tok.value == "id"
+    assert pos_to_line(id_tok.start, starts) == 2
+
+
+def test_tokenizer_line_table_is_lazy_and_error_position_is_correct():
+    """The line table is built on first error, not in __init__."""
+    src = "a = 1\r\nb = 2\r\nc = $"
+    tok = Tokenizer(src)
+    assert tok._line_starts is None  # not computed eagerly
+    tok.next()  # a
+    tok.next()  # =
+    assert tok._line_starts is None  # still not built by normal tokenizing
+    with pytest.raises(LexError) as excinfo:
+        while True:
+            tok.next()
+    # The failed match begins right after `c =`.
+    assert (excinfo.value.line, excinfo.value.column) == (3, 4)
+    assert tok._line_starts == line_starts(src)  # built on first error
+
+
+def test_tokenizer_error_position_with_multibyte_text_before_error():
+    src = "# é 日本\n\n  x = $"
+    tok = Tokenizer(src)
+    with pytest.raises(LexError) as excinfo:
+        while True:
+            tok.next()
+    # Error offset is where the failed match began (right after `x =`).
+    err_pos = src.index("$") - 1
+    assert (excinfo.value.line, excinfo.value.column) == (3, 6)
+    assert line_and_column(err_pos, line_starts(src)) == (3, 6)
 
 
 def _tokens(src: str) -> list[Token]:

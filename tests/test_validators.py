@@ -153,6 +153,23 @@ def test_title_derived_for_computed_expression(fake_mod_root):
     assert info.title_source == "derived"
 
 
+def test_title_derived_for_a_literal_python_cannot_evaluate(fake_mod_root):
+    plant_validator(fake_mod_root, "bad_escape", 'TITLE = "bad \\x escape"\n')
+    (info,) = available_validators(fake_mod_root)
+    assert info.title == "Bad Escape"
+    assert info.title_source == "derived"
+
+
+def test_no_validators_without_a_validation_directory(tmp_path):
+    assert available_validators(tmp_path) == []
+
+
+def test_unknown_validator_is_a_shaped_error(fake_mod_root):
+    result = ValidatorRunner(fake_mod_root).run("absent")
+    assert result["ok"] is False
+    assert result["validator"] == "absent"
+
+
 def test_title_derived_when_file_read_fails(fake_mod_root, monkeypatch):
     plant_validator(fake_mod_root, "unread", 'TITLE = "Fine"\n')
 
@@ -174,13 +191,47 @@ def test_default_mode_is_isolated(fake_mod_root):
     assert ValidatorRunner(fake_mod_root).mode == "isolated"
 
 
-def test_isolated_returns_issues_and_swallows_stdout(fake_mod_root):
+_MODES = ["isolated", "in_process"]
+
+
+# `subprocess` is an alias for isolated.
+@pytest.mark.parametrize("mode", [*_MODES, "subprocess"])
+def test_runner_returns_issues_and_swallows_stdout(fake_mod_root, mode):
     plant_validator(fake_mod_root, "plain", _PLAIN)
-    result = ValidatorRunner(fake_mod_root).run("plain")
+    result = ValidatorRunner(fake_mod_root, mode=mode).run("plain")
     assert result["ok"] is True
     assert [i["message"] for i in result["issues"]] == ["m1", "staged=False"]
     assert result["issues"][0]["file"] == "events/a.txt"
     assert result["counts"] == {"error": 1, "warning": 1, "info": 0}
+
+
+# In-process imports stay in sys.modules for the session, so each mode plants
+# its own module name.
+@pytest.mark.parametrize("mode", _MODES)
+def test_runner_keeps_issues_when_validator_exits(fake_mod_root, mode):
+    plant_validator(fake_mod_root, f"exits_{mode}", _EXITS)
+    result = ValidatorRunner(fake_mod_root, mode=mode).run(f"exits_{mode}")
+    assert result["ok"] is True
+    assert [i["message"] for i in result["issues"]] == ["found before exit"]
+
+
+@pytest.mark.parametrize("mode", _MODES)
+def test_runner_reports_broken_validator_instead_of_zero_issues(fake_mod_root, mode):
+    # Regression: the old subprocess mode ignored the exit code and treated a
+    # missing sidecar as a clean run, so a crashing validator reported ok/0.
+    plant_validator(fake_mod_root, f"broken_{mode}", "this is not valid python (\n")
+    result = ValidatorRunner(fake_mod_root, mode=mode).run(f"broken_{mode}")
+    assert result["ok"] is False
+    assert result["validator"] == f"broken_{mode}"
+    assert result["error"].startswith("SyntaxError: ")
+
+
+@pytest.mark.parametrize("mode", _MODES)
+def test_runner_reports_missing_validator_class(fake_mod_root, mode):
+    plant_validator(fake_mod_root, f"classless_{mode}", "X = 1\n")
+    result = ValidatorRunner(fake_mod_root, mode=mode).run(f"classless_{mode}")
+    assert result["ok"] is False
+    assert "Validator" in result["error"]
 
 
 def test_isolated_forwards_staged_only(fake_mod_root):
@@ -264,7 +315,7 @@ def test_staged_file_environment_reports_git_timeout(monkeypatch, tmp_path):
         _staged_files_env(tmp_path)
 
 
-@pytest.mark.parametrize("mode", ["isolated", "in_process"])
+@pytest.mark.parametrize("mode", _MODES)
 def test_staged_validator_reports_git_failure(fake_mod_root, mode):
     plant_validator(fake_mod_root, "plain", _PLAIN)
     (fake_mod_root / ".git").mkdir()
@@ -283,37 +334,7 @@ def test_isolated_survives_a_forking_validator(fake_mod_root):
     assert result["issues"][0]["message"] == "sum=380"
 
 
-def test_isolated_keeps_issues_when_validator_exits(fake_mod_root):
-    plant_validator(fake_mod_root, "exits", _EXITS)
-    result = ValidatorRunner(fake_mod_root).run("exits")
-    assert result["ok"] is True
-    assert [i["message"] for i in result["issues"]] == ["found before exit"]
-
-
-def test_isolated_reports_broken_validator_instead_of_zero_issues(fake_mod_root):
-    # Regression: the old subprocess mode ignored the exit code and treated a
-    # missing sidecar as a clean run, so a crashing validator reported ok/0.
-    plant_validator(fake_mod_root, "broken", "this is not valid python (\n")
-    result = ValidatorRunner(fake_mod_root).run("broken")
-    assert result["ok"] is False
-    assert "SyntaxError" in result["error"]
-
-
-def test_isolated_reports_missing_validator_class(fake_mod_root):
-    plant_validator(fake_mod_root, "classless", "X = 1\n")
-    result = ValidatorRunner(fake_mod_root).run("classless")
-    assert result["ok"] is False
-    assert "Validator" in result["error"]
-
-
-def test_subprocess_mode_is_an_alias_for_isolated(fake_mod_root):
-    plant_validator(fake_mod_root, "plain", _PLAIN)
-    result = ValidatorRunner(fake_mod_root, mode="subprocess").run("plain")
-    assert result["ok"] is True
-    assert len(result["issues"]) == 2
-
-
-@pytest.mark.parametrize("mode", ["isolated", "in_process"])
+@pytest.mark.parametrize("mode", _MODES)
 def test_validator_args_reach_instance(fake_mod_root, mode):
     source = (
         ISSUE_CLASS
@@ -344,37 +365,28 @@ class Validator:
     assert result["issues"][0]["message"] == "True"
 
 
-def test_in_process_mode_still_available(fake_mod_root):
+@pytest.mark.parametrize("mode", _MODES)
+def test_validator_args_are_rejected_when_the_module_cannot_take_them(fake_mod_root, mode):
     plant_validator(fake_mod_root, "plain", _PLAIN)
-    result = ValidatorRunner(fake_mod_root, mode="in_process").run("plain")
-    assert result["ok"] is True
-    assert len(result["issues"]) == 2
+    result = ValidatorRunner(fake_mod_root, mode=mode).run("plain", args=["--anything"])
+    assert result["ok"] is False
+    assert "does not accept validator arguments" in result["error"]
+
+
+def test_isolated_reports_a_child_that_exits_without_a_payload(fake_mod_root):
+    source = _PLAIN.replace(
+        'print("stdout chatter the runner must swallow")', '__import__("os")._exit(0)'
+    )
+    plant_validator(fake_mod_root, "vanishes", source)
+
+    result = ValidatorRunner(fake_mod_root).run("vanishes")
+
+    assert result["ok"] is False
+    assert result["validator"] == "vanishes"
 
 
 # In-process imports stay in sys.modules for the session, so these use names no
 # other test plants.
-def test_in_process_keeps_issues_when_validator_exits(fake_mod_root):
-    plant_validator(fake_mod_root, "exits_inproc", _EXITS)
-    result = ValidatorRunner(fake_mod_root, mode="in_process").run("exits_inproc")
-    assert result["ok"] is True
-    assert [i["message"] for i in result["issues"]] == ["found before exit"]
-
-
-def test_in_process_reports_broken_validator(fake_mod_root):
-    plant_validator(fake_mod_root, "broken_inproc", "this is not valid python (\n")
-    result = ValidatorRunner(fake_mod_root, mode="in_process").run("broken_inproc")
-    assert result["ok"] is False
-    assert result["validator"] == "broken_inproc"
-    assert result["error"].startswith("SyntaxError: ")
-
-
-def test_in_process_reports_missing_validator_class(fake_mod_root):
-    plant_validator(fake_mod_root, "classless_inproc", "X = 1\n")
-    result = ValidatorRunner(fake_mod_root, mode="in_process").run("classless_inproc")
-    assert result["ok"] is False
-    assert "Validator" in result["error"]
-
-
 def test_collect_raises_where_run_returns_an_error(fake_mod_root):
     # The docs send people to _collect for a traceback because run() catches.
     source = _PLAIN.replace(

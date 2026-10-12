@@ -773,7 +773,11 @@ dropped keys instead of exceeding the MCP response cap.
 ### `standardize(content?, path?, content_type?) -> dict`
 
 Run the upstream standardizer in memory and return `{ok, txt, changed, kind}`.
-Provide `content=` with `content_type=focus|event|decision|idea|mio|technology|history`, or provide a mod-relative `.txt` `path=` and omit `content_type` to detect the kind from its location. Exactly one of `content` or `path` is required. Localisation YAML is unsupported. The output is BOM-free. The tool never writes files; `txt_truncated=true` means the returned text must not be written back.
+Provide `content=` with `content_type=focus|event|decision|idea|mio|technology|history|localisation`, or provide a mod-relative `path=` and omit `content_type` to detect the kind: a `.txt` path by its location, a `.yml` path as localisation. Exactly one of `content` or `path` is required. The output is BOM-free. The tool never writes files; `txt_truncated=true` means the returned text must not be written back.
+
+Localisation results add `categories` and, for input with a BOM, `had_bom`.
+See [`standardize-localisation.md`](./standardize-localisation.md) for the
+category scan, its limits, and the BOM contract.
 
 ### `generate_focus(id, tag, x?, y?, ...) -> dict`
 

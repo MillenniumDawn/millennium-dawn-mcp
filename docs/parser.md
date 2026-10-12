@@ -63,7 +63,7 @@ From `lexer.py`:
 |---|---|---|
 | `comment` | `#.*(?:[\r\n]|$)` | `# this is a comment` |
 | `operator` | `>=`, `<=`, `!=` first, then `[={}<>;,]` | `=`, `{`, `}`, `>=` |
-| `string` | `"(?:\\[\s\S]|[^"\\])*"` | `"localised key"` |
+| `string` | `"[^"\\]*(?:\\[\s\S][^"\\]*)*"` | `"localised key"` |
 | `symbol` | `(?:\d+\.)?[a-zA-Z_@\[\]][\w:\._@\[\]\-\?\^\/ -ɏ\|]*` | `ISR_idf`, `[VAR]`, `5.cycle_var` |
 | `date` | `\d+(?:\.\d+){2,}` | `1936.1.1`, `2030.1.1.12` |
 | `unitnumber` | `(?:-?\d*\.\d+|-?\d+)(?:%%?)` | `5%`, `42%%` |
@@ -86,6 +86,13 @@ leaves it as the terminator. Well-formed strings match as before. The one change
 is `"C:\dir\"` with no later quote: the TS pattern backtracks and closes the
 string there, and this one reports it as unterminated. The GFX scanner reads
 quotes the same way, except that its escape does not cross a newline.
+
+The pattern is written as plain runs separated by escapes, not as one
+alternation repeated per character. Both spellings match the same strings. The
+repeated alternation made the regex engine keep about 210 bytes of state for
+every character of a string while matching it, 227 MB for a 1 MB string. The
+longest string in the mod is under 4 KB, so this is a guard against a malformed
+file, not a speedup: tokenizing the whole mod takes the same time either way.
 
 `Token.start` and `Token.end` are Python `str` indices into the source
 (code points, not UTF-8 bytes; they coincide for ASCII), not line/column.

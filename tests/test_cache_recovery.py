@@ -9,13 +9,16 @@ as cache hits, and persist the repair so the next start is a clean cache hit.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from md_mcp.indexes import FocusIndex, GenericTxtIndex, IdeaIndex, LocalisationIndex
-from tests.support.indexes import index_state, scratch_state, spy_parse, write_stepped
+from md_mcp.indexes import base as base_mod
+from tests.support.indexes import index_state, scratch_state, spy_parse, write_loc, write_stepped
+from tests.support.mod import make_mod_root
 
 _IDEA_DIR = Path("common") / "ideas"
 _FOCUS_DIR = Path("common") / "national_focus"
@@ -345,3 +348,26 @@ def test_sharded_unusable_records_reparse_only_that_file(tmp_path, monkeypatch, 
     third.ensure_fresh()
     assert parsed == []
     assert index_state(third) == scratch_state(LocalisationIndex, root, tmp_path, "shard")
+
+
+def test_failed_cache_write_does_not_fail_the_refresh(tmp_path, monkeypatch, caplog):
+    root = make_mod_root(tmp_path / "Mod")
+    write_loc(root, "localisation/english/a_l_english.yml", "l_english", "K_A", "a")
+    index = LocalisationIndex(root, tmp_path / "cache", None, langs=("en",))
+
+    def refuse(path, text):
+        raise PermissionError(f"locked: {path}")
+
+    monkeypatch.setattr(base_mod, "_atomic_write_text", refuse)
+    with caplog.at_level(logging.WARNING, logger="md_mcp.indexes.base"):
+        index.ensure_fresh()
+    assert index.resolve("K_A")["value"] == "a"  # type: ignore[index]
+    assert any("could not persist" in rec.message for rec in caplog.records)
+    assert not index._cache.manifest_path.exists()
+
+    # Nothing was persisted, so a fresh instance parses again rather than trusting a manifest.
+    monkeypatch.undo()
+    again = LocalisationIndex(root, tmp_path / "cache", None, langs=("en",))
+    again.ensure_fresh()
+    assert again.resolve("K_A") is not None
+    assert again._cache.manifest_path.exists()

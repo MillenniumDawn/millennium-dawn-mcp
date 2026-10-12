@@ -14,6 +14,26 @@ def write_stepped(path: Path, text: str, step: int) -> None:
     os.utime(path, ns=(ns, ns))
 
 
+def write_loc(root: Path, rel: str, lang: str, key: str, value: str) -> Path:
+    """Write a one-key localisation file with a BOM, as the game expects."""
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f'﻿{lang}:\n {key}:0 "{value}"\n', encoding="utf-8")
+    return path
+
+
+def bump_mtime(path: Path) -> None:
+    """Move `path`'s mtime a second forward so its signature changes."""
+    st = os.stat(path)
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+
+
+def force_refresh(idx) -> None:
+    """Skip the debounce and refresh now."""
+    idx._stale_check.force_next()
+    idx.ensure_fresh()
+
+
 def index_state(idx) -> tuple:
     idx.ensure_fresh()
     return (

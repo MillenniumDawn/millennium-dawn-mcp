@@ -12,7 +12,16 @@ import pytest
 
 from md_mcp.indexes import FocusIndex, IdeaIndex, LocalisationIndex
 from md_mcp.indexes.base import IndexCache, shard_filename
-from tests.support.indexes import index_state, scratch_state, spy_parse, write_stepped
+from tests.support.indexes import (
+    bump_mtime,
+    force_refresh,
+    index_state,
+    scratch_state,
+    spy_parse,
+    write_loc,
+    write_stepped,
+)
+from tests.support.mod import make_mod_root
 
 _LOC_DIR = Path("localisation") / "english"
 
@@ -453,3 +462,85 @@ def test_one_file_edit_is_fast_on_a_large_loc_tree(tmp_path, cache_dir):
     assert idx.resolve("BIG_7_0")["value"] == "edited"  # type: ignore[index]
     assert idx.resolve("BIG_7_1") is None
     assert elapsed < 1.0, f"one-file loc edit took {elapsed:.2f}s"
+
+
+# ----- two processes sharing one cache dir -------------------------------------
+# Once another writer has updated the shared manifest it no longer describes this
+# process's memory, so the warm refresh must diff disk against what it loaded.
+
+_X = "localisation/english/x_l_english.yml"
+_Z = "localisation/english/z_l_english.yml"
+
+
+def _two_loc_indexes(tmp_path):
+    root = make_mod_root(tmp_path / "Mod")
+    cache = tmp_path / "cache"
+    write_loc(root, _X, "l_english", "K_X", "x1")
+    write_loc(root, _Z, "l_english", "K_Z", "z1")
+    a = LocalisationIndex(root, cache, None, langs=("en",))
+    b = LocalisationIndex(root, cache, None, langs=("en",))
+    a.ensure_fresh()
+    b.ensure_fresh()
+    assert a.resolve("K_Z") is not None and b.resolve("K_Z") is not None
+    return root, a, b
+
+
+def test_file_removed_by_another_process_is_dropped_on_refresh(tmp_path):
+    root, a, b = _two_loc_indexes(tmp_path)
+    (root / _Z).unlink()
+    force_refresh(b)  # B rewrites the shared manifest without Z
+    assert b.resolve("K_Z") is None
+
+    # X is edited so A has something to refresh; Z must not be carried forward.
+    bump_mtime(write_loc(root, _X, "l_english", "K_X", "x2"))
+    force_refresh(a)
+
+    assert a.resolve("K_Z") is None
+    assert a.resolve("K_X")["value"] == "x2"
+    assert str(Path(_Z)) not in a._by_file
+
+
+def test_file_removed_by_another_process_is_dropped_even_with_no_other_edit(tmp_path):
+    root, a, b = _two_loc_indexes(tmp_path)
+    (root / _Z).unlink()
+    force_refresh(b)
+    force_refresh(a)  # nothing else changed; the manifest already matches disk
+    assert a.resolve("K_Z") is None
+
+
+def test_file_added_by_another_process_is_picked_up(tmp_path):
+    root, a, b = _two_loc_indexes(tmp_path)
+    write_loc(root, "localisation/english/w_l_english.yml", "l_english", "K_W", "w1")
+    force_refresh(b)  # B parses W and writes it into the shared manifest
+    assert b.resolve("K_W") is not None
+    force_refresh(a)
+    assert a.resolve("K_W") is not None
+
+
+def test_file_edited_by_another_process_is_reparsed(tmp_path):
+    root, a, b = _two_loc_indexes(tmp_path)
+    bump_mtime(write_loc(root, _X, "l_english", "K_X", "x2"))
+    force_refresh(b)  # B re-indexes X and updates the manifest
+    assert b.resolve("K_X")["value"] == "x2"
+    force_refresh(a)
+    assert a.resolve("K_X")["value"] == "x2"
+
+
+def test_file_removed_by_another_process_monolithic_index(tmp_path):
+    root = make_mod_root(tmp_path / "Mod")
+    cache = tmp_path / "cache"
+    d = root / "common" / "national_focus"
+    d.mkdir(parents=True)
+    (d / "x.txt").write_text("focus_tree = {\n\tfocus = { id = X_a }\n}\n", encoding="utf-8")
+    (d / "z.txt").write_text("focus_tree = {\n\tfocus = { id = Z_a }\n}\n", encoding="utf-8")
+    a = FocusIndex(root, cache, None)
+    b = FocusIndex(root, cache, None)
+    a.ensure_fresh()
+    b.ensure_fresh()
+    assert a.resolve("Z_a") is not None
+
+    (d / "z.txt").unlink()
+    force_refresh(b)
+    force_refresh(a)
+    assert a.resolve("Z_a") is None
+    assert a.list_files() == [str(Path("common/national_focus/x.txt"))]

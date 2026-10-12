@@ -1,0 +1,23 @@
+# Verbatim-shaped excerpt from the Millennium-Dawn checkout (issue #150):
+# history/countries/CAM - Cameroon.txt (first block, trimmed) and
+# common/bookmarks/blitzkrieg.txt (bookmark block, trimmed).
+# Dates appear both as block names and as bare values, with and without an hour.
+capital = 321
+2000.1.1 = {
+	set_variable = { currency_strength = 0.5 }
+	set_cosmetic_tag = CAM
+	set_variable = { gdp_per_capita = 2.938 }
+	set_technology = {
+		railway_system_01 = 1
+		infantry_weapons_1 = 1
+	}
+	if = {
+		limit = { NOT = { has_dlc = "La Resistance" } }
+		set_technology = { decryption_1 = 1 }
+	}
+}
+bookmark = {
+	name = "MILLENNIUM_DAWN"
+	date = 2000.1.1.12
+	default = yes
+}

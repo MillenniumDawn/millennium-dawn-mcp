@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from md_mcp.paradox import ParseError, parse_string
 from md_mcp.paradox.lexer import LexError, Tokenizer
-from md_mcp.paradox.nodes import SymbolNode
+from md_mcp.paradox.nodes import SymbolNode, Token
 from md_mcp.util.encoding import read_text
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_empty_input():
@@ -149,6 +153,133 @@ def test_parse_error_mentions_exact_line_and_column():
 def test_parse_error_uses_previous_position_for_invalid_name():
     with pytest.raises(ParseError, match=r"at \(1, 1\)"):
         parse_string("= 1")
+
+
+def _tokens(src: str) -> list[Token]:
+    tokens: list[Token] = []
+    tokenizer = Tokenizer(src)
+    while (t := tokenizer.next()).type != "eof":
+        tokens.append(t)
+    return tokens
+
+
+@pytest.mark.parametrize(
+    ("src", "op", "start"),
+    [
+        ("a >= 5", ">=", 2),
+        ("a <= 5", "<=", 2),
+        ("a != 5", "!=", 2),
+        ("a > 5", ">", 2),
+        ("a < 5", "<", 2),
+    ],
+)
+def test_operators_lex_as_whole_tokens_with_exact_spans(src, op, start):
+    """Two-char operators must not split: the single-char class would leave the `=`
+    behind, and `a >= 5` then failed to parse at all (issue #150)."""
+    tokens = _tokens(src)
+    assert [(t.type, t.value) for t in tokens] == [
+        ("symbol", "a"),
+        ("operator", op),
+        ("number", "5"),
+    ]
+    op_tok = tokens[1]
+    assert (op_tok.start, op_tok.end) == (start, start + len(op))
+    assert parse_string(src).children()[0].operator == op
+
+
+def test_date_token_taken_before_number_with_span():
+    # number alone would stop at the second dot and leave a stray `.1` token.
+    src = "1936.1.1"
+    [tok] = _tokens(src)
+    assert tok.type == "date"
+    assert (tok.start, tok.end) == (0, 8), "date token must cover the whole literal"
+    # A 2-part dotted literal is still a plain number.
+    [num] = _tokens("1936.1")
+    assert num.type == "number"
+
+
+def test_date_value_stays_a_symbol_not_a_float():
+    root = parse_string("date = 2030.1.1")
+    [node] = root.children()
+    assert node.name == "date"
+    assert node.operator == "="
+    assert node.value == SymbolNode("2030.1.1")
+
+    value_tok = _tokens("x = 2030.1.1")[2]
+    assert value_tok.type == "date"
+    assert (value_tok.start, value_tok.end) == (4, 12)
+
+
+def test_date_value_with_optional_hour():
+    root = parse_string("date = 2000.1.1.12")
+    [node] = root.children()
+    assert node.value == SymbolNode("2000.1.1.12")
+
+
+def test_date_block_name_with_optional_hour():
+    root = parse_string("1939.1.1 = { history = yes }\n2010.5.4.12 = { flag = 1 }")
+    dated, hourly = root.children()
+    assert dated.name == "1939.1.1"
+    assert dated.operator == "="
+    assert dated.children()[0].name == "history"
+    assert hourly.name == "2010.5.4.12"
+    assert hourly.children()[0].name == "flag"
+
+
+def test_numeric_prefixed_symbol_still_one_symbol():
+    # `date` sits between `symbol` and `number`: the symbol branch must still win.
+    tokens = _tokens("1936.x = 1")
+    assert [(t.type, t.value) for t in tokens] == [
+        ("symbol", "1936.x"),
+        ("operator", "="),
+        ("number", "1"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("src", "expected"),
+    [
+        ("x = 1.", 1.0),
+        ("nationalist_drift = 0.", 0.0),
+        ("x = -3.5", -3.5),
+        ("x = 2030.1", 2030.1),
+        ("x = 42", 42),
+    ],
+)
+def test_number_tolerance_including_trailing_dot(src, expected):
+    """The game writes `x = 0.`; without the trailing-dot branch the whole file
+    (common/country_leader/00_traits.txt) fails to tokenise (issue #150)."""
+    root = parse_string(src)
+    [node] = root.children()
+    assert node.value == expected
+    assert isinstance(node.value, type(expected))
+
+
+def test_real_md_history_dates_fixture_exact_ast():
+    """Representative Millennium-Dawn excerpt (see fixture header): dates both as
+    block names and bare values, decimals inside blocks, a bookmark with an hour."""
+    root = parse_string(read_text(FIXTURES / "history_dates_minimal.txt"))
+    assert root.operator is None
+    capital, dated, bookmark = root.children()
+
+    assert (capital.name, capital.operator, capital.value) == ("capital", "=", 321)
+
+    assert dated.name == "2000.1.1"
+    assert dated.operator == "="
+    set_currency, set_tag, set_gdp, set_tech, if_block = dated.children()
+    assert set_currency.name == "set_variable"
+    assert set_currency.children()[0].value == 0.5
+    assert set_tag.value == SymbolNode("CAM")
+    assert set_gdp.children()[0].value == 2.938
+    assert set_tech.children()[0].value == 1
+    assert if_block.children()[0].name == "limit"
+
+    assert bookmark.name == "bookmark"
+    name, date, default_node = bookmark.children()
+    assert name.value == "MILLENNIUM_DAWN"
+    assert date.name == "date"
+    assert date.value == SymbolNode("2000.1.1.12")
+    assert default_node.value == SymbolNode("yes")
 
 
 def test_real_focus_file_parses(fake_mod_root):

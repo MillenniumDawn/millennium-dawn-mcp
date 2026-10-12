@@ -51,7 +51,7 @@ def _unescape_string(quoted: str) -> str:
 
 def _parse_node(tokens: Tokenizer) -> Node:
     name = tokens.next()
-    if name.type not in ("string", "symbol", "number"):
+    if name.type not in ("string", "symbol", "number", "date"):
         tokens.throw("Expect name to be symbol, string or number", prev=True)
 
     next_token = tokens.peek()
@@ -118,7 +118,7 @@ def _parse_node_value(
             num = int(v)
         return num, next_token
 
-    if t in ("symbol", "unitnumber"):
+    if t in ("symbol", "unitnumber", "date"):
         return SymbolNode(name=next_token.value), next_token
 
     if t == "operator" and next_token.value == "{":

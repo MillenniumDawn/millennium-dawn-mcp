@@ -14,21 +14,24 @@ from ..util.line_numbers import line_and_column, line_starts
 from .nodes import Token
 
 # Order matches the priority sort in `hoiparser.ts`: lower priority value first.
-#   comment(0) < operator(10), string(10) < symbol(40) < unitnumber(49) < number(50) < eof(1000)
+#   comment(0) < operator(10), string(10) < symbol(40) < date(45) < unitnumber(49)
+#                    < number(50) < eof(1000)
 #
-# `symbol` must come BEFORE `number` so that `539.productivity_state_var` and
+# `symbol` must come BEFORE `date`/`number` so that `539.productivity_state_var` and
 # `2.Square_Frame` parse as single symbols (the `(?:\d+\.)?` prefix lets a symbol
 # start with `<int>.`), not as `539` followed by an invalid `.productivity_state_var`
 # token.
+#
 _TOKEN_TYPES: list[tuple[str, str]] = [
     ("comment", r"#.*(?:[\r\n]|$)"),
-    ("operator", r"[={}<>;,]|>=|<=|!="),
+    ("operator", r">=|<=|!=|[={}<>;,]"),
     # Differs from hoiparser.ts on purpose (docs/parser.md): disjoint alternatives
     # make an unterminated string fail in linear time.
     ("string", r'"(?:\\[\s\S]|[^"\\])*"'),
     ("symbol", r"(?:\d+\.)?[a-zA-Z_@\[\]][\w:\._@\[\]\-\?\^\/ -ɏ|]*"),
+    ("date", r"\d+(?:\.\d+){2,}"),
     ("unitnumber", r"(?:-?\d*\.\d+|-?\d+)(?:%%?)"),
-    ("number", r"-?\d*\.\d+|-?\d+|0x\d+"),
+    ("number", r"-?\d*\.\d+|-?\d+\.?|0x\d+"),
     ("eof", r"$"),
 ]
 

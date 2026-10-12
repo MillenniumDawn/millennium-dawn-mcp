@@ -739,6 +739,21 @@ def test_merge_places_new_entries(head, tail, new):
     assert out["orphaned"] == []
 
 
+@pytest.mark.parametrize(
+    "original",
+    ["# no sprites yet", 'spriteType = { name = "GFX_z" texturefile = "gfx/z.dds" } # last'],
+    ids=["comment-only", "block-then-comment"],
+)
+def test_merge_appends_on_a_new_line_after_an_unfinished_last_line(original):
+    """With no root the new block goes at the end. A last line with no newline may
+    be a comment, and it must not take the block's opening line with it."""
+    out = gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds"}, _render)
+
+    assert out["txt"] == original + "\n" + _A
+    again = gfx_mod.merge_gfx_text(out["txt"], {"GFX_a": "gfx/a.dds"}, _render)
+    assert again["new"] == []
+
+
 def test_merge_skips_a_block_that_never_closes():
     original = 'spriteTypes = {\n\tspriteType = {\n\t\tname = "GFX_a" # never closed'
 

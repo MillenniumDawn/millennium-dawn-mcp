@@ -79,6 +79,9 @@
   `xffffffff` entry after it, because the hex branch of the number token came last and accepted
   decimal digits only. Ported from `hoiparser.ts`. On the real mod this changes 66 values in
   `interface/core.gfx` and nothing else; no index stores them.
+- `generate_gfx_merge` starts a new line before it appends to a document with no closed
+  `spriteTypes` root. When the last line was a comment with no newline, the new block's opening
+  line landed inside that comment.
 
 ## 1.0.0 - 2026-09-02
 

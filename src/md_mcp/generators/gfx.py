@@ -290,7 +290,8 @@ def merge_gfx_text(
         appended = "".join(render(name, entries[name]) for name in new_names)
         insert_at = _sprite_types_close(text)
         if insert_at == -1:
-            text = text + appended
+            # A last line with no newline may be a comment; do not append into it.
+            text = text + ("" if text.endswith("\n") else "\n") + appended
         else:
             text = text[:insert_at] + appended + text[insert_at:]
 

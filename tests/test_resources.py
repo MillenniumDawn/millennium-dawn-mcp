@@ -61,7 +61,8 @@ def _write_focus(tmp_path: Path, text: str) -> tuple[Path, Settings]:
     mod_root = tmp_path / "Mod"
     focus_dir = mod_root / "common" / "national_focus"
     focus_dir.mkdir(parents=True)
-    (focus_dir / "test.txt").write_text(text, encoding="utf-8")
+    # Bytes, not write_text: exact-source assertions need LF on every platform.
+    (focus_dir / "test.txt").write_bytes(text.encode("utf-8"))
     return mod_root, _settings(mod_root, tmp_path / ".cache")
 
 
@@ -128,7 +129,7 @@ DECISIONS_WITH_DUPES = """TST_category = {
 """
 
 DECISIONS_WITH_COMMENT = (
-    "TST_category = {\n\tTST_commented = {\n\t\tcost = 30 # important note\n\t}\n}\n"
+    "TST_category = {\n" "\tTST_commented = {\n" "\t\tcost = 30 # important note\n" "\t}\n" "}\n"
 )
 
 EVENTS_WITH_IMPOSTOR = """add_namespace = TST
@@ -837,7 +838,12 @@ def test_extract_focus_block_preserves_internal_comments_after_same_line_opener(
         "} }\n"
     )
     expected = (
-        "focus = { # opening note\n\tid = TST_a\n\n\t# interior note\n\tx = 1 # trailing note\n}"
+        "focus = { # opening note\n"
+        "\tid = TST_a\n"
+        "\n"
+        "\t# interior note\n"
+        "\tx = 1 # trailing note\n"
+        "}"
     )
 
     assert _extract_focus_block(text, "TST_a") == expected

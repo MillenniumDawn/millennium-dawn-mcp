@@ -25,7 +25,7 @@ from ..indexes import (
 )
 from ..paradox.ast_cache import parse_cached
 from ..paradox.schema import extract_focus_records
-from ..util.focus_anchor import FocusAnchorError, select_indexed_anchor
+from ..util.index_anchor import IndexAnchorError, select_indexed_anchor
 from ..util.pathing import resolve_scope_file
 from ..util.response import enforce_budget
 
@@ -71,14 +71,14 @@ def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusInde
             kind="Focus",
             ident=focus_id,
         )
-    except FocusAnchorError as e:
+    except IndexAnchorError as e:
         return {
             "ok": False,
             "id": focus_id,
             "kind": cached["kind"],
             "file": cached["file"],
             "line": cached.get("line"),
-            "error": e.message,
+            "error": e.args[0],
         }
 
     return enforce_budget(

@@ -29,7 +29,7 @@ from .paradox.schema import (
     find_idea_nodes,
     find_sprite_nodes,
 )
-from .util.focus_anchor import select_indexed_anchor
+from .util.index_anchor import select_indexed_anchor
 from .util.line_numbers import line_starts, pos_to_line
 from .util.pathing import resolve_scope_file
 
@@ -102,17 +102,19 @@ def _definition_resource(
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
     text, root = parse_cached(abs_path)
-    node = _anchor(find_nodes(root, ident), text, rec, kind=kind, ident=ident)
+    node = _anchor(find_nodes(root, ident), text, rec.get("line"), kind=kind, ident=ident)
     return _slice_node(text, node)
 
 
-def _anchor(candidates: list[Node], text: str, rec: dict, *, kind: str, ident: str) -> Node:
+def _anchor(
+    candidates: list[Node], text: str, line: Optional[int], *, kind: str, ident: str
+) -> Node:
     """Pick the single node the index record refers to, or fail clearly.
 
     Anchors by the record's indexed line when exactly one candidate starts there;
     a lone hierarchy-valid match is accepted when the index has no line, and every
     other case (stale line, several matches on the indexed line, no line to
-    disambiguate several matches) is rejected as a clear `FocusAnchorError` rather
+    disambiguate several matches) is rejected as a clear `IndexAnchorError` rather
     than silently returning the first one.
     """
     starts = line_starts(text)
@@ -120,7 +122,7 @@ def _anchor(candidates: list[Node], text: str, rec: dict, *, kind: str, ident: s
         (pos_to_line(node.name_token.start, starts) if node.name_token else None, node)
         for node in candidates
     ]
-    return select_indexed_anchor(entries, line=rec.get("line"), kind=kind, ident=ident)
+    return select_indexed_anchor(entries, line=line, kind=kind, ident=ident)
 
 
 def _slice_node(text: str, node: Node) -> str:
@@ -145,12 +147,7 @@ def _extract_focus_block(
     if root is None:
         root = parse_string(text)
 
-    starts = line_starts(text)
-    entries = [
-        (pos_to_line(cand.name_token.start, starts) if cand.name_token else None, cand)
-        for cand in find_focus_nodes(root, focus_id)
-    ]
-    cand = select_indexed_anchor(entries, line=line, kind="Focus", ident=focus_id)
+    cand = _anchor(find_focus_nodes(root, focus_id), text, line, kind="Focus", ident=focus_id)
 
     # Slice from `name_token` (plus any indentation before it) to the matching `}`.
     if cand.name_token is None or cand.value_end_token is None:

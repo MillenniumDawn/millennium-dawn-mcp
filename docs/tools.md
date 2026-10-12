@@ -39,6 +39,11 @@ Look up a focus by ID and return file/line plus parsed metadata.
 `prerequisites` is a list of OR-groups; each inner list is a set of prereqs
 where any one satisfies that requirement.
 
+When an id is defined more than once, `parsed` comes from the definition the
+index picked (the last one), matched by its line. If no definition starts on
+the indexed line, or several do, the call returns `ok: false` with an `error`
+instead of guessing. A stale index is the usual cause; rebuild it.
+
 ### `resolve_loc(key: str, lang?: str) -> dict`
 
 Look up a localisation key. Falls back to English if missing in the requested

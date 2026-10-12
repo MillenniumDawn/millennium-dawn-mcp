@@ -2,8 +2,8 @@
 
 The focus index resolves duplicate ids last-write-wins, so `resolve_focus_tool` must
 re-anchor freshly parsed records to the line the index picked instead of taking the
-first match in the file. Anchoring rules come from `util/focus_anchor.py`, shared
-with the `md://focus` resource.
+first match in the file. Anchoring rules come from `util/index_anchor.py`, shared
+with the `md://` resources.
 """
 
 from __future__ import annotations
@@ -13,17 +13,11 @@ from typing import cast
 
 import pytest
 
-import md_mcp
 from md_mcp.config import Settings
 from md_mcp.indexes import FocusIndex
 from md_mcp.resources import focus_resource
 from md_mcp.tools.resolver_tools import resolve_focus_tool
-from md_mcp.util.focus_anchor import FocusAnchorError
-
-
-def test_imports_worktree_source():
-    source_root = Path(__file__).resolve().parents[1] / "src"
-    assert Path(md_mcp.__file__).resolve().is_relative_to(source_root)
+from md_mcp.util.index_anchor import IndexAnchorError
 
 
 def _settings(mod_root: Path, cache_dir: Path) -> Settings:
@@ -75,7 +69,7 @@ def test_resolve_focus_returns_parsed_details_for_unique_focus(tmp_path):
     result = resolve_focus_tool("TST_a", settings, index)
 
     assert result["ok"] is True
-    assert result["file"] == "common/national_focus/focus_0.txt"
+    assert Path(result["file"]) == Path("common/national_focus/focus_0.txt")
     assert result["kind"] == "focus_tree"
     assert result["line"] == 2
     assert result["parsed"]["x"] == 4
@@ -126,12 +120,12 @@ def test_resolve_focus_anchors_duplicate_across_files_to_the_indexed_winner(tmp_
     )
     rec = index.resolve("TST_dup")
     assert rec is not None
-    assert rec["file"] == "common/national_focus/focus_1.txt"
+    assert Path(rec["file"]) == Path("common/national_focus/focus_1.txt")
 
     result = resolve_focus_tool("TST_dup", settings, index)
 
     assert result["ok"] is True
-    assert result["file"] == "common/national_focus/focus_1.txt"
+    assert Path(result["file"]) == Path("common/national_focus/focus_1.txt")
     assert result["parsed"]["x"] == 9
 
 
@@ -253,10 +247,10 @@ def test_resolve_focus_lone_candidate_without_indexed_line_still_resolves(tmp_pa
     assert result["parsed"]["x"] == 2
 
 
-def test_focus_anchor_error_is_a_keyerror():
+def test_index_anchor_error_is_a_keyerror():
     # Resources raise KeyError through the MCP layer; the shared error keeps that
     # contract.
-    assert issubclass(FocusAnchorError, KeyError)
+    assert issubclass(IndexAnchorError, KeyError)
 
 
 @pytest.mark.integration

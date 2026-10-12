@@ -29,11 +29,11 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 from pathlib import Path
 from typing import Optional, Sequence
 
 from ..indexes.base import StaleCheck
+from ..util.git import GitError, run_git
 
 # Extensions the validator suite reports on. Bounds the message scrape so prose
 # like "1.13.*" or "ALG.2001" can't be mistaken for a filename.
@@ -125,23 +125,18 @@ def _list_mod_files(mod_root: Path, submod_root: Optional[Path] = None) -> tuple
     """Every active-worktree-relative file path, using the submod git repo when set."""
     git_root = submod_root or mod_root
     try:
-        proc = subprocess.run(
-            # --others picks up files the user just created; lint's changed-file
-            # scope includes them, so attribution has to see them too.
-            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-            cwd=str(git_root),
-            check=False,
-            capture_output=True,
-            stdin=subprocess.DEVNULL,
+        # --others picks up files the user just created; lint's changed-file
+        # scope includes them, so attribution has to see them too.
+        listed = run_git(
+            ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            cwd=git_root,
             timeout=60,
         )
-        if proc.returncode == 0:
-            listed = proc.stdout.decode("utf-8", "replace").split("\0")
-            paths = tuple(p for p in listed if p)
-            if paths:
-                return paths
-    except (OSError, subprocess.SubprocessError):
-        pass
+    except GitError:
+        listed = b""
+    paths = tuple(p for p in listed.decode("utf-8", "replace").split("\0") if p)
+    if paths:
+        return paths
 
     out: list[str] = []
     for root_name in _WALK_ROOTS:

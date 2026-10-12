@@ -686,6 +686,92 @@ def test_merge_is_idempotent():
     assert second["txt"] == first["txt"]
 
 
+_A = _render("GFX_a", "gfx/a.dds")
+
+
+@pytest.mark.parametrize(
+    ("head", "tail", "new"),
+    [
+        pytest.param(
+            'spriteTypes = {\n\tspriteType = {\n\t\ttexturefile = "gfx/x.dds"\n\t}\n' + _A,
+            "}\n",
+            ["GFX_b"],
+            id="unnamed-block-is-not-an-entry",
+        ),
+        pytest.param(
+            "# spriteTypes = { fake }\nspriteTypes = {\n" + _A,
+            "}\n",
+            ["GFX_b"],
+            id="root-in-comment",
+        ),
+        pytest.param(
+            'note = "spriteTypes = { fake }"\nspriteTypes = {\n' + _A,
+            "}\n",
+            ["GFX_b"],
+            id="root-in-string",
+        ),
+        pytest.param("spriteTypes = {\n" + _A, "}\n# end", ["GFX_b"], id="comment-on-last-line"),
+        pytest.param(
+            'spriteType = { name = "GFX_a" texturefile = "gfx/a.dds" }\n',
+            "",
+            ["GFX_b"],
+            id="no-root",
+        ),
+        pytest.param("spriteTypes = {\n" + _A, "", ["GFX_b"], id="root-never-closed"),
+        pytest.param(
+            'note = "never closed\nspriteTypes = {\n' + _A + "}\n",
+            "",
+            ["GFX_a", "GFX_b"],
+            id="unterminated-string-hides-everything",
+        ),
+    ],
+)
+def test_merge_places_new_entries(head, tail, new):
+    """New blocks go before the root's closing brace, or at the end of a document
+    with no closed root. The malformed cases record what the merge does today, not
+    what it should do: a stray quote makes it add `GFX_a` a second time."""
+    entries = {"GFX_a": "gfx/a.dds", "GFX_b": "gfx/b.dds"}
+
+    out = gfx_mod.merge_gfx_text(head + tail, entries, _render)
+
+    assert out["new"] == new
+    assert out["txt"] == head + "".join(_render(n, entries[n]) for n in new) + tail
+    assert out["orphaned"] == []
+
+
+def test_merge_skips_a_block_that_never_closes():
+    original = 'spriteTypes = {\n\tspriteType = {\n\t\tname = "GFX_a" # never closed'
+
+    out = gfx_mod.merge_gfx_text(original, {}, _render)
+
+    assert out["txt"] == original
+    assert out["orphaned"] == []
+    assert out["would_write"] is False
+
+
+def test_merge_matches_keys_as_whole_words():
+    original = (
+        "spriteTypes = {\n"
+        "\tcorneredTileSpriteType = {\n"
+        '\t\tname = "GFX_tile"\n'
+        '\t\ttexturefile = "gfx/tile.dds"\n'
+        "\t}\n"
+        "\tspriteType = {\n"
+        '\t\tsprite_name = "GFX_other"\n'
+        '\t\tname = "GFX_a"\n'
+        '\t\tmy_texturefile = "gfx/other.dds"\n'
+        '\t\ttexturefile = "gfx/old.dds"\n'
+        "\t}\n"
+        "}\n"
+    )
+
+    out = gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/new.dds"}, _render)
+
+    assert out["changed"] == [("GFX_a", "gfx/old.dds")]
+    assert out["orphaned"] == []
+    assert 'name = "GFX_tile"' in out["txt"]
+
+
 def test_subprocess_generator_is_gone():
     assert not hasattr(gfx_mod, "subprocess_generator")
 

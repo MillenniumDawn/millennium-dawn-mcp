@@ -70,6 +70,13 @@
   `LocalisationIndex.list_files()` now covers indexed languages only; `list_country_content`
   still lists a country's loc files in every language (it walks `localisation/` directly).
 
+### Fixed
+
+- A hex value such as `color = 0xffffffff` parses as one integer. It read as `0` with a stray
+  `xffffffff` entry after it, because the hex branch of the number token came last and accepted
+  decimal digits only. Ported from `hoiparser.ts`. On the real mod this changes 66 values in
+  `interface/core.gfx` and nothing else; no index stores them.
+
 ## 1.0.0 - 2026-09-02
 
 First tagged release. Cumulative changes from the initial commit through PR #120. Read-only MCP

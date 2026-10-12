@@ -306,11 +306,15 @@ def test_numeric_prefixed_symbol_still_one_symbol():
         ("x = -3.5", -3.5),
         ("x = 2030.1", 2030.1),
         ("x = 42", 42),
+        ("x = 0xff", 255),
+        ("color = 0xffffffff", 4294967295),
+        ("x = 0", 0),
     ],
 )
 def test_number_tolerance_including_trailing_dot(src, expected):
     """The game writes `x = 0.`; without the trailing-dot branch the whole file
-    (common/country_leader/00_traits.txt) fails to tokenise (issue #150)."""
+    (common/country_leader/00_traits.txt) fails to tokenise (issue #150). A hex
+    literal is one number: `[node]` fails if `xffffffff` is left as a stray entry."""
     root = parse_string(src)
     [node] = root.children()
     assert node.value == expected

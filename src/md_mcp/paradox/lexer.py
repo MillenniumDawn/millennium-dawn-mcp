@@ -31,7 +31,8 @@ _TOKEN_TYPES: list[tuple[str, str]] = [
     ("symbol", r"(?:\d+\.)?[a-zA-Z_@\[\]][\w:\._@\[\]\-\?\^\/ -ɏ|]*"),
     ("date", r"\d+(?:\.\d+){2,}"),
     ("unitnumber", r"(?:-?\d*\.\d+|-?\d+)(?:%%?)"),
-    ("number", r"-?\d*\.\d+|-?\d+\.?|0x\d+"),
+    # Hex first: behind the others, the `0` of `0xffffffff` was the whole number.
+    ("number", r"0x[0-9a-fA-F]+|-?\d*\.\d+|-?\d+\.?"),
     ("eof", r"$"),
 ]
 

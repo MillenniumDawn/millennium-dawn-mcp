@@ -38,12 +38,12 @@ pytest -m integration                # requires MD_MOD_ROOT (real mod)
 pytest tests/test_focus_graph.py -v  # focused
 ```
 
-To check coverage for the current branch, run the unit suite under coverage and
-compare changed lines with the default branch:
+CI has two coverage gates, both at 85%: total coverage of `src`, and coverage
+of the lines a PR changes. To check both for the current branch:
 
 ```bash
 coverage run --source=src -m pytest -q
-coverage report
+coverage report --fail-under=85
 coverage xml
 diff-cover coverage.xml --compare-branch=origin/main --fail-under=85
 ```
@@ -58,6 +58,8 @@ Markers are defined in [`pyproject.toml`](../pyproject.toml)
 - **`fake_mod_root`** — minimal mod tree under `tmp_path`: `descriptor.mod` and
   one file each of focuses, loc, events, decisions, ideas, sprites, tags,
   characters, traits, and scripted effects and triggers. Use for fast unit tests.
+- **`shared_fake_mod_root`** — the same tree built once per module. Only for
+  tests that never write to it.
 - **`cache_dir`** — an empty cache path under `tmp_path`.
 - **`real_mod_root`** — resolves `MD_MOD_ROOT`; skips if unset or invalid.
   Use for integration tests that need realistic content volume.
@@ -104,9 +106,22 @@ from surviving into later tests that fork processes.
    important knobs (`detail`, `limit`, mode flags).
 5. **Test** under `tests/test_<name>.py`:
    - Happy path with small input.
-   - Signature guard (use `inspect.signature(...)` to lock the API).
    - One truncation/budget case.
    - One error case (missing id, malformed input).
+
+   Then add the tool to both tables in `tests/test_server.py`. A tool missing
+   from either fails the suite.
+
+   - `TOOL_SIGNATURES` lists every tool's agent-facing parameters and
+     defaults, and `test_tool_signatures` compares it with the live server.
+     Arguments the server supplies itself (settings, indexes) are not in the
+     table: mypy checks them in the wrappers `server.py` writes out, and for a
+     tool bound with `_bind_tool` a change to them shifts the parameters left
+     in the table.
+   - `TOOL_CALLS` holds one call per tool against the fake mod and the fields
+     its payload must carry. Pick fields that show the arguments arrived. If
+     the tool depends on server-owned state and a row cannot show it, add a
+     test beside the tables that does.
 6. **Document** in [`docs/tools.md`](./tools.md).
 
 Skeleton:

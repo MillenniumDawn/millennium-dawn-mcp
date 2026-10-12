@@ -186,8 +186,11 @@ use `line_starts(text)` + `pos_to_line(pos, line_starts)` from
 4. **Register in `server.py`** with `@mcp.tool()` and a one-line description.
    That description shows up in the agent's prompt **every turn**; it's
    prompt budget, so keep it tight and informative (mention the key knobs).
-5. **Tests** under `tests/test_<name>.py` with at least: signature guard,
-   small-output happy path, and one truncation case.
+5. **Tests** under `tests/test_<name>.py` with at least a small-output happy
+   path and one truncation case. Add the tool to both tables in
+   `tests/test_server.py`: `TOOL_SIGNATURES` pins the parameters agents see,
+   so no per-tool signature guard is needed, and `TOOL_CALLS` calls it once
+   through the server. A tool missing from either fails the suite.
 6. **Document** it in [`docs/tools.md`](./docs/tools.md).
 
 The skeleton and the longer checklist are in

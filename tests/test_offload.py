@@ -8,6 +8,28 @@ import pytest
 from md_mcp.util.offload import BoundedOffloader
 
 
+@pytest.mark.parametrize(("workers", "capacity"), [(0, 1), (2, 1)])
+def test_offloader_rejects_limits_that_cannot_admit_work(workers: int, capacity: int) -> None:
+    with pytest.raises(ValueError, match="capacity"):
+        BoundedOffloader(workers=workers, capacity=capacity)
+
+
+def test_failed_submit_releases_the_lock_and_the_slot() -> None:
+    async def run() -> None:
+        offloader = BoundedOffloader(workers=1, capacity=1)
+        lock = asyncio.Lock()
+        offloader.close()
+
+        # A closed pool refuses the submit. Capacity is one, so the second call
+        # would wait forever if the first had kept its slot or the lock.
+        for _ in range(2):
+            with pytest.raises(RuntimeError, match="shutdown"):
+                await asyncio.wait_for(offloader.run_serialized(lock, lambda: None), timeout=2)
+        assert not lock.locked()
+
+    asyncio.run(run())
+
+
 def test_offloader_propagates_worker_exception() -> None:
     async def run() -> None:
         offloader = BoundedOffloader(workers=1, capacity=1)

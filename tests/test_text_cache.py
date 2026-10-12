@@ -199,6 +199,21 @@ def test_cache_missing_file_returns_none_and_drops_entry(tmp_path):
     assert len(cache) == 0 and cache.total_bytes == 0
 
 
+def test_cache_file_unreadable_after_stat_returns_none_and_drops_entry(tmp_path, monkeypatch):
+    cache = TextCache(max_bytes=1024)
+    f = tmp_path / "a.txt"
+    f.write_text("hi", encoding="utf-8")
+    cache.read(f)
+    _bump_mtime(f)
+
+    def unreadable(_path):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(text_cache, "decode_text", unreadable)
+    assert cache.read(f) is None
+    assert len(cache) == 0 and cache.total_bytes == 0
+
+
 def test_env_override_sets_bound(monkeypatch):
     monkeypatch.setenv(text_cache.ENV_VAR, "1234")
     assert TextCache().max_bytes == 1234

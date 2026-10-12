@@ -26,7 +26,6 @@ import importlib.util
 import io
 import os
 import re
-import subprocess
 import sys
 import threading
 from functools import lru_cache
@@ -35,6 +34,7 @@ from typing import Any, Iterator, Optional, Sequence
 
 from ..analysis.suppressions import SUPPRESSION_SOURCE, suppressed_count
 from ..util.encoding import read_text
+from ..util.git import GitError, run_git
 from ..validators import SLOW_VALIDATORS, ValidatorRunner
 from ..validators.attribution import IssueAttributor
 
@@ -454,21 +454,16 @@ def _equipment_variant_context_changed(relevant: set, mod_root: Optional[Path]) 
         # A removed final event call still changes context, although the
         # current file no longer contains a token for the check above to find.
         try:
-            diff = subprocess.run(
-                ["git", "diff", "--no-ext-diff", "--unified=0", "HEAD", "--", path],
+            diff = run_git(
+                ["diff", "--no-ext-diff", "--unified=0", "HEAD", "--", path],
                 cwd=mod_root,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
                 timeout=15,
-                check=False,
             )
-        except (OSError, subprocess.SubprocessError):
+        except GitError:
             continue
-        if diff.returncode == 0 and any(
+        if any(
             line.startswith("-") and not line.startswith("---") and _has_event_call(line)
-            for line in diff.stdout.splitlines()
+            for line in diff.decode("utf-8", "replace").splitlines()
         ):
             return True
     return False

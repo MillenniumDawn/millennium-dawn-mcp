@@ -42,7 +42,7 @@ def generate_decision(
     Args:
       id                  — decision id
       tag                 — country tag for the auto-allowed `original_tag = X` guard
-      icon                — GFX_decision_<icon> reference; placeholder if omitted
+      icon                — decision icon, emitted verbatim; generic_decision if omitted
       cost                — political-power cost (or other resource, depending on script)
       days_remove         — `days_remove = N` (decision stays active for N days)
       days_re_enable      — cooldown after completion

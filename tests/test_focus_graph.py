@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from md_mcp.analysis.focus_graph import focus_graph
 from md_mcp.indexes import FocusIndex
+
+
+def test_focus_graph_imports_from_worktree_source():
+    expected = Path(__file__).resolve().parents[1] / "src/md_mcp/analysis/focus_graph.py"
+    assert Path(focus_graph.__code__.co_filename).resolve() == expected
 
 
 def test_focus_graph_summary_default(fake_mod_root, cache_dir):
@@ -223,6 +230,315 @@ def test_focus_graph_paths_flags_cycle_unreliable(fake_mod_root, cache_dir):
     clean = next(p for p in g["paths"] if p["focus"] == "TST_c_clean")
     assert "estimate_unreliable" in target
     assert "estimate_unreliable" not in clean
+
+
+def _write_tree(fake_mod_root, name: str, body: str):
+    f = fake_mod_root / "common" / "national_focus" / f"{name}.txt"
+    f.write_text(body, encoding="utf-8")
+
+
+def _paths_for(fake_mod_root, cache_dir, focus_ids, tag="TST"):
+    """Run the paths tier once and return its per-focus entries keyed by focus id."""
+    fi = FocusIndex(fake_mod_root, cache_dir)
+    g = focus_graph(tag, fake_mod_root, fi, detail="paths", focus_ids=focus_ids)
+    assert g["ok"]
+    return {p["focus"]: p for p in g["paths"]}
+
+
+def _tree(name: str, focuses: str) -> str:
+    return f"focus_tree = {{\n    id = {name}\n{focuses}}}"
+
+
+def test_paths_no_longer_promises_cheapest_overlap_repro(fake_mod_root, cache_dir):
+    """Issue #163 repro 1: OR-group + forced-member overlap must resolve to B+T, not A+B+T.
+
+    T's groups are [A, B] and [B]. The greedy standalone-closure solve used to
+    union A (cheapest member of group 1) with B (forced by group 2), giving
+    cost 17; B alone satisfies both groups for cost 11.
+    """
+    body = _tree(
+        "overlap_tree",
+        """    focus = { id = TST_o_a x = 0 y = 0 cost = 6 }
+    focus = { id = TST_o_b x = 1 y = 0 cost = 10 }
+    focus = {
+        id = TST_o_t x = 0 y = 1 cost = 1
+        prerequisite = { focus = TST_o_a focus = TST_o_b }
+        prerequisite = { focus = TST_o_b }
+    }
+""",
+    )
+    _write_tree(fake_mod_root, "TST_overlap", body)
+    p = _paths_for(fake_mod_root, cache_dir, ["TST_o_t"])["TST_o_t"]
+    assert p["found"] is True
+    assert p["estimate_approximate"] is True
+    assert p["estimated_focus_count"] == 2
+    assert p["estimated_days"] == 77.0  # (B 10 + T 1) * 7, not (A 6 + B 10 + T 1) * 7
+    assert p["chain"] == ["TST_o_b", "TST_o_t"]
+    assert "estimate_unreliable" not in p
+
+
+def test_paths_counts_shared_ancestors_once(fake_mod_root, cache_dir):
+    """Or-group members that overlap a pending group cover the shared ancestor once."""
+    body = _tree(
+        "shared_anc_tree",
+        """    focus = { id = TST_s_a x = 0 y = 0 cost = 10 }
+    focus = { id = TST_s_b x = 1 y = 0 cost = 10 }
+    focus = { id = TST_s_x x = 2 y = 0 cost = 10 }
+    focus = {
+        id = TST_s_t x = 1 y = 1 cost = 1
+        prerequisite = { focus = TST_s_a focus = TST_s_x }
+        prerequisite = { focus = TST_s_b focus = TST_s_x }
+    }
+""",
+    )
+    _write_tree(fake_mod_root, "TST_shared_anc", body)
+    p = _paths_for(fake_mod_root, cache_dir, ["TST_s_t"])["TST_s_t"]
+    assert p["estimated_focus_count"] == 2  # X covers both groups; A and B not needed
+    assert p["estimated_days"] == 77.0  # (X 10 + T 1) * 7
+    assert p["chain"] == ["TST_s_x", "TST_s_t"]
+
+
+def test_paths_prefers_mutex_feasible_alternative(fake_mod_root, cache_dir):
+    """When the cheapest OR member clashes with an already-chosen focus, take the
+    next-ranked member whose closure stays mutually-exclusive-feasible."""
+    body = _tree(
+        "mutex_alt_tree",
+        """    focus = {
+        id = TST_m_a x = 0 y = 0 cost = 2
+        mutually_exclusive = { focus = TST_m_d }
+    }
+    focus = {
+        id = TST_m_d x = 0 y = 1 cost = 1
+        mutually_exclusive = { focus = TST_m_a }
+    }
+    focus = { id = TST_m_b x = 1 y = 0 cost = 9 }
+    focus = {
+        id = TST_m_t x = 0 y = 2 cost = 1
+        prerequisite = { focus = TST_m_d }
+        prerequisite = { focus = TST_m_a focus = TST_m_b }
+    }
+""",
+    )
+    _write_tree(fake_mod_root, "TST_mutex_alt", body)
+    p = _paths_for(fake_mod_root, cache_dir, ["TST_m_t"])["TST_m_t"]
+    # A is cheapest but clashes with D (already needed by group 1); B is feasible.
+    assert p["estimated_focus_count"] == 3
+    assert p["estimated_days"] == 77.0  # (D 1 + B 9 + T 1) * 7
+    assert p["chain"] == ["TST_m_b", "TST_m_d", "TST_m_t"]
+    assert "mutex_conflicts" not in p
+
+
+def test_paths_reports_unresolvable_mutex_caveat(fake_mod_root, cache_dir):
+    """Caveat: when *no* candidate avoids the mutex clash, keep the cheapest and
+    report the conflict instead of silently hoping the plan completes."""
+    body = _tree(
+        "mutex_bad_tree",
+        """    focus = {
+        id = TST_q_a x = 0 y = 0 cost = 2
+        mutually_exclusive = { focus = TST_q_d }
+    }
+    focus = {
+        id = TST_q_d x = 0 y = 1 cost = 1
+        mutually_exclusive = { focus = TST_q_a }
+    }
+    focus = {
+        id = TST_q_b x = 1 y = 0 cost = 9
+        mutually_exclusive = { focus = TST_q_d }
+    }
+    focus = {
+        id = TST_q_t x = 0 y = 2 cost = 1
+        prerequisite = { focus = TST_q_d }
+        prerequisite = { focus = TST_q_a focus = TST_q_b }
+    }
+""",
+    )
+    _write_tree(fake_mod_root, "TST_mutex_bad", body)
+    p = _paths_for(fake_mod_root, cache_dir, ["TST_q_t"])["TST_q_t"]
+    # A is cheapest (2 < 9) and both alternatives clash with D; plan keeps A and
+    # reports the D / A overlap as an explicit conflict.
+    assert p["found"] is True
+    assert p["estimate_approximate"] is True
+    assert p["mutex_conflicts"] == [{"focus": "TST_q_a", "mutually_exclusive_with": "TST_q_d"}]
+    assert "estimate_unreliable" not in p
+
+
+def test_paths_prune_resolves_mutex_overlap(fake_mod_root, cache_dir):
+    """Bounded pruning drops one side of a mutex pair when the plan stays closed."""
+    body = _tree(
+        "mutex_prune_tree",
+        """    focus = {
+        id = TST_r_a x = 0 y = 0 cost = 2
+        mutually_exclusive = { focus = TST_r_p }
+    }
+    focus = {
+        id = TST_r_p x = 0 y = 1 cost = 1
+        mutually_exclusive = { focus = TST_r_a }
+    }
+    focus = {
+        id = TST_r_t x = 0 y = 2 cost = 1
+        prerequisite = { focus = TST_r_a focus = TST_r_p }
+    }
+""",
+    )
+    _write_tree(fake_mod_root, "TST_mutex_prune", body)
+    p = _paths_for(fake_mod_root, cache_dir, ["TST_r_t"])["TST_r_t"]
+    # P satisfies the single group and is mutually exclusive with A; prune drops A.
+    assert p["estimated_focus_count"] == 2
+    assert p["estimated_days"] == 14.0  # (P 1 + T 1) * 7
+    assert "mutex_conflicts" not in p
+
+
+def test_paths_reports_fully_dangling_group(fake_mod_root, cache_dir):
+    """A prerequisite group whose every member is dangling is dropped and reported."""
+    body = _tree(
+        "dangling_all_tree",
+        """    focus = { id = TST_g_p x = 1 y = 0 cost = 3 }
+    focus = {
+        id = TST_g_t x = 0 y = 1 cost = 1
+        prerequisite = { focus = TST_g_missing1 focus = TST_g_missing2 }
+        prerequisite = { focus = TST_g_p }
+    }
+""",
+    )
+    _write_tree(fake_mod_root, "TST_dangling_all", body)
+    p = _paths_for(fake_mod_root, cache_dir, ["TST_g_t"])["TST_g_t"]
+    assert p["found"] is True
+    assert p["estimated_focus_count"] == 2  # T + P; the dangling group adds nothing
+    assert p["estimated_days"] == 28.0  # (T 1 + P 3) * 7
+    assert p["unresolved_prereq_groups"] == [
+        {"focus": "TST_g_t", "group": ["TST_g_missing1", "TST_g_missing2"]}
+    ]
+    assert p["dangling_prereqs"] == ["TST_g_missing1", "TST_g_missing2"]
+
+
+def test_paths_reports_partially_dangling_group(fake_mod_root, cache_dir):
+    """A group with one resolvable member proceeds on that member; dangling ids are flat."""
+    body = _tree(
+        "dangling_partial_tree",
+        """    focus = { id = TST_h_p x = 1 y = 0 cost = 3 }
+    focus = {
+        id = TST_h_t x = 0 y = 1 cost = 1
+        prerequisite = { focus = TST_h_missing focus = TST_h_p }
+    }
+""",
+    )
+    _write_tree(fake_mod_root, "TST_dangling_partial", body)
+    p = _paths_for(fake_mod_root, cache_dir, ["TST_h_t"])["TST_h_t"]
+    assert p["estimated_focus_count"] == 2
+    assert p["estimated_days"] == 28.0
+    assert p["dangling_prereqs"] == ["TST_h_missing"]
+    assert "unresolved_prereq_groups" not in p
+
+
+def test_paths_deterministic_tie_break(fake_mod_root, cache_dir):
+    """Equal-cost OR members with equal coverage break ties by id as declared
+    (group order in the file), and results are stable across repeated calls."""
+    body = _tree(
+        "tie_tree",
+        """    focus = { id = TST_k_b1 x = 1 y = 0 cost = 5 }
+    focus = { id = TST_k_a1 x = 0 y = 0 cost = 5 }
+    focus = {
+        id = TST_k_t x = 0 y = 1 cost = 1
+        prerequisite = { focus = TST_k_b1 focus = TST_k_a1 }
+    }
+""",
+    )
+    _write_tree(fake_mod_root, "TST_tie", body)
+    fwd = _paths_for(fake_mod_root, cache_dir, ["TST_k_t"])["TST_k_t"]
+    assert fwd["estimated_days"] == 42.0  # (B1 5 + T 1) * 7 — first member declared wins
+    assert fwd["chain"][0] in ("TST_k_a1", "TST_k_b1")
+    assert fwd["chain"][1] == "TST_k_t"
+    again = _paths_for(fake_mod_root, cache_dir, ["TST_k_t"])["TST_k_t"]
+    assert again == fwd
+
+
+def test_paths_candidate_closure_budget_fallback(fake_mod_root, cache_dir, monkeypatch):
+    body = _tree(
+        "closure_budget_tree",
+        """    focus = { id = TST_cb_b cost = 1 }
+    focus = { id = TST_cb_a cost = 1 prerequisite = { focus = TST_cb_b } }
+    focus = { id = TST_cb_t cost = 1 prerequisite = { focus = TST_cb_a } }
+""",
+    )
+    _write_tree(fake_mod_root, "TST_closure_budget", body)
+    monkeypatch.setattr("md_mcp.analysis.focus_graph._MAX_PATH_GROUPS", 0)
+
+    result = _paths_for(fake_mod_root, cache_dir, ["TST_cb_t"])["TST_cb_t"]
+
+    assert result["estimate_approximate"] is True
+    assert "candidate closure budget stopped early" in result["estimate_unreliable"]
+
+
+def test_paths_expansion_budget_fallback(fake_mod_root, cache_dir, monkeypatch):
+    """Hitting the expansion cap stops cleanly with an unreliable flag, not a hang
+    or an exception, and the estimate stays consistent with the partial closure."""
+    body = _tree(
+        "budget_tree",
+        """    focus = { id = TST_e_x x = 0 y = 0 cost = 1 prerequisite = { focus = TST_e_y } }
+    focus = { id = TST_e_y x = 1 y = 0 cost = 1 prerequisite = { focus = TST_e_x } }
+    focus = {
+        id = TST_e_t x = 0 y = 1 cost = 1
+        prerequisite = { focus = TST_e_x }
+    }
+""",
+    )
+    _write_tree(fake_mod_root, "TST_budget", body)
+    monkeypatch.setattr("md_mcp.analysis.focus_graph._MAX_EXPANSION_ROUNDS", 0)
+    p = _paths_for(fake_mod_root, cache_dir, ["TST_e_t"])["TST_e_t"]
+    assert p["found"] is True
+    assert "expansion budget stopped early" in p["estimate_unreliable"]
+    monkeypatch.undo()
+    fine = _paths_for(fake_mod_root, cache_dir, ["TST_e_t"])["TST_e_t"]
+    assert "estimate_unreliable" in fine  # without the cap the cycle flag applies
+
+
+def test_paths_prune_budget_fallback(monkeypatch, fake_mod_root, cache_dir):
+    """A final allowed pass that makes progress conservatively flags the estimate."""
+    body = _tree(
+        "prune_cap_tree",
+        """    focus = {
+        id = TST_n_m x = 0 y = 0 cost = 1
+        prerequisite = { focus = TST_n_y }
+    }
+    focus = { id = TST_n_y x = 1 y = 0 cost = 1 }
+    focus = { id = TST_n_x x = 2 y = 0 cost = 3 }
+    focus = {
+        id = TST_n_t x = 0 y = 1 cost = 1
+        prerequisite = { focus = TST_n_m focus = TST_n_x }
+        prerequisite = { focus = TST_n_x }
+    }
+""",
+    )
+    _write_tree(fake_mod_root, "TST_prune_cap", body)
+    monkeypatch.setattr("md_mcp.analysis.focus_graph._MAX_PRUNE_PASSES", 1)
+    p = _paths_for(fake_mod_root, cache_dir, ["TST_n_t"])["TST_n_t"]
+    assert p["found"] is True
+    assert "pruning budget stopped early" in p["estimate_unreliable"]
+    monkeypatch.undo()
+    fine = _paths_for(fake_mod_root, cache_dir, ["TST_n_t"])["TST_n_t"]
+    assert "estimate_unreliable" not in fine
+    assert fine["estimated_focus_count"] == 2  # T + X; M and Y pruned in later passes
+
+
+def test_paths_cycle_flag_is_distinct_string(fake_mod_root, cache_dir):
+    """A cycle in the closure sets estimate_unreliable and stays a plain string."""
+    body = _tree(
+        "cycle_str_tree",
+        """    focus = { id = TST_c_x x = 0 y = 0 cost = 1 prerequisite = { focus = TST_c_y } }
+    focus = { id = TST_c_y x = 1 y = 0 cost = 1 prerequisite = { focus = TST_c_x } }
+    focus = { id = TST_c_target x = 0 y = 1 cost = 1 prerequisite = { focus = TST_c_x } }
+""",
+    )
+    _write_tree(fake_mod_root, "TST_cycle_str", body)
+    p = _paths_for(fake_mod_root, cache_dir, ["TST_c_target"])["TST_c_target"]
+    assert isinstance(p["estimate_unreliable"], str)
+    assert "prerequisite cycle" in p["estimate_unreliable"]
+
+
+def test_paths_missing_focus_entry_stays_minimal(fake_mod_root, cache_dir):
+    """found=False entries stay minimal; approximate/flags only appear on found ones."""
+    p = _paths_for(fake_mod_root, cache_dir, ["TST_nonexistent"])["TST_nonexistent"]
+    assert p == {"focus": "TST_nonexistent", "found": False}
 
 
 QUOTING_TREE = """focus_tree = {{

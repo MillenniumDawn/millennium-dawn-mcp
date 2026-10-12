@@ -29,12 +29,17 @@ from .paradox.schema import (
     find_idea_nodes,
     find_sprite_nodes,
 )
+from .util.index_anchor import select_indexed_anchor
 from .util.line_numbers import line_starts, pos_to_line
 from .util.pathing import resolve_scope_file
 
 
 def focus_resource(focus_id: str, settings: Settings, focus_index: FocusIndex) -> str:
-    """Return the raw script of a focus block, including surrounding braces."""
+    """Return the raw script of a focus block, including surrounding braces.
+
+    Anchored to the index record's line so duplicates resolve to the same
+    definition the index picked, not the first one in the file.
+    """
     cached = focus_index.resolve(focus_id)
     if cached is None:
         raise KeyError(f"Focus '{focus_id}' not found")
@@ -45,7 +50,7 @@ def focus_resource(focus_id: str, settings: Settings, focus_index: FocusIndex) -
         raise FileNotFoundError(f"Indexed file missing on disk: {cached['file']}")
 
     text, root = parse_cached(abs_path)
-    return _extract_focus_block(text, focus_id, root)
+    return _extract_focus_block(text, focus_id, root, line=cached.get("line"))
 
 
 def loc_resource(
@@ -97,42 +102,27 @@ def _definition_resource(
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
     text, root = parse_cached(abs_path)
-    node = _anchor(find_nodes(root, ident), text, rec, kind=kind, ident=ident)
+    node = _anchor(find_nodes(root, ident), text, rec.get("line"), kind=kind, ident=ident)
     return _slice_node(text, node)
 
 
-def _anchor(candidates: list[Node], text: str, rec: dict, *, kind: str, ident: str) -> Node:
+def _anchor(
+    candidates: list[Node], text: str, line: Optional[int], *, kind: str, ident: str
+) -> Node:
     """Pick the single node the index record refers to, or fail clearly.
 
-    Anchors by the record's indexed line when available; otherwise a lone
-    hierarchy-valid match is accepted, but multiple matches are rejected as
-    ambiguous rather than silently returning the first one.
+    Anchors by the record's indexed line when exactly one candidate starts there;
+    a lone hierarchy-valid match is accepted when the index has no line, and every
+    other case (stale line, several matches on the indexed line, no line to
+    disambiguate several matches) is rejected as a clear `IndexAnchorError` rather
+    than silently returning the first one.
     """
-    if not candidates:
-        raise KeyError(f"{kind} '{ident}' resolved by index but not located in file")
-
-    line = rec.get("line")
-    if line is not None:
-        starts = line_starts(text)
-        on_line = [
-            n
-            for n in candidates
-            if n.name_token and pos_to_line(n.name_token.start, starts) == line
-        ]
-        if not on_line:
-            raise KeyError(
-                f"{kind} '{ident}' index points at line {line} but no matching definition sits "
-                "there; the index is stale — delete <mod_root>/.md-mcp-cache/ and rerun "
-                "`md-mcp build-index`"
-            )
-        return on_line[0]
-
-    if len(candidates) > 1:
-        raise KeyError(
-            f"{kind} '{ident}' is ambiguous: {len(candidates)} definitions found and the index "
-            "has no line to disambiguate"
-        )
-    return candidates[0]
+    starts = line_starts(text)
+    entries = [
+        (pos_to_line(node.name_token.start, starts) if node.name_token else None, node)
+        for node in candidates
+    ]
+    return select_indexed_anchor(entries, line=line, kind=kind, ident=ident)
 
 
 def _slice_node(text: str, node: Node) -> str:
@@ -143,22 +133,23 @@ def _slice_node(text: str, node: Node) -> str:
     return text[start : node.value_end_token.end]
 
 
-def _extract_focus_block(text: str, focus_id: str, root: Optional[Node] = None) -> str:
+def _extract_focus_block(
+    text: str, focus_id: str, root: Optional[Node] = None, *, line: Optional[int] = None
+) -> str:
     """Find `focus = { id = <id> ... }` (or `shared_focus`/`joint_focus`) and return raw text.
 
     Uses the parser to locate the block by line, then slices the text by brace
     matching from there — this preserves comments and original whitespace, which
-    parsing-then-rendering would strip.
+    parsing-then-rendering would strip. `line` is the index record's line; the
+    block is anchored to it so duplicate ids resolve to the same definition the
+    index picked.
     """
     if root is None:
         root = parse_string(text)
 
-    candidates = find_focus_nodes(root, focus_id)
-    if not candidates:
-        raise KeyError(f"Focus '{focus_id}' resolved by index but not located in file")
+    cand = _anchor(find_focus_nodes(root, focus_id), text, line, kind="Focus", ident=focus_id)
 
     # Slice from `name_token` (plus any indentation before it) to the matching `}`.
-    cand = candidates[0]
     if cand.name_token is None or cand.value_end_token is None:
         raise KeyError(f"Focus '{focus_id}' has no position information (malformed parse)")
     start = _slice_start(text, cand.name_token.start)

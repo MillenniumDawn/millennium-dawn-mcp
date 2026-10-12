@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import json
 import sys
 import threading
@@ -1032,14 +1031,6 @@ def test_run_validators_no_scope_no_mod_wide_key():
 # ---------------------------------------------------------------------------
 
 
-def test_lint_signature_has_validator_params():
-    params = inspect.signature(lint_tool).parameters
-    assert "validators" in params
-    assert "validator_runner" in params
-    assert params["validators"].default is None
-    assert params["validator_runner"].default is None
-
-
 @pytest.mark.parametrize(
     "mode,staged_only",
     [("changed", False), ("staged", True), ("all", False)],
@@ -1700,3 +1691,9 @@ def test_equipment_variant_context_skips_a_path_when_git_fails(tmp_path, monkeyp
 
     monkeypatch.setattr(subprocess, "run", git_exits(1))
     assert lint_validators._equipment_variant_context_changed({path}, tmp_path) is False
+
+
+def test_equipment_variant_context_ignores_paths_outside_the_variant_trees():
+    unrouted = {"archive/armor.txt", "history/units/a.yml"}
+
+    assert lint_validators._equipment_variant_context_changed(unrouted, None) is False

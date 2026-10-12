@@ -179,6 +179,46 @@ def test_check_equipment_variant_rejects_invalid_or_ambiguous_input(fake_mod_roo
     }
 
 
+def test_check_equipment_variant_finds_a_variant_nested_in_another_block(fake_mod_root):
+    _install_helper(fake_mod_root)
+
+    result = check_equipment_variant_tool(
+        EquipmentVariantChecker(fake_mod_root), f"if = {{\n{_VALID}\n}}"
+    )
+
+    assert result["ok"] is True
+    assert result["valid"] is True
+
+
+def test_check_equipment_variant_reports_a_limit_it_cannot_read(fake_mod_root):
+    _install_helper(fake_mod_root)
+
+    result = check_equipment_variant_tool(
+        EquipmentVariantChecker(fake_mod_root), _VALID, limit="many"
+    )
+
+    assert result == {"ok": False, "error": "limit must be an integer, got 'many'"}
+
+
+def test_check_equipment_variant_reports_what_the_mod_is_missing(fake_mod_root):
+    checker = EquipmentVariantChecker(fake_mod_root)
+    helper = fake_mod_root / "tools" / "validation" / "equipment_module_slots.py"
+
+    no_helper = check_equipment_variant_tool(checker, _VALID)
+    helper.write_text("def broken(:\n", encoding="utf-8")
+    broken_helper = check_equipment_variant_tool(checker, _VALID)
+    helper.write_text(_HELPER, encoding="utf-8")
+    no_equipment = check_equipment_variant_tool(checker, _VALID)
+
+    prefix = "Equipment variant check failed: "
+    assert no_helper["ok"] is False
+    assert no_helper["error"].startswith(prefix + "Missing equipment compatibility helper")
+    assert broken_helper["ok"] is False
+    assert broken_helper["error"].startswith(prefix)
+    assert no_equipment["ok"] is False
+    assert no_equipment["error"].startswith(prefix + "Missing equipment directory")
+
+
 @pytest.mark.integration
 def test_check_equipment_variant_uses_current_mod_rules(real_mod_root):
     # Mirrors Zulfiqar in history/countries/PER - Iran.txt.

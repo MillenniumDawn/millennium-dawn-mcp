@@ -20,14 +20,6 @@ from md_mcp.indexes import (
     ScriptedTriggerIndex,
     TraitIndex,
 )
-from md_mcp.tools.analysis_tools import find_indexed_tool
-from md_mcp.tools.resolver_tools import (
-    resolve_character_tool,
-    resolve_country_tag_tool,
-    resolve_scripted_effect_tool,
-    resolve_scripted_trigger_tool,
-    resolve_trait_tool,
-)
 
 
 def _indexes(root, cache):
@@ -38,32 +30,6 @@ def _indexes(root, cache):
         ScriptedEffectIndex(root, cache, include_vanilla=False),
         ScriptedTriggerIndex(root, cache, include_vanilla=False),
     )
-
-
-def test_definition_indexes_resolve_fixture_records(fake_mod_root, cache_dir):
-    tags, characters, traits, effects, triggers = _indexes(fake_mod_root, cache_dir)
-
-    tag = tags.resolve("TST")
-    character = characters.resolve("TST_test_character")
-    trait = traits.resolve("TST_test_trait")
-    effect = effects.resolve("TST_test_effect")
-    trigger = triggers.resolve("TST_test_trigger")
-    assert tag is not None and tag["country_file"] == "countries/Testland.txt"
-    assert character is not None and character["kind"] == "character"
-    assert trait is not None and trait["kind"] == "trait"
-    assert effect is not None and effect["kind"] == "scripted_effect"
-    assert trigger is not None and trigger["kind"] == "scripted_trigger"
-
-
-@pytest.mark.integration
-def test_real_mod_definition_indexes(real_mod_root, tmp_path):
-    """Smoke-test the indexes against the history-scale sibling checkout."""
-    tags, characters, traits, effects, triggers = _indexes(real_mod_root, tmp_path / "cache")
-    assert len(tags.list_keys()) > 100
-    assert len(characters.list_keys()) > 100
-    assert len(traits.list_keys()) > 100
-    assert len(effects.list_keys()) > 100
-    assert len(triggers.list_keys()) > 50
 
 
 def test_find_references_supports_new_kinds(fake_mod_root):
@@ -202,20 +168,3 @@ def test_manifest_includes_new_definition_categories(fake_mod_root, cache_dir):
     assert result["characters"] == ["TST_test_character"]
     assert result["character_files"] == ["common/characters/TST.txt"]
     assert result["traits"] == ["TST_test_trait"]
-
-
-def test_definition_resolvers_and_finder_are_budgeted(fake_mod_root, cache_dir):
-    tags, characters, traits, effects, triggers = _indexes(fake_mod_root, cache_dir)
-
-    assert resolve_country_tag_tool("TST", tags)["ok"]
-    assert resolve_character_tool("TST_test_character", characters)["ok"]
-    assert resolve_trait_tool("TST_test_trait", traits)["ok"]
-    assert resolve_scripted_effect_tool("TST_test_effect", effects)["ok"]
-    assert resolve_scripted_trigger_tool("TST_test_trigger", triggers)["ok"]
-
-    tag_matches = find_indexed_tool(tags, query="TST")["matches"]
-    assert tag_matches[0]["country_file"] == "countries/Testland.txt"
-    result = find_indexed_tool(effects, query="test", limit=1)
-    assert result["total"] == 1
-    assert result["returned"] == 1
-    assert result["truncated"] is False

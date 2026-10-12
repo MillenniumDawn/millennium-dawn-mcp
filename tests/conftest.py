@@ -96,6 +96,17 @@ def real_mod_root() -> Path:
 
 
 @pytest.fixture(autouse=True)
+def _serial_parse(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Build indexes in-process unless a test asks for the pool.
+
+    An index over four or more files forks a process pool. A pytest-xdist worker is
+    already multi-threaded, so each of those forks warned, and could deadlock the
+    child, under `-n auto`. A test of the pooled path deletes the variable.
+    """
+    monkeypatch.setenv("MD_MCP_SERIAL_PARSE", "1")
+
+
+@pytest.fixture(autouse=True)
 def _fresh_ast_cache():
     """The AST cache is process-wide; keep tests from seeing each other's parses."""
     from md_mcp.paradox import ast_cache

@@ -64,6 +64,10 @@ Markers are defined in [`pyproject.toml`](../pyproject.toml)
 - **`real_mod_root`** — resolves `MD_MOD_ROOT`; skips if unset or invalid.
   Use for integration tests that need realistic content volume.
 - An autouse fixture clears the process-wide AST cache around every test.
+- An autouse fixture sets `MD_MCP_SERIAL_PARSE=1`, so index builds run
+  in-process. The pool forks, and a pytest-xdist worker is already
+  multi-threaded, so a pooled build there warns and can deadlock the child. A
+  test of the pooled path deletes the variable with `monkeypatch.delenv`.
 
 Helpers that more than one test module uses live in `tests/support/`: mod
 roots, settings, and git repos in `mod.py`, index state helpers in

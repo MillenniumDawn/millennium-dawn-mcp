@@ -8,7 +8,17 @@ from pathlib import Path
 import pytest
 
 from md_mcp.indexes import FocusIndex, GenericTxtIndex, IdeaIndex, LocalisationIndex
-from md_mcp.indexes.base import FileSig, IndexCache, collect_files, roots_for
+from md_mcp.indexes.base import (
+    FileSig,
+    IndexCache,
+    _parser_dispatch,
+    collect_files,
+    file_signature,
+    resolve_root,
+    roots_for,
+    signatures_for,
+)
+from md_mcp.indexes.localisation import _parse_loc_worker
 
 _DUP_IDEA = "ideas = {\n\tcountry = {\n\t\tTST_dup = { picture = generic_idea }\n\t}\n}\n"
 _DUP_IDEA_3WAY = "ideas = {\n\tcountry = {\n\t\tTST_dup3 = { picture = generic_idea }\n\t}\n}\n"
@@ -588,3 +598,115 @@ def test_collect_files_records_absolute_path_for_out_of_root_subdir(tmp_path):
     # Path("mod" / "/abs") collapses to the absolute dir, so the walk leaves the
     # root; the ValueError fallback records the absolute path instead of raising.
     assert [str(p) for p in got] == [str(outside / "stray.txt")]
+
+
+def test_signatures_skip_a_missing_file(tmp_path):
+    mod = tmp_path / "Mod"
+    mod.mkdir()
+    present = mod / "a.txt"
+    present.write_text("x", encoding="utf-8")
+
+    assert file_signature(mod / "gone.txt") is None
+    assert list(signatures_for([present, mod / "gone.txt"], mod)) == ["a.txt"]
+
+
+def test_signatures_key_a_path_outside_every_root_by_the_path_itself(tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("x", encoding="utf-8")
+
+    assert list(signatures_for([outside], [tmp_path / "Mod"])) == [str(outside)]
+
+
+def test_resolve_root_returns_the_first_root_holding_the_file(tmp_path):
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (second / "a.txt").write_text("x", encoding="utf-8")
+
+    assert resolve_root([first, second], "a.txt") == second
+    assert resolve_root([first, second], "missing.txt") is None
+
+
+def _echo(abs_path: str, relpath: str) -> list[str]:
+    return [abs_path, relpath]
+
+
+def _explode(abs_path: str, relpath: str) -> list[str]:
+    raise RuntimeError("boom")
+
+
+def test_parser_dispatch_skips_an_unresolved_path_and_swallows_a_failing_parser():
+    assert _parser_dispatch((_echo, "/abs/a.txt", "a.txt")) == ["/abs/a.txt", "a.txt"]
+    assert _parser_dispatch((_echo, "", "a.txt")) is None
+    assert _parser_dispatch((_explode, "/abs/a.txt", "a.txt")) is None
+
+
+def _parse_with_a_keyless_record(abs_path: str, relpath: str) -> list[dict]:
+    return [{"note": "no id"}, {"id": "TST_keyed"}]
+
+
+class _KeylessIndex(GenericTxtIndex):
+    cache_name = "keyless"
+    subdir = "common/first"
+    parser_fn = staticmethod(_parse_with_a_keyless_record)
+
+
+class _NoParserIndex(GenericTxtIndex):
+    cache_name = "no-parser"
+    subdir = "common/first"
+
+
+def _one_file_mod(tmp_path: Path) -> Path:
+    root = tmp_path / "Mod"
+    (root / "common" / "first").mkdir(parents=True)
+    (root / "common" / "first" / "a.txt").write_text("x", encoding="utf-8")
+    return root
+
+
+def test_record_without_the_primary_key_is_kept_out_of_the_key_map(tmp_path, cache_dir):
+    index = _KeylessIndex(_one_file_mod(tmp_path), cache_dir, include_vanilla=False)
+
+    assert index.list_keys() == ["TST_keyed"]
+
+
+def test_index_without_a_parser_fn_says_so(tmp_path, cache_dir):
+    index = _NoParserIndex(_one_file_mod(tmp_path), cache_dir, include_vanilla=False)
+
+    with pytest.raises(NotImplementedError, match="parser_fn"):
+        index.ensure_fresh()
+
+
+def test_focus_index_persists_parse_errors(fake_mod_root, cache_dir):
+    broken = fake_mod_root / "common" / "national_focus" / "broken.txt"
+    broken.write_text("focus_tree = { focus = { id = TST_broken x = {{{", encoding="utf-8")
+
+    index = FocusIndex(fake_mod_root, cache_dir)
+    index.ensure_fresh()
+    errors = index.parse_errors()
+
+    assert errors[0]["file"] == "common/national_focus/broken.txt"
+    assert errors[0]["error"].startswith("parse failed:")
+    assert index.resolve("TST_broken") is None
+
+    reloaded = FocusIndex(fake_mod_root, cache_dir)
+    assert reloaded.parse_errors() == errors
+
+
+def test_loc_index_skips_junk_lines_and_reads_the_language_from_the_file_name(
+    fake_mod_root, cache_dir
+):
+    english = fake_mod_root / "localisation" / "english"
+    (english / "junk_l_english.yml").write_text(
+        'l_english:\n this line is not an entry\n TST_after_junk: "kept"\n', encoding="utf-8"
+    )
+    headless = english / "headless_l_english.yml"
+    headless.write_text(' TST_headless: "named by file"\n', encoding="utf-8")
+
+    li = LocalisationIndex(fake_mod_root, cache_dir)
+
+    kept = li.resolve("TST_after_junk")
+    named = li.resolve("TST_headless")
+    assert kept is not None and kept["value"] == "kept"
+    assert named is not None and named["value"] == "named by file"
+    # With no header and no language in the name there is nothing to file the keys under.
+    assert _parse_loc_worker(str(headless), "headless.yml") == []

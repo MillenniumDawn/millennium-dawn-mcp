@@ -1,13 +1,14 @@
-"""Tests for focus-index-backed analysis tools."""
+"""Tests for the index-backed search tools: find_focuses and the definition finders."""
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
-from md_mcp.config import Settings
-from md_mcp.indexes import FocusIndex
+import pytest
+
+from md_mcp.indexes import CountryTagIndex, FocusIndex, ScriptedEffectIndex
 from md_mcp.tools import analysis_tools
-from md_mcp.tools.resolver_tools import resolve_focus_tool
 from md_mcp.util.response import BUDGET_BYTES
 from tests.support.mod import in_process_settings
 
@@ -24,71 +25,61 @@ def _focus_text(focus_id: str) -> str:
 """
 
 
-def test_resolve_focus_reads_overlay_and_reports_overlay_line(fake_mod_root, tmp_path):
-    submod = tmp_path / "Overlay"
-    focus_dir = submod / "common" / "national_focus"
-    focus_dir.mkdir(parents=True)
-    (focus_dir / "test.txt").write_text(
-        "focus_tree = {\n\n\n    focus = { id = TST_root }\n}\n",
-        encoding="utf-8",
+@pytest.mark.parametrize(
+    ("filters", "ids"),
+    [
+        ({}, ["TST_root", "TST_branch_a", "TST_branch_b", "TST_shared"]),
+        ({"tag": "tst"}, ["TST_root", "TST_branch_a", "TST_branch_b", "TST_shared"]),
+        ({"tag": "TS"}, []),
+        ({"kind": "shared_focus"}, ["TST_shared"]),
+        ({"has_prereq": "TST_root"}, ["TST_branch_a", "TST_branch_b"]),
+        ({"mutex_with": "TST_branch_a"}, ["TST_branch_b"]),
+        ({"has_prereq": "TST_root", "mutex_with": "TST_branch_b"}, ["TST_branch_a"]),
+        # No candidate survives the tag filter, so no file is reparsed.
+        ({"tag": "XXX", "has_prereq": "TST_root"}, []),
+    ],
+)
+def test_find_focuses_filters(fake_mod_root, cache_dir, filters, ids):
+    out = analysis_tools.find_focuses_tool(
+        in_process_settings(fake_mod_root, cache_dir),
+        FocusIndex(fake_mod_root, cache_dir),
+        **filters,
     )
-    settings = Settings(
-        mod_root=fake_mod_root,
-        vanilla_path=None,
-        cache_dir=tmp_path / "cache",
+
+    assert out["ok"] is True
+    assert out["partial"] is False
+    assert [match["id"] for match in out["matches"]] == ids
+
+
+def test_find_focuses_and_find_indexed_report_a_limit_they_cannot_read(fake_mod_root, cache_dir):
+    index = FocusIndex(fake_mod_root, cache_dir)
+
+    focuses = analysis_tools.find_focuses_tool(
+        in_process_settings(fake_mod_root, cache_dir), index, limit="many"
     )
-    vars(settings)["submod_root"] = submod
-    index = FocusIndex(fake_mod_root, settings.cache_dir)
-    vars(index)["submod_root"] = submod
+    indexed = analysis_tools.find_indexed_tool(index, limit="many")
 
-    result = resolve_focus_tool("TST_root", settings, index)
-
-    assert result["ok"] is True
-    assert result["file"] == "common/national_focus/test.txt"
-    assert result["line"] == 4
+    assert focuses == {"ok": False, "error": "limit must be an integer, got 'many'"}
+    assert indexed == focuses
 
 
-def test_resolve_focus_falls_back_to_the_indexed_record(fake_mod_root, cache_dir):
-    settings = in_process_settings(fake_mod_root, cache_dir)
-    index = FocusIndex(fake_mod_root, cache_dir)
-    record = index.resolve("TST_root")
-    assert record is not None
-    indexed = {
-        "ok": True,
-        "id": "TST_root",
-        "file": record["file"],
-        "line": record["line"],
-        "kind": record["kind"],
-    }
-    source = fake_mod_root / record["file"]
+def test_find_indexed_filters_by_query_and_kind_and_pages(fake_mod_root, cache_dir):
+    tags = CountryTagIndex(fake_mod_root, cache_dir, include_vanilla=False)
+    effects = ScriptedEffectIndex(fake_mod_root, cache_dir, include_vanilla=False)
 
-    # A second freshness check arms the debounce, so the index keeps the record
-    # while the file changes under it.
-    index.ensure_fresh()
-    source.write_text("focus_tree = { focus = { id = TST_root x = {{{", encoding="utf-8")
-    unparsable = resolve_focus_tool("TST_root", settings, index)
-    assert unparsable.pop("warning").startswith("Could not parse file for detail extraction")
-    assert unparsable == indexed
-
-    source.unlink()
-    missing = resolve_focus_tool("TST_root", settings, index)
-    assert missing == {**indexed, "warning": "File listed in index but no longer on disk"}
-
-
-def test_focus_index_persists_parse_errors(fake_mod_root, cache_dir):
-    broken = fake_mod_root / "common" / "national_focus" / "broken.txt"
-    broken.write_text("focus_tree = { focus = { id = TST_broken x = {{{", encoding="utf-8")
-
-    index = FocusIndex(fake_mod_root, cache_dir)
-    index.ensure_fresh()
-    errors = index.parse_errors()
-
-    assert errors[0]["file"] == "common/national_focus/broken.txt"
-    assert errors[0]["error"].startswith("parse failed:")
-    assert index.resolve("TST_broken") is None
-
-    reloaded = FocusIndex(fake_mod_root, cache_dir)
-    assert reloaded.parse_errors() == errors
+    assert analysis_tools.find_indexed_tool(tags, query="tst")["matches"] == [
+        {
+            "id": "TST",
+            "kind": "country_tag",
+            "file": str(Path("common/country_tags/test_tags.txt")),
+            "line": 1,
+            "country_file": "countries/Testland.txt",
+        }
+    ]
+    assert analysis_tools.find_indexed_tool(tags, "trait", query="TST")["total"] == 0
+    assert analysis_tools.find_indexed_tool(tags, query="absent")["total"] == 0
+    page = analysis_tools.find_indexed_tool(effects, query="test", limit=1)
+    assert (page["total"], page["returned"], page["truncated"]) == (1, 1, False)
 
 
 def test_find_focuses_paginates_with_offset(fake_mod_root, cache_dir):

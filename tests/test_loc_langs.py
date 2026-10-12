@@ -9,8 +9,10 @@ import pytest
 from md_mcp import config
 from md_mcp.config import Settings
 from md_mcp.indexes import LocalisationIndex
-from md_mcp.indexes.localisation import LANG_ISO_TO_SUFFIX, normalise_loc_langs
+from md_mcp.indexes import localisation as loc_mod
+from md_mcp.indexes.localisation import LANG_ISO_TO_SUFFIX, cache_name_for, normalise_loc_langs
 from md_mcp.tools.resolver_tools import resolve_loc_tool
+from tests.support.indexes import bump_mtime, write_loc
 from tests.support.mod import make_mod_root
 
 GERMAN = 'l_german:\n TST_root: "Die Wurzel"\n TST_only_de: "Nur Deutsch"\n'
@@ -98,12 +100,51 @@ def test_unknown_loc_lang_fails_loudly(tmp_path, monkeypatch):
         config.load(str(root))
 
 
+def test_unknown_default_lang_does_not_abort_startup(tmp_path, monkeypatch):
+    root = make_mod_root(tmp_path / "Mod")
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
+    monkeypatch.delenv("MD_MCP_LOC_LANGS", raising=False)
+    monkeypatch.setenv("MD_MCP_DEFAULT_LANG", "english")
+
+    settings = config.load(str(root))
+
+    assert settings.default_lang == "english"
+    assert settings.loc_langs == ("en",)
+
+
+@pytest.mark.parametrize(
+    ("env", "toml"),
+    [
+        pytest.param("klingon", None, id="unknown-language-in-env"),
+        pytest.param(None, "loc_langs = 1\n", id="non-iterable-in-toml"),
+    ],
+)
+def test_invalid_explicit_loc_langs_is_a_config_error(tmp_path, monkeypatch, env, toml):
+    root = make_mod_root(tmp_path / "Mod")
+    cfg = tmp_path / "config.toml"
+    if toml is not None:
+        cfg.write_text(toml, encoding="utf-8")
+    monkeypatch.setattr(config, "CONFIG_PATH", cfg)
+    if env is None:
+        monkeypatch.delenv("MD_MCP_LOC_LANGS", raising=False)
+    else:
+        monkeypatch.setenv("MD_MCP_LOC_LANGS", env)
+
+    with pytest.raises(RuntimeError, match="Invalid loc_langs"):
+        config.load(str(root))
+
+
 def test_normalise_loc_langs_dedupes_and_lowercases():
     assert normalise_loc_langs("EN,de,en") == ("en", "de")
     assert normalise_loc_langs(None, default="fr") == ("fr",)
     assert normalise_loc_langs(["de", "*"]) == tuple(LANG_ISO_TO_SUFFIX)
     # Lenient mode drops what it can't place instead of raising.
     assert normalise_loc_langs("xx,de") == ("de",)
+
+
+def test_cache_name_is_independent_of_language_order():
+    assert cache_name_for(("en", "de")) == cache_name_for(("de", "en")) == "loc-de_en"
+    assert cache_name_for(("pt-br", "en")) == "loc-en_ptbr"
 
 
 # ----- indexed set -----------------------------------------------------------
@@ -155,6 +196,34 @@ def test_changing_langs_uses_a_separate_cache_per_language_set(multi_lang_root, 
     assert back._cache.shard_dir == en._cache.shard_dir
     assert len(list(both._cache.shard_dir.iterdir())) == 2
     assert len(list(back._cache.shard_dir.iterdir())) == 1
+
+
+def test_language_sets_do_not_share_a_cache(tmp_path):
+    """A process with fewer languages must not delete another's shards."""
+    root = make_mod_root(tmp_path / "Mod")
+    cache = tmp_path / "cache"
+    write_loc(root, "localisation/english/a_l_english.yml", "l_english", "K_EN", "e")
+    write_loc(root, "localisation/german/a_l_german.yml", "l_german", "K_DE", "d")
+    both = LocalisationIndex(root, cache, None, langs=("en", "de"))
+    both.ensure_fresh()
+    shards_before = sorted(p.name for p in both._cache.shard_dir.iterdir())
+    assert len(shards_before) == 2
+
+    LocalisationIndex(root, cache, None, langs=("en",)).ensure_fresh()
+    assert sorted(p.name for p in both._cache.shard_dir.iterdir()) == shards_before
+
+    again = LocalisationIndex(root, cache, None, langs=("en", "de"))
+    parsed: list[list[str]] = []
+    real = again._parse_results
+
+    def spy(relpaths):
+        parsed.append(list(relpaths))
+        return real(relpaths)
+
+    again._parse_results = spy  # type: ignore[method-assign]
+    again.ensure_fresh()
+    assert parsed in ([], [[]])
+    assert again.resolve("K_DE", "de") is not None
 
 
 # ----- on-demand fallback ----------------------------------------------------
@@ -222,9 +291,9 @@ def test_scan_picks_up_new_and_removed_files_and_reuses_unchanged(multi_lang_roo
 def test_scan_is_debounced(multi_lang_root, cache_dir, monkeypatch):
     li = LocalisationIndex(multi_lang_root, cache_dir, include_vanilla=False)
     li.resolve("TST_root", "de")
+    scan = li._scans["l_german"]
+    records = scan.files[str(Path("localisation/german/test_l_german.yml"))]
     calls: list[int] = []
-    import md_mcp.indexes.localisation as loc_mod
-
     real = loc_mod.collect_files
 
     def spy(*args, **kwargs):
@@ -235,11 +304,54 @@ def test_scan_is_debounced(multi_lang_root, cache_dir, monkeypatch):
     li.resolve("TST_root", "de")
     assert calls == []
 
+    # Past the debounce it stats the files again, and reuses the scan when none moved.
+    scan.stale_check.force_next()
+    li.resolve("TST_root", "de")
+    assert calls == [1]
+    assert scan.files[str(Path("localisation/german/test_l_german.yml"))] is records
 
-def test_list_keys_for_unindexed_language(multi_lang_root, cache_dir):
+
+def test_scan_lang_survives_a_file_that_failed_to_parse(tmp_path, monkeypatch):
+    root = make_mod_root(tmp_path / "Mod")
+    good = write_loc(root, "localisation/german/a_l_german.yml", "l_german", "A", "a")
+    bad = write_loc(root, "localisation/german/b_l_german.yml", "l_german", "B", "b")
+    index = LocalisationIndex(root, tmp_path / "cache", None, langs=("en",))
+
+    real_read = loc_mod.read_text
+
+    def flaky_read(path):
+        if Path(path).name == bad.name:
+            raise OSError("locked")
+        return real_read(path)
+
+    monkeypatch.setattr(loc_mod, "read_text", flaky_read)
+    assert index.resolve("A", "de") is not None
+    assert index.resolve("B", "de") is None  # unreadable, so absent, not an error
+
+    # Edit another file past the debounce window: the refresh must not KeyError on
+    # the file that has a signature but no records.
+    bump_mtime(good)
+    index._scans["l_german"].stale_check.force_next()
+    assert index.resolve("A", "de") is not None
+
+    # Once readable again it is picked up on the next refresh.
+    monkeypatch.setattr(loc_mod, "read_text", real_read)
+    index._scans["l_german"].stale_check.force_next()
+    bump_mtime(bad)
+    assert index.resolve("B", "de") is not None
+
+
+def test_list_keys_per_language(multi_lang_root, cache_dir):
     li = LocalisationIndex(multi_lang_root, cache_dir, include_vanilla=False)
     assert li.list_keys("de") == ["TST_only_de", "TST_root"]
     assert li.list_keys("klingon") == []
+    assert "TST_root" in li.list_keys()
+    assert "TST_only_de" not in li.list_keys()
+
+
+def test_resolve_in_an_unknown_language_is_a_miss(fake_mod_root, cache_dir):
+    li = LocalisationIndex(fake_mod_root, cache_dir, include_vanilla=False)
+    assert li.resolve("TST_root", "klingon") is None
 
 
 def test_resolve_loc_tool_uses_scan_for_unindexed_language(multi_lang_root, cache_dir):

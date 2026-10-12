@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import cast
 
-from md_mcp.analysis.manifest import _scan_files, list_country_content
+from md_mcp.analysis.manifest import (
+    _loc_files,
+    _scan_files,
+    _tag_file_pattern,
+    list_country_content,
+)
 from md_mcp.indexes import (
     CountryTagIndex,
     DecisionIndex,
@@ -14,6 +20,8 @@ from md_mcp.indexes import (
     LocalisationIndex,
 )
 from md_mcp.indexes.event import _parse_event_file
+from tests.support.indexes import write_loc
+from tests.support.mod import make_mod_root
 
 
 def _build_indexes(fake_mod_root, cache_dir):
@@ -193,3 +201,47 @@ def test_history_tag_separator_is_independent_of_country_long_name(fake_mod_root
         "history/countries/PER - Iran.txt",
     ]
     assert result["counts"]["history_files"] == 2
+
+
+def test_manifest_loc_files_cover_every_language(tmp_path):
+    root = make_mod_root(tmp_path / "Mod")
+    write_loc(root, "localisation/english/MD_focus_USA_l_english.yml", "l_english", "K", "v")
+    write_loc(root, "localisation/german/MD_focus_USA_l_german.yml", "l_german", "K", "v")
+    write_loc(root, "localisation/english/MD_focus_ISR_l_english.yml", "l_english", "K", "v")
+    # No language suffix: HOI4 never loads it, so the manifest must not list it.
+    write_loc(root, "localisation/english/MD_focus_USA_I_english.yml", "l_english", "K", "v")
+    index = LocalisationIndex(root, tmp_path / "cache", None, langs=("en",))
+
+    files = _loc_files(index, "USA")
+
+    assert files == sorted(
+        [
+            str(Path("localisation/english/MD_focus_USA_l_english.yml")),
+            str(Path("localisation/german/MD_focus_USA_l_german.yml")),
+        ]
+    )
+    assert _loc_files(None, "USA") == []
+
+
+def test_manifest_loc_files_include_vanilla_root(tmp_path):
+    root = make_mod_root(tmp_path / "Mod")
+    vanilla = tmp_path / "hoi4"
+    write_loc(root, "localisation/english/MD_focus_USA_l_english.yml", "l_english", "K", "v")
+    write_loc(vanilla, "localisation/english/USA_l_english.yml", "l_english", "K", "v")
+    index = LocalisationIndex(root, tmp_path / "cache", vanilla, langs=("en",))
+
+    assert _loc_files(index, "USA") == sorted(
+        [
+            str(Path("localisation/english/MD_focus_USA_l_english.yml")),
+            str(Path("localisation/english/USA_l_english.yml")),
+        ]
+    )
+
+
+def test_tag_pattern_accepts_windows_separators():
+    pattern = _tag_file_pattern("USA")
+    assert pattern.search("localisation\\english\\USA_l_english.yml")
+    assert pattern.search("localisation/english/MD_focus_USA_l_english.yml")
+    assert pattern.search("localisation\\english\\MD_focus_USA_l_english.yml")
+    assert not pattern.search("localisation/english/MD_focus_USAX_l_english.yml")
+    assert not pattern.search("localisation/english/MUSA_l_english.yml")

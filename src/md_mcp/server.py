@@ -449,7 +449,7 @@ def build_server(settings: Settings):
     )(generate_loc_stub)
     mcp.tool(
         name="standardize",
-        description="Standardize script content in memory using upstream formatters; provide content= with content_type=focus|event|decision|idea|mio|technology|history, or a mod-relative .txt path= to detect the type. Clipped txt must not be written back.",
+        description="Standardize content in memory using upstream formatters: content= with content_type=focus|event|decision|idea|mio|technology|history|localisation, or mod-relative path= (.txt, or .yml for localisation; bounded category scan per call). txt is BOM-free — localisation reports had_bom, keep the BOM when writing .yml. Clipped txt must not be written back.",
     )(_bind_tool(standardize_tool, settings.mod_root, settings.submod_root))
 
     # ---------- M3 analysis ----------

@@ -9,9 +9,15 @@ from types import SimpleNamespace
 
 import pytest
 
+import md_mcp
 from md_mcp.tools import standardize_tools
 from md_mcp.tools.standardize_tools import standardize_tool
 from md_mcp.util.response import BUDGET_BYTES
+
+
+def test_tests_import_worktree_source():
+    assert Path(md_mcp.__file__).resolve().is_relative_to(Path.cwd().resolve())
+
 
 CASES = [
     (
@@ -52,6 +58,7 @@ CASES = [
 ]
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize(("kind", "text"), CASES)
 def test_upstream_standardizer_round_trips(real_mod_root: Path, kind: str, text: str):
     api = standardize_tools._load_standardize_api(real_mod_root)
@@ -95,26 +102,45 @@ def test_path_input_detects_kind_and_does_not_write(
     assert "Could not detect" in unknown["error"]
 
 
-def test_rejects_missing_or_ambiguous_input_and_localisation(fake_mod_root: Path):
+def test_yml_path_detects_localisation_and_does_not_write(tmp_path: Path, monkeypatch):
+    # Only the localisation core is planted — the .yml route must not need the
+    # standardize_api router at all.
+    _plant_localisation_core(tmp_path)
+    monkeypatch.setattr(standardize_tools, "_load_standardize_api", _unreachable)
+    rel = "localisation/english/test_l_english.yml"
+    yml_path = tmp_path / rel
+    yml_path.parent.mkdir(parents=True)
+    text = 'l_english:\n tst_idea: "Idea"\n'
+    yml_path.write_bytes(b"\xef\xbb\xbf" + text.encode("utf-8"))
+    original = yml_path.read_bytes()
+
+    result = standardize_tool(tmp_path, path=rel)
+
+    assert result["ok"] is True
+    assert result["kind"] == "localisation"
+    assert result["file"] == rel
+    assert result["txt"] == text
+    assert result["had_bom"] is True
+    assert "BOM" in result["note"]
+    assert result["changed"] is True
+    assert result["categories"] == {"Ideas": 1}
+    assert yml_path.read_bytes() == original
+
+
+def test_rejects_missing_or_ambiguous_input(fake_mod_root: Path):
     assert standardize_tool(fake_mod_root)["ok"] is False
     assert standardize_tool(fake_mod_root, content="event")["ok"] is False
     assert standardize_tool(fake_mod_root, content="event", path="events/test.txt")["ok"] is False
-    assert (
-        standardize_tool(
-            fake_mod_root,
-            content="key: value",
-            content_type="localisation",
-        )["ok"]
-        is False
-    )
-    assert (
-        "Localisation is not supported"
-        in standardize_tool(
-            fake_mod_root,
-            content="key: value",
-            content_type="localisation",
-        )["error"]
-    )
+
+
+def test_rejects_unsupported_content_type(fake_mod_root: Path):
+    result = standardize_tool(fake_mod_root, content="key: value", content_type="bogus")
+
+    assert result["ok"] is False
+    assert "Unsupported content_type 'bogus'" in result["error"]
+    # localisation joined the supported set, so it is listed instead of refused
+    assert "history, localisation" in result["error"]
+    assert "Localisation is not supported" not in result["error"]
 
 
 def test_removes_bom_and_reports_change(fake_mod_root: Path, monkeypatch):
@@ -181,6 +207,74 @@ def test_path_resolves_overlay_first_then_base(tmp_path: Path, monkeypatch):
     assert run("events/base_only.txt")["txt"] == "BASE ONLY\n"
 
 
+@pytest.mark.integration
+def test_localisation_path_mode_matches_upstream_cores(real_mod_root: Path):
+    """Path mode reproduces upstream _parse_loc_file/_format_output with a
+    bounded CATEGORY_CONFIG index and no reference set, and never writes."""
+    rel = "localisation/english/0_energy_l_english.yml"
+    source = real_mod_root / rel
+    if not source.exists():
+        pytest.skip(f"{rel} missing from this checkout")
+    loc = standardize_tools._load_localisation_core(real_mod_root)
+    index = standardize_tools._bounded_localisation_index(loc, real_mod_root)
+    assert index == loc._build_index(real_mod_root, False)
+    original = source.read_bytes()
+    text = original.decode("utf-8-sig")
+
+    result = standardize_tool(real_mod_root, path=rel)
+
+    header, entries = loc._parse_loc_file(text)
+    expected = loc._format_output(header, entries, index, source.stem, None)
+    assert result["ok"] is True
+    assert result["kind"] == "localisation"
+    assert result["file"] == rel
+    assert result["had_bom"] is True
+    assert "BOM" in result["note"]
+    assert result["txt"] == expected
+    assert "\ufeff" not in result["txt"]
+    assert result["categories"] == standardize_tools._localisation_categories(
+        loc, entries, source.stem, index
+    )
+    assert source.read_bytes() == original, "the tool must never write"
+
+    # Idempotent: re-standardizing the output changes nothing again.
+    second = standardize_tool(real_mod_root, content=result["txt"], content_type="localisation")
+    assert second["ok"] is True
+    assert second["changed"] is False
+    assert second["txt"] == result["txt"]
+    assert second["categories"] == result["categories"]
+
+
+@pytest.mark.integration
+def test_localisation_comments_and_values_survive_round_trip(real_mod_root: Path):
+    """A hand-built loc snippet: author/inline comments and values (including a
+    trailing value comment) all survive, and a second pass is byte-identical
+    (upstream idempotence)."""
+    text = (
+        "# Author(s): test\n"
+        "l_english:\n"
+        " # Inline comment\n"
+        ' TST_idea_1: "First"\n'
+        ' TST_idea_2: "Second" # trailing\n'
+        ' TST.3.t: "Event title"\n'
+    )
+
+    result = standardize_tool(real_mod_root, content=text, content_type="localisation")
+
+    assert result["ok"] is True
+    for fragment in (
+        "# Author(s): test",
+        " # Inline comment",
+        'TST_idea_1: "First"',
+        'TST_idea_2: "Second" # trailing',
+        'TST.3.t: "Event title"',
+    ):
+        assert fragment in result["txt"], fragment
+
+    second = standardize_tool(real_mod_root, content=result["txt"], content_type="localisation")
+    assert second["txt"] == result["txt"], "second pass must be a no-op"
+
+
 # ---------------------------------------------------------------------------
 # Unit-level coverage with a synthetic upstream API — the real one lives in a
 # Millennium-Dawn checkout, so the loader and its error branches only run in
@@ -205,7 +299,16 @@ def standardize_text(kind, text, mod_root):
 
 _FAKE_API_SOURCE_V2 = _FAKE_API_SOURCE.replace('MARKER = "first"', 'MARKER = "second"')
 
-_FAKE_API_BAD_KIND_SOURCE = """
+_FAKE_API_UNKNOWN_KIND_SOURCE = """
+def kind_for_path(path):
+    return "focus_tree"
+
+
+def standardize_text(kind, text, mod_root):
+    return None
+"""
+
+_FAKE_API_LOC_ON_TXT_SOURCE = """
 def kind_for_path(path):
     return "localisation"
 
@@ -213,6 +316,66 @@ def kind_for_path(path):
 def standardize_text(kind, text, mod_root):
     return None
 """
+
+_FAKE_LOCALISATION_CORE_SOURCE = r'''"""
+Deterministic stand-in for upstream standardize_localisation's pure cores.
+Only the pieces the wrapper calls are defined; behaviour mimics upstream's
+parse-then-bucket contract so the wrapper's plumbing can be tested without a
+Millennium-Dawn checkout.
+"""
+
+
+SECTION_ORDER = ["Ideas", "Other"]
+CATEGORY_CONFIG = {"Ideas": (["common/ideas"], [r"^\t{2}(\w+)\s*=\s*\{"], False)}
+
+
+class LocEntry:
+    def __init__(self, comments, key, value=" "):
+        self.leading_comments = comments
+        self.key = key
+        self.value = value
+
+
+def _extract_tag(stem):
+    return None
+
+
+def _build_index(mod_root, verbose):
+    return {"Ideas": {"tst_idea"}, "Other": set()}
+
+
+def _parse_loc_file(content):
+    header, entries = "", []
+    for line in content.splitlines():
+        if not header:
+            if line.strip():
+                header = line
+            continue
+        if line.strip() and ":" in line:
+            key, value = line.strip().split(":", 1)
+            entries.append(LocEntry([], key, value))
+    return header, entries
+
+
+def _find_category(key, index, references):
+    if key in index["Ideas"]:
+        return "Ideas"
+    return "Other"
+
+
+def _format_output(header, entries, index, file_stem, references):
+    return "\n".join([header] + [f" {e.key}:{e.value}" for e in entries]) + "\n"
+'''
+
+
+def _plant_localisation_core(root: Path, source: str = _FAKE_LOCALISATION_CORE_SOURCE) -> None:
+    api_dir = root / "tools" / "standardization"
+    api_dir.mkdir(parents=True, exist_ok=True)
+    (api_dir / "standardize_localisation.py").write_text(source, encoding="utf-8")
+    ideas = root / "common" / "ideas"
+    ideas.mkdir(parents=True, exist_ok=True)
+    (ideas / "test.txt").write_text("\t\ttst_idea = { }\n", encoding="utf-8")
+
 
 _FAKE_API_RAISING_SOURCE = """
 def kind_for_path(path):
@@ -243,6 +406,10 @@ def _plant_api(root: Path, source: str = _FAKE_API_SOURCE) -> Path:
     api_dir.mkdir(parents=True, exist_ok=True)
     (api_dir / "standardize_api.py").write_text(source, encoding="utf-8")
     return api_dir
+
+
+def _unreachable(mod_root):
+    raise AssertionError("standardize_api must not be loaded for the localisation route")
 
 
 def test_loader_plants_sys_path_and_caches_per_root(tmp_path: Path):
@@ -319,12 +486,27 @@ def test_path_mode_rejects_kind_outside_supported_set(tmp_path: Path):
     source = tmp_path / "common" / "national_focus" / "test.txt"
     source.parent.mkdir(parents=True)
     source.write_text("focus_tree = { }\n", encoding="utf-8")
-    _plant_api(tmp_path, _FAKE_API_BAD_KIND_SOURCE)
+    _plant_api(tmp_path, _FAKE_API_UNKNOWN_KIND_SOURCE)
 
     result = standardize_tool(tmp_path, path="common/national_focus/test.txt")
 
     assert result["ok"] is False
     assert "Could not detect a standardizer kind" in result["error"]
+
+
+def test_path_mode_localisation_kind_requires_yml(tmp_path: Path):
+    """An upstream router claiming localisation for a .txt path is refused —
+    the localisation standardizer's inputs are localisation .yml files."""
+    source = tmp_path / "misc" / "test.txt"
+    source.parent.mkdir(parents=True)
+    source.write_text("unrouted = { }\n", encoding="utf-8")
+    _plant_api(tmp_path, _FAKE_API_LOC_ON_TXT_SOURCE)
+    _plant_localisation_core(tmp_path)
+
+    result = standardize_tool(tmp_path, path="misc/test.txt")
+
+    assert result["ok"] is False
+    assert ".yml" in result["error"]
 
 
 def test_path_mode_reports_invalid_utf8(tmp_path: Path):
@@ -392,3 +574,190 @@ def test_clip_txt_returns_bounded_fallback_when_nothing_fits():
 
     assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
     assert "exceeded byte budget" in out["error"]
+
+
+# ---------------------------------------------------------------------------
+# Localisation (issue #136) — unit tests on the stand-in localisation core.
+# ---------------------------------------------------------------------------
+
+
+def test_localisation_content_mode_needs_only_the_localisation_core(tmp_path: Path, monkeypatch):
+    _plant_localisation_core(tmp_path)
+    monkeypatch.setattr(standardize_tools, "_load_standardize_api", _unreachable)
+
+    result = standardize_tool(
+        tmp_path,
+        content='l_english:\n tst_idea: "Idea"\n',
+        content_type="localisation",
+    )
+
+    assert result["ok"] is True
+    assert result["kind"] == "localisation"
+    assert result["txt"] == 'l_english:\n tst_idea: "Idea"\n'
+    assert result["changed"] is False
+    assert result["categories"] == {"Ideas": 1}
+    assert "note" not in result
+
+
+def test_localisation_reports_bom_and_keeps_values(tmp_path: Path):
+    _plant_localisation_core(tmp_path)
+
+    result = standardize_tool(
+        tmp_path,
+        content='\ufeffl_english:\n tst_idea: "Idea"\n # kept comment\n',
+        content_type="localisation",
+    )
+
+    assert result["ok"] is True
+    assert result["had_bom"] is True
+    assert result["changed"] is True
+    assert result["txt"].startswith("l_english:")
+    assert not result["txt"].startswith("\ufeff")
+    assert "BOM" in result["note"]
+
+
+def test_localisation_preserves_author_comment_before_language_header(tmp_path: Path):
+    _plant_localisation_core(tmp_path)
+    text = '# Author(s): test\nl_english:\n tst_idea: "Idea"\n'
+
+    result = standardize_tool(tmp_path, content=text, content_type="localisation")
+
+    assert result["ok"] is True
+    assert result["txt"].startswith("# Author(s): test\nl_english:")
+    assert result["txt"].count("l_english:") == 1
+    second = standardize_tool(tmp_path, content=result["txt"], content_type="localisation")
+    assert second["txt"] == result["txt"]
+
+
+@pytest.mark.parametrize("content", ["\n \n\n", "Not a header\n", "# Comment only\n"])
+def test_localisation_rejects_input_without_a_header(tmp_path: Path, content):
+    _plant_localisation_core(tmp_path)
+
+    result = standardize_tool(tmp_path, content=content, content_type="localisation")
+
+    assert result["ok"] is False
+    assert result["kind"] == "localisation"
+    assert "No language header found" in result["error"]
+
+
+def test_localisation_content_mode_reports_missing_upstream_core(tmp_path: Path):
+    # standardize_api is planted, localisation is not: localisation must fail
+    # on its own module, not be caught by kind routing.
+    _plant_api(tmp_path)
+
+    result = standardize_tool(tmp_path, content="l_english:\n", content_type="localisation")
+
+    assert result["ok"] is False
+    assert "standardize_localisation" in result["error"]
+
+
+def test_localisation_path_mode_reports_missing_upstream_core(tmp_path: Path):
+    rel = "localisation/english/test_l_english.yml"
+    (tmp_path / rel).parent.mkdir(parents=True)
+    (tmp_path / rel).write_text("l_english:\n", encoding="utf-8")
+    _plant_api(tmp_path)
+
+    result = standardize_tool(tmp_path, path=rel)
+
+    assert result["ok"] is False
+    assert "standardize_localisation" in result["error"]
+
+
+def test_localisation_path_mode_needs_only_the_localisation_core(tmp_path: Path, monkeypatch):
+    _plant_localisation_core(tmp_path)
+    monkeypatch.setattr(standardize_tools, "_load_standardize_api", _unreachable)
+    rel = "localisation/english/test_l_english.yml"
+    yml_path = tmp_path / rel
+    yml_path.parent.mkdir(parents=True)
+    text = "l_english:\n"
+    yml_path.write_text(text, encoding="utf-8")
+    original = yml_path.read_bytes()
+
+    result = standardize_tool(tmp_path, path=rel)
+
+    assert result["ok"] is True
+    assert result["kind"] == "localisation"
+    assert result["file"] == rel
+    assert result["txt"] == text
+    assert result["changed"] is False
+    assert result["categories"] == {}
+    assert "note" not in result
+    assert yml_path.read_bytes() == original, "the tool must never write"
+
+
+def test_bounded_localisation_index_fails_closed_at_file_limit(tmp_path: Path, monkeypatch):
+    _plant_localisation_core(tmp_path)
+    monkeypatch.setattr(standardize_tools, "_MAX_LOCALISATION_INDEX_FILES", 0)
+    loc = standardize_tools._load_localisation_core(tmp_path)
+
+    with pytest.raises(ValueError, match="exceeded 0 files"):
+        standardize_tools._bounded_localisation_index(loc, tmp_path)
+
+    monkeypatch.setattr(standardize_tools, "_MAX_LOCALISATION_INDEX_FILES", 5_000)
+    monkeypatch.setattr(standardize_tools, "_MAX_LOCALISATION_INDEX_BYTES", 0)
+    with pytest.raises(ValueError, match="exceeded 0 bytes"):
+        standardize_tools._bounded_localisation_index(loc, tmp_path)
+
+
+def test_localisation_clips_oversized_txt_and_warns(tmp_path: Path):
+    _plant_localisation_core(tmp_path)
+
+    result = standardize_tool(
+        tmp_path,
+        content="\ufeffl_english:\n" + ' tst_key: "value"\n' * 10_000,
+        content_type="localisation",
+    )
+
+    assert result["ok"] is True
+    assert result["kind"] == "localisation"
+    assert result["txt_truncated"] is True
+    assert "do NOT write clipped content back" in result["note"]
+    assert "BOM" in result["note"]
+    assert result["had_bom"] is True
+    assert len(json.dumps(result, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+
+
+def test_bounded_localisation_index_skips_unreadable_files(tmp_path: Path, monkeypatch):
+    _plant_localisation_core(tmp_path)
+    loc = standardize_tools._load_localisation_core(tmp_path)
+
+    def unreadable(*args, **kwargs):
+        raise PermissionError("unreadable index source")
+
+    monkeypatch.setattr(Path, "read_text", unreadable)
+
+    index = standardize_tools._bounded_localisation_index(loc, tmp_path)
+    assert all(not values for values in index.values())
+
+
+@pytest.mark.integration
+def test_localisation_content_round_trip_does_not_retain_path_anchor(real_mod_root: Path):
+    text = 'l_english:\n BRA_focus_tree: "Brazil"\n BRA_2002_elections: "Election"\n'
+    first = standardize_tools._standardize_localisation(
+        real_mod_root, text, "MD_focus_BRA_l_english", False, None
+    )
+    assert first["ok"] is True
+    assert first["txt"].index("BRA_focus_tree:") < first["txt"].index("BRA_2002_elections:")
+
+    second = standardize_tool(real_mod_root, content=first["txt"], content_type="localisation")
+    assert second["ok"] is True
+    assert second["changed"] is True
+    assert second["txt"].index("BRA_2002_elections:") < second["txt"].index("BRA_focus_tree:")
+
+    third = standardize_tool(real_mod_root, content=second["txt"], content_type="localisation")
+    assert third["ok"] is True
+    assert third["changed"] is False
+    assert third["txt"] == second["txt"]
+
+
+def test_localisation_content_type_goes_to_localisation_core(tmp_path: Path):
+    """content_type=localisation routes to the localisation core even with
+    nothing planted, instead of failing on the standardize_api router."""
+    result = standardize_tool(
+        tmp_path,
+        content='l_english:\n tst_idea: "Idea"\n',
+        content_type="localisation",
+    )
+
+    assert result["ok"] is False
+    assert "standardize_localisation" in result["error"]

@@ -32,7 +32,7 @@ uv sync --extra dev
 ## Running tests
 
 ```bash
-pytest -q                            # unit suite, sub-second, no checkout needed
+pytest -q                            # unit suite, about 20 s, no checkout needed
 pytest -q -n auto                    # parallelised
 pytest -m integration                # requires MD_MOD_ROOT (real mod)
 pytest tests/test_focus_graph.py -v  # focused
@@ -53,13 +53,21 @@ Markers are defined in [`pyproject.toml`](../pyproject.toml)
 
 - `integration` — needs `MD_MOD_ROOT` set; will `pytest.skip` otherwise.
 
-Conftest provides two fixtures:
+`tests/conftest.py` provides the fixtures:
 
-- **`fake_mod_root`** (tmp_path-backed) — minimal mod tree under `tmp_path` with
-  `descriptor.mod`, one focus file, one loc file, plus M2 fixture content
-  (events, decisions, ideas, sprites). Use for fast unit tests.
+- **`fake_mod_root`** — minimal mod tree under `tmp_path`: `descriptor.mod` and
+  one file each of focuses, loc, events, decisions, ideas, sprites, tags,
+  characters, traits, and scripted effects and triggers. Use for fast unit tests.
+- **`cache_dir`** — an empty cache path under `tmp_path`.
 - **`real_mod_root`** — resolves `MD_MOD_ROOT`; skips if unset or invalid.
   Use for integration tests that need realistic content volume.
+- An autouse fixture clears the process-wide AST cache around every test.
+
+Helpers that more than one test module uses live in `tests/support/`: mod
+roots, settings, and git repos in `mod.py`, index state helpers in
+`indexes.py`, and planted stand-ins for upstream `tools/` in `upstream.py`.
+Put a helper there once a second module needs it. Test modules do not import
+from each other.
 
 Tests that construct a server must close its bounded worker pool during fixture
 teardown (`server._md_blocking_tools.close()`). This prevents worker threads
@@ -78,10 +86,7 @@ from surviving into later tests that fork processes.
 
 ## Adding a new tool
 
-See [`CLAUDE.md`](../CLAUDE.md#how-to-add-a-new-tool) for the inline skeleton.
-The expanded checklist:
-
-1. **Implementation location**:
+1. **Implementation location** (never directly in `server.py`):
    - Pure queries → `src/md_mcp/analysis/<name>.py`
    - Wraps a `Millennium-Dawn/tools/` script → `src/md_mcp/tools/<name>_tools.py`
    - Index-only lookup → `src/md_mcp/tools/resolver_tools.py`
@@ -103,6 +108,25 @@ The expanded checklist:
    - One truncation/budget case.
    - One error case (missing id, malformed input).
 6. **Document** in [`docs/tools.md`](./tools.md).
+
+Skeleton:
+
+```python
+def my_query(mod_root, *, detail="summary", limit=100, offset=0) -> dict:
+    raw = _expensive_scan(mod_root)
+    sliced, truncated, total = paginate(raw, offset, limit)
+    return enforce_budget(
+        {
+            "ok": True,
+            "detail": detail,
+            "total": total,
+            "returned": len(sliced),
+            "truncated": truncated,
+            "items": sliced if detail != "summary" else [],
+        },
+        heavy_keys=("items",),
+    )
+```
 
 ## Adding a new index
 
@@ -235,23 +259,13 @@ but `parseHoi4File` is importable from the compiled
 for the pattern). The shape would be a node/bun shim dumping canonical JSON,
 an `MD_TS_PARSER_ROOT` env var pointing at the sibling checkout, and a
 normaliser for the intentional port divergences (`Node.children` is a method,
-`Token.start` is a byte offset).
+`Token.start` is a str index).
 
 ## Releasing
 
 Versioning lives in [`pyproject.toml`](../pyproject.toml) (`project.version`).
-No formal release artefacts yet; users install via `pip install -e .` from
-a local checkout.
-
-If/when we publish to PyPI:
-
-```bash
-python -m build
-python -m twine upload dist/*
-```
-
-Bump the version, tag the commit (`git tag v0.x.y`), push tags
-(`git push --tags`).
+There are no release artefacts; users install with `pip install -e .` from a
+local checkout.
 
 ## Debugging the running server
 
@@ -289,10 +303,7 @@ If `validate` starts failing after an upstream change:
 
 ### Stale indexes
 
-```bash
-rm -rf /path/to/Millennium-Dawn/.md-mcp-cache
-md-mcp build-index --mod-root /path/to/Millennium-Dawn
-```
+See [Debugging stale data](./indexes.md#debugging-stale-data).
 
 ## Useful reading order for newcomers
 

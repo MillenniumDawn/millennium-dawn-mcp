@@ -30,9 +30,8 @@ stdio and a result going back out.
        │
 ┌──────▼────────┐  ┌──────────────┐  ┌──────────────┐
 │ indexes/      │  │ validators/  │  │ util/        │
-│ Two-tier cache│  │ wrapper      │  │ response,    │
-└───────────────┘  └──────────────┘  │ encoding,    │
-                                     │ pathing      │
+│ Two-tier cache│  │ wrapper      │  │ shared       │
+└───────────────┘  └──────────────┘  │ helpers      │
                                      └──────────────┘
 ```
 
@@ -52,8 +51,9 @@ The arrows are import direction. Lower modules don't know about higher ones.
      (BOM-aware `read_text` + `parse_string` behind a process-wide LRU; see
      [AST cache](#ast-cache)). Tools that only need raw text still call
      `util.encoding.read_text` directly.
-   - For validators: hand off to `ValidatorRunner` which imports
-     `Millennium-Dawn/tools/validation/validate_*.py` in-process.
+   - For validators: hand off to `ValidatorRunner`, which runs each
+     `Millennium-Dawn/tools/validation/validate_*.py` in a child process (see
+     [`validators.md`](./validators.md)).
 4. **Result shaping**: every list-returning tool calls `paginate(...)` (or its
    detail-tier equivalent) and wraps the dict in `enforce_budget(..., heavy_keys=(...))`
    from `util/response.py`. This is the **last-line defence** that keeps
@@ -73,19 +73,8 @@ The arrows are import direction. Lower modules don't know about higher ones.
 
 ## Configuration flow
 
-`config.py` `load(mod_root_arg)` returns a `Settings`:
-
-```python
-@dataclass
-class Settings:
-    mod_root: Path
-    vanilla_path: Optional[Path]
-    cache_dir: Path
-    validator_mode: str = "isolated"
-    default_lang: str = "en"
-    submod_root: Optional[Path] = None
-    loc_langs: tuple[str, ...] = ()  # empty -> (default_lang,)
-```
+`config.py` `load(mod_root_arg)` returns a `Settings` dataclass (see
+[`config.py`](../src/md_mcp/config.py) for the fields).
 
 Resolution order: CLI flag > env var > `~/.config/md-mcp/config.toml` >
 auto-discovery (`util.pathing.find_mod_root`). Vanilla path is opt-in only;
@@ -160,18 +149,9 @@ the parsed projection from `schema.py`.
 
 ## Output budgets
 
-The most-violated invariant if you're not paying attention. Cap is ~25K
-tokens (~100 KB serialised JSON) per MCP call. Designed-around in three
-layers:
-
-1. **Default to summary** at the tool level — counts + sample, no full lists.
-2. **Pagination** on opt-in detail — `limit` / `offset` (`paginate(...)`) or
-   `detail` tier (`summary`/`ids`/`full`).
-3. **`enforce_budget`** drops listed heavy keys if the result still exceeds
-   `BUDGET_BYTES` (100 KB). Sets `size_truncated=True` + `<key>_dropped` so
-   the caller knows.
-
-The full pattern, including the focus_graph case study, is in
+MCP clients cap one call at ~25K tokens (~100 KB of JSON). Every
+list-returning tool defaults to a summary, pages opt-in detail, and wraps its
+result in `enforce_budget`. The pattern is in
 [`output-budgets.md`](./output-budgets.md).
 
 ## Why generators don't write files
@@ -189,17 +169,4 @@ the loop.
 
 ## Where each subsystem lives
 
-| Concern | Module |
-|---|---|
-| HOI4 paradox-script parsing | `src/md_mcp/paradox/` |
-| Cache (in-process + on-disk) | `src/md_mcp/indexes/` |
-| Validator wrapping | `src/md_mcp/validators/runner.py` |
-| String generators (focus/event/…) | `src/md_mcp/generators/` |
-| High-level queries | `src/md_mcp/analysis/` |
-| Tool wrappers | `src/md_mcp/tools/` |
-| MCP registration + CLI | `src/md_mcp/server.py` |
-| Response shaping helpers | `src/md_mcp/util/response.py` |
-| BOM-aware file IO | `src/md_mcp/util/encoding.py` |
-| Mod-root discovery | `src/md_mcp/util/pathing.py` |
-| Config | `src/md_mcp/config.py` |
-| Raw text resources | `src/md_mcp/resources.py` |
+The package map is in [`CLAUDE.md`](../CLAUDE.md#repo-layout).

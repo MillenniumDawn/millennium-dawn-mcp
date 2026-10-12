@@ -20,20 +20,13 @@ from md_mcp.tools import validation_tools
 from md_mcp.tools.validation_tools import validate_list_tool, validate_tool
 from md_mcp.util.response import BUDGET_BYTES
 from md_mcp.validators import ValidatorRunner
+from tests.support.mod import mod_settings
+from tests.support.upstream import ISSUE_CLASS, plant_validator
 
 _validate_tool_with_delta = cast(Callable[..., dict], validate_tool)
 
-_ISSUE_CLASS = """
-class _Issue:
-    def __init__(self, **kw):
-        self.kw = kw
-
-    def to_dict(self):
-        return dict(self.kw)
-"""
-
 _GOOD = (
-    _ISSUE_CLASS
+    ISSUE_CLASS
     + """
 class Validator:
     TITLE = "Good"
@@ -50,7 +43,7 @@ class Validator:
 )
 
 _WARNING_ONLY = (
-    _ISSUE_CLASS
+    ISSUE_CLASS
     + """
 class Validator:
     TITLE = "WarnOnly"
@@ -69,19 +62,11 @@ class Validator:
 _BROKEN = "this is not valid python (\n"
 
 
-def _plant(mod_root: Path, name: str, source: str) -> None:
-    (mod_root / "tools" / "validation" / f"validate_{name}.py").write_text(source, encoding="utf-8")
-
-
-def _settings(mod_root: Path) -> Settings:
-    return Settings(mod_root=mod_root, vanilla_path=None, cache_dir=mod_root / ".md-mcp-cache")
-
-
 def test_validate_list_paginates_and_normalizes_bounds(fake_mod_root):
     for name in ("first", "second", "third"):
-        _plant(fake_mod_root, name, _GOOD)
+        plant_validator(fake_mod_root, name, _GOOD)
 
-    result = validate_list_tool(_settings(fake_mod_root), limit="1.9", offset=1.9)
+    result = validate_list_tool(mod_settings(fake_mod_root), limit="1.9", offset=1.9)
 
     assert result["total"] == 3
     assert result["returned"] == 1
@@ -102,7 +87,7 @@ def test_validate_list_budget_guard_drops_oversized_validator_page(fake_mod_root
     infos = [_Info(f"validator_{i}") for i in range(2_000)]
     monkeypatch.setattr(validation_tools, "available_validators", lambda _: infos)
 
-    result = validate_list_tool(_settings(fake_mod_root), limit=2_000)
+    result = validate_list_tool(mod_settings(fake_mod_root), limit=2_000)
 
     assert result["ok"] is True
     assert result["total"] == 2_000
@@ -114,13 +99,13 @@ def test_validate_list_budget_guard_drops_oversized_validator_page(fake_mod_root
 
 
 def test_validate_default_skips_non_english_localisation(fake_mod_root):
-    _plant(fake_mod_root, "french_probe", _GOOD)
+    plant_validator(fake_mod_root, "french_probe", _GOOD)
     french_file = fake_mod_root / "localisation" / "french" / "probe_l_french.yml"
     french_file.parent.mkdir(parents=True)
     french_file.write_text("l_french:\n", encoding="utf-8")
 
     result = validate_tool(
-        _settings(fake_mod_root),
+        mod_settings(fake_mod_root),
         ValidatorRunner(fake_mod_root),
         files=["localisation/french/probe_l_french.yml"],
     )
@@ -140,7 +125,7 @@ def test_validate_run_all_returns_all_missing_paths_before_dispatch(fake_mod_roo
     monkeypatch.setattr(runner, "run", unexpected_run)
     missing = ["events/missing_a.txt", "common/missing_b.txt"]
     result = validate_tool(
-        _settings(fake_mod_root), runner, files=missing, delta=True, baseline=None
+        mod_settings(fake_mod_root), runner, files=missing, delta=True, baseline=None
     )
 
     assert result == {
@@ -158,7 +143,7 @@ def test_validate_missing_non_english_localisation_fails_before_skip(fake_mod_ro
 
     monkeypatch.setattr(runner, "run", unexpected_run)
     path = "localisation/french/absent_l_french.yml"
-    result = validate_tool(_settings(fake_mod_root), runner, files=[path])
+    result = validate_tool(mod_settings(fake_mod_root), runner, files=[path])
 
     assert result == {
         "ok": False,
@@ -178,7 +163,9 @@ def test_validate_scope_path_that_cannot_be_checked_is_reported_missing(fake_mod
         return original_exists(candidate, **kwargs)
 
     monkeypatch.setattr(Path, "exists", fail_target)
-    result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root), files=[path])
+    result = validate_tool(
+        mod_settings(fake_mod_root), ValidatorRunner(fake_mod_root), files=[path]
+    )
 
     assert result == {"ok": False, "error": f"scope file not found: {path}", "missing": [path]}
 
@@ -213,7 +200,7 @@ def test_validate_large_missing_scope_list_is_budgeted(fake_mod_root):
     runner = ValidatorRunner(fake_mod_root)
     files = [f"missing/{i:04}-{'x' * 24}.txt" for i in range(5_000)]
 
-    result = validate_tool(_settings(fake_mod_root), runner, files=files)
+    result = validate_tool(mod_settings(fake_mod_root), runner, files=files)
 
     assert result["ok"] is False
     assert result["error"] == f"scope file not found: {files[0]}"
@@ -223,8 +210,8 @@ def test_validate_large_missing_scope_list_is_budgeted(fake_mod_root):
 
 
 def test_validate_all_ok_when_every_validator_ok(fake_mod_root):
-    _plant(fake_mod_root, "good", _GOOD)
-    result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root))
+    plant_validator(fake_mod_root, "good", _GOOD)
+    result = validate_tool(mod_settings(fake_mod_root), ValidatorRunner(fake_mod_root))
     assert result["ok"] is True
     assert result["validators"] == [
         {
@@ -239,7 +226,7 @@ def test_validate_all_ok_when_every_validator_ok(fake_mod_root):
 
 
 def test_validate_all_preserves_attribution_counts_like_named_run(fake_mod_root):
-    _plant(fake_mod_root, "good", _GOOD)
+    plant_validator(fake_mod_root, "good", _GOOD)
 
     class Runner:
         def run(self, name, **kwargs):
@@ -256,9 +243,9 @@ def test_validate_all_preserves_attribution_counts_like_named_run(fake_mod_root)
 
     runner = cast(Any, Runner())
     named = validate_tool(
-        _settings(fake_mod_root), runner, validator="good", files=["events/test_events.txt"]
+        mod_settings(fake_mod_root), runner, validator="good", files=["events/test_events.txt"]
     )
-    run_all = validate_tool(_settings(fake_mod_root), runner, files=["events/test_events.txt"])
+    run_all = validate_tool(mod_settings(fake_mod_root), runner, files=["events/test_events.txt"])
 
     assert named["unattributed"] == 17
     assert run_all["unattributed"] == named["unattributed"]
@@ -269,8 +256,8 @@ def test_validate_all_preserves_attribution_counts_like_named_run(fake_mod_root)
 
 
 def test_validate_all_sums_zero_and_nonzero_attribution_counts(fake_mod_root):
-    _plant(fake_mod_root, "empty_attribution", _GOOD)
-    _plant(fake_mod_root, "unresolved", _GOOD)
+    plant_validator(fake_mod_root, "empty_attribution", _GOOD)
+    plant_validator(fake_mod_root, "unresolved", _GOOD)
 
     class Runner:
         def run(self, name, **kwargs):
@@ -283,7 +270,7 @@ def test_validate_all_sums_zero_and_nonzero_attribution_counts(fake_mod_root):
             }
 
     result = validate_tool(
-        _settings(fake_mod_root),
+        mod_settings(fake_mod_root),
         cast(Any, Runner()),
         files=["events/test_events.txt"],
         counts_only=True,
@@ -300,7 +287,7 @@ def test_validate_all_sums_zero_and_nonzero_attribution_counts(fake_mod_root):
 def test_validate_all_delta_keeps_attribution_counts_outside_severity_totals(
     fake_mod_root, monkeypatch
 ):
-    _plant(fake_mod_root, "unresolved", _GOOD)
+    plant_validator(fake_mod_root, "unresolved", _GOOD)
 
     class Runner:
         def run(self, name, **kwargs):
@@ -319,7 +306,7 @@ def test_validate_all_delta_keeps_attribution_counts_outside_severity_totals(
     )
 
     result = validate_tool(
-        _settings(fake_mod_root),
+        mod_settings(fake_mod_root),
         cast(Any, Runner()),
         files=["events/test_events.txt"],
         delta=True,
@@ -337,9 +324,9 @@ def test_validate_all_delta_keeps_attribution_counts_outside_severity_totals(
 def test_validate_all_top_level_failure_when_any_validator_fails(fake_mod_root):
     # Regression: the run-all summary used to hardcode ok=True, burying a
     # broken validator in the per-validator list.
-    _plant(fake_mod_root, "good", _GOOD)
-    _plant(fake_mod_root, "broken", _BROKEN)
-    result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root))
+    plant_validator(fake_mod_root, "good", _GOOD)
+    plant_validator(fake_mod_root, "broken", _BROKEN)
+    result = validate_tool(mod_settings(fake_mod_root), ValidatorRunner(fake_mod_root))
     assert result["ok"] is False
     good = next(v for v in result["validators"] if v["name"] == "good")
     broken = next(v for v in result["validators"] if v["name"] == "broken")
@@ -351,18 +338,18 @@ def test_validate_all_top_level_failure_when_any_validator_fails(fake_mod_root):
 
 
 def test_validate_single_validator_propagates_failure(fake_mod_root):
-    _plant(fake_mod_root, "broken", _BROKEN)
+    plant_validator(fake_mod_root, "broken", _BROKEN)
     result = validate_tool(
-        _settings(fake_mod_root), ValidatorRunner(fake_mod_root), validator="broken"
+        mod_settings(fake_mod_root), ValidatorRunner(fake_mod_root), validator="broken"
     )
     assert result["ok"] is False
     assert "SyntaxError" in result["error"]
 
 
 def test_validate_single_validator_strict_folds_warnings_into_errors(fake_mod_root):
-    _plant(fake_mod_root, "warnonly", _WARNING_ONLY)
+    plant_validator(fake_mod_root, "warnonly", _WARNING_ONLY)
     result = validate_tool(
-        _settings(fake_mod_root),
+        mod_settings(fake_mod_root),
         ValidatorRunner(fake_mod_root),
         validator="warnonly",
         strict=True,
@@ -372,17 +359,17 @@ def test_validate_single_validator_strict_folds_warnings_into_errors(fake_mod_ro
 
 
 def test_validate_single_validator_non_strict_counts_unchanged(fake_mod_root):
-    _plant(fake_mod_root, "warnonly", _WARNING_ONLY)
+    plant_validator(fake_mod_root, "warnonly", _WARNING_ONLY)
     result = validate_tool(
-        _settings(fake_mod_root), ValidatorRunner(fake_mod_root), validator="warnonly"
+        mod_settings(fake_mod_root), ValidatorRunner(fake_mod_root), validator="warnonly"
     )
     assert result["ok"] is True
     assert result["counts"] == {"error": 0, "warning": 2, "info": 0}
 
 
 def test_validate_all_strict_still_folds_aggregate_counts(fake_mod_root):
-    _plant(fake_mod_root, "warnonly", _WARNING_ONLY)
-    result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root), strict=True)
+    plant_validator(fake_mod_root, "warnonly", _WARNING_ONLY)
+    result = validate_tool(mod_settings(fake_mod_root), ValidatorRunner(fake_mod_root), strict=True)
     assert result["ok"] is True
     assert result["counts"] == {"error": 2, "warning": 0, "info": 0}
 
@@ -394,10 +381,10 @@ def test_validate_all_strict_folds_each_validator_breakdown(fake_mod_root):
     breakdown stayed raw and a caller reconciling the two saw a warning count
     that appeared in one place and not the other.
     """
-    _plant(fake_mod_root, "warnonly", _WARNING_ONLY)
-    _plant(fake_mod_root, "good", _GOOD)
+    plant_validator(fake_mod_root, "warnonly", _WARNING_ONLY)
+    plant_validator(fake_mod_root, "good", _GOOD)
 
-    result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root), strict=True)
+    result = validate_tool(mod_settings(fake_mod_root), ValidatorRunner(fake_mod_root), strict=True)
 
     assert result["counts"] == {"error": 4, "warning": 0, "info": 0}
 
@@ -413,10 +400,10 @@ def test_validate_all_strict_folds_each_validator_breakdown(fake_mod_root):
 
 def test_validate_all_non_strict_breakdown_is_unchanged(fake_mod_root):
     """Control. A fold applied unconditionally would pass the test above."""
-    _plant(fake_mod_root, "warnonly", _WARNING_ONLY)
-    _plant(fake_mod_root, "good", _GOOD)
+    plant_validator(fake_mod_root, "warnonly", _WARNING_ONLY)
+    plant_validator(fake_mod_root, "good", _GOOD)
 
-    result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root))
+    result = validate_tool(mod_settings(fake_mod_root), ValidatorRunner(fake_mod_root))
 
     assert result["counts"] == {"error": 1, "warning": 3, "info": 0}
     by_name = {v["name"]: v["counts"] for v in result["validators"]}
@@ -427,10 +414,10 @@ def test_validate_all_non_strict_breakdown_is_unchanged(fake_mod_root):
 def test_validate_all_strict_leaves_a_failed_validator_without_counts(fake_mod_root):
     """A validator that could not run reported no counts, and strict must not
     invent an {"error": 0, "warning": 0} for it."""
-    _plant(fake_mod_root, "warnonly", _WARNING_ONLY)
-    _plant(fake_mod_root, "broken", _BROKEN)
+    plant_validator(fake_mod_root, "warnonly", _WARNING_ONLY)
+    plant_validator(fake_mod_root, "broken", _BROKEN)
 
-    result = validate_tool(_settings(fake_mod_root), ValidatorRunner(fake_mod_root), strict=True)
+    result = validate_tool(mod_settings(fake_mod_root), ValidatorRunner(fake_mod_root), strict=True)
 
     broken = next(v for v in result["validators"] if v["name"] == "broken")
     assert broken["ok"] is False
@@ -522,7 +509,7 @@ def _fake_report_lib():
 def _delta_settings(mod_root):
     (mod_root / "events").mkdir(exist_ok=True)
     (mod_root / "events" / "a.txt").write_text("synthetic", encoding="utf-8")
-    return _settings(mod_root)
+    return mod_settings(mod_root)
 
 
 def _delta_helper():
@@ -638,8 +625,8 @@ def test_validate_delta_caps_only_new_issues(fake_mod_root, monkeypatch):
 
 
 def test_validate_delta_does_not_invent_counts_for_failed_validator(fake_mod_root, monkeypatch):
-    _plant(fake_mod_root, "good", _GOOD)
-    _plant(fake_mod_root, "broken", _BROKEN)
+    plant_validator(fake_mod_root, "good", _GOOD)
+    plant_validator(fake_mod_root, "broken", _BROKEN)
     _patch_fake_baseline(monkeypatch, [])
 
     class Runner:
@@ -648,7 +635,9 @@ def test_validate_delta_does_not_invent_counts_for_failed_validator(fake_mod_roo
                 return {"ok": False, "error": "failed"}
             return {"ok": True, "counts": {"error": 0, "warning": 0, "info": 0}, "issues": []}
 
-    result = _validate_tool_with_delta(_settings(fake_mod_root), Runner(), delta=True, strict=True)
+    result = _validate_tool_with_delta(
+        mod_settings(fake_mod_root), Runner(), delta=True, strict=True
+    )
 
     broken = next(entry for entry in result["validators"] if entry["name"] == "broken")
     assert result["ok"] is False
@@ -710,7 +699,7 @@ def test_validate_delta_duplicate_basename_is_unclassified_not_new(fake_mod_root
 
 def _run_all_delta(fake_mod_root, monkeypatch, by_validator, **kwargs):
     for name in by_validator:
-        _plant(fake_mod_root, name, _GOOD)
+        plant_validator(fake_mod_root, name, _GOOD)
     settings = _delta_settings(fake_mod_root)
     _patch_fake_baseline(monkeypatch, [])
 

@@ -15,16 +15,7 @@ import pytest
 
 from md_mcp.config import Settings
 from md_mcp.server import build_server
-
-
-def _settings(mod_root, cache_dir) -> Settings:
-    return Settings(
-        mod_root=mod_root,
-        vanilla_path=None,
-        cache_dir=cache_dir,
-        validator_mode="in_process",
-        default_lang="en",
-    )
+from tests.support.mod import in_process_settings
 
 
 def _text(result) -> str:
@@ -58,7 +49,7 @@ def server_factory():
 
 @pytest.fixture
 def server(fake_mod_root, cache_dir, server_factory):
-    return server_factory(_settings(fake_mod_root, cache_dir))
+    return server_factory(in_process_settings(fake_mod_root, cache_dir))
 
 
 def test_lint_and_validate_serialize_shared_runner(server, monkeypatch):
@@ -320,7 +311,7 @@ def test_call_resolve_sprite_manifest_fallback(fake_mod_root, cache_dir, server_
     (fake_mod_root / "tools" / "validation" / "vanilla_sprites.txt").write_text(
         "GFX_vanilla_only\n", encoding="utf-8"
     )
-    srv = server_factory(_settings(fake_mod_root, cache_dir))
+    srv = server_factory(in_process_settings(fake_mod_root, cache_dir))
 
     async def go():
         return await srv.call_tool("resolve_sprite", {"name": "GFX_vanilla_only"})
@@ -335,7 +326,7 @@ def test_call_resolve_sprite_index_wins_over_manifest(fake_mod_root, cache_dir, 
     (fake_mod_root / "tools" / "validation" / "vanilla_sprites.txt").write_text(
         "GFX_test_sprite_one\n", encoding="utf-8"
     )
-    srv = server_factory(_settings(fake_mod_root, cache_dir))
+    srv = server_factory(in_process_settings(fake_mod_root, cache_dir))
 
     async def go():
         return await srv.call_tool("resolve_sprite", {"name": "GFX_test_sprite_one"})
@@ -604,7 +595,7 @@ def test_call_fix_lint(fake_mod_root, cache_dir, server_factory):
         "def _find_decision_log_mismatches(lines):\n    return []\n",
         encoding="utf-8",
     )
-    srv = server_factory(_settings(fake_mod_root, cache_dir))
+    srv = server_factory(in_process_settings(fake_mod_root, cache_dir))
 
     async def go():
         return await srv.call_tool("fix_lint", {"fixer": "styling", "content": "a XX b\n"})

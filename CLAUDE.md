@@ -1,8 +1,8 @@
 # CLAUDE.md — millennium-dawn-mcp
 
-Instructions for AI agents (Claude Code and friends) working in
-**`/Users/matthewscott/Programming/MD/millennium-dawn-mcp/`**. The repo is the MCP
-server that fronts the Millennium Dawn toolchain. Read this before editing.
+Instructions for AI agents (Claude Code and friends) working in this repo. It
+is the MCP server that fronts the Millennium Dawn toolchain. Read this before
+editing.
 
 For an end-user / developer overview, see [`README.md`](./README.md). Deeper docs
 live under [`docs/`](./docs/).
@@ -32,35 +32,25 @@ It is a **sibling** of `Millennium-Dawn/`, `MD-VSCode-Utility-Tool/`, and
 
 ```
 src/md_mcp/
-├── server.py            FastMCP instance + tool/resource registration + CLI
-├── config.py            Settings dataclass; mod-root / vanilla / cache discovery
-├── resources.py         md:// resource handlers (raw text streaming)
-├── paradox/             Ported HOI4 parser
-│   ├── lexer.py         Token regexes (port of hoiparser.ts; string differs, see docs/parser.md)
-│   ├── parser.py        Recursive-descent
-│   ├── nodes.py         Node, Token, SymbolNode dataclasses
-│   └── schema.py        Typed projections (focus/event/decision/idea/sprite)
-├── indexes/             Two-tier cache (in-process + persistent JSONL)
-│   ├── base.py          GenericTxtIndex, IndexCache, staleness checking
-│   └── {focus,event,decision,idea,localisation,gfx}.py
-├── validators/runner.py Wraps Millennium-Dawn validate_*.py modules in-process
-├── generators/          Pure-string generators (focus/event/decision/idea/gfx/loc)
-├── analysis/            High-level queries
-│   ├── focus_graph.py   Prereq/mutex DAG with tiered detail
-│   ├── refs.py          Find-all-references over scan dirs
-│   ├── manifest.py      Per-country file/ID inventory
-│   ├── diff_summary.py  git diff + AST-level ID diff
-│   └── encoding.py      BOM compliance check
-├── tools/               Thin @mcp.tool() wrappers
-└── util/
-    ├── response.py      paginate, enforce_budget, BUDGET_BYTES
-    ├── encoding.py      BOM-aware read_text
-    └── pathing.py       mod_root / vanilla discovery
+├── server.py     FastMCP instance + tool/resource registration + CLI
+├── config.py     Settings dataclass; mod-root / vanilla / cache discovery
+├── resources.py  md:// resource handlers (raw text)
+├── paradox/      Ported HOI4 parser, typed projections, parsed-AST cache
+├── indexes/      Two-tier cache (in-process + persistent JSON), one module per kind
+├── validators/   Runs Millennium-Dawn validate_*.py modules; issue attribution
+├── generators/   Pure-string generators (focus/event/decision/idea/gfx/loc)
+├── analysis/     Queries: focus graph and layout, refs, manifest, diff, issue delta
+├── tools/        Tool implementations behind the @mcp.tool() wrappers
+└── util/         Shared helpers: response budgets, encoding, pathing, line numbers,
+                  process groups, git, thread offload, upstream module loading
 ```
 
-Tests live in `tests/`. Integration tests are marker-gated
+Shared code goes in `util/`; there is no separate `lib/`.
+
+Tests live in `tests/`, one flat directory. Integration tests are marker-gated
 (`@pytest.mark.integration`, skipped unless `MD_MOD_ROOT` points at a real
-checkout); there is no separate `tests/integration/` directory.
+checkout). Helpers used by more than one test module live in `tests/support/`;
+test modules do not import from each other.
 
 ---
 
@@ -122,22 +112,12 @@ resolves by shape against the real file list — never compare `issue["file"]` t
 a scope set directly.
 
 To debug a validator failure with a real traceback, call `_collect` outside the
-server. `ValidatorRunner.run()` catches every exception and returns
-`{ok: false, error}` in both modes; `_collect` raises:
-
-```python
-from md_mcp.config import load
-from md_mcp.validators.runner import _collect
-
-settings = load("/path/to/Millennium-Dawn")
-payload = _collect(str(settings.mod_root), "validate_events", staged_only=False)
-print(len(payload["issues"]))
-```
-
-(`_collect` and `in_process` both deadlock under `serve` — see rule 6 — so
-`serve` overrides the mode back to isolated. `md-mcp doctor` only prints
-settings; it runs no validators. See
-[`docs/validators.md`](./docs/validators.md) for the fuller debugging snippet.)
+server; the snippet is in
+[`docs/validators.md`](./docs/validators.md#debugging). `ValidatorRunner.run()`
+catches every exception and returns `{ok: false, error}` in both modes;
+`_collect` raises. `_collect` and `in_process` both deadlock under `serve` (see
+rule 6), so `serve` overrides the mode back to isolated. `md-mcp doctor` only
+prints settings; it runs no validators.
 
 ### 5. BOM rules on emitted files
 
@@ -208,25 +188,10 @@ use `line_starts(text)` + `pos_to_line(pos, line_starts)` from
    prompt budget, so keep it tight and informative (mention the key knobs).
 5. **Tests** under `tests/test_<name>.py` with at least: signature guard,
    small-output happy path, and one truncation case.
+6. **Document** it in [`docs/tools.md`](./docs/tools.md).
 
-Example skeleton:
-
-```python
-def my_query(mod_root, *, detail="summary", limit=100, offset=0) -> dict:
-    raw = _expensive_scan(mod_root)
-    sliced, truncated, total = paginate(raw, offset, limit)
-    return enforce_budget(
-        {
-            "ok": True,
-            "detail": detail,
-            "total": total,
-            "returned": len(sliced),
-            "truncated": truncated,
-            "items": sliced if detail != "summary" else [],
-        },
-        heavy_keys=("items",),
-    )
-```
+The skeleton and the longer checklist are in
+[`docs/development.md`](./docs/development.md#adding-a-new-tool).
 
 ---
 
@@ -238,7 +203,7 @@ Run the full unit suite:
 pytest -q
 ```
 
-Sub-second, no mod checkout needed.
+About 20 s, no mod checkout needed.
 
 Run the integration suite (requires a real `Millennium-Dawn/` checkout):
 
@@ -262,22 +227,13 @@ The ISR focus_graph probe in the git history is a useful template.
 
 ## Configuration knobs (env vars)
 
-| Env var | Effect |
-| --- | --- |
-| `MD_MOD_ROOT` | Path to the `Millennium-Dawn/` checkout. Required when not auto-discovered. |
-| `MD_MCP_SUBMOD_ROOT` | Optional submod/worktree overlay; matching files take precedence over the mod root. The default cache moves under it. |
-| `HOI4_PATH` | Path to vanilla `Hearts of Iron IV/`. Optional; doubles cold-build time. |
-| `MD_MCP_CACHE_DIR` | Override `.md-mcp-cache/` location (use for read-only checkouts). |
-| `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process`. `in_process` is unsafe under `serve`; see rule 6. |
-| `MD_MCP_DEFAULT_LANG` | Default loc language for `resolve_loc` (default `en`). |
-| `MD_MCP_LOC_LANGS` | Loc languages to index: comma-separated ISO codes (`en,de`) or `*`. Default: `default_lang` plus `en` (the fallback is always indexed). Others resolve via an on-demand scan. Each language set has its own cache (`loc-en`, `loc-de_en`). |
-| `MD_MCP_SERIAL_PARSE` | `1` forces serial parsing — auto-set by `md-mcp serve`. |
-| `MD_MCP_TEXT_CACHE_BYTES` | Bound on decoded text held by `find_references`' in-memory file cache, measured as the strings cost in memory (default 134217728 = 128 MB; `0` disables). Once full, further files are read but not cached. |
-| `MD_MCP_AST_CACHE_SIZE` | Parsed-AST LRU capacity in files (default 32, `0` disables). |
-| `MD_MCP_AST_CACHE_BYTES` | Bound on source text held by the parsed-AST cache (default 8000000). Resident cost is ~23x that: 8 MB of source is ~184 MB of trees on the real mod. |
+The env-var table is in [`README.md`](./README.md#configuration). Add new
+variables there, not here. Config-file equivalents live in
+`~/.config/md-mcp/config.toml`. CLI flag > env > file > computed default.
 
-Config-file equivalents in `~/.config/md-mcp/config.toml`. CLI flag > env >
-file > computed default.
+Two matter while working on the server: `MD_MCP_SERIAL_PARSE=1` disables the
+parser process pool (`serve` sets it; see rule 6), and
+`MD_MCP_VALIDATOR_MODE=in_process` is unsafe under `serve`.
 
 ---
 
@@ -303,19 +259,11 @@ not in the hook. Run `pytest -q` yourself; it isn't a hook either.
    one deliberate parsing difference, and `Node` stores fewer tokens; see
    [`docs/parser.md`](./docs/parser.md).
 3. The index cache is **stat-based**, not content-based. If an index seems
-   stale, blow away `<mod_root>/.md-mcp-cache/v1/` and rerun
+   stale, blow away `<mod_root>/.md-mcp-cache/` and rerun
    `md-mcp build-index`.
 4. The MCP framing layer can swallow exceptions raised inside a `@mcp.tool()`.
-   When debugging mid-call failures, run the tool directly:
-
-   ```python
-   from md_mcp.config import load
-   from md_mcp.indexes import FocusIndex
-   from md_mcp.analysis.focus_graph import focus_graph
-
-   s = load("/path/to/Millennium-Dawn")
-   focus_graph("ISR", s.mod_root, FocusIndex(s.mod_root, s.cache_dir, s.vanilla_path))
-   ```
+   When debugging mid-call failures, run the tool directly; the snippet is in
+   [`docs/development.md`](./docs/development.md#direct-tool-calls-bypass-mcp).
 
 ---
 

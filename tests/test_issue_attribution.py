@@ -12,8 +12,7 @@ from __future__ import annotations
 from md_mcp.indexes import base as index_base
 from md_mcp.validators import attribution
 from md_mcp.validators.attribution import IssueAttributor
-
-from .test_lint_dispatcher import _git, _init_repo
+from tests.support.mod import git, init_repo
 
 
 def _issue(file="", message="", **kw):
@@ -135,10 +134,10 @@ def test_dot_prefix_is_stripped_once_not_greedily(fake_mod_root):
 
 
 def test_refresh_picks_up_untracked_files_after_ttl(tmp_path, monkeypatch):
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     (tmp_path / "events").mkdir()
     (tmp_path / "events" / "old.txt").write_text("x", encoding="utf-8")
-    _git(tmp_path, "add", "events")
+    git(tmp_path, "add", "events")
     advance = _fake_clock(monkeypatch)
     at = IssueAttributor(tmp_path)
 
@@ -154,19 +153,19 @@ def test_refresh_picks_up_untracked_files_after_ttl(tmp_path, monkeypatch):
 
 
 def test_refresh_drops_deleted_files_after_ttl(tmp_path, monkeypatch):
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     gone = tmp_path / "events" / "gone.txt"
     gone.parent.mkdir(parents=True)
     gone.write_text("x", encoding="utf-8")
-    _git(tmp_path, "add", "events")
-    _git(tmp_path, "commit", "-qm", "seed")
+    git(tmp_path, "add", "events")
+    git(tmp_path, "commit", "-qm", "seed")
     advance = _fake_clock(monkeypatch)
     at = IssueAttributor(tmp_path)
     assert at.resolve(_issue(file="gone.txt")) == "events/gone.txt"
 
     # `git ls-files --cached` drives the index, so the deletion becomes
     # visible to a refresh once git has recorded it.
-    _git(tmp_path, "rm", "-q", "events/gone.txt")
+    git(tmp_path, "rm", "-q", "events/gone.txt")
     # Still cached inside the TTL window (bounded staleness) — but an exact
     # mod-relative path to a missing file keeps flowing to the scope filter.
     assert at.resolve(_issue(file="events/gone.txt")) == "events/gone.txt"
@@ -176,19 +175,19 @@ def test_refresh_drops_deleted_files_after_ttl(tmp_path, monkeypatch):
 
 
 def test_refresh_rebuilds_basename_and_exact_path_views_together(tmp_path, monkeypatch):
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     (tmp_path / "events").mkdir()
     (tmp_path / "common").mkdir()
     (tmp_path / "events" / "old.txt").write_text("x", encoding="utf-8")
-    _git(tmp_path, "add", "events")
-    _git(tmp_path, "commit", "-qm", "seed")
+    git(tmp_path, "add", "events")
+    git(tmp_path, "commit", "-qm", "seed")
     advance = _fake_clock(monkeypatch)
     at = IssueAttributor(tmp_path)
 
     # Warm both cached views.
     assert at.resolve(_issue(file="old.txt")) == "events/old.txt"
 
-    _git(tmp_path, "mv", "events/old.txt", "common/old.txt")
+    git(tmp_path, "mv", "events/old.txt", "common/old.txt")
     advance(2.1)
 
     # One refresh reads one listing, so both views move together: the basename
@@ -201,10 +200,10 @@ def test_refresh_rebuilds_basename_and_exact_path_views_together(tmp_path, monke
 
 
 def test_refresh_refuses_newly_ambiguous_basename(tmp_path, monkeypatch):
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     (tmp_path / "events").mkdir()
     (tmp_path / "events" / "same.txt").write_text("x", encoding="utf-8")
-    _git(tmp_path, "add", "events")
+    git(tmp_path, "add", "events")
     advance = _fake_clock(monkeypatch)
     at = IssueAttributor(tmp_path)
     assert at.resolve(_issue(file="same.txt"), scan_prefixes=("events/",)) == "events/same.txt"
@@ -216,10 +215,10 @@ def test_refresh_refuses_newly_ambiguous_basename(tmp_path, monkeypatch):
 
 
 def test_refresh_costs_one_file_listing_per_ttl_not_per_resolve(tmp_path, monkeypatch):
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     (tmp_path / "events").mkdir()
     (tmp_path / "events" / "old.txt").write_text("x", encoding="utf-8")
-    _git(tmp_path, "add", "events")
+    git(tmp_path, "add", "events")
 
     real = attribution._list_mod_files
     listings: list[int] = []

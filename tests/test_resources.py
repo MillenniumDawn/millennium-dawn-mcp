@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import cast
 
@@ -18,52 +19,28 @@ from md_mcp.resources import (
     idea_resource,
     sprite_resource,
 )
+from tests.support.mod import mod_settings
 
 
-def _settings(mod_root: Path, cache_dir: Path) -> Settings:
-    return Settings(mod_root=mod_root, vanilla_path=None, cache_dir=cache_dir)
-
-
-def _write_decisions(tmp_path: Path, text: str) -> Path:
+def _write_mod_file(rel: str, tmp_path: Path, text: str) -> Path:
+    """Write one file into a minimal mod tree; returns the mod root."""
     mod_root = tmp_path / "Mod"
-    decisions_dir = mod_root / "common" / "decisions"
-    decisions_dir.mkdir(parents=True)
-    (decisions_dir / "test.txt").write_text(text, encoding="utf-8")
+    path = mod_root / rel
+    path.parent.mkdir(parents=True)
+    # Bytes, not write_text: exact-source assertions need LF on every platform.
+    path.write_bytes(text.encode("utf-8"))
     return mod_root
 
 
-def _write_ideas(tmp_path: Path, text: str) -> Path:
-    mod_root = tmp_path / "Mod"
-    ideas_dir = mod_root / "common" / "ideas"
-    ideas_dir.mkdir(parents=True)
-    (ideas_dir / "test.txt").write_text(text, encoding="utf-8")
-    return mod_root
-
-
-def _write_events(tmp_path: Path, text: str) -> Path:
-    mod_root = tmp_path / "Mod"
-    events_dir = mod_root / "events"
-    events_dir.mkdir(parents=True)
-    (events_dir / "test.txt").write_text(text, encoding="utf-8")
-    return mod_root
-
-
-def _write_sprites(tmp_path: Path, text: str) -> Path:
-    mod_root = tmp_path / "Mod"
-    interface_dir = mod_root / "interface"
-    interface_dir.mkdir(parents=True)
-    (interface_dir / "test.gfx").write_text(text, encoding="utf-8")
-    return mod_root
+_write_decisions = partial(_write_mod_file, "common/decisions/test.txt")
+_write_ideas = partial(_write_mod_file, "common/ideas/test.txt")
+_write_events = partial(_write_mod_file, "events/test.txt")
+_write_sprites = partial(_write_mod_file, "interface/test.gfx")
 
 
 def _write_focus(tmp_path: Path, text: str) -> tuple[Path, Settings]:
-    """Write a focus file into a minimal mod tree; returns (mod_root, settings)."""
-    mod_root = tmp_path / "Mod"
-    focus_dir = mod_root / "common" / "national_focus"
-    focus_dir.mkdir(parents=True)
-    # Bytes, not write_text: exact-source assertions need LF on every platform.
-    (focus_dir / "test.txt").write_bytes(text.encode("utf-8"))
-    return mod_root, _settings(mod_root, tmp_path / ".cache")
+    mod_root = _write_mod_file("common/national_focus/test.txt", tmp_path, text)
+    return mod_root, mod_settings(mod_root, tmp_path / ".cache")
 
 
 class _FakeIndex:
@@ -301,7 +278,7 @@ SPRITES_WITH_COMMENTED_AND_NESTED_PROPERTIES = """spriteTypes = {
 
 def test_decision_resource_returns_real_definition_not_nested_impostor(tmp_path):
     mod_root = _write_decisions(tmp_path, DECISIONS_WITH_IMPOSTOR)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = DecisionIndex(mod_root, settings.cache_dir)
 
     result = decision_resource("TST_real", settings, index)
@@ -312,7 +289,7 @@ def test_decision_resource_returns_real_definition_not_nested_impostor(tmp_path)
 
 def test_idea_resource_returns_real_definition_not_nested_impostor(tmp_path):
     mod_root = _write_ideas(tmp_path, IDEAS_WITH_IMPOSTOR)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = IdeaIndex(mod_root, settings.cache_dir)
 
     result = idea_resource("TST_real", settings, index)
@@ -323,7 +300,7 @@ def test_idea_resource_returns_real_definition_not_nested_impostor(tmp_path):
 
 def test_decision_resource_duplicate_ids_anchored_by_indexed_line(tmp_path):
     mod_root = _write_decisions(tmp_path, DECISIONS_WITH_DUPES)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = DecisionIndex(mod_root, settings.cache_dir)
 
     result = decision_resource("TST_dup", settings, index)
@@ -335,7 +312,7 @@ def test_decision_resource_duplicate_ids_anchored_by_indexed_line(tmp_path):
 
 def test_decision_resource_duplicate_ids_without_line_raises_ambiguous(tmp_path):
     mod_root = _write_decisions(tmp_path, DECISIONS_WITH_DUPES)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     real_index = DecisionIndex(mod_root, settings.cache_dir)
     rec = real_index.resolve("TST_dup")
     assert rec is not None
@@ -347,7 +324,7 @@ def test_decision_resource_duplicate_ids_without_line_raises_ambiguous(tmp_path)
 
 def test_decision_resource_single_match_without_line_still_resolves(tmp_path):
     mod_root = _write_decisions(tmp_path, DECISIONS_WITH_COMMENT)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     real_index = DecisionIndex(mod_root, settings.cache_dir)
     rec = real_index.resolve("TST_commented")
     assert rec is not None
@@ -360,7 +337,7 @@ def test_decision_resource_single_match_without_line_still_resolves(tmp_path):
 
 def test_decision_resource_stale_index_line_raises_with_rebuild_hint(tmp_path):
     mod_root = _write_decisions(tmp_path, DECISIONS_WITH_COMMENT)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     real_index = DecisionIndex(mod_root, settings.cache_dir)
     rec = real_index.resolve("TST_commented")
     assert rec is not None
@@ -373,7 +350,7 @@ def test_decision_resource_stale_index_line_raises_with_rebuild_hint(tmp_path):
 
 def test_decision_resource_exact_source_preserved_with_comment(tmp_path):
     mod_root = _write_decisions(tmp_path, DECISIONS_WITH_COMMENT)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = DecisionIndex(mod_root, settings.cache_dir)
 
     result = decision_resource("TST_commented", settings, index)
@@ -384,7 +361,7 @@ def test_decision_resource_exact_source_preserved_with_comment(tmp_path):
 
 def test_event_resource_returns_real_definition_not_nested_impostor(tmp_path):
     mod_root = _write_events(tmp_path, EVENTS_WITH_IMPOSTOR)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = EventIndex(mod_root, settings.cache_dir)
 
     result = event_resource("TST.2", settings, index)
@@ -395,7 +372,7 @@ def test_event_resource_returns_real_definition_not_nested_impostor(tmp_path):
 
 def test_event_resource_duplicate_ids_anchored_by_indexed_line(tmp_path):
     mod_root = _write_events(tmp_path, EVENTS_WITH_DUPES)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = EventIndex(mod_root, settings.cache_dir)
 
     result = event_resource("TST.1", settings, index)
@@ -407,7 +384,7 @@ def test_event_resource_duplicate_ids_anchored_by_indexed_line(tmp_path):
 
 def test_event_resource_duplicate_ids_without_line_raises_ambiguous(tmp_path):
     mod_root = _write_events(tmp_path, EVENTS_WITH_DUPES)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     real_index = EventIndex(mod_root, settings.cache_dir)
     rec = real_index.resolve("TST.1")
     assert rec is not None
@@ -419,7 +396,7 @@ def test_event_resource_duplicate_ids_without_line_raises_ambiguous(tmp_path):
 
 def test_event_resource_stale_index_line_raises_with_rebuild_hint(tmp_path):
     mod_root = _write_events(tmp_path, EVENTS_WITH_COMMENT)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     real_index = EventIndex(mod_root, settings.cache_dir)
     rec = real_index.resolve("TST.1")
     assert rec is not None
@@ -432,7 +409,7 @@ def test_event_resource_stale_index_line_raises_with_rebuild_hint(tmp_path):
 
 def test_event_resource_exact_source_preserved_with_comment(tmp_path):
     mod_root = _write_events(tmp_path, EVENTS_WITH_COMMENT)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = EventIndex(mod_root, settings.cache_dir)
 
     result = event_resource("TST.1", settings, index)
@@ -445,7 +422,7 @@ def test_event_resource_impostor_excluded_from_candidates_without_line(tmp_path)
     # Even when the index has no line to disambiguate with, the nested impostor must
     # never be a candidate at all -- only the real top-level event is in scope.
     mod_root = _write_events(tmp_path, EVENTS_WITH_IMPOSTOR)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     real_index = EventIndex(mod_root, settings.cache_dir)
     rec = real_index.resolve("TST.2")
     assert rec is not None
@@ -459,7 +436,7 @@ def test_event_resource_impostor_excluded_from_candidates_without_line(tmp_path)
 
 def test_event_resource_anchors_middle_definition_sandwiched_by_impostors(tmp_path):
     mod_root = _write_events(tmp_path, EVENTS_WITH_IMPOSTOR_SANDWICH)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = EventIndex(mod_root, settings.cache_dir)
 
     result = event_resource("TST.5", settings, index)
@@ -471,7 +448,7 @@ def test_event_resource_anchors_middle_definition_sandwiched_by_impostors(tmp_pa
 
 def test_sprite_resource_returns_real_definition_not_nested_impostor(tmp_path):
     mod_root = _write_sprites(tmp_path, SPRITES_WITH_IMPOSTOR)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = GfxIndex(mod_root, settings.cache_dir)
 
     result = sprite_resource("GFX_real", settings, index)
@@ -482,7 +459,7 @@ def test_sprite_resource_returns_real_definition_not_nested_impostor(tmp_path):
 
 def test_sprite_resource_duplicate_names_anchored_by_indexed_line(tmp_path):
     mod_root = _write_sprites(tmp_path, SPRITES_WITH_DUPES)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = GfxIndex(mod_root, settings.cache_dir)
 
     result = sprite_resource("GFX_dup", settings, index)
@@ -494,7 +471,7 @@ def test_sprite_resource_duplicate_names_anchored_by_indexed_line(tmp_path):
 
 def test_sprite_resource_duplicate_names_without_line_raises_ambiguous(tmp_path):
     mod_root = _write_sprites(tmp_path, SPRITES_WITH_DUPES)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     real_index = GfxIndex(mod_root, settings.cache_dir)
     rec = real_index.resolve("GFX_dup")
     assert rec is not None
@@ -506,7 +483,7 @@ def test_sprite_resource_duplicate_names_without_line_raises_ambiguous(tmp_path)
 
 def test_sprite_resource_stale_index_line_raises_with_rebuild_hint(tmp_path):
     mod_root = _write_sprites(tmp_path, SPRITES_WITH_COMMENT)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     real_index = GfxIndex(mod_root, settings.cache_dir)
     rec = real_index.resolve("GFX_commented")
     assert rec is not None
@@ -519,7 +496,7 @@ def test_sprite_resource_stale_index_line_raises_with_rebuild_hint(tmp_path):
 
 def test_sprite_resource_exact_source_preserved_with_comment(tmp_path):
     mod_root = _write_sprites(tmp_path, SPRITES_WITH_COMMENT)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = GfxIndex(mod_root, settings.cache_dir)
 
     result = sprite_resource("GFX_commented", settings, index)
@@ -535,7 +512,7 @@ def test_sprite_resource_impostor_excluded_from_candidates_without_line(tmp_path
     # Same guard as events: with no line to disambiguate, the deeply nested impostor
     # must never even be a candidate.
     mod_root = _write_sprites(tmp_path, SPRITES_WITH_IMPOSTOR)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     real_index = GfxIndex(mod_root, settings.cache_dir)
     rec = real_index.resolve("GFX_real")
     assert rec is not None
@@ -551,7 +528,7 @@ def test_sprite_resource_anchors_middle_definition_sandwiched_by_impostors(tmp_p
     # Force line=None so this exercises find_sprite_nodes' hierarchy restriction
     # directly: the two nested impostors (before and after) must never be candidates.
     mod_root = _write_sprites(tmp_path, SPRITES_WITH_IMPOSTOR_SANDWICH)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     real_index = GfxIndex(mod_root, settings.cache_dir)
     rec = real_index.resolve("GFX_mid")
     assert rec is not None
@@ -566,7 +543,7 @@ def test_sprite_resource_anchors_middle_definition_sandwiched_by_impostors(tmp_p
 
 def test_sprite_resource_nested_impostor_after_real_resolved_by_index_line(tmp_path):
     mod_root = _write_sprites(tmp_path, SPRITES_WITH_IMPOSTOR_SANDWICH)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = GfxIndex(mod_root, settings.cache_dir)
 
     result = sprite_resource("GFX_mid", settings, index)
@@ -578,7 +555,7 @@ def test_sprite_resource_nested_impostor_after_real_resolved_by_index_line(tmp_p
 
 def test_sprite_resource_anchors_bare_and_quoted_names(tmp_path):
     mod_root = _write_sprites(tmp_path, SPRITES_WITH_BARE_AND_QUOTED_NAMES)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = GfxIndex(mod_root, settings.cache_dir)
 
     quoted = sprite_resource("GFX_quoted", settings, index)
@@ -590,7 +567,7 @@ def test_sprite_resource_anchors_bare_and_quoted_names(tmp_path):
 
 def test_sprite_index_and_resource_agree_on_direct_properties(tmp_path):
     mod_root = _write_sprites(tmp_path, SPRITES_WITH_COMMENTED_AND_NESTED_PROPERTIES)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = GfxIndex(mod_root, settings.cache_dir)
 
     actual = index.resolve("GFX_actual")
@@ -721,7 +698,7 @@ def test_decision_resource_same_line_duplicate_ids_raise_ambiguous(tmp_path):
     mod_root = _write_decisions(
         tmp_path, "TST_category = { TST_dup = { cost = 10 } TST_dup = { cost = 20 } }\n"
     )
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = DecisionIndex(mod_root, settings.cache_dir)
     rec = index.resolve("TST_dup")
     assert rec is not None
@@ -738,7 +715,7 @@ def test_event_resource_same_line_duplicate_ids_raise_ambiguous(tmp_path):
         "country_event = { id = TST.1 title = a } "
         "country_event = { id = TST.1 title = b }\n",
     )
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = EventIndex(mod_root, settings.cache_dir)
     rec = index.resolve("TST.1")
     assert rec is not None
@@ -753,7 +730,7 @@ def test_sprite_resource_same_line_duplicate_names_raise_ambiguous(tmp_path):
         'spriteTypes = { spriteType = { name = "GFX_d" texturefile = "a.dds" } '
         'spriteType = { name = "GFX_d" texturefile = "b.dds" } }\n',
     )
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = GfxIndex(mod_root, settings.cache_dir)
     rec = index.resolve("GFX_d")
     assert rec is not None
@@ -766,7 +743,7 @@ def test_idea_resource_same_line_duplicate_ids_raise_ambiguous(tmp_path):
     mod_root = _write_ideas(
         tmp_path, "ideas = { country = { TST_i = { picture = x } TST_i = { picture = y } } }\n"
     )
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = IdeaIndex(mod_root, settings.cache_dir)
     rec = index.resolve("TST_i")
     assert rec is not None
@@ -802,7 +779,7 @@ def test_event_resource_same_line_siblings_slice_at_definition_boundary(
     tmp_path, event_id, expected
 ):
     mod_root = _write_events(tmp_path, SAME_LINE_EVENTS)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = EventIndex(mod_root, settings.cache_dir)
 
     assert event_resource(event_id, settings, index) == expected
@@ -810,7 +787,7 @@ def test_event_resource_same_line_siblings_slice_at_definition_boundary(
 
 def test_event_resource_at_start_of_file_has_no_prefix(tmp_path):
     mod_root = _write_events(tmp_path, "country_event = {\n\tid = TST.1\n}\n")
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = EventIndex(mod_root, settings.cache_dir)
 
     assert event_resource("TST.1", settings, index) == "country_event = {\n\tid = TST.1\n}"
@@ -857,7 +834,7 @@ def test_extract_focus_block_at_start_of_file_has_no_prefix():
 
 def test_idea_resource_same_line_container_excludes_openers(tmp_path):
     mod_root = _write_ideas(tmp_path, "ideas = { country = { TST_idea = { picture = x } } }\n")
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = IdeaIndex(mod_root, settings.cache_dir)
 
     assert idea_resource("TST_idea", settings, index) == "TST_idea = { picture = x }"
@@ -865,7 +842,7 @@ def test_idea_resource_same_line_container_excludes_openers(tmp_path):
 
 def test_decision_resource_same_line_container_excludes_opener(tmp_path):
     mod_root = _write_decisions(tmp_path, "TST_category = { TST_dec = { cost = 1 } }\n")
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = DecisionIndex(mod_root, settings.cache_dir)
 
     assert decision_resource("TST_dec", settings, index) == "TST_dec = { cost = 1 }"
@@ -875,7 +852,7 @@ def test_sprite_resource_same_line_container_excludes_opener(tmp_path):
     mod_root = _write_sprites(
         tmp_path, 'spriteTypes = { spriteType = { name = "GFX_a" texturefile = "a.dds" } }\n'
     )
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = GfxIndex(mod_root, settings.cache_dir)
 
     expected = 'spriteType = { name = "GFX_a" texturefile = "a.dds" }'
@@ -891,7 +868,7 @@ def test_decision_resource_multiline_after_same_line_opener_preserves_comments(t
         "} }\n"
     )
     mod_root = _write_decisions(tmp_path, text)
-    settings = _settings(mod_root, tmp_path / ".cache")
+    settings = mod_settings(mod_root, tmp_path / ".cache")
     index = DecisionIndex(mod_root, settings.cache_dir)
 
     expected = "TST_dec = { # opening note\n\tcost = 1 # trailing note\n\n\t# interior note\n}"

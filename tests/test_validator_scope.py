@@ -7,23 +7,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from tests.support.upstream import ISSUE_CLASS
+
 run_validators_for_lint: Any = importlib.import_module(
     "md_mcp.tools.lint_validators"
 ).run_validators_for_lint
 ValidatorRunner: Any = importlib.import_module("md_mcp.validators").ValidatorRunner
 _shim: Any = importlib.import_module("md_mcp.validators._shim")
 
-_ISSUE = """
-class _Issue:
-    def __init__(self, **values):
-        self.values = values
-
-    def to_dict(self):
-        return dict(self.values)
-"""
-
 _SCOPED_VALIDATOR = (
-    _ISSUE
+    ISSUE_CLASS
     + """
 from pathlib import Path
 
@@ -69,7 +62,7 @@ class Validator:
 )
 
 _STAGED_GUARD_VALIDATOR = (
-    _ISSUE
+    ISSUE_CLASS
     + """
 from pathlib import Path
 
@@ -111,7 +104,7 @@ class Validator:
 )
 
 _LEGACY_VALIDATOR = (
-    _ISSUE
+    ISSUE_CLASS
     + """
 from pathlib import Path
 
@@ -181,7 +174,7 @@ def test_scope_limits_primary_inputs_and_keeps_full_definition_lookups(tmp_path)
 
 
 _FULL_REPO_PASS_VALIDATOR = (
-    _ISSUE
+    ISSUE_CLASS
     + """
 from pathlib import Path
 
@@ -357,7 +350,7 @@ _TEMPLATE_SOURCE = (
 )
 
 _UNINTROSPECTABLE_VALIDATOR = (
-    _ISSUE
+    ISSUE_CLASS
     + f"""
 from pathlib import Path
 
@@ -404,7 +397,7 @@ class Validator:
 
 
 _WRONG_CODE_SHAPE_VALIDATOR = (
-    _ISSUE
+    ISSUE_CLASS
     + """
 from pathlib import Path
 
@@ -447,7 +440,7 @@ def test_collector_without_staged_signature_falls_back_to_full_scan(tmp_path):
 
 
 _LOCKED_COLLECTOR_VALIDATOR = (
-    _ISSUE
+    ISSUE_CLASS
     + """
 from pathlib import Path
 
@@ -519,7 +512,7 @@ def test_unintrospectable_collector_falls_back_to_full_scan(tmp_path):
 
 
 _MISMATCHED_CALL_VALIDATOR = (
-    _ISSUE
+    ISSUE_CLASS
     + """
 from pathlib import Path
 

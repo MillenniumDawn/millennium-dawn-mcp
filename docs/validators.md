@@ -159,7 +159,7 @@ result = validate(severity_min="warning", limit=200)
 # Drops "info"-level issues. Caps the array at 200 (counts stay accurate).
 ```
 
-See [`docs/output-budgets.md`](./output-budgets.md#severity-floors) for the
+See [`docs/output-budgets.md`](./output-budgets.md#when-to-break-the-rules) for the
 severity-filter pattern. Run-all path skips two known-slow validators by
 default: `unused_scripted` and `unused_textures`. Call them by name when
 you want them:

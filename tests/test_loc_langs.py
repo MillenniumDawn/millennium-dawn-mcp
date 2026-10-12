@@ -11,6 +11,7 @@ from md_mcp.config import Settings
 from md_mcp.indexes import LocalisationIndex
 from md_mcp.indexes.localisation import LANG_ISO_TO_SUFFIX, normalise_loc_langs
 from md_mcp.tools.resolver_tools import resolve_loc_tool
+from tests.support.mod import make_mod_root
 
 GERMAN = 'l_german:\n TST_root: "Die Wurzel"\n TST_only_de: "Nur Deutsch"\n'
 FRENCH = 'l_french:\n TST_root: "La Racine"\n'
@@ -31,14 +32,8 @@ def multi_lang_root(fake_mod_root: Path) -> Path:
     return fake_mod_root
 
 
-def _make_mod_root(path: Path) -> Path:
-    (path / "tools" / "validation").mkdir(parents=True)
-    (path / "descriptor.mod").write_text('name = "x"\n', encoding="utf-8")
-    return path
-
-
 def _settings(tmp_path: Path, monkeypatch, toml: str | None = None) -> Settings:
-    root = _make_mod_root(tmp_path / "Mod")
+    root = make_mod_root(tmp_path / "Mod")
     cfg = tmp_path / "config.toml"
     if toml is not None:
         cfg.write_text(toml, encoding="utf-8")
@@ -59,12 +54,12 @@ def test_settings_default_loc_langs_is_default_lang():
 def test_load_defaults_loc_langs_to_default_lang(tmp_path, monkeypatch):
     assert _settings(tmp_path, monkeypatch).loc_langs == ("en",)
     monkeypatch.setenv("MD_MCP_DEFAULT_LANG", "fr")
-    root = _make_mod_root(tmp_path / "Mod2")
+    root = make_mod_root(tmp_path / "Mod2")
     assert config.load(str(root)).loc_langs == ("fr", "en")
 
 
 def test_load_reads_loc_langs_from_env(tmp_path, monkeypatch):
-    root = _make_mod_root(tmp_path / "Mod")
+    root = make_mod_root(tmp_path / "Mod")
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
     monkeypatch.setenv("MD_MCP_LOC_LANGS", "en, de")
     assert config.load(str(root)).loc_langs == ("en", "de")
@@ -72,7 +67,7 @@ def test_load_reads_loc_langs_from_env(tmp_path, monkeypatch):
 
 def test_load_reads_loc_langs_from_toml_string_and_list(tmp_path, monkeypatch):
     assert _settings(tmp_path, monkeypatch, 'loc_langs = "en,de"\n').loc_langs == ("en", "de")
-    root = _make_mod_root(tmp_path / "Mod3")
+    root = make_mod_root(tmp_path / "Mod3")
     cfg = tmp_path / "config3.toml"
     cfg.write_text('loc_langs = ["fr", "pt-br"]\n', encoding="utf-8")
     monkeypatch.setattr(config, "CONFIG_PATH", cfg)
@@ -80,7 +75,7 @@ def test_load_reads_loc_langs_from_toml_string_and_list(tmp_path, monkeypatch):
 
 
 def test_env_loc_langs_wins_over_toml(tmp_path, monkeypatch):
-    root = _make_mod_root(tmp_path / "Mod")
+    root = make_mod_root(tmp_path / "Mod")
     cfg = tmp_path / "config.toml"
     cfg.write_text('loc_langs = "de"\n', encoding="utf-8")
     monkeypatch.setattr(config, "CONFIG_PATH", cfg)
@@ -89,14 +84,14 @@ def test_env_loc_langs_wins_over_toml(tmp_path, monkeypatch):
 
 
 def test_loc_langs_star_means_all(tmp_path, monkeypatch):
-    root = _make_mod_root(tmp_path / "Mod")
+    root = make_mod_root(tmp_path / "Mod")
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
     monkeypatch.setenv("MD_MCP_LOC_LANGS", "*")
     assert config.load(str(root)).loc_langs == tuple(LANG_ISO_TO_SUFFIX)
 
 
 def test_unknown_loc_lang_fails_loudly(tmp_path, monkeypatch):
-    root = _make_mod_root(tmp_path / "Mod")
+    root = make_mod_root(tmp_path / "Mod")
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "no-such-config.toml")
     monkeypatch.setenv("MD_MCP_LOC_LANGS", "en,klingon")
     with pytest.raises(RuntimeError, match="klingon"):

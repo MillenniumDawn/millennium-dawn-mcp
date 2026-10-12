@@ -14,6 +14,7 @@ from md_mcp.validators import (  # pyright: ignore[reportMissingImports]
     ValidatorInfo,
     ValidatorRunner,
 )
+from tests.support.upstream import ISSUE_CLASS
 
 _SOURCE = ".claude/docs/known-false-positives.md"
 
@@ -25,17 +26,8 @@ _DECISION_MESSAGE = (
     "GFX_vanilla_only defined in interface/*.gfx (create the sprite or pick an existing icon)"
 )
 
-_ISSUE_CLASS = """
-class _Issue:
-    def __init__(self, **kw):
-        self.kw = kw
-
-    def to_dict(self):
-        return dict(self.kw)
-"""
-
 _VALIDATOR = (
-    _ISSUE_CLASS
+    ISSUE_CLASS
     + f"""
 class Validator:
     TITLE = "Synthetic"

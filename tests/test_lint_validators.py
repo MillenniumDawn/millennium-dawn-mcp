@@ -31,8 +31,8 @@ from md_mcp.validators import (
 )
 from md_mcp.validators import attribution as attribution_module
 from md_mcp.validators import runner as runner_module
-
-from .test_lint_dispatcher import _git, _init_repo, _seed_all_scripts
+from tests.support.mod import git, init_repo
+from tests.support.upstream import seed_all_scripts
 
 _ALL_NAMES = sorted(
     {v for _, vals in VALIDATOR_AUTO_MAP for v in vals}
@@ -696,24 +696,24 @@ def test_run_equipment_variants_related_plus_suppressed_retained_in_census(tmp_p
 
 @pytest.mark.parametrize("mode", ["changed", "staged"])
 def test_event_pool_without_spaces_reports_related_warning(tmp_path, mode):
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     hooks = tmp_path / "test-hooks"
     hooks.mkdir()
-    _git(tmp_path, "config", "core.hooksPath", str(hooks))
-    _seed_all_scripts(tmp_path, {})
+    git(tmp_path, "config", "core.hooksPath", str(hooks))
+    seed_all_scripts(tmp_path, {})
     consumer = "history/countries/USA.txt"
     consumer_path = tmp_path / consumer
     consumer_path.parent.mkdir(parents=True)
     consumer_path.write_text("create_equipment_variant = {}\n", encoding="utf-8")
-    _git(tmp_path, "add", "history", "tools")
-    _git(tmp_path, "commit", "-qm", "seed unchanged consumer")
+    git(tmp_path, "add", "history", "tools")
+    git(tmp_path, "commit", "-qm", "seed unchanged consumer")
 
     context = "common/on_actions/event_pool.txt"
     context_path = tmp_path / context
     context_path.parent.mkdir(parents=True)
     context_path.write_text("events={ TEST.1 }\n", encoding="utf-8")
     if mode == "staged":
-        _git(tmp_path, "add", context)
+        git(tmp_path, "add", context)
     runner = FakeRunner(
         names=["equipment_variants"],
         results={"equipment_variants": {"ok": True, "issues": [_issue(consumer)]}},
@@ -737,10 +737,10 @@ def test_event_pool_without_spaces_reports_related_warning(tmp_path, mode):
 
 @pytest.mark.parametrize("event_call", ["country_event = TEST.1", "events={ TEST.1 }"])
 def test_removed_event_call_keeps_related_warning_in_staged_mode(tmp_path, event_call):
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     hooks = tmp_path / "test-hooks"
     hooks.mkdir()
-    _git(tmp_path, "config", "core.hooksPath", str(hooks))
+    git(tmp_path, "config", "core.hooksPath", str(hooks))
     context = "common/scripted_effects/event_dispatch.txt"
     consumer = "history/countries/USA.txt"
     for rel, content in (
@@ -750,10 +750,10 @@ def test_removed_event_call_keeps_related_warning_in_staged_mode(tmp_path, event
         path = tmp_path / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-    _git(tmp_path, "add", "common", "history")
-    _git(tmp_path, "commit", "-qm", "seed event context")
+    git(tmp_path, "add", "common", "history")
+    git(tmp_path, "commit", "-qm", "seed event context")
     (tmp_path / context).write_text("x = 1\n", encoding="utf-8")
-    _git(tmp_path, "add", context)
+    git(tmp_path, "add", context)
 
     runner = FakeRunner(
         results={
@@ -786,11 +786,11 @@ def test_removed_event_call_keeps_related_warning_in_staged_mode(tmp_path, event
 
 @pytest.mark.parametrize("mode", ["changed", "staged"])
 def test_deleted_country_context_reports_related_warning(tmp_path, mode):
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     hooks = tmp_path / "test-hooks"
     hooks.mkdir()
-    _git(tmp_path, "config", "core.hooksPath", str(hooks))
-    _seed_all_scripts(tmp_path, {})
+    git(tmp_path, "config", "core.hooksPath", str(hooks))
+    seed_all_scripts(tmp_path, {})
     context = "history/countries/USA.txt"
     consumer = "events/USA.txt"
     for rel, content in (
@@ -800,11 +800,11 @@ def test_deleted_country_context_reports_related_warning(tmp_path, mode):
         path = tmp_path / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-    _git(tmp_path, "add", "history", "events", "tools")
-    _git(tmp_path, "commit", "-qm", "seed country context and consumer")
+    git(tmp_path, "add", "history", "events", "tools")
+    git(tmp_path, "commit", "-qm", "seed country context and consumer")
     (tmp_path / context).unlink()
     if mode == "staged":
-        _git(tmp_path, "add", "-u", context)
+        git(tmp_path, "add", "-u", context)
     runner = FakeRunner(
         names=["equipment_variants"],
         results={"equipment_variants": {"ok": True, "issues": [_issue(consumer)]}},
@@ -821,11 +821,11 @@ def test_deleted_country_context_reports_related_warning(tmp_path, mode):
 
 @pytest.mark.parametrize("mode", ["changed", "staged"])
 def test_renamed_context_to_unrouted_path_reports_related_warning(tmp_path, mode):
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     hooks = tmp_path / "test-hooks"
     hooks.mkdir()
-    _git(tmp_path, "config", "core.hooksPath", str(hooks))
-    _seed_all_scripts(tmp_path, {})
+    git(tmp_path, "config", "core.hooksPath", str(hooks))
+    seed_all_scripts(tmp_path, {})
     context = "common/technologies/armor.txt"
     consumer = "history/countries/USA.txt"
     for rel, content in (
@@ -835,10 +835,10 @@ def test_renamed_context_to_unrouted_path_reports_related_warning(tmp_path, mode
         path = tmp_path / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-    _git(tmp_path, "add", "common", "history", "tools")
-    _git(tmp_path, "commit", "-qm", "seed technology context and consumer")
+    git(tmp_path, "add", "common", "history", "tools")
+    git(tmp_path, "commit", "-qm", "seed technology context and consumer")
     (tmp_path / "archive").mkdir()
-    _git(tmp_path, "mv", context, "archive/armor.txt")
+    git(tmp_path, "mv", context, "archive/armor.txt")
     runner = FakeRunner(
         names=["equipment_variants"],
         results={"equipment_variants": {"ok": True, "issues": [_issue(consumer)]}},
@@ -1046,14 +1046,14 @@ def test_lint_signature_has_validator_params():
 )
 @pytest.mark.parametrize("scope", ["common", "events", "history", "music"])
 def test_lint_default_runs_style_validator_for_script_scope(tmp_path, mode, staged_only, scope):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     (tmp_path / "descriptor.mod").write_text('name = "x"\n')
     script_file = tmp_path / scope / "x.txt"
     script_file.parent.mkdir()
     script_file.write_text("x = 1\n")
     if mode == "staged":
-        _git(tmp_path, "add", f"{scope}/x.txt")
+        git(tmp_path, "add", f"{scope}/x.txt")
 
     runner = FakeRunner(names=["style"])
     out = lint_tool(tmp_path, mode=mode, validator_runner=runner)
@@ -1065,11 +1065,25 @@ def test_lint_default_runs_style_validator_for_script_scope(tmp_path, mode, stag
     assert any(c["name"] == "validator:style" for c in out["checks"])
 
 
+def test_lint_staged_mode_runs_default_validator_for_non_ascii_path(tmp_path):
+    init_repo(tmp_path)
+    git(tmp_path, "config", "core.quotePath", "true")
+    (tmp_path / "events").mkdir()
+    (tmp_path / "events" / "café.txt").write_text("x\n", encoding="utf-8")
+    git(tmp_path, "add", "--", "events/café.txt")
+    runner = FakeRunner(names=["style"])
+
+    out = lint_tool(tmp_path, mode="staged", checks=["mod_encoding"], validator_runner=runner)
+
+    assert out["validators_run"] == ["style"]
+    assert [Path(f).as_posix() for f in runner.scope_calls[0]["files"]] == ["events/café.txt"]
+
+
 def test_lint_default_clean_tree_runs_no_validators(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
-    _git(tmp_path, "add", "tools")
-    _git(tmp_path, "commit", "-qm", "add lint fixtures")
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
+    git(tmp_path, "add", "tools")
+    git(tmp_path, "commit", "-qm", "add lint fixtures")
     runner = FakeRunner(names=["style"])
 
     out = lint_tool(tmp_path, validator_runner=runner)
@@ -1081,8 +1095,8 @@ def test_lint_default_clean_tree_runs_no_validators(tmp_path):
 
 
 def test_lint_default_non_script_scope_runs_no_validators(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     (tmp_path / "descriptor.mod").write_text('name = "x"\n')
     runner = FakeRunner(names=["style"])
 
@@ -1095,8 +1109,8 @@ def test_lint_default_non_script_scope_runs_no_validators(tmp_path):
 
 
 def test_lint_explicit_empty_validators_disables_validator_runs(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     runner = FakeRunner(names=["style"])
     out = lint_tool(tmp_path, validators=[], validator_runner=runner)
     assert out["ok"] is True
@@ -1106,8 +1120,8 @@ def test_lint_explicit_empty_validators_disables_validator_runs(tmp_path):
 
 
 def test_lint_unavailable_default_style_is_a_failed_check(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     script_file = tmp_path / "events" / "x.txt"
     script_file.parent.mkdir()
     script_file.write_text("x = 1\n")
@@ -1125,8 +1139,8 @@ def test_lint_unavailable_default_style_is_a_failed_check(tmp_path):
 
 
 def test_lint_requested_validator_failure_sets_top_level_failure(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     runner = FakeRunner(names=["history"], results={"history": {"ok": False, "error": "boom"}})
     out = lint_tool(tmp_path, validators=["history"], validator_runner=runner)
     assert out["ok"] is False
@@ -1135,8 +1149,8 @@ def test_lint_requested_validator_failure_sets_top_level_failure(tmp_path):
 
 
 def test_lint_validators_auto_runs_style_for_music_scope(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     changed = tmp_path / "music" / "song.txt"
     changed.parent.mkdir(parents=True)
     changed.write_text("track = {}\n")
@@ -1152,8 +1166,8 @@ def test_lint_validators_auto_runs_style_for_music_scope(tmp_path):
 
 
 def test_lint_validators_auto_merges_and_scopes(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     changed = tmp_path / "common" / "national_focus" / "USA.txt"
     changed.parent.mkdir(parents=True)
     changed.write_text("focus_tree = {}\n")
@@ -1222,21 +1236,21 @@ class Validator:
 def test_lint_equipment_variant_context_edit_reruns_validator_and_unlock_clears_warning(tmp_path):
     # Synthetic upstream module exercises ValidatorRunner's isolated process
     # and lint's changed-file scope without requiring a full mod checkout.
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     # Some developer machines install a global pre-commit template; this test
     # needs a reliable local commit to leave only the context file changed.
     hooks = tmp_path / "test-hooks"
     hooks.mkdir()
-    _git(tmp_path, "config", "core.hooksPath", str(hooks))
-    _seed_all_scripts(tmp_path, {})
+    git(tmp_path, "config", "core.hooksPath", str(hooks))
+    seed_all_scripts(tmp_path, {})
     validator = tmp_path / "tools" / "validation" / "validate_equipment_variants.py"
     validator.parent.mkdir(parents=True)
     validator.write_text(_SYNTHETIC_EQUIPMENT_VARIANTS, encoding="utf-8")
     consumer = tmp_path / "history" / "countries" / "USA.txt"
     consumer.parent.mkdir(parents=True)
     consumer.write_text("create_equipment_variant = {\n  type = test_hull\n}\n", encoding="utf-8")
-    _git(tmp_path, "add", "history", "tools")
-    _git(tmp_path, "commit", "-qm", "seed unchanged variant consumer")
+    git(tmp_path, "add", "history", "tools")
+    git(tmp_path, "commit", "-qm", "seed unchanged variant consumer")
 
     context = tmp_path / "common" / "technologies" / "armor.txt"
     context.parent.mkdir(parents=True)
@@ -1277,7 +1291,7 @@ def test_lint_equipment_variant_context_edit_reruns_validator_and_unlock_clears_
 
 
 def test_lint_equipment_variant_related_warnings_respect_response_budget(tmp_path):
-    _seed_all_scripts(tmp_path, {})
+    seed_all_scripts(tmp_path, {})
     context = "common/technologies/armor.txt"
     consumer = "history/countries/USA.txt"
     for rel in (context, consumer):
@@ -1307,8 +1321,8 @@ def test_lint_equipment_variant_related_warnings_respect_response_budget(tmp_pat
 
 
 def test_lint_validators_auto_does_not_duplicate_common_mistakes(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     changed = tmp_path / "common" / "x.txt"
     changed.parent.mkdir(parents=True)
     changed.write_text("x = 1\n")
@@ -1329,8 +1343,8 @@ def test_lint_validators_auto_does_not_duplicate_common_mistakes(tmp_path):
 
 
 def test_lint_validators_explicit_union_with_auto(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     changed = tmp_path / "history" / "countries" / "USA.txt"
     changed.parent.mkdir(parents=True)
     changed.write_text("x = 1\n")
@@ -1343,7 +1357,7 @@ def test_lint_validators_explicit_union_with_auto(tmp_path):
 
 
 def test_lint_validators_unknown_isolated(tmp_path):
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     runner = FakeRunner(names=["focus_tree"])
     out = lint_tool(tmp_path, validators=["nonsense"], validator_runner=runner)
     assert out["ok"] is False
@@ -1357,8 +1371,8 @@ def test_lint_validators_unknown_isolated(tmp_path):
 
 
 def test_lint_validators_unknown_among_valid_still_runs_valid(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     (tmp_path / "descriptor.mod").write_text('name = "x"\n')
     runner = FakeRunner(
         names=["focus_tree"],
@@ -1381,8 +1395,8 @@ def test_lint_validators_unknown_among_valid_still_runs_valid(tmp_path):
 
 
 def test_lint_validators_unknown_with_auto_still_runs_auto_selected(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     changed = tmp_path / "history" / "countries" / "USA.txt"
     changed.parent.mkdir(parents=True)
     changed.write_text("x = 1\n")
@@ -1404,16 +1418,16 @@ def test_lint_validators_unknown_with_auto_still_runs_auto_selected(tmp_path):
 
 
 def test_lint_validators_star_excludes_slow(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     runner = FakeRunner(names=["focus_tree", "unused_scripted", "unused_textures"])
     out = lint_tool(tmp_path, validators=["*"], validator_runner=runner)
     assert out["validators_run"] == ["focus_tree"]
 
 
 def test_lint_validators_clean_tree_auto_selects_nothing(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     runner = FakeRunner()
     out = lint_tool(tmp_path, mode="changed", validators=["auto"], validator_runner=runner)
     # _seed_all_scripts creates untracked stub scripts under tools/, which map
@@ -1423,8 +1437,8 @@ def test_lint_validators_clean_tree_auto_selects_nothing(tmp_path):
 
 
 def test_lint_validators_counts_only(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     runner = FakeRunner(
         names=["history"],
         results={"history": {"ok": True, "issues": [_issue("history/a.txt")]}},
@@ -1435,8 +1449,8 @@ def test_lint_validators_counts_only(tmp_path):
 
 
 def test_lint_validators_truncation(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     many = [_issue(f"history/{n}.txt") for n in range(20)]
     runner = FakeRunner(names=["history"], results={"history": {"ok": True, "issues": many}})
     out = lint_tool(tmp_path, mode="all", validators=["history"], limit=5, validator_runner=runner)
@@ -1446,8 +1460,8 @@ def test_lint_validators_truncation(tmp_path):
 
 
 def test_lint_staged_mode_passes_staged_only(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     staged = tmp_path / "history" / "countries" / "USA.txt"
     staged.parent.mkdir(parents=True)
     staged.write_text("x = 1\n")
@@ -1463,8 +1477,8 @@ def test_lint_staged_mode_passes_staged_only(tmp_path):
 
 
 def test_lint_validators_severity_floor_applies(tmp_path):
-    _init_repo(tmp_path)
-    _seed_all_scripts(tmp_path, {})
+    init_repo(tmp_path)
+    seed_all_scripts(tmp_path, {})
     runner = FakeRunner(
         names=["history"],
         results={
@@ -1550,7 +1564,7 @@ def test_lint_attributor_uses_runner_submod_root(tmp_path):
     submod_root = tmp_path / "submod"
     mod_root.mkdir()
     submod_root.mkdir()
-    _init_repo(submod_root)
+    init_repo(submod_root)
     (submod_root / "events").mkdir()
     (submod_root / "events" / "Algeria.txt").write_text("x", encoding="utf-8")
     runner = FakeRunner(
@@ -1570,15 +1584,15 @@ def test_lint_attributor_uses_runner_submod_root(tmp_path):
 
 
 def test_validate_files_resolves_new_untracked_bare_name_after_refresh(tmp_path, monkeypatch):
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     validation = tmp_path / "tools" / "validation"
     validation.mkdir(parents=True)
     (validation / "validate_events.py").write_text("class Validator: pass\n", encoding="utf-8")
     events = tmp_path / "events"
     events.mkdir()
     (events / "old.txt").write_text("x", encoding="utf-8")
-    _git(tmp_path, "add", "tools/validation/validate_events.py")
-    _git(tmp_path, "add", "events")
+    git(tmp_path, "add", "tools/validation/validate_events.py")
+    git(tmp_path, "add", "events")
     now = [10.0]
     monkeypatch.setattr(index_base.time, "monotonic", lambda: now[0])
     monkeypatch.setattr(
@@ -1602,11 +1616,11 @@ def test_validate_files_resolves_new_untracked_bare_name_after_refresh(tmp_path,
 
 
 def test_lint_resolves_untracked_file_after_ttl_refresh(tmp_path, monkeypatch):
-    _init_repo(tmp_path)
+    init_repo(tmp_path)
     events = tmp_path / "events"
     events.mkdir()
     (events / "old.txt").write_text("x", encoding="utf-8")
-    _git(tmp_path, "add", "events")
+    git(tmp_path, "add", "events")
     now = [10.0]
     monkeypatch.setattr(index_base.time, "monotonic", lambda: now[0])
     results = {"events": {"ok": True, "issues": [_issue("old.txt")]}}

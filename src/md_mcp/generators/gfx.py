@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Callable, Optional, Sequence
+from typing import Callable, Iterator, Optional, Sequence
 
 from ..util.encoding import read_text
 from ..util.pathing import PathAccessError, validate_user_path
@@ -24,11 +24,18 @@ from ..util.response import enforce_budget, paginate
 IMAGE_EXTENSIONS = {".dds", ".png", ".tga"}
 SPRITETYPES_HEADER = "spriteTypes = {\n"
 
-_SPRITETYPE_RE = re.compile(r"[sS]priteType\s*=\s*\{")
-_NAME_RE = re.compile(r'name\s*=\s*"([^"]+)"')
-_TEXTUREFILE_RE = re.compile(r'texture[fF]ile\s*=\s*"([^"]+)"')
+# A comment or a quoted string. Each scanner pattern tries these first, so its own
+# group only matches outside both. A backslash in a string takes the next character
+# with it, and a string or last-line comment that never closes runs to the end.
+# Keep the closing quote optional: then the string branch cannot fail, so the
+# nested repeat never backtracks.
+_SKIP = r'#[^\n]*|"(?:\\[\s\S]?|[^"\\]+)*"?'
+_BRACE_RE = re.compile(_SKIP + r"|([{}])")
+_SPRITETYPE_RE = re.compile(_SKIP + r"|(?<!\w)([sS]priteType\s*=\s*\{)")
+_NAME_RE = re.compile(_SKIP + r'|(?<!\w)name\s*=\s*"([^"]+)"')
+_TEXTUREFILE_RE = re.compile(_SKIP + r'|(?<!\w)texture[fF]ile\s*=\s*"([^"]+)"')
 # Real mod files also use lowercase spritetypes.
-_SPRITE_TYPES_RE = re.compile(r"spriteTypes\s*=\s*\{", re.IGNORECASE)
+_SPRITE_TYPES_RE = re.compile(_SKIP + r"|(?<!\w)(spriteTypes\s*=\s*\{)", re.IGNORECASE)
 
 _Render = Callable[[str, str], str]
 
@@ -342,129 +349,36 @@ def _resolve_under_mod(mod_root: Path, rel: str, *, label: str) -> Path:
         raise ValueError(f"{label} escapes mod root: {rel}") from None
 
 
-def _match_brace(text: str, open_idx: int) -> int:
-    depth = 0
-    i = open_idx
-    while i < len(text):
-        if text[i] == "#":
-            newline = text.find("\n", i)
-            if newline == -1:
-                break
-            i = newline + 1
-            continue
-        if text[i] == '"':
-            i += 1
-            while i < len(text):
-                if text[i] == "\\":
-                    i += 2
-                    continue
-                if text[i] == '"':
-                    break
-                i += 1
-            i += 1
-            continue
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return i
-        i += 1
-    raise ValueError(f"Unmatched opening brace at offset {open_idx}")
-
-
-def _parse_named_blocks(text: str):
-    """Yield `(name, texturefile, start, end)` for every spriteType block."""
-    for m in _iter_sprite_types(text):
-        open_idx = m.end() - 1
-        try:
-            end = _match_brace(text, open_idx) + 1
-        except ValueError:
-            continue
-        name = _assignment_string(text, open_idx + 1, end - 1, _NAME_RE)
-        texture = _assignment_string(text, open_idx + 1, end - 1, _TEXTUREFILE_RE)
-        yield name, texture, m.start(), end
-
-
-def _assignment_string(text: str, start: int, end: int, pattern: re.Pattern[str]):
-    """Find a quoted assignment value while skipping comments and unrelated strings."""
-    i = start
-    while i < end:
-        if text[i] == "#":
-            newline = text.find("\n", i, end)
-            i = end if newline == -1 else newline + 1
-            continue
-        if text[i] == '"':
-            i = _quoted_end(text, i, end)
-            continue
-        match = pattern.match(text, i)
-        if match and (i == start or not (text[i - 1].isalnum() or text[i - 1] == "_")):
-            return match.group(1)
-        i += 1
-    return None
-
-
-def _quoted_end(text: str, start: int, end: Optional[int] = None) -> int:
-    """Return the position after a quoted string, honoring backslash escapes."""
+def _code_matches(
+    pattern: re.Pattern[str], text: str, start: int = 0, end: Optional[int] = None
+) -> Iterator[re.Match[str]]:
+    """Yield the matches of a scanner pattern that fall outside comments and strings."""
     stop = len(text) if end is None else end
-    i = start + 1
-    while i < stop:
-        if text[i] == "\\":
-            i += 2
-        elif text[i] == '"':
-            return i + 1
-        else:
-            i += 1
-    return stop
+    return (m for m in pattern.finditer(text, start, stop) if m.lastindex)
 
 
-def _sprite_types_close(text: str) -> int:
-    """Return the closing brace of the outer spriteTypes block, if present."""
-    i = 0
-    while i < len(text):
-        if text[i] == "#":
-            newline = text.find("\n", i)
-            if newline == -1:
-                return -1
-            i = newline + 1
-            continue
-        if text[i] == '"':
-            i = _quoted_end(text, i)
-            continue
-        match = _SPRITE_TYPES_RE.match(text, i)
-        if match and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
-            try:
-                return _match_brace(text, match.end() - 1)
-            except ValueError:
-                return -1
-        i += 1
+def _match_brace(text: str, open_idx: int) -> int:
+    """Return the brace that closes the one at `open_idx`, or -1."""
+    depth = 0
+    for m in _code_matches(_BRACE_RE, text, open_idx):
+        depth += 1 if m.group(1) == "{" else -1
+        if depth == 0:
+            return m.start()
     return -1
 
 
-def _iter_sprite_types(text: str):
-    """Find spriteType declarations outside comments and quoted strings."""
-    i = 0
-    while i < len(text):
-        if text[i] == "#":
-            newline = text.find("\n", i)
-            if newline == -1:
-                return
-            i = newline + 1
+def _parse_named_blocks(text: str):
+    """Yield `(name, texturefile, start, end)` for every closed spriteType block."""
+    for m in _code_matches(_SPRITETYPE_RE, text):
+        close = _match_brace(text, m.end() - 1)
+        if close == -1:
             continue
-        if text[i] == '"':
-            i += 1
-            while i < len(text):
-                if text[i] == "\\":
-                    i += 2
-                    continue
-                if text[i] == '"':
-                    i += 1
-                    break
-                i += 1
-            continue
-        match = _SPRITETYPE_RE.match(text, i)
-        if match and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
-            yield match
-            i = match.end()
-        else:
-            i += 1
+        name = next(_code_matches(_NAME_RE, text, m.end(), close), None)
+        texture = next(_code_matches(_TEXTUREFILE_RE, text, m.end(), close), None)
+        yield name and name.group(1), texture and texture.group(1), m.start(), close + 1
+
+
+def _sprite_types_close(text: str) -> int:
+    """Return the closing brace of the outer spriteTypes block, or -1."""
+    root = next(_code_matches(_SPRITE_TYPES_RE, text), None)
+    return -1 if root is None else _match_brace(text, root.end() - 1)

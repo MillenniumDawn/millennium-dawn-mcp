@@ -171,10 +171,11 @@ defaults to `isolated` mode (runs each validator in a child via `_shim.py`) and
 `serve` forces it — in-process validation hangs the server the same way. Don't
 route validators through the in-process path from inside `mcp.run()`.
 
-Run git only through `run_git` in
+Server code under `src/` runs git only through `run_git` in
 [`util/git.py`](./src/md_mcp/util/git.py). It closes stdin, so git can never
 read the JSON-RPC stream, and it requires a timeout. Catch `GitError` and shape
-the response at the call site.
+the response at the call site. Test helpers that build fixture repos call git
+directly.
 
 ### 7. `Node.children()` is a method, not an attribute
 

@@ -728,7 +728,8 @@ _A = _render("GFX_a", "gfx/a.dds")
 )
 def test_merge_places_new_entries(head, tail, new):
     """New blocks go before the root's closing brace, or at the end of a document
-    with no closed root."""
+    with no closed root. The malformed cases record what the merge does today, not
+    what it should do: a stray quote makes it add `GFX_a` a second time."""
     entries = {"GFX_a": "gfx/a.dds", "GFX_b": "gfx/b.dds"}
 
     out = gfx_mod.merge_gfx_text(head + tail, entries, _render)

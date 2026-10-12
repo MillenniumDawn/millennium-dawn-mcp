@@ -91,7 +91,9 @@ jobs:
           cache-dependency-path: pyproject.toml
       - run: pip install -e '.[dev]'
       - run: coverage run --source=src -m pytest -q
-      - run: coverage report
+      # diff-cover below only sees changed src lines, so a test-only change
+      # could drop the total unnoticed without this floor.
+      - run: coverage report --fail-under=85
       - run: coverage xml
       - run: >-
           diff-cover coverage.xml --compare-branch=origin/main --fail-under=85

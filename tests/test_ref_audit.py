@@ -11,6 +11,7 @@ import pytest
 
 from md_mcp.analysis.ref_audit import _is_scope_reference, check_refs
 from md_mcp.indexes import (
+    CharacterIndex,
     CountryTagIndex,
     DecisionIndex,
     EventIndex,
@@ -18,6 +19,9 @@ from md_mcp.indexes import (
     GfxIndex,
     IdeaIndex,
     LocalisationIndex,
+    ScriptedEffectIndex,
+    ScriptedTriggerIndex,
+    TraitIndex,
 )
 
 # References real fixture content from conftest's fake_mod_root:
@@ -846,3 +850,107 @@ def test_country_tag_audit_still_flags_unknown_tag(fake_mod_root, cache_dir):
     )
     unresolved = {(e["kind"], e["ref"]) for e in out["unresolved"]}
     assert ("country_tag", "TST_GHOST_TAG") in unresolved
+
+
+def test_block_valued_reference_nodes_are_read_through_their_inner_key(fake_mod_root, cache_dir):
+    source = fake_mod_root / "events" / "block_refs.txt"
+    source.write_text(
+        "icon = { value = GFX_missing_block_icon }\n"
+        "modify_character = { character = TST_missing_character }\n",
+        encoding="utf-8",
+    )
+
+    out = check_refs(
+        fake_mod_root,
+        files=["events/block_refs.txt"],
+        kinds=["sprite", "character"],
+        **_indexes(fake_mod_root, cache_dir),
+    )
+
+    assert {(entry["kind"], entry["ref"]) for entry in out["unresolved"]} == {
+        ("sprite", "GFX_missing_block_icon"),
+        ("character", "TST_missing_character"),
+    }
+
+
+# ----- country tag, character, trait, and scripted definition kinds ------------
+
+_DEFINITION_REFS = """focus_tree = {
+    focus = {
+        id = TST_new_refs
+        original_tag = TST
+        character = TST_test_character
+        add_trait = TST_test_trait
+        TST_test_effect = {}
+        TST_test_trigger = {}
+    }
+}
+"""
+_SCRIPTED_KINDS = ["scripted_effect", "scripted_trigger"]
+
+
+def _audit_definitions(root: Path, cache: Path, text: str, kinds: list[str]) -> dict:
+    (root / "common" / "national_focus" / "TST_new_refs.txt").write_text(text, encoding="utf-8")
+    return check_refs(
+        root,
+        files=["common/national_focus/TST_new_refs.txt"],
+        kinds=kinds,
+        country_tag_index=CountryTagIndex(root, cache, include_vanilla=False),
+        character_index=CharacterIndex(root, cache, include_vanilla=False),
+        trait_index=TraitIndex(root, cache, include_vanilla=False),
+        scripted_effect_index=ScriptedEffectIndex(root, cache, include_vanilla=False),
+        scripted_trigger_index=ScriptedTriggerIndex(root, cache, include_vanilla=False),
+        **_indexes(root, cache),
+    )
+
+
+def test_check_refs_resolves_new_definition_kinds(fake_mod_root, cache_dir):
+    result = _audit_definitions(
+        fake_mod_root,
+        cache_dir,
+        _DEFINITION_REFS,
+        ["country_tag", "character", "trait", *_SCRIPTED_KINDS],
+    )
+    assert result["total_unresolved"] == 0
+
+
+@pytest.mark.parametrize(
+    ("text", "kind"),
+    [
+        ("TST_test_effect = yes", "scripted_effect"),
+        ("hidden_effect = { TST_test_effect = yes }", "scripted_effect"),
+        ("TST_test_trigger = yes", "scripted_trigger"),
+        ("hidden_trigger = { TST_test_trigger = yes }", "scripted_trigger"),
+    ],
+)
+def test_check_refs_resolves_scripted_calls_as_one_kind(fake_mod_root, cache_dir, text, kind):
+    """A scripted call resolves when the call key matches the index — we audit
+    the *key*, not the scalar value, so `TST_test_effect = yes` doesn't read
+    as a dangling reference to `yes`. `hidden_effect` is a built-in HOI4
+    effect wrapper; only the inner scripted call is audited.
+    """
+    result = _audit_definitions(fake_mod_root, cache_dir, text, _SCRIPTED_KINDS)
+
+    assert result["total_unresolved"] == 0
+    assert {k: c["checked"] for k, c in result["counts"].items()} == {
+        "scripted_effect": int(kind == "scripted_effect"),
+        "scripted_trigger": int(kind == "scripted_trigger"),
+    }
+
+
+def test_check_refs_does_not_audit_fake_wrapper_calls(fake_mod_root, cache_dir):
+    """`call_scripted_effect` / `evaluate_scripted_trigger` aren't HOI4 effect
+    or trigger names — they're not audited at all, so neither a defined nor a
+    missing scripted effect shows up under them. The dangling test_effect
+    is reported only if it appears as a direct call by key.
+    """
+    body = (
+        "call_scripted_effect = TST_missing_effect\n"
+        "evaluate_scripted_trigger = TST_missing_trigger"
+    )
+    result = _audit_definitions(fake_mod_root, cache_dir, body, _SCRIPTED_KINDS)
+
+    assert result["total_unresolved"] == 0
+    # Neither fake wrapper contributes a checked reference.
+    assert result["counts"]["scripted_effect"]["checked"] == 0
+    assert result["counts"]["scripted_trigger"]["checked"] == 0

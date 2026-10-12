@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from md_mcp.analysis.refs import _event_pattern, find_references
 from md_mcp.paradox.schema import EVENT_KINDS
 
@@ -160,3 +162,65 @@ def test_find_references_files_only_does_not_merge_shadowed_counts(fake_mod_root
     result = find_references(fake_mod_root, "focus", "TST_dup", submod_root=submod, files_only=True)
 
     assert result["files"] == [{"file": str(rel), "hits": 2}]
+
+
+@pytest.mark.parametrize(
+    ("kind", "target"),
+    [
+        ("country_tag", "TST"),
+        ("character", "TST_test_character"),
+        ("trait", "TST_test_trait"),
+        ("scripted_effect", "TST_test_effect"),
+        ("scripted_trigger", "TST_test_trigger"),
+    ],
+)
+def test_find_references_supports_definition_kinds(fake_mod_root, kind, target):
+    scope = fake_mod_root / "common" / "national_focus" / "TST_new_refs.txt"
+    scope.write_text(
+        """focus_tree = {
+    focus = {
+        id = TST_new_refs
+        original_tag = TST
+        character = TST_test_character
+        add_trait = TST_test_trait
+        TST_test_effect = {}
+        TST_test_trigger = {}
+    }
+}
+""",
+        encoding="utf-8",
+    )
+
+    result = find_references(fake_mod_root, kind, target)
+
+    assert result["ok"]
+    assert result["total"] >= 1
+
+
+def test_find_references_stops_scanning_at_the_cap(fake_mod_root, tmp_path):
+    # The cap is fifty times the page, and never under 5000 matches.
+    submod = tmp_path / "Overlay"
+    hot = submod / "common" / "national_focus" / "hot.txt"
+    hot.parent.mkdir(parents=True)
+    hot.write_text("focus = TST_hot\n" * 5001, encoding="utf-8")
+    (fake_mod_root / "common" / "national_focus" / "more.txt").write_text(
+        "focus = TST_hot\n", encoding="utf-8"
+    )
+
+    result = find_references(fake_mod_root, "focus", "TST_hot", submod_root=submod)
+
+    assert result["scan_truncated"] is True
+    assert result["total"] == 5000
+    assert result["truncated"] is True
+
+
+def test_find_references_skips_a_directory_named_like_a_script(fake_mod_root):
+    (fake_mod_root / "common" / "national_focus" / "folder.txt").mkdir()
+    (fake_mod_root / "common" / "national_focus" / "last_line.txt").write_text(
+        "focus = TST_last_line", encoding="utf-8"
+    )
+
+    result = find_references(fake_mod_root, "focus", "TST_last_line")
+
+    # The match is on a final line with no newline after it.
+    assert [m["snippet"] for m in result["matches"]] == ["focus = TST_last_line"]

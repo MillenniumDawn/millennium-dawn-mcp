@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import cast
 
@@ -21,45 +22,24 @@ from md_mcp.resources import (
 from tests.support.mod import mod_settings
 
 
-def _write_decisions(tmp_path: Path, text: str) -> Path:
+def _write_mod_file(rel: str, tmp_path: Path, text: str) -> Path:
+    """Write one file into a minimal mod tree; returns the mod root."""
     mod_root = tmp_path / "Mod"
-    decisions_dir = mod_root / "common" / "decisions"
-    decisions_dir.mkdir(parents=True)
-    (decisions_dir / "test.txt").write_text(text, encoding="utf-8")
+    path = mod_root / rel
+    path.parent.mkdir(parents=True)
+    # Bytes, not write_text: exact-source assertions need LF on every platform.
+    path.write_bytes(text.encode("utf-8"))
     return mod_root
 
 
-def _write_ideas(tmp_path: Path, text: str) -> Path:
-    mod_root = tmp_path / "Mod"
-    ideas_dir = mod_root / "common" / "ideas"
-    ideas_dir.mkdir(parents=True)
-    (ideas_dir / "test.txt").write_text(text, encoding="utf-8")
-    return mod_root
-
-
-def _write_events(tmp_path: Path, text: str) -> Path:
-    mod_root = tmp_path / "Mod"
-    events_dir = mod_root / "events"
-    events_dir.mkdir(parents=True)
-    (events_dir / "test.txt").write_text(text, encoding="utf-8")
-    return mod_root
-
-
-def _write_sprites(tmp_path: Path, text: str) -> Path:
-    mod_root = tmp_path / "Mod"
-    interface_dir = mod_root / "interface"
-    interface_dir.mkdir(parents=True)
-    (interface_dir / "test.gfx").write_text(text, encoding="utf-8")
-    return mod_root
+_write_decisions = partial(_write_mod_file, "common/decisions/test.txt")
+_write_ideas = partial(_write_mod_file, "common/ideas/test.txt")
+_write_events = partial(_write_mod_file, "events/test.txt")
+_write_sprites = partial(_write_mod_file, "interface/test.gfx")
 
 
 def _write_focus(tmp_path: Path, text: str) -> tuple[Path, Settings]:
-    """Write a focus file into a minimal mod tree; returns (mod_root, settings)."""
-    mod_root = tmp_path / "Mod"
-    focus_dir = mod_root / "common" / "national_focus"
-    focus_dir.mkdir(parents=True)
-    # Bytes, not write_text: exact-source assertions need LF on every platform.
-    (focus_dir / "test.txt").write_bytes(text.encode("utf-8"))
+    mod_root = _write_mod_file("common/national_focus/test.txt", tmp_path, text)
     return mod_root, mod_settings(mod_root, tmp_path / ".cache")
 
 

@@ -25,6 +25,7 @@ from ..indexes import (
 )
 from ..paradox.ast_cache import parse_cached
 from ..paradox.schema import extract_focus_records
+from ..util.focus_anchor import FocusAnchorError, select_indexed_anchor
 from ..util.pathing import resolve_scope_file
 from ..util.response import enforce_budget
 
@@ -61,11 +62,23 @@ def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusInde
     except Exception as e:
         return {**indexed, "warning": f"Could not parse file for detail extraction: {e}"}
 
-    detail = next((r for r in records if r["id"] == focus_id), None)
-    if detail is None:
+    # The index resolves duplicate ids last-write-wins, so re-anchor the freshly
+    # parsed records to the line the index picked instead of taking candidates[0].
+    try:
+        detail = select_indexed_anchor(
+            [(r["line"], r) for r in records if r["id"] == focus_id],
+            line=cached.get("line"),
+            kind="Focus",
+            ident=focus_id,
+        )
+    except FocusAnchorError as e:
         return {
-            **indexed,
-            "warning": "Focus disappeared from file since index was built — rerun stale check",
+            "ok": False,
+            "id": focus_id,
+            "kind": cached["kind"],
+            "file": cached["file"],
+            "line": cached.get("line"),
+            "error": e.message,
         }
 
     return enforce_budget(

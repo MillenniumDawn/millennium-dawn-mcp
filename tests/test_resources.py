@@ -8,12 +8,13 @@ from typing import cast
 import pytest
 
 from md_mcp.config import Settings
-from md_mcp.indexes import DecisionIndex, EventIndex, GfxIndex, IdeaIndex
+from md_mcp.indexes import DecisionIndex, EventIndex, FocusIndex, GfxIndex, IdeaIndex
 from md_mcp.paradox.nodes import Node, SymbolNode
 from md_mcp.resources import (
     _extract_focus_block,
     decision_resource,
     event_resource,
+    focus_resource,
     idea_resource,
     sprite_resource,
 )
@@ -53,6 +54,15 @@ def _write_sprites(tmp_path: Path, text: str) -> Path:
     interface_dir.mkdir(parents=True)
     (interface_dir / "test.gfx").write_text(text, encoding="utf-8")
     return mod_root
+
+
+def _write_focus(tmp_path: Path, text: str) -> tuple[Path, Settings]:
+    """Write a focus file into a minimal mod tree; returns (mod_root, settings)."""
+    mod_root = tmp_path / "Mod"
+    focus_dir = mod_root / "common" / "national_focus"
+    focus_dir.mkdir(parents=True)
+    (focus_dir / "test.txt").write_text(text, encoding="utf-8")
+    return mod_root, _settings(mod_root, tmp_path / ".cache")
 
 
 class _FakeIndex:
@@ -118,7 +128,7 @@ DECISIONS_WITH_DUPES = """TST_category = {
 """
 
 DECISIONS_WITH_COMMENT = (
-    "TST_category = {\n" "\tTST_commented = {\n" "\t\tcost = 30 # important note\n" "\t}\n" "}\n"
+    "TST_category = {\n\tTST_commented = {\n\t\tcost = 30 # important note\n\t}\n}\n"
 )
 
 EVENTS_WITH_IMPOSTOR = """add_namespace = TST
@@ -590,6 +600,180 @@ def test_sprite_index_and_resource_agree_on_direct_properties(tmp_path):
     assert 'name = "GFX_actual"' in sprite_resource("GFX_actual", settings, index)
 
 
+FOCUS_WITH_DUPES = (
+    "focus_tree = {\n"
+    "\tfocus = {\n"
+    "\t\tid = TST_dup\n"
+    "\t\tx = 1\n"
+    "\t}\n"
+    "\tfocus = {\n"
+    "\t\tid = TST_dup\n"
+    "\t\tx = 9\n"
+    "\t}\n"
+    "}\n"
+)
+
+FOCUS_WITH_COMMENT = (
+    "focus_tree = {\n\tfocus = {\n\t\tid = TST_a\n\t\tx = 7 # important note\n\t}\n}\n"
+)
+
+FOCUS_TREE_SHARED_JOINT = (
+    "focus_tree = {\n\tfocus = {\n\t\tid = TST_tree\n\t\tx = 1\n\t}\n}\n"
+    "shared_focus = {\n\tid = TST_shared\n\tx = 2\n}\n"
+    "joint_focus = {\n\tid = TST_joint\n\tx = 3\n}\n"
+)
+
+
+def test_focus_resource_duplicate_ids_anchored_by_indexed_line(tmp_path):
+    mod_root, settings = _write_focus(tmp_path, FOCUS_WITH_DUPES)
+    index = FocusIndex(mod_root, settings.cache_dir)
+
+    result = focus_resource("TST_dup", settings, index)
+
+    # The index keys the last occurrence in file order; the resource must match it.
+    assert "x = 9" in result
+    assert "x = 1" not in result
+    assert result == "\tfocus = {\n\t\tid = TST_dup\n\t\tx = 9\n\t}"
+
+
+def test_focus_resource_duplicate_ids_without_line_raises_ambiguous(tmp_path):
+    mod_root, settings = _write_focus(tmp_path, FOCUS_WITH_DUPES)
+    real_index = FocusIndex(mod_root, settings.cache_dir)
+    rec = real_index.resolve("TST_dup")
+    assert rec is not None
+    fake_index = _FakeIndex({**rec, "line": None})
+
+    with pytest.raises(KeyError, match="ambiguous"):
+        focus_resource("TST_dup", settings, cast(FocusIndex, fake_index))
+
+
+def test_focus_resource_single_match_without_line_still_resolves(tmp_path):
+    mod_root, settings = _write_focus(tmp_path, FOCUS_WITH_COMMENT)
+    real_index = FocusIndex(mod_root, settings.cache_dir)
+    rec = real_index.resolve("TST_a")
+    assert rec is not None
+    fake_index = _FakeIndex({**rec, "line": None})
+
+    result = focus_resource("TST_a", settings, cast(FocusIndex, fake_index))
+
+    assert "x = 7 # important note" in result
+
+
+def test_focus_resource_stale_index_line_raises_with_rebuild_hint(tmp_path):
+    mod_root, settings = _write_focus(tmp_path, FOCUS_WITH_COMMENT)
+    real_index = FocusIndex(mod_root, settings.cache_dir)
+    rec = real_index.resolve("TST_a")
+    assert rec is not None
+    # Point the record at the focus_tree container line, which is not a definition.
+    fake_index = _FakeIndex({**rec, "line": 1})
+
+    with pytest.raises(KeyError, match=r"stale.*build-index"):
+        focus_resource("TST_a", settings, cast(FocusIndex, fake_index))
+
+
+def test_focus_resource_disappeared_id_raises_stale(tmp_path):
+    mod_root, settings = _write_focus(tmp_path, FOCUS_WITH_COMMENT)
+    real_index = FocusIndex(mod_root, settings.cache_dir)
+    rec = real_index.resolve("TST_a")
+    assert rec is not None
+    # Freeze the record while the file is rewritten without the id at all.
+    (mod_root / "common" / "national_focus" / "test.txt").write_text(
+        "focus_tree = {\n\tfocus = {\n\t\tid = TST_other\n\t}\n}\n", encoding="utf-8"
+    )
+    fake_index = _FakeIndex(rec)
+
+    with pytest.raises(KeyError, match=r"stale.*build-index"):
+        focus_resource("TST_a", settings, cast(FocusIndex, fake_index))
+
+
+def test_focus_resource_same_line_duplicate_ids_raise_ambiguous(tmp_path):
+    mod_root, settings = _write_focus(
+        tmp_path, "focus_tree = { focus = { id = TST_d } focus = { id = TST_d } }\n"
+    )
+    index = FocusIndex(mod_root, settings.cache_dir)
+    rec = index.resolve("TST_d")
+    assert rec is not None
+    assert rec["line"] == 1
+
+    with pytest.raises(KeyError, match="ambiguous"):
+        focus_resource("TST_d", settings, index)
+
+
+def test_focus_resource_walks_tree_shared_and_joint_blocks(tmp_path):
+    mod_root, settings = _write_focus(tmp_path, FOCUS_TREE_SHARED_JOINT)
+    index = FocusIndex(mod_root, settings.cache_dir)
+
+    assert focus_resource("TST_tree", settings, index) == (
+        "\tfocus = {\n\t\tid = TST_tree\n\t\tx = 1\n\t}"
+    )
+    assert focus_resource("TST_shared", settings, index) == (
+        "shared_focus = {\n\tid = TST_shared\n\tx = 2\n}"
+    )
+    assert focus_resource("TST_joint", settings, index) == (
+        "joint_focus = {\n\tid = TST_joint\n\tx = 3\n}"
+    )
+
+
+def test_decision_resource_same_line_duplicate_ids_raise_ambiguous(tmp_path):
+    # Same-line safety for the other resources' _anchor (issue #153 blast radius):
+    # two same-id definitions on one line cannot be disambiguated by the index.
+    mod_root = _write_decisions(
+        tmp_path, "TST_category = { TST_dup = { cost = 10 } TST_dup = { cost = 20 } }\n"
+    )
+    settings = _settings(mod_root, tmp_path / ".cache")
+    index = DecisionIndex(mod_root, settings.cache_dir)
+    rec = index.resolve("TST_dup")
+    assert rec is not None
+    assert rec["line"] == 1
+
+    with pytest.raises(KeyError, match="ambiguous"):
+        decision_resource("TST_dup", settings, index)
+
+
+def test_event_resource_same_line_duplicate_ids_raise_ambiguous(tmp_path):
+    mod_root = _write_events(
+        tmp_path,
+        "add_namespace = TST\n\n"
+        "country_event = { id = TST.1 title = a } "
+        "country_event = { id = TST.1 title = b }\n",
+    )
+    settings = _settings(mod_root, tmp_path / ".cache")
+    index = EventIndex(mod_root, settings.cache_dir)
+    rec = index.resolve("TST.1")
+    assert rec is not None
+
+    with pytest.raises(KeyError, match="ambiguous"):
+        event_resource("TST.1", settings, index)
+
+
+def test_sprite_resource_same_line_duplicate_names_raise_ambiguous(tmp_path):
+    mod_root = _write_sprites(
+        tmp_path,
+        'spriteTypes = { spriteType = { name = "GFX_d" texturefile = "a.dds" } '
+        'spriteType = { name = "GFX_d" texturefile = "b.dds" } }\n',
+    )
+    settings = _settings(mod_root, tmp_path / ".cache")
+    index = GfxIndex(mod_root, settings.cache_dir)
+    rec = index.resolve("GFX_d")
+    assert rec is not None
+
+    with pytest.raises(KeyError, match="ambiguous"):
+        sprite_resource("GFX_d", settings, index)
+
+
+def test_idea_resource_same_line_duplicate_ids_raise_ambiguous(tmp_path):
+    mod_root = _write_ideas(
+        tmp_path, "ideas = { country = { TST_i = { picture = x } TST_i = { picture = y } } }\n"
+    )
+    settings = _settings(mod_root, tmp_path / ".cache")
+    index = IdeaIndex(mod_root, settings.cache_dir)
+    rec = index.resolve("TST_i")
+    assert rec is not None
+
+    with pytest.raises(KeyError, match="ambiguous"):
+        idea_resource("TST_i", settings, index)
+
+
 def test_extract_focus_block_malformed_node_raises_with_focus_id(monkeypatch):
     focus_id = "TST_malformed"
     malformed_focus = Node(
@@ -653,12 +837,7 @@ def test_extract_focus_block_preserves_internal_comments_after_same_line_opener(
         "} }\n"
     )
     expected = (
-        "focus = { # opening note\n"
-        "\tid = TST_a\n"
-        "\n"
-        "\t# interior note\n"
-        "\tx = 1 # trailing note\n"
-        "}"
+        "focus = { # opening note\n\tid = TST_a\n\n\t# interior note\n\tx = 1 # trailing note\n}"
     )
 
     assert _extract_focus_block(text, "TST_a") == expected

@@ -30,9 +30,8 @@ stdio and a result going back out.
        │
 ┌──────▼────────┐  ┌──────────────┐  ┌──────────────┐
 │ indexes/      │  │ validators/  │  │ util/        │
-│ Two-tier cache│  │ wrapper      │  │ response,    │
-└───────────────┘  └──────────────┘  │ encoding,    │
-                                     │ pathing      │
+│ Two-tier cache│  │ wrapper      │  │ shared       │
+└───────────────┘  └──────────────┘  │ helpers      │
                                      └──────────────┘
 ```
 
@@ -74,19 +73,8 @@ The arrows are import direction. Lower modules don't know about higher ones.
 
 ## Configuration flow
 
-`config.py` `load(mod_root_arg)` returns a `Settings`:
-
-```python
-@dataclass
-class Settings:
-    mod_root: Path
-    vanilla_path: Optional[Path]
-    cache_dir: Path
-    validator_mode: str = "isolated"
-    default_lang: str = "en"
-    submod_root: Optional[Path] = None
-    loc_langs: tuple[str, ...] = ()  # empty -> (default_lang,)
-```
+`config.py` `load(mod_root_arg)` returns a `Settings` dataclass (see
+[`config.py`](../src/md_mcp/config.py) for the fields).
 
 Resolution order: CLI flag > env var > `~/.config/md-mcp/config.toml` >
 auto-discovery (`util.pathing.find_mod_root`). Vanilla path is opt-in only;
@@ -181,17 +169,4 @@ the loop.
 
 ## Where each subsystem lives
 
-| Concern | Module |
-|---|---|
-| HOI4 paradox-script parsing | `src/md_mcp/paradox/` |
-| Cache (in-process + on-disk) | `src/md_mcp/indexes/` |
-| Validator wrapping | `src/md_mcp/validators/runner.py` |
-| String generators (focus/event/…) | `src/md_mcp/generators/` |
-| High-level queries | `src/md_mcp/analysis/` |
-| Tool wrappers | `src/md_mcp/tools/` |
-| MCP registration + CLI | `src/md_mcp/server.py` |
-| Response shaping helpers | `src/md_mcp/util/response.py` |
-| BOM-aware file IO | `src/md_mcp/util/encoding.py` |
-| Mod-root discovery | `src/md_mcp/util/pathing.py` |
-| Config | `src/md_mcp/config.py` |
-| Raw text resources | `src/md_mcp/resources.py` |
+The package map is in [`CLAUDE.md`](../CLAUDE.md#repo-layout).

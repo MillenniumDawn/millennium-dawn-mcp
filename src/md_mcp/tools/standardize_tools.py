@@ -45,7 +45,6 @@ _UPSTREAM_MODULES: tuple[str, ...] = (
     "standardize_mio",
     "standardize_technologies",
 )
-_LOCALISATION_MODULE = "standardize_localisation"
 _MAX_LOCALISATION_INDEX_FILES = 5_000
 _MAX_LOCALISATION_INDEX_BYTES = 256 * 1024 * 1024
 _UPSTREAM = UpstreamModules("standardization", _UPSTREAM_MODULES)
@@ -58,7 +57,7 @@ def _load_standardize_api(mod_root: Path) -> ModuleType:
 
 def _load_localisation_core(mod_root: Path) -> ModuleType:
     """Load upstream standardize_localisation (pure cores only) from this mod root."""
-    return _UPSTREAM.load(mod_root, (_LOCALISATION_MODULE,))[_LOCALISATION_MODULE]
+    return _UPSTREAM.load(mod_root, ("standardize_localisation",))["standardize_localisation"]
 
 
 def _clip_txt(result: dict, txt: str) -> dict:
@@ -92,10 +91,17 @@ def _clip_txt(result: dict, txt: str) -> dict:
     return enforce_budget(fit_prefix(result, len(txt), shrunk), heavy_keys=("txt",))
 
 
-def _bounded_localisation_index(loc: ModuleType, mod_root: Path) -> dict:
-    """Build upstream's category index with strict file-count and byte caps."""
+def _bounded_localisation_index(
+    loc: ModuleType, mod_root: Path, submod_root: Optional[Path] = None
+) -> dict:
+    """Build upstream's category index with strict file-count and byte caps.
+
+    A submod file shadows the base-mod file at the same relative path, so the
+    caps count the effective file set.
+    """
     index: dict[str, set[str]] = {category: set() for category in loc.SECTION_ORDER}
-    scanned: dict[Path, str] = {}
+    roots = [r for r in (submod_root, mod_root) if r is not None]
+    scanned: dict[str, str] = {}
     total_bytes = 0
 
     def files(directory: Path, recursive: bool) -> Iterator[Path]:
@@ -115,34 +121,35 @@ def _bounded_localisation_index(loc: ModuleType, mod_root: Path) -> dict:
     for category, (dirs, patterns, recursive) in loc.CATEGORY_CONFIG.items():
         compiled = [re.compile(pattern, re.MULTILINE) for pattern in patterns]
         for rel_dir in dirs:
-            for source in files(mod_root / rel_dir, recursive):
-                resolved = source.resolve()
-                if resolved in scanned:
-                    content = scanned[resolved]
-                else:
-                    if len(scanned) >= _MAX_LOCALISATION_INDEX_FILES:
-                        raise ValueError(
-                            "Localisation index scan exceeded "
-                            f"{_MAX_LOCALISATION_INDEX_FILES} files."
-                        )
-                    scanned[resolved] = ""
-                    try:
-                        size = source.stat().st_size
-                        if total_bytes + size > _MAX_LOCALISATION_INDEX_BYTES:
+            for root in roots:
+                for source in files(root / rel_dir, recursive):
+                    rel = source.relative_to(root).as_posix()
+                    if rel in scanned:
+                        content = scanned[rel]
+                    else:
+                        if len(scanned) >= _MAX_LOCALISATION_INDEX_FILES:
                             raise ValueError(
                                 "Localisation index scan exceeded "
-                                f"{_MAX_LOCALISATION_INDEX_BYTES} bytes."
+                                f"{_MAX_LOCALISATION_INDEX_FILES} files."
                             )
-                        total_bytes += size
-                        content = source.read_text(encoding="utf-8-sig", errors="replace")
-                    except OSError:
-                        continue
-                    scanned[resolved] = content
-                for regex in compiled:
-                    for match in regex.finditer(content):
-                        token = match.group(1)
-                        if token:
-                            index[category].add(token)
+                        scanned[rel] = ""
+                        try:
+                            size = source.stat().st_size
+                            if total_bytes + size > _MAX_LOCALISATION_INDEX_BYTES:
+                                raise ValueError(
+                                    "Localisation index scan exceeded "
+                                    f"{_MAX_LOCALISATION_INDEX_BYTES} bytes."
+                                )
+                            total_bytes += size
+                            content = source.read_text(encoding="utf-8-sig", errors="replace")
+                        except OSError:
+                            continue
+                        scanned[rel] = content
+                    for regex in compiled:
+                        for match in regex.finditer(content):
+                            token = match.group(1)
+                            if token:
+                                index[category].add(token)
     return index
 
 
@@ -168,49 +175,41 @@ def _standardize_localisation(
     file_stem: str,
     had_bom: bool,
     norm_path: Optional[str],
+    submod_root: Optional[Path] = None,
 ) -> dict:
     """Reorganise one localisation file in memory; never writes.
 
-    The categorization index follows upstream's CATEGORY_CONFIG with a
-    bounded scan (never the whole mod, and never the whole-mod reference scan
-    behind upstream's Unreferenced
-    bucket, which stays empty here) — contract in docs/standardize-localisation.md.
+    The categorization index follows upstream's CATEGORY_CONFIG with a bounded
+    scan. Upstream's whole-mod reference scan is skipped, so its Unreferenced
+    bucket stays empty. Contract in docs/standardize-localisation.md.
     """
     try:
         loc = _load_localisation_core(mod_root)
     except ImportError as exc:
         return _upstream_import_error(mod_root, exc)
-    try:
-        lines = text.splitlines()
-        header_index = next(
-            (i for i, line in enumerate(lines) if re.match(r"^\s*l_[A-Za-z0-9_]+\s*:", line)),
-            None,
-        )
-        if header_index is None:
-            return {
-                "ok": False,
-                "kind": "localisation",
-                "error": "No language header found (expected `l_english:`).",
-            }
-        index = _bounded_localisation_index(loc, mod_root)
-        prefix = lines[:header_index]
-        parse_text = "\n".join(lines[header_index:])
-        header, entries = loc._parse_loc_file(parse_text)
-    except Exception as exc:
-        return {"ok": False, "kind": "localisation", "error": str(exc)}
-    if not header:
+
+    lines = text.splitlines()
+    header_index = next(
+        (i for i, line in enumerate(lines) if re.match(r"^\s*l_[A-Za-z0-9_]+\s*:", line)),
+        None,
+    )
+    if header_index is None:
         return {
             "ok": False,
             "kind": "localisation",
             "error": "No language header found (expected `l_english:`).",
         }
+    # Upstream expects the header first; keep any author comments above it.
+    prefix = lines[:header_index]
     try:
+        index = _bounded_localisation_index(loc, mod_root, submod_root)
+        header, entries = loc._parse_loc_file("\n".join(lines[header_index:]))
         standardized = loc._format_output(header, entries, index, file_stem, None)
-        if prefix:
-            standardized = "\n".join(prefix) + "\n" + standardized
         categories = _localisation_categories(loc, entries, file_stem, index)
     except Exception as exc:
         return {"ok": False, "kind": "localisation", "error": str(exc)}
+    if prefix:
+        standardized = "\n".join(prefix) + "\n" + standardized
 
     txt = standardized.removeprefix("\ufeff")
     result: dict = {
@@ -310,10 +309,10 @@ def standardize_tool(
             return {
                 "ok": False,
                 "error": (
-                    f"The localisation standardizer applies to .yml files, " f"got '{norm_path}'."
+                    f"The localisation standardizer applies to .yml files, got '{norm_path}'."
                 ),
             }
-        return _standardize_localisation(mod_root, text, file_stem, had_bom, norm_path)
+        return _standardize_localisation(mod_root, text, file_stem, had_bom, norm_path, submod_root)
 
     try:
         api = _load_standardize_api(mod_root)

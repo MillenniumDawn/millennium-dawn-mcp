@@ -28,6 +28,10 @@ reading. Each call limits the scan to 5,000 distinct selected files and
 error, not partial categorization. Missing directories and unreadable files
 are skipped, as in upstream. Unreadable files still count toward the file cap.
 
+With a submod configured, the scan walks the submod first and then the base
+mod. A submod script shadows the base script at the same relative path, and
+the limits count the resulting file set.
+
 The selected directories include national focuses, ideas, decisions, events,
 characters, modifiers, scripted effects, scripted GUIs, leaders, MIOs and
 interface files. Only `.txt` and `.gui` sources are read. A measured checkout
@@ -65,10 +69,3 @@ filename, so feeding path output into content mode can reorder that anchor
 once and change its category count. A further content-mode pass is stable.
 Repeated path calls on unchanged input return identical text, but an input
 BOM still makes `changed=true` under the output contract above.
-
-## Coverage
-
-`tests/test_standardize.py` covers routing, UTF-8/BOM handling, comments,
-clipping, missing headers, missing upstream code and scan caps. Integration
-tests compare upstream formatting and categorization, check no-write behavior,
-and cover the path-to-content anchor difference against real upstream code.

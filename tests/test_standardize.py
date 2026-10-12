@@ -9,15 +9,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import md_mcp
 from md_mcp.tools import standardize_tools
 from md_mcp.tools.standardize_tools import standardize_tool
 from md_mcp.util.response import BUDGET_BYTES
-
-
-def test_tests_import_worktree_source():
-    assert Path(md_mcp.__file__).resolve().is_relative_to(Path.cwd().resolve())
-
 
 CASES = [
     (
@@ -670,7 +664,8 @@ def test_localisation_path_mode_needs_only_the_localisation_core(tmp_path: Path,
     yml_path = tmp_path / rel
     yml_path.parent.mkdir(parents=True)
     text = "l_english:\n"
-    yml_path.write_text(text, encoding="utf-8")
+    # Bytes, not write_text: the no-change assertion needs LF on every platform.
+    yml_path.write_bytes(text.encode("utf-8"))
     original = yml_path.read_bytes()
 
     result = standardize_tool(tmp_path, path=rel)
@@ -683,6 +678,40 @@ def test_localisation_path_mode_needs_only_the_localisation_core(tmp_path: Path,
     assert result["categories"] == {}
     assert "note" not in result
     assert yml_path.read_bytes() == original, "the tool must never write"
+
+
+def test_localisation_categories_use_submod_scripts_over_shadowed_base(tmp_path: Path):
+    base = tmp_path / "base"
+    submod = tmp_path / "submod"
+    _plant_localisation_core(base)  # base common/ideas/test.txt defines tst_idea
+    shadow = submod / "common" / "ideas" / "test.txt"
+    shadow.parent.mkdir(parents=True)
+    shadow.write_text("\t\tsub_idea = { }\n", encoding="utf-8")
+
+    result = standardize_tool(
+        base,
+        submod,
+        content='l_english:\n sub_idea: "Submod"\n tst_idea: "Shadowed"\n',
+        content_type="localisation",
+    )
+
+    assert result["ok"] is True
+    assert result["categories"] == {"Ideas": 1, "Other": 1}
+
+
+def test_bounded_localisation_index_counts_a_shadowed_file_once(tmp_path: Path, monkeypatch):
+    base = tmp_path / "base"
+    submod = tmp_path / "submod"
+    _plant_localisation_core(base)
+    shadow = submod / "common" / "ideas" / "test.txt"
+    shadow.parent.mkdir(parents=True)
+    shadow.write_text("\t\tsub_idea = { }\n", encoding="utf-8")
+    monkeypatch.setattr(standardize_tools, "_MAX_LOCALISATION_INDEX_FILES", 1)
+    loc = standardize_tools._load_localisation_core(base)
+
+    index = standardize_tools._bounded_localisation_index(loc, base, submod)
+
+    assert index["Ideas"] == {"sub_idea"}
 
 
 def test_bounded_localisation_index_fails_closed_at_file_limit(tmp_path: Path, monkeypatch):

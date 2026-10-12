@@ -263,6 +263,19 @@ def test_staged_file_environment_reports_git_failure(tmp_path):
         _staged_files_env(tmp_path)
 
 
+def test_staged_file_environment_reports_git_timeout(monkeypatch, tmp_path):
+    import subprocess
+
+    from md_mcp.validators.runner import _staged_files_env
+
+    def hung(command, **kwargs):
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr(subprocess, "run", hung)
+    with pytest.raises(RuntimeError, match="from git: Git command timed out after 15s"):
+        _staged_files_env(tmp_path)
+
+
 @pytest.mark.parametrize("mode", ["isolated", "in_process"])
 def test_staged_validator_reports_git_failure(fake_mod_root, mode):
     _plant(fake_mod_root, "plain", _PLAIN)

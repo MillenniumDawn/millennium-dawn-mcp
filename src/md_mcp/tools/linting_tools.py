@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 from ..analysis.suppressions import SUPPRESSION_SOURCE, suppressed_count
+from ..util.git import GitError, run_git
 from ..util.pathing import contained
 from ..util.process import run_in_group
 from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget, fit_prefix
@@ -803,50 +804,29 @@ class GitScopeError(RuntimeError):
 
 def _run_git_scope(
     mode: str,
-    command: list[str],
+    args: list[str],
     mod_root: Path,
     submod_root: Optional[Path],
 ) -> str:
     """Run one Git scope-discovery command and return its stdout, or raise a structured error."""
     try:
-        proc = subprocess.run(
-            command,
-            cwd=str(submod_root or mod_root),
-            capture_output=True,
-            timeout=_GIT_SCOPE_TIMEOUT,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
+        stdout = run_git(args, cwd=submod_root or mod_root, timeout=_GIT_SCOPE_TIMEOUT)
+    except GitError as exc:
         raise GitScopeError(
             mode=mode,
-            command=command,
-            reason=f"Git command timed out after {_GIT_SCOPE_TIMEOUT}s",
+            command=exc.command,
+            reason=exc.reason,
+            exit_code=exc.exit_code,
             stderr=exc.stderr,
         ) from exc
-    except (OSError, subprocess.SubprocessError, ValueError) as exc:
-        raise GitScopeError(
-            mode=mode,
-            command=command,
-            reason=f"Could not run Git command: {exc}",
-        ) from exc
-
-    if proc.returncode != 0:
-        raise GitScopeError(
-            mode=mode,
-            command=command,
-            reason=f"Git exited with status {proc.returncode}",
-            exit_code=proc.returncode,
-            stderr=proc.stderr,
-        )
-    # Git writes paths as UTF-8 bytes; text mode would decode them with the locale.
     try:
-        return proc.stdout.decode("utf-8")
+        return stdout.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise GitScopeError(
             mode=mode,
-            command=command,
+            command=["git", *args],
             reason=f"Git output is not valid UTF-8: {exc}",
-            exit_code=proc.returncode,
+            exit_code=0,
         ) from exc
 
 
@@ -854,7 +834,7 @@ def _staged_files(mod_root: Path, submod_root: Optional[Path] = None) -> list[st
     """Staged files in the active worktree's git index; renames list both paths."""
     stdout = _run_git_scope(
         "staged",
-        ["git", "diff", "--name-only", "-z", "--cached", "--no-renames"],
+        ["diff", "--name-only", "-z", "--cached", "--no-renames"],
         mod_root,
         submod_root,
     )
@@ -883,7 +863,7 @@ def _changed_files(
     """
     stdout = _run_git_scope(
         "changed",
-        ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
+        ["status", "--porcelain", "-z", "--untracked-files=all"],
         mod_root,
         submod_root,
     )

@@ -1665,3 +1665,24 @@ def test_auto_map_validator_names_exist_upstream(real_mod_root):
     available = {v.name for v in available_validators(real_mod_root)}
     missing = set(SCAN_PREFIXES) - available
     assert not missing, f"auto-routable validator names missing upstream: {sorted(missing)}"
+
+
+def test_equipment_variant_context_skips_a_path_when_git_fails(tmp_path, monkeypatch):
+    import subprocess
+
+    # Outside the context prefixes, so only a removed event call can flag it.
+    path = "history/units/a.txt"
+    (tmp_path / path).parent.mkdir(parents=True)
+    (tmp_path / path).write_text("x = 1\n", encoding="utf-8")
+
+    def git_exits(code):
+        removed_call = b"-    country_event = { id = a.1 }\n"
+        return lambda command, **kwargs: subprocess.CompletedProcess(
+            command, code, stdout=removed_call, stderr=b""
+        )
+
+    monkeypatch.setattr(subprocess, "run", git_exits(0))
+    assert lint_validators._equipment_variant_context_changed({path}, tmp_path) is True
+
+    monkeypatch.setattr(subprocess, "run", git_exits(1))
+    assert lint_validators._equipment_variant_context_changed({path}, tmp_path) is False

@@ -28,6 +28,7 @@ import pytest
 
 from md_mcp.analysis import diff_summary as diff_summary_mod
 from md_mcp.analysis.diff_summary import diff_summary
+from md_mcp.util import git as git_mod
 
 # --- helpers ---------------------------------------------------------------
 
@@ -701,8 +702,8 @@ def test_git_show_failure_on_real_path_surfaces_as_head_error(
             return subprocess.CompletedProcess(
                 args=argv,
                 returncode=0,
-                stdout=f"A\x00{FOCUS_FILE}\x00",
-                stderr="",
+                stdout=f"A\x00{FOCUS_FILE}\x00".encode(),
+                stderr=b"",
             )
 
     stub = types.SimpleNamespace(
@@ -710,7 +711,7 @@ def test_git_show_failure_on_real_path_surfaces_as_head_error(
         TimeoutExpired=subprocess.TimeoutExpired,
         CalledProcessError=subprocess.CalledProcessError,
     )
-    monkeypatch.setattr(diff_summary_mod, "subprocess", stub)
+    monkeypatch.setattr(git_mod, "subprocess", stub)
 
     out = diff_summary(git_repo, base="HEAD~1")
     assert out["ok"] is True
@@ -744,7 +745,7 @@ def test_git_diff_failure_with_unknown_repo_surfaces(
         run=_StubSubprocess.run,
         TimeoutExpired=subprocess.TimeoutExpired,
     )
-    monkeypatch.setattr(diff_summary_mod, "subprocess", stub)
+    monkeypatch.setattr(git_mod, "subprocess", stub)
 
     out = diff_summary(tmp_path, base="main")
     assert out["ok"] is False
@@ -775,13 +776,13 @@ def test_base_show_failure_surfaces_without_false_ids(
                 return subprocess.CompletedProcess(
                     args=argv,
                     returncode=0,
-                    stdout=f"M\x00{FOCUS_FILE}\x00",
-                    stderr="",
+                    stdout=f"M\x00{FOCUS_FILE}\x00".encode(),
+                    stderr=b"",
                 )
             if len(argv) >= 2 and argv[1] == "show":
                 if argv[-1].startswith("HEAD:"):
                     return subprocess.CompletedProcess(
-                        args=argv, returncode=0, stdout=head_body, stderr=""
+                        args=argv, returncode=0, stdout=head_body.encode(), stderr=b""
                     )
                 return subprocess.CompletedProcess(
                     args=argv,
@@ -792,7 +793,7 @@ def test_base_show_failure_surfaces_without_false_ids(
             raise AssertionError(f"unexpected git argv: {argv}")
 
     stub = types.SimpleNamespace(run=_StubSubprocess.run, TimeoutExpired=subprocess.TimeoutExpired)
-    monkeypatch.setattr(diff_summary_mod, "subprocess", stub)
+    monkeypatch.setattr(git_mod, "subprocess", stub)
 
     out = diff_summary(git_repo, base="HEAD~1")
     rec = out["files"][0]
@@ -822,10 +823,23 @@ def test_git_diff_not_found_is_reported(tmp_path: Path, monkeypatch: pytest.Monk
             raise FileNotFoundError("git")
 
     stub = types.SimpleNamespace(run=_StubSubprocess.run, TimeoutExpired=subprocess.TimeoutExpired)
-    monkeypatch.setattr(diff_summary_mod, "subprocess", stub)
+    monkeypatch.setattr(git_mod, "subprocess", stub)
 
     out = diff_summary(tmp_path, base="HEAD")
     assert out == {"ok": False, "error": "git not found on PATH"}
+
+
+def test_git_diff_unstartable_git_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def run(argv, **kwargs):
+        raise PermissionError("git is not executable")
+
+    monkeypatch.setattr(git_mod, "subprocess", types.SimpleNamespace(run=run))
+
+    out = diff_summary(tmp_path, base="HEAD")
+    assert out == {
+        "ok": False,
+        "error": "git diff failed: Could not run Git command: git is not executable",
+    }
 
 
 def test_git_diff_failure_output_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -845,7 +859,7 @@ def test_git_diff_failure_output_is_bounded(tmp_path: Path, monkeypatch: pytest.
             )
 
     stub = types.SimpleNamespace(run=_StubSubprocess.run, TimeoutExpired=subprocess.TimeoutExpired)
-    monkeypatch.setattr(diff_summary_mod, "subprocess", stub)
+    monkeypatch.setattr(git_mod, "subprocess", stub)
 
     out = diff_summary(tmp_path, base="HEAD")
     assert out["ok"] is False
@@ -875,7 +889,7 @@ def test_subprocess_timeout_via_real_TimeoutExpired(
             )
 
     stub = types.SimpleNamespace(run=_StubSubprocess.run, TimeoutExpired=subprocess.TimeoutExpired)
-    monkeypatch.setattr(diff_summary_mod, "subprocess", stub)
+    monkeypatch.setattr(git_mod, "subprocess", stub)
 
     _write(git_repo, FOCUS_FILE, _focus_body("TST_root"))
     _add_and_commit(git_repo, FOCUS_FILE, message="add focus")
@@ -903,12 +917,12 @@ def test_git_show_timeout_via_real_TimeoutExpired(git_repo: Path, monkeypatch: p
             return subprocess.CompletedProcess(
                 args=argv,
                 returncode=0,
-                stdout=f"M\x00{FOCUS_FILE}\x00",
-                stderr="",
+                stdout=f"M\x00{FOCUS_FILE}\x00".encode(),
+                stderr=b"",
             )
 
     stub = types.SimpleNamespace(run=_StubSubprocess.run, TimeoutExpired=subprocess.TimeoutExpired)
-    monkeypatch.setattr(diff_summary_mod, "subprocess", stub)
+    monkeypatch.setattr(git_mod, "subprocess", stub)
 
     out = diff_summary(git_repo, base="HEAD~1")
     assert out["ok"] is True
@@ -946,7 +960,7 @@ def test_read_at_rejects_invalid_revision_without_running_git(
             raise AssertionError("git must not run for an invalid revision")
 
     stub = types.SimpleNamespace(run=_StubSubprocess.run, TimeoutExpired=subprocess.TimeoutExpired)
-    monkeypatch.setattr(diff_summary_mod, "subprocess", stub)
+    monkeypatch.setattr(git_mod, "subprocess", stub)
 
     result = _read_at(Path("."), "--bad", "events/file.txt")
     assert isinstance(result, _GitReadError)
@@ -964,7 +978,7 @@ def test_read_at_reports_git_not_found(monkeypatch: pytest.MonkeyPatch):
             raise FileNotFoundError("git")
 
     stub = types.SimpleNamespace(run=_StubSubprocess.run, TimeoutExpired=subprocess.TimeoutExpired)
-    monkeypatch.setattr(diff_summary_mod, "subprocess", stub)
+    monkeypatch.setattr(git_mod, "subprocess", stub)
 
     result = _read_at(Path("."), "HEAD", "events/file.txt")
     assert isinstance(result, _GitReadError)
@@ -985,15 +999,34 @@ def test_read_at_strips_bom_and_one_trailing_newline(monkeypatch: pytest.MonkeyP
             return subprocess.CompletedProcess(
                 args=list(args[0]) if args else [],
                 returncode=0,
-                stdout="\ufefffocus_tree = {}\n",
-                stderr="",
+                stdout="\ufefffocus_tree = {}\n".encode(),
+                stderr=b"",
             )
 
     stub = types.SimpleNamespace(run=_StubSubprocess.run, TimeoutExpired=subprocess.TimeoutExpired)
-    monkeypatch.setattr(diff_summary_mod, "subprocess", stub)
+    monkeypatch.setattr(git_mod, "subprocess", stub)
 
     assert _read_at(Path("."), "HEAD", "events/file.txt") == "focus_tree = {}"
     assert seen == [["git", "show", "--end-of-options", "HEAD:events/file.txt"]]
+
+
+def test_id_diff_reads_crlf_blobs(monkeypatch: pytest.MonkeyPatch):
+    """Git output is read as bytes, so CRLF blobs reach the parser untranslated."""
+
+    def run(argv, **kwargs):
+        if argv[1] == "diff":
+            stdout = f"M\x00{FOCUS_FILE}\x00"
+        elif argv[-1].startswith("HEAD:"):
+            stdout = _focus_body("TST_root", "TST_new").replace("\n", "\r\n")
+        else:
+            stdout = _focus_body("TST_root").replace("\n", "\r\n")
+        return subprocess.CompletedProcess(argv, 0, stdout=stdout.encode(), stderr=b"")
+
+    monkeypatch.setattr(git_mod, "subprocess", types.SimpleNamespace(run=run))
+
+    [rec] = diff_summary(Path("."), base="HEAD~1")["files"]
+    assert rec["added_ids"] == ["TST_new"]
+    assert "removed_ids" not in rec
 
 
 def test_git_diff_places_base_after_end_of_options(monkeypatch: pytest.MonkeyPatch):
@@ -1007,11 +1040,11 @@ def test_git_diff_places_base_after_end_of_options(monkeypatch: pytest.MonkeyPat
         def run(*args, **kwargs):
             seen.append(list(args[0]))
             return subprocess.CompletedProcess(
-                args=list(args[0]), returncode=0, stdout="", stderr=""
+                args=list(args[0]), returncode=0, stdout=b"", stderr=b""
             )
 
     stub = types.SimpleNamespace(run=_StubSubprocess.run, TimeoutExpired=subprocess.TimeoutExpired)
-    monkeypatch.setattr(diff_summary_mod, "subprocess", stub)
+    monkeypatch.setattr(git_mod, "subprocess", stub)
 
     out = diff_summary(Path("."), base="HEAD")
     assert out["ok"] is True

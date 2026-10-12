@@ -62,6 +62,19 @@ def _looks_like_mod_root(p: Path) -> bool:
     return p.is_dir() and (p / "descriptor.mod").exists() and (p / "tools" / "validation").is_dir()
 
 
+def roots_for(
+    mod_root: Path, vanilla_path: Path | None, submod_root: Path | None = None
+) -> list[Path]:
+    """Content roots in resolution order: submod, mod, then vanilla."""
+    roots: list[Path] = []
+    if submod_root is not None:
+        roots.append(submod_root)
+    roots.append(mod_root)
+    if vanilla_path is not None:
+        roots.append(vanilla_path)
+    return roots
+
+
 def resolve_scope_file(
     relpath: str,
     mod_root: Path,
@@ -74,9 +87,7 @@ def resolve_scope_file(
     root it resolves against: absolute paths and `..` traversal are rejected
     rather than read.
     """
-    for root in (submod_root, mod_root, vanilla_path):
-        if root is None:
-            continue
+    for root in roots_for(mod_root, vanilla_path, submod_root):
         p = contained(root, relpath)
         if p is not None and p.exists():
             return p

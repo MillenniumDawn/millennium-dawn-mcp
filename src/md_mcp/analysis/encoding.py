@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..util.encoding import UTF8_BOM
+from ..util.pathing import roots_for
 from ..util.response import coerce_int, enforce_budget, paginate
 
 # Subdirectories to walk. Other paths (resources/, .claude/, tools/) are excluded
@@ -53,7 +54,7 @@ def check_encoding(
     except ValueError as exc:
         return enforce_budget({"ok": False, "error": str(exc)})
 
-    roots = [root for root in (submod_root, mod_root) if root is not None]
+    roots = roots_for(mod_root, None, submod_root)
     targets: list[Path] = []
     target_relpaths: dict[Path, str] = {}
     seen_relpaths: set[str] = set()

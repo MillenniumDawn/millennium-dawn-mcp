@@ -31,6 +31,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Sequence
 
+from ..util.pathing import roots_for
+
 logger = logging.getLogger(__name__)
 
 
@@ -266,19 +268,6 @@ def signatures_for(paths: Iterable[Path], roots: Path | list[Path]) -> dict[str,
         if rel not in sigs:
             sigs[rel] = sig
     return sigs
-
-
-def roots_for(
-    mod_root: Path, vanilla_path: Optional[Path], submod_root: Optional[Path] = None
-) -> list[Path]:
-    """Content roots in resolution order: submod, mod, then vanilla."""
-    roots: list[Path] = []
-    if submod_root is not None:
-        roots.append(submod_root)
-    roots.append(mod_root)
-    if vanilla_path is not None:
-        roots.append(vanilla_path)
-    return roots
 
 
 def resolve_root(roots: Iterable[Path], relpath: str) -> Optional[Path]:

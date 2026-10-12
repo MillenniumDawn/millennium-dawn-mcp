@@ -20,7 +20,7 @@ from ..paradox import parse_string as _parse_string_impl
 from ..paradox.schema import to_json_with_lines
 from ..util.encoding import read_text
 from ..util.line_numbers import line_starts, pos_to_line
-from ..util.pathing import PathAccessError, validate_user_path
+from ..util.pathing import PathAccessError, roots_for, validate_user_path
 from ..util.response import enforce_budget
 
 _DEFAULT_MAX_BYTES = 500_000
@@ -129,5 +129,5 @@ def _resolve_path(
     `PathAccessError` for anything outside the roots, a non-regular file, or an
     unsupported extension.
     """
-    roots = [root for root in (submod_root, mod_root, vanilla_path) if root is not None]
+    roots = roots_for(mod_root, vanilla_path, submod_root)
     return validate_user_path(path, roots, extensions=_ALLOWED_EXTENSIONS, require_file=True)

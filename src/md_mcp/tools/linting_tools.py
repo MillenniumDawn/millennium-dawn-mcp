@@ -30,7 +30,7 @@ from typing import Callable, Optional, Sequence
 
 from ..analysis.suppressions import SUPPRESSION_SOURCE, suppressed_count
 from ..util.git import GitError, run_git
-from ..util.pathing import contained
+from ..util.pathing import contained, roots_for
 from ..util.process import run_in_group
 from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget, fit_prefix
 from ..validators import SLOW_VALIDATORS, ValidatorRunner, count_severities
@@ -183,7 +183,7 @@ def lint_changelog_tool(
     submod_root: Optional[Path] = None,
 ) -> dict:
     """Check changelog ordering; absent files skip, checker and read errors fail."""
-    roots = [root for root in (submod_root, mod_root) if root is not None]
+    roots = roots_for(mod_root, None, submod_root)
     changelog = next(
         (root / "Changelog.txt" for root in roots if (root / "Changelog.txt").is_file()), None
     )

@@ -18,6 +18,7 @@ from typing import Literal, Optional
 
 from ..paradox.schema import EVENT_KINDS
 from ..util.line_numbers import line_and_column, line_starts
+from ..util.pathing import roots_for
 from ..util.response import enforce_budget
 from .text_cache import read_text
 
@@ -361,9 +362,7 @@ def find_references(
     exts = _EXTENSIONS.get(canonical, (".txt",))
     scan_dirs = _SCAN_DIRS[canonical]
 
-    roots = ([submod_root] if submod_root else []) + [mod_root]
-    if include_vanilla and vanilla_path:
-        roots.append(vanilla_path)
+    roots = roots_for(mod_root, vanilla_path if include_vanilla else None, submod_root)
 
     matches: list[dict] = []
     file_hits: dict[str, int] = {}

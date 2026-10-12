@@ -271,10 +271,25 @@ def _windowed_page(
         if fits([*entries, window]):
             entries.append(window)
             continue
-        # Full window overflows: shrink this entry's content until it fits.
         empty = _windowed_entry(item, content_offset, 0)
         if not fits([*entries, empty]):
-            break  # even an empty chunk does not fit; stop delivering entries
+            omitted = [
+                field
+                for field in ("aliases", "title", "frontmatter", "description")
+                if field in item
+            ]
+            if not omitted:
+                break
+            item = {field: value for field, value in item.items() if field not in omitted}
+            item["metadata_dropped"] = omitted
+            window = _windowed_entry(item, content_offset, content_limit)
+            if fits([*entries, window]):
+                entries.append(window)
+                continue
+            empty = _windowed_entry(item, content_offset, 0)
+            if not fits([*entries, empty]):
+                break
+        # Full window overflows: shrink this entry's content until it fits.
         low, high = 0, len(window["content"])
         while low < high:
             middle = (low + high + 1) // 2

@@ -395,6 +395,118 @@ def test_lookup_docs_system_doc_content_window(fake_mod_root, cache_dir) -> None
     assert "".join(chunks) == original
 
 
+@pytest.mark.parametrize(
+    ("kind", "tree", "name", "original", "dropped"),
+    [
+        pytest.param(
+            "doc",
+            "docs",
+            "large",
+            "# " + "x" * 60_000 + "\nBody.\n",
+            ["aliases", "title"],
+            id="ascii-heading",
+        ),
+        pytest.param(
+            "doc",
+            "docs",
+            "large",
+            "# " + "🚀" * 30_000 + "\nBody.\n",
+            ["aliases", "title"],
+            id="unicode-heading",
+        ),
+        pytest.param(
+            "doc",
+            "docs",
+            "large",
+            "# " + "\x01" * 20_000 + "\nBody.\n",
+            ["aliases", "title"],
+            id="escaped-heading",
+        ),
+        pytest.param(
+            "skill",
+            "skills",
+            "large/SKILL",
+            "---\nname: large\ndescription: " + "x" * 60_000 + "\n---\nBody.\n",
+            ["aliases", "title", "frontmatter", "description"],
+            id="skill-frontmatter",
+        ),
+    ],
+)
+def test_lookup_docs_oversized_metadata_keeps_content_retrievable(
+    fake_mod_root, cache_dir, kind, tree, name, original, dropped
+) -> None:
+    _write_system_doc(fake_mod_root, tree, name, original)
+    settings = _settings(fake_mod_root, cache_dir)
+    chunks = []
+    offset = 0
+    for _ in range(20):
+        page = lookup_docs_tool(
+            settings, kind, key="large", content_offset=offset, content_limit=100_000
+        )
+        assert page["ok"] is True
+        assert page["total"] == page["returned"] == 1
+        assert page["truncated"] is False
+        assert len(json.dumps(page, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+        entry = page["entries"][0]
+        assert entry["metadata_dropped"] == dropped
+        assert all(field not in entry for field in dropped)
+        assert entry["key"] == f".claude/{tree}/{name}"
+        assert entry["file"] == f".claude/{tree}/{name}.md"
+        assert entry["line"] == 1
+        assert entry["end_line"] == len(original.splitlines())
+        assert entry["content_total"] == len(original)
+        assert entry["content_offset"] == offset
+        chunks.append(entry["content"])
+        if entry["content_complete"]:
+            assert entry["content_next_offset"] is None
+            break
+        assert entry["content_next_offset"] > offset
+        offset = entry["content_next_offset"]
+    else:
+        pytest.fail("metadata-bounded content continuation did not finish")
+    assert "".join(chunks) == original
+
+
+def test_lookup_docs_oversized_metadata_zero_window_keeps_provenance(
+    fake_mod_root, cache_dir
+) -> None:
+    original = "# " + "x" * 60_000 + "\nBody.\n"
+    _write_system_doc(fake_mod_root, "docs", "large", original)
+    page = lookup_docs_tool(
+        _settings(fake_mod_root, cache_dir), "doc", key="large", content_limit=0
+    )
+    assert page["returned"] == 1
+    entry = page["entries"][0]
+    assert entry["metadata_dropped"] == ["aliases", "title"]
+    assert entry["file"] == ".claude/docs/large.md"
+    assert entry["content"] == ""
+    assert entry["content_total"] == len(original)
+    assert entry["content_complete"] is False
+    assert entry["content_next_offset"] == 0
+    assert len(json.dumps(page, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+
+
+def test_lookup_docs_small_window_keeps_optional_metadata(fake_mod_root, cache_dir) -> None:
+    original = "---\nname: sample\ndescription: Short description\n---\n# Sample\nBody.\n"
+    _write_system_doc(fake_mod_root, "skills", "sample/SKILL", original)
+    settings = _settings(fake_mod_root, cache_dir)
+    full = lookup_docs_tool(settings, "skill", key="sample")["entries"][0]
+    windowed = lookup_docs_tool(settings, "skill", key="sample", content_limit=5)["entries"][0]
+    assert "metadata_dropped" not in windowed
+    for field in (
+        "aliases",
+        "title",
+        "frontmatter",
+        "description",
+        "key",
+        "file",
+        "line",
+        "end_line",
+    ):
+        assert windowed[field] == full[field]
+    assert windowed["content"] == original[:5]
+
+
 def test_lookup_docs_content_window_edge_values(fake_mod_root, cache_dir) -> None:
     _write_docs(fake_mod_root, "trigger", "# Triggers\n\n## edge_effect\nabcdef\n")
     settings = _settings(fake_mod_root, cache_dir)
@@ -476,6 +588,62 @@ def test_lookup_docs_missing_claude_tree_is_graceful(fake_mod_root, cache_dir) -
     assert out["ok"] is False
     assert ".claude/rules" in out["file"]
     assert "not found" in out["error"].lower()
+
+
+def test_lookup_docs_oversized_metadata_over_stdio(fake_mod_root, cache_dir) -> None:
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    original = "# " + "x" * 60_000 + "\nBody.\n"
+    _write_system_doc(fake_mod_root, "docs", "large", original)
+    command = shutil.which("md-mcp")
+    assert command is not None
+    parameters = StdioServerParameters(
+        command=command,
+        args=["serve", "--mod-root", str(fake_mod_root)],
+        env={
+            **os.environ,
+            "MD_MCP_CACHE_DIR": str(cache_dir),
+            "MD_MCP_VALIDATOR_MODE": "isolated",
+            "PYTHONPATH": str(Path(__file__).parents[1] / "src"),
+        },
+    )
+
+    async def go():
+        chunks = []
+        offset = 0
+        async with (
+            stdio_client(parameters) as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            for _ in range(20):
+                result = await session.call_tool(
+                    "lookup_docs",
+                    {
+                        "kind": "doc",
+                        "key": "large",
+                        "content_offset": offset,
+                        "content_limit": 20_000,
+                    },
+                )
+                assert result.isError is False
+                payload = json.loads(cast(Any, result).content[0].text)
+                assert payload["returned"] == 1
+                assert len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+                entry = payload["entries"][0]
+                assert entry["metadata_dropped"] == ["aliases", "title"]
+                assert entry["file"] == ".claude/docs/large.md"
+                assert entry["content_offset"] == offset
+                chunks.append(entry["content"])
+                if entry["content_complete"]:
+                    assert entry["content_next_offset"] is None
+                    return "".join(chunks)
+                assert entry["content_next_offset"] > offset
+                offset = entry["content_next_offset"]
+        pytest.fail("protocol content continuation did not finish")
+
+    assert asyncio.run(go()) == original
 
 
 def test_lookup_docs_mcp_registration_and_call(fake_mod_root, cache_dir) -> None:

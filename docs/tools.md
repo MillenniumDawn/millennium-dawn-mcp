@@ -204,6 +204,10 @@ character window of `content` instead:
   (6-byte `\uXXXX` escapes), tabs, and newlines expand past their raw text
   size, so `len(content)` may be smaller than `content_limit`. Continue with
   `content_offset=content_next_offset`; nothing is lost.
+- If entry metadata exceeds the remaining response budget, windowed entries
+  omit `aliases`, `title`, `frontmatter`, and `description`, listing the omitted
+  fields in `metadata_dropped`. The key, file, line range, and content
+  continuation stay available. Metadata that fits stays unchanged.
 - `content_offset` and `content_limit` clamp negatives to `0` like the other
   pagination bounds; a `content_limit=0` call returns entry provenance with
   an empty window.

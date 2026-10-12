@@ -164,6 +164,15 @@ def test_no_validators_without_a_validation_directory(tmp_path):
     assert available_validators(tmp_path) == []
 
 
+def test_only_validate_modules_are_listed(fake_mod_root):
+    validation = fake_mod_root / "tools" / "validation"
+    for name in ("validator_common.py", "run_all_validators.py", "equipment_module_slots.py"):
+        (validation / name).write_text("X = 1\n", encoding="utf-8")
+    plant_validator(fake_mod_root, "real", 'TITLE = "Real"\n')
+
+    assert [info.name for info in available_validators(fake_mod_root)] == ["real"]
+
+
 def test_unknown_validator_is_a_shaped_error(fake_mod_root):
     result = ValidatorRunner(fake_mod_root).run("absent")
     assert result["ok"] is False

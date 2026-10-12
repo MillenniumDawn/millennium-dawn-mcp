@@ -113,18 +113,16 @@ class ValidatorInfo:
 def available_validators(mod_root: Path) -> list[ValidatorInfo]:
     """Enumerate every `validate_*.py` under `<mod_root>/tools/validation/`.
 
-    Returns sorted by short name. Excludes the orchestrator and shared modules.
+    Returns sorted by short name. The glob leaves out the orchestrator
+    (`run_all_validators.py`) and the shared module (`validator_common.py`).
     """
     val_dir = mod_root / "tools" / "validation"
     if not val_dir.is_dir():
         return []
 
-    skip = {"validator_common", "run_all_validators"}
     results: list[ValidatorInfo] = []
     for p in sorted(val_dir.glob("validate_*.py")):
         stem = p.stem  # `validate_localisation`
-        if stem in skip:
-            continue
         short = stem[len("validate_") :]  # `localisation`
 
         # Pull TITLE without executing the validator module.

@@ -16,7 +16,7 @@ from types import ModuleType
 from typing import Iterator, Optional
 
 from ..util.encoding import UTF8_BOM
-from ..util.pathing import PathAccessError, validate_user_path
+from ..util.pathing import PathAccessError, roots_for, validate_user_path
 from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget, fit_prefix
 from ..util.upstream_modules import UpstreamModules
 
@@ -100,7 +100,7 @@ def _bounded_localisation_index(
     caps count the effective file set.
     """
     index: dict[str, set[str]] = {category: set() for category in loc.SECTION_ORDER}
-    roots = [r for r in (submod_root, mod_root) if r is not None]
+    roots = roots_for(mod_root, None, submod_root)
     scanned: dict[str, str] = {}
     total_bytes = 0
 
@@ -257,7 +257,7 @@ def standardize_tool(
     norm_path: Optional[str] = None
     file_stem = ""
     if path is not None:
-        roots = [r for r in (submod_root, mod_root) if r is not None]
+        roots = roots_for(mod_root, None, submod_root)
         try:
             source_path = validate_user_path(
                 path,

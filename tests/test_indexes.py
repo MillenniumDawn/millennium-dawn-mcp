@@ -15,7 +15,6 @@ from md_mcp.indexes.base import (
     collect_files,
     file_signature,
     resolve_root,
-    roots_for,
     signatures_for,
 )
 from md_mcp.indexes.localisation import _parse_loc_worker
@@ -555,17 +554,6 @@ def test_loc_index_against_real_mod(real_mod_root, cache_dir):
 def test_manifest_missing_returns_none(tmp_path):
     cache = IndexCache(tmp_path, "focus", 2)
     assert cache.load_manifest() is None
-
-
-def test_roots_for_orders_submod_mod_vanilla(tmp_path):
-    mod = tmp_path / "Mod"
-    vanilla = tmp_path / "Vanilla"
-    submod = tmp_path / "Overlay"
-
-    assert roots_for(mod, None) == [mod]
-    assert roots_for(mod, vanilla) == [mod, vanilla]
-    assert roots_for(mod, vanilla, submod) == [submod, mod, vanilla]
-    assert roots_for(mod, None, submod) == [submod, mod]
 
 
 def test_collect_files_dedupes_and_skips_predicate_rejects(tmp_path):

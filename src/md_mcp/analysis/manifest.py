@@ -39,6 +39,7 @@ from ..indexes import (
     TraitIndex,
 )
 from ..indexes.localisation import has_lang_suffix
+from ..util.pathing import roots_for
 from ..util.response import enforce_budget
 
 _ALL_CATEGORIES = (
@@ -274,7 +275,7 @@ def _scan_files(
 ) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
-    roots = [root for root in (submod_root, mod_root) if root is not None]
+    roots = roots_for(mod_root, None, submod_root)
     for root in roots:
         d = root / subdir
         if not d.is_dir():

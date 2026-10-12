@@ -26,7 +26,7 @@ from types import ModuleType
 from typing import Optional
 
 from ..util.encoding import UTF8_BOM
-from ..util.pathing import PathAccessError, validate_user_path
+from ..util.pathing import PathAccessError, roots_for, validate_user_path
 from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget
 from ..util.upstream_modules import UpstreamModules
 from ..validators.attribution import normalize_path
@@ -124,7 +124,7 @@ def fix_lint_tool(
                 "error": f"fixer=changelog only applies to Changelog.txt, got {norm_path}",
             }
         try:
-            roots = [r for r in (submod_root, mod_root) if r is not None]
+            roots = roots_for(mod_root, None, submod_root)
             resolved = validate_user_path(norm_path, roots, require_file=True)
         except PathAccessError as e:
             return {"ok": False, "error": str(e)}

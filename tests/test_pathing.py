@@ -9,6 +9,7 @@ from md_mcp.util.pathing import (
     PathAccessError,
     find_mod_root,
     resolve_scope_file,
+    roots_for,
     validate_user_path,
 )
 from tests.support.mod import make_mod_root
@@ -61,6 +62,17 @@ def test_sibling_millennium_dawn_directory_is_found(tmp_path, monkeypatch):
     start.mkdir()
 
     assert find_mod_root(start=start) == root
+
+
+def test_roots_for_orders_submod_mod_vanilla(tmp_path):
+    mod = tmp_path / "Mod"
+    vanilla = tmp_path / "Vanilla"
+    submod = tmp_path / "Overlay"
+
+    assert roots_for(mod, None) == [mod]
+    assert roots_for(mod, vanilla) == [mod, vanilla]
+    assert roots_for(mod, vanilla, submod) == [submod, mod, vanilla]
+    assert roots_for(mod, None, submod) == [submod, mod]
 
 
 def test_resolve_scope_file_finds_mod_file(tmp_path):

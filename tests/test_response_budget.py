@@ -1,4 +1,4 @@
-"""Tests for the response-shaping helpers and the new tool size guards."""
+"""Tests for the response-shaping helpers: pagination and the byte budget."""
 
 from __future__ import annotations
 
@@ -6,131 +6,55 @@ import json
 
 import pytest
 
-from md_mcp.tools.validation_tools import filter_and_cap
-from md_mcp.util.response import BUDGET_BYTES, coerce_int, enforce_budget, fit_prefix, paginate
+from md_mcp.util.response import (
+    BUDGET_BYTES,
+    clip_utf8,
+    coerce_int,
+    enforce_budget,
+    fit_prefix,
+    paginate,
+)
 
 
 def _byte_size(obj: object) -> int:
     return len(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
 
 
-def test_paginate_basic():
-    items = list(range(10))
-    sliced, truncated, total = paginate(items, offset=2, limit=3)
-    assert sliced == [2, 3, 4]
-    assert truncated is True
-    assert total == 10
+@pytest.mark.parametrize(
+    ("count", "offset", "limit", "sliced", "truncated"),
+    [
+        (10, 2, 3, [2, 3, 4], True),
+        (5, 0, 10, [0, 1, 2, 3, 4], False),
+        (5, 0, 5, [0, 1, 2, 3, 4], False),
+        (5, -2, 2, [0, 1], True),
+        (5, 0, -1, [], True),
+        (5, 0, 0, [], True),
+        (0, 0, -1, [], False),
+        (300, 0, None, list(range(200)), True),
+        (10, 0, "3", [0, 1, 2], True),
+        (10, 0, 3.5, [0, 1, 2], True),
+        (10, None, 3, [0, 1, 2], True),
+        (10, "2", 3, [2, 3, 4], True),
+        (10, 2.9, 3, [2, 3, 4], True),
+        (5, "-3", 2, [0, 1], True),
+    ],
+)
+def test_paginate(count, offset, limit, sliced, truncated):
+    assert paginate(list(range(count)), offset=offset, limit=limit) == (sliced, truncated, count)
 
 
-def test_paginate_past_end_not_truncated():
-    items = list(range(5))
-    sliced, truncated, total = paginate(items, offset=0, limit=10)
-    assert sliced == items
-    assert truncated is False
-    assert total == 5
-
-
-def test_paginate_clamps_negatives():
-    items = list(range(5))
-    sliced, _, _ = paginate(items, offset=-2, limit=2)
-    assert sliced == [0, 1]
-
-
-@pytest.mark.parametrize("limit", [-1, 0])
-def test_paginate_nonpositive_limit_yields_empty_and_truncated(limit):
-    items = list(range(5))
-    sliced, truncated, total = paginate(items, offset=0, limit=limit)
-    assert sliced == []
-    assert total == 5
-    assert truncated is True
-
-
-def test_paginate_limit_at_total_not_truncated():
-    items = list(range(5))
-    sliced, truncated, total = paginate(items, offset=0, limit=5)
-    assert sliced == items
-    assert truncated is False
-    assert total == 5
-
-
-def test_paginate_empty_with_negative_limit():
-    sliced, truncated, total = paginate([], offset=0, limit=-1)
-    assert sliced == []
-    assert total == 0
-    assert truncated is False
-
-
-def test_paginate_limit_numeric_string():
-    items = list(range(10))
-    sliced, truncated, total = paginate(items, offset=0, limit="3")
-    assert sliced == [0, 1, 2]
-    assert truncated is True
-    assert total == 10
-
-
-def test_paginate_limit_none_uses_default():
-    items = list(range(300))
-    sliced, truncated, total = paginate(items, offset=0, limit=None)
-    assert len(sliced) == 200
-    assert truncated is True
-    assert total == 300
-
-
-def test_paginate_limit_float_truncates():
-    items = list(range(10))
-    sliced, truncated, total = paginate(items, offset=0, limit=3.5)
-    assert sliced == [0, 1, 2]
-    assert truncated is True
-    assert total == 10
-
-
-def test_paginate_limit_uncoercible_raises_value_error():
-    with pytest.raises(ValueError, match="limit"):
-        paginate(list(range(5)), offset=0, limit="not-a-number")
-
-
-def test_paginate_limit_infinity_raises_value_error():
-    with pytest.raises(ValueError, match="limit"):
-        paginate(list(range(5)), offset=0, limit=float("inf"))
-
-
-def test_paginate_limit_nan_raises_value_error():
-    with pytest.raises(ValueError, match="limit"):
-        paginate(list(range(5)), offset=0, limit=float("nan"))
-
-
-def test_paginate_offset_numeric_string():
-    items = list(range(10))
-    sliced, truncated, total = paginate(items, offset="2", limit=3)
-    assert sliced == [2, 3, 4]
-    assert truncated is True
-    assert total == 10
-
-
-def test_paginate_offset_none_uses_default():
-    items = list(range(10))
-    sliced, truncated, total = paginate(items, offset=None, limit=3)
-    assert sliced == [0, 1, 2]
-    assert truncated is True
-    assert total == 10
-
-
-def test_paginate_offset_float_truncates():
-    items = list(range(10))
-    sliced, _, _ = paginate(items, offset=2.9, limit=3)
-    assert sliced == [2, 3, 4]
-
-
-def test_paginate_offset_uncoercible_raises_value_error():
-    with pytest.raises(ValueError, match="offset"):
-        paginate(list(range(5)), offset="not-a-number", limit=3)
-
-
-def test_paginate_offset_negative_numeric_string_clamps_like_int():
-    items = list(range(5))
-    string_result = paginate(items, offset="-3", limit=2)
-    int_result = paginate(items, offset=-3, limit=2)
-    assert string_result == int_result
+@pytest.mark.parametrize(
+    ("offset", "limit", "name"),
+    [
+        (0, "not-a-number", "limit"),
+        (0, float("inf"), "limit"),
+        (0, float("nan"), "limit"),
+        ("not-a-number", 3, "offset"),
+    ],
+)
+def test_paginate_rejects_bounds_it_cannot_coerce(offset, limit, name):
+    with pytest.raises(ValueError, match=name):
+        paginate(list(range(5)), offset=offset, limit=limit)
 
 
 def test_coerce_int_rejects_bool_pass_through_but_still_coerces():
@@ -149,25 +73,23 @@ def test_enforce_budget_pass_through_when_small():
     assert "size_truncated" not in out
 
 
-def test_enforce_budget_drops_heavy_keys_when_over():
-    # 50 KB of payload, budget 1 KB → dropped.
-    huge = "x" * 50_000
-    result = {"ok": True, "items": [huge]}
-    out = enforce_budget(result, budget=1000, heavy_keys=("items",))
-    assert out.get("size_truncated") is True
-    assert "items" not in out
-    assert out.get("items_dropped") == 1
-
-
 def test_enforce_budget_default_constant_is_sane():
     assert BUDGET_BYTES >= 50_000
 
 
+def test_enforce_budget_drops_heavy_keys_on_a_copy():
+    result = {"ok": True, "items": ["x" * 50_000]}
+    before = dict(result)
+
+    out = enforce_budget(result, budget=1000, heavy_keys=("absent", "items"))
+
+    assert out == {"ok": True, "items_dropped": 1, "size_truncated": True}
+    assert result == before
+
+
 def test_enforce_budget_measures_utf8_bytes_not_chars():
-    # 400 chars of 3-byte-UTF8 content: ~425 chars (under budget by the old
-    # char-counting bug) but ~1225 UTF-8 bytes (over budget for real).
-    multibyte = "€" * 400
-    result = {"ok": True, "items": [multibyte]}
+    # 400 three-byte characters: about 425 chars of JSON, but about 1225 bytes.
+    result = {"ok": True, "items": ["€" * 400]}
     out = enforce_budget(result, budget=1000, heavy_keys=("items",))
     assert out.get("size_truncated") is True
     assert "items" not in out
@@ -185,36 +107,23 @@ def test_enforce_budget_circular_reference_returns_bounded_error():
     assert _byte_size(out) <= 1000
 
 
-def test_enforce_budget_oversized_without_heavy_keys_falls_back():
-    result = {"ok": True, "notes": "x" * 5000}
-    out = enforce_budget(result, budget=1000)
+@pytest.mark.parametrize(
+    ("result", "heavy_keys", "lists_remaining_keys"),
+    [
+        ({"ok": True, "notes": "x" * 5000}, (), True),
+        ({"ok": True, "items": ["x" * 100], "notes": "y" * 5000}, ("items",), True),
+        # So many keys that the fallback's own per-key listing is over budget.
+        ({f"key_{n}": "x" * 20 for n in range(200)}, (), False),
+    ],
+)
+def test_enforce_budget_falls_back_when_drops_are_not_enough(
+    result, heavy_keys, lists_remaining_keys
+):
+    out = enforce_budget(result, budget=1000, heavy_keys=heavy_keys)
     assert out.get("size_truncated") is True
     assert out.get("ok") is False
+    assert ("remaining_key_sizes" in out) is lists_remaining_keys
     assert _byte_size(out) <= 1000
-
-
-def test_enforce_budget_heavy_keys_insufficient_falls_back():
-    result = {"ok": True, "items": ["x" * 100], "notes": "y" * 5000}
-    out = enforce_budget(result, budget=1000, heavy_keys=("items",))
-    assert out.get("size_truncated") is True
-    assert out.get("ok") is False
-    assert _byte_size(out) <= 1000
-
-
-def test_enforce_budget_does_not_mutate_caller_dict_when_over():
-    # Over-budget calls must leave the caller's original dict untouched.
-    huge = "x" * 50_000
-    result = {"ok": True, "items": [huge]}
-    before = dict(result)
-    out = enforce_budget(result, budget=1000, heavy_keys=("items",))
-    # The returned copy is trimmed...
-    assert "items" not in out
-    assert out.get("size_truncated") is True
-    # ...but the caller's dict is unchanged.
-    assert result == before
-    assert "items" in result
-    assert "size_truncated" not in result
-    assert out is not result
 
 
 def test_fit_prefix_returns_result_untouched_when_it_fits():
@@ -247,20 +156,13 @@ def test_fit_prefix_returns_the_empty_prefix_when_nothing_fits():
     assert out == {"txt": ""}
 
 
-def test_validate_filter_and_cap_severity():
-    issues = [
-        {"severity": "info", "msg": "i"},
-        {"severity": "warning", "msg": "w"},
-        {"severity": "error", "msg": "e"},
-    ]
-    kept, _, total = filter_and_cap(issues, severity_min="warning", limit=10)
-    assert {i["severity"] for i in kept} == {"warning", "error"}
-    assert total == 2
-
-
-def test_validate_filter_and_cap_limit():
-    issues = [{"severity": "error"} for _ in range(20)]
-    kept, truncated, total = filter_and_cap(issues, severity_min="info", limit=5)
-    assert len(kept) == 5
-    assert truncated is True
-    assert total == 20
+@pytest.mark.parametrize(
+    ("text", "max_bytes", "expected"),
+    [
+        ("héllo", 6, ("héllo", 6, 6, False)),
+        # Five bytes would split the third two-byte character, so it is dropped whole.
+        ("éééé", 5, ("éé", 8, 4, True)),
+    ],
+)
+def test_clip_utf8_cuts_on_a_character_boundary(text, max_bytes, expected):
+    assert clip_utf8(text, max_bytes) == expected

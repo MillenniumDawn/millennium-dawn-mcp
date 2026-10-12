@@ -11,10 +11,7 @@ import pytest
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-@pytest.fixture
-def fake_mod_root(tmp_path: Path) -> Path:
-    """Build a minimal mod root with descriptor.mod, a focus file, and a loc file."""
-    root = tmp_path / "FakeMod"
+def _build_fake_mod(root: Path) -> Path:
     (root / "common" / "national_focus").mkdir(parents=True)
     (root / "localisation" / "english").mkdir(parents=True)
     (root / "tools" / "validation").mkdir(parents=True)
@@ -66,6 +63,18 @@ def fake_mod_root(tmp_path: Path) -> Path:
     )
 
     return root
+
+
+@pytest.fixture
+def fake_mod_root(tmp_path: Path) -> Path:
+    """Build a minimal mod root with descriptor.mod, a focus file, and a loc file."""
+    return _build_fake_mod(tmp_path / "FakeMod")
+
+
+@pytest.fixture(scope="module")
+def shared_fake_mod_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The `fake_mod_root` tree, built once per module. Only for tests that never write to it."""
+    return _build_fake_mod(tmp_path_factory.mktemp("shared") / "FakeMod")
 
 
 @pytest.fixture

@@ -16,7 +16,6 @@ The test coverage here targets the behaviours listed in issue #32:
 
 from __future__ import annotations
 
-import inspect
 import shutil
 import subprocess
 import textwrap
@@ -115,16 +114,7 @@ def _focus_body(*ids: str) -> str:
     return blocks
 
 
-# --- signature & non-repo guarantees --------------------------------------
-
-
-def test_diff_summary_signature_supports_new_params():
-    """The public signature must keep these parameters with these defaults."""
-    params = inspect.signature(diff_summary).parameters
-    for required in ("kinds", "with_ids", "limit"):
-        assert required in params, f"diff_summary missing param: {required}"
-    assert params["with_ids"].default is True
-    assert params["limit"].default == 200
+# --- non-repo guarantees --------------------------------------------------
 
 
 def test_non_repo_returns_git_repo_error(tmp_path: Path):

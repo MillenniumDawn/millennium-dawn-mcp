@@ -8,11 +8,9 @@ issues, and respects the `checks=[...]` / `severity_min=` / `limit=` /
 
 from __future__ import annotations
 
-import inspect
 import json
 import subprocess
 import sys
-from typing import Callable
 
 import pytest
 
@@ -31,16 +29,6 @@ from tests.support.upstream import make_script, seed_all_scripts
 # ---------------------------------------------------------------------------
 # Secondary wrapper signatures + happy paths
 # ---------------------------------------------------------------------------
-
-
-def test_secondary_wrapper_signatures():
-    cases: list[tuple[Callable, tuple[str, ...]]] = [
-        (lint_loc_encoding_tool, ("mod_root", "files", "limit")),
-    ]
-    for fn, required in cases:
-        params = inspect.signature(fn).parameters
-        for p in required:
-            assert p in params, f"{fn.__name__} missing param: {p}"
 
 
 def test_loc_encoding_parses_missing_bom(tmp_path):

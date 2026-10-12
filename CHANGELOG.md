@@ -15,6 +15,8 @@
 - Sharded index cache: an index with `sharded = True` stores one JSON shard per contributing file
   under `<name>.data/`. A corrupt or missing shard re-parses only that file; removed files' shards
   are deleted. Enabled for localisation.
+- Total coverage floor of 85% in CI, next to the changed-line gate. A PR that only removes tests
+  changes no `src` line, so the changed-line gate alone could not catch a drop.
 
 ### Changed
 

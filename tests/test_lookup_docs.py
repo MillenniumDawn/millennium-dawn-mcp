@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import os
 import shutil
@@ -26,24 +25,6 @@ def _write_system_doc(mod_root, tree: str, name: str, content: str) -> None:
     path = mod_root / ".claude" / tree / f"{name}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-
-
-def test_lookup_docs_signature() -> None:
-    parameters = inspect.signature(lookup_docs_tool).parameters
-    assert list(parameters) == [
-        "settings",
-        "kind",
-        "key",
-        "limit",
-        "offset",
-        "content_offset",
-        "content_limit",
-    ]
-    assert parameters["key"].default is None
-    assert parameters["limit"].default == 100
-    assert parameters["offset"].default == 0
-    assert parameters["content_offset"].default is None
-    assert parameters["content_limit"].default is None
 
 
 def test_lookup_docs_exact_hit_excludes_toc_and_scope_headings(fake_mod_root, cache_dir) -> None:

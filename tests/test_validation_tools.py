@@ -17,7 +17,7 @@ import pytest
 
 from md_mcp.config import Settings
 from md_mcp.tools import validation_tools
-from md_mcp.tools.validation_tools import validate_list_tool, validate_tool
+from md_mcp.tools.validation_tools import filter_and_cap, validate_list_tool, validate_tool
 from md_mcp.util.response import BUDGET_BYTES
 from md_mcp.validators import ValidatorRunner
 from tests.support.mod import mod_settings
@@ -60,6 +60,25 @@ class Validator:
 )
 
 _BROKEN = "this is not valid python (\n"
+
+
+def test_filter_and_cap_drops_issues_below_the_severity_floor():
+    issues = [
+        {"severity": "info", "msg": "i"},
+        {"severity": "warning", "msg": "w"},
+        {"severity": "error", "msg": "e"},
+    ]
+    kept, _, total = filter_and_cap(issues, severity_min="warning", limit=10)
+    assert {i["severity"] for i in kept} == {"warning", "error"}
+    assert total == 2
+
+
+def test_filter_and_cap_limits_the_kept_issues():
+    issues = [{"severity": "error"} for _ in range(20)]
+    kept, truncated, total = filter_and_cap(issues, severity_min="info", limit=5)
+    assert len(kept) == 5
+    assert truncated is True
+    assert total == 20
 
 
 def test_validate_list_paginates_and_normalizes_bounds(fake_mod_root):

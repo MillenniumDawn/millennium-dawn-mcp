@@ -20,6 +20,9 @@ Constraining step 2 to the validator's own scan directories is what makes it
 safe. Mod-wide, 14% of `.txt` files share a basename (`USA.txt` lives in seven
 directories). Within one validator's domain, collisions are close to zero, and
 the ones that remain are detected here and refused rather than guessed.
+
+The runner shares one instance with lint; its file list refreshes at most once
+every two seconds.
 """
 
 from __future__ import annotations
@@ -29,6 +32,8 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Optional, Sequence
+
+from ..indexes.base import StaleCheck
 
 # Extensions the validator suite reports on. Bounds the message scrape so prose
 # like "1.13.*" or "ALG.2001" can't be mistaken for a filename.
@@ -48,16 +53,20 @@ _WALK_ROOTS = ("common", "events", "history", "interface", "localisation", "gfx"
 
 
 class IssueAttributor:
-    """Maps validator issues onto mod-relative paths. Index built once, lazily."""
+    """Maps validator issues onto mod-relative paths with a lazy, TTL-refreshed index."""
 
     def __init__(self, mod_root: Path, submod_root: Optional[Path] = None):
         self.mod_root = Path(mod_root)
         self.submod_root = Path(submod_root) if submod_root is not None else None
         self._index: Optional[dict[str, list[str]]] = None
         self._path_set: Optional[frozenset[str]] = None
+        self._stale_check = StaleCheck()
 
     def resolve(self, issue: dict, scan_prefixes: Sequence[str] = ()) -> Optional[str]:
         """Return the mod-relative path this issue belongs to, or None."""
+        if self._stale_check.should_check():
+            self._path_set = None
+            self._index = None
         raw = (issue.get("file") or "").strip()
         candidate = normalize_path(raw)
 

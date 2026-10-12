@@ -183,8 +183,11 @@ def test_lint_reports_runner_suppressed_count_without_doing_its_own_pass(tmp_pat
     count so callers can see the mod-wide census.
     """
 
-    class Runner:
-        def run(self, name, *, staged_only=False, files=None, post_filter=True):
+    class Runner(ValidatorRunner):
+        def __init__(self):
+            super().__init__(tmp_path)
+
+        def run(self, name, *, staged_only=False, files=None, post_filter=True, args=None):
             return {
                 "ok": True,
                 "issues": [],
@@ -223,8 +226,11 @@ def test_lint_does_not_suppress_when_runner_returned_no_count(tmp_path):
     invent a count.
     """
 
-    class Runner:
-        def run(self, name, *, staged_only=False, files=None, post_filter=True):
+    class Runner(ValidatorRunner):
+        def __init__(self):
+            super().__init__(tmp_path)
+
+        def run(self, name, *, staged_only=False, files=None, post_filter=True, args=None):
             return {
                 "ok": True,
                 "issues": [
@@ -335,8 +341,11 @@ def test_lint_script_output_matching_upstream_prose_stays_visible(tmp_path):
 
 
 def test_missing_manifest_is_a_graceful_noop(tmp_path):
-    class Runner:
-        def run(self, name, *, staged_only=False, files=None, post_filter=True):
+    class Runner(ValidatorRunner):
+        def __init__(self):
+            super().__init__(tmp_path)
+
+        def run(self, name, *, staged_only=False, files=None, post_filter=True, args=None):
             return {
                 "ok": True,
                 "issues": [

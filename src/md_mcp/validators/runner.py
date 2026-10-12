@@ -175,8 +175,7 @@ class ValidatorRunner:
         self._attributor_cache: Optional[IssueAttributor] = None
 
     def _attributor(self) -> IssueAttributor:
-        """Lazily-built, shared path index. Building it shells out `git ls-files`
-        over the whole mod, so reuse it across validator runs in one call."""
+        """Reuse one TTL-refreshed path index for lint and validate."""
         if self._attributor_cache is None:
             self._attributor_cache = IssueAttributor(self.mod_root, self.submod_root)
         return self._attributor_cache

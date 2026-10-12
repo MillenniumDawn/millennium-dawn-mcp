@@ -4,7 +4,19 @@ from __future__ import annotations
 
 import pytest
 
-from md_mcp.tools.parser_tools import parse_file_tool
+from md_mcp.tools.parser_tools import parse_file_tool, parse_string_tool
+
+
+def test_parse_string_returns_the_ast():
+    out = parse_string_tool("a = 1")
+    assert out["ok"] is True
+    assert out["root"]["value"]["children"][0]["name"] == "a"
+
+
+def test_parse_string_reports_the_error_position():
+    out = parse_string_tool("a = 1\nb = {{{")
+    assert out["ok"] is False
+    assert "at (2, 6)" in out["error"]
 
 
 def test_parse_file_refuses_oversized(tmp_path):

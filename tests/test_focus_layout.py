@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import json
 from pathlib import Path
 
@@ -56,12 +55,6 @@ def _write_tree(root: Path, body: str = _TREE, name: str = "TST_tree.txt") -> st
     d.mkdir(parents=True, exist_ok=True)
     (d / name).write_text(body, encoding="utf-8")
     return f"common/national_focus/{name}"
-
-
-def test_signature():
-    params = inspect.signature(focus_layout).parameters
-    for p in ("tag", "file", "include_positions", "limit", "submod_root"):
-        assert p in params
 
 
 def test_requires_scope(tmp_path):

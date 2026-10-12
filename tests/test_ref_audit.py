@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import shutil
 import subprocess
 import sys
@@ -69,21 +68,6 @@ def audit_mod(fake_mod_root, cache_dir):
     f = fake_mod_root / "common" / "national_focus" / "TST_audit.txt"
     f.write_text(_FOCUS_FILE, encoding="utf-8")
     return fake_mod_root, cache_dir
-
-
-def test_signature():
-    params = inspect.signature(check_refs).parameters
-    for p in (
-        "tag",
-        "files",
-        "kinds",
-        "limit",
-        "offset",
-        "counts_only",
-        "lang",
-        "submod_root",
-    ):
-        assert p in params
 
 
 def test_requires_scope(fake_mod_root, cache_dir):

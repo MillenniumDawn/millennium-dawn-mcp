@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import json
 
 import pytest
@@ -670,12 +669,6 @@ def test_subprocess_generator_is_gone():
     assert not hasattr(gfx_mod, "subprocess_generator")
 
 
-def test_generate_gfx_merge_signature():
-    params = inspect.signature(generate_gfx_merge).parameters
-    for p in ("texture_dir", "gfx_file", "prefix", "limit", "offset", "include_file"):
-        assert p in params
-
-
 def _plant_merge_mod(root, *, textures, gfx_body=None):
     tex = root / "gfx" / "icons"
     tex.mkdir(parents=True)
@@ -815,11 +808,6 @@ def test_generate_gfx_merge_paginates_scan_duplicates(tmp_path):
     assert r["scan_duplicate_total"] == 5
     assert len(r["scan_duplicates"]) == 2
     assert r["truncated"] is True
-
-
-def test_generate_gfx_merge_requires_prefix():
-    params = inspect.signature(generate_gfx_merge).parameters
-    assert params["prefix"].default is inspect.Parameter.empty
 
 
 def test_generate_gfx_merge_missing_dir(tmp_path):

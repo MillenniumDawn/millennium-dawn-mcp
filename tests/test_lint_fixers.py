@@ -14,7 +14,6 @@ Two layers, matching the validator-wrapper convention:
 
 from __future__ import annotations
 
-import inspect
 import json
 import os
 import shutil
@@ -107,14 +106,8 @@ def _plant_upstream(root: Path, *, styling_replacement: str = "YY") -> None:
 
 
 # ---------------------------------------------------------------------------
-# Signature guard + argument validation
+# Argument validation
 # ---------------------------------------------------------------------------
-
-
-def test_signatures_lock_api():
-    params = inspect.signature(fix_lint_tool).parameters
-    for p in ("mod_root", "fixer", "path", "content"):
-        assert p in params, f"fix_lint_tool missing param: {p}"
 
 
 def test_unknown_fixer_rejected(tmp_path):

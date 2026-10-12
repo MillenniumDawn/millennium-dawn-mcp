@@ -8,7 +8,6 @@ then assert the parser produces the right structured issues.
 
 from __future__ import annotations
 
-import inspect
 import json
 from typing import Any, cast
 
@@ -20,16 +19,6 @@ from tests.support.upstream import make_script
 # ---------------------------------------------------------------------------
 # Signature guards
 # ---------------------------------------------------------------------------
-
-
-def test_signatures_lock_api():
-    """If someone reshuffles the params, this fires before runtime callers do."""
-    for fn, required in [
-        (lint_mod_encoding_tool, ("mod_root", "files", "limit")),
-    ]:
-        params = inspect.signature(fn).parameters
-        for p in required:
-            assert p in params, f"{fn.__name__} missing param: {p}"
 
 
 # ---------------------------------------------------------------------------

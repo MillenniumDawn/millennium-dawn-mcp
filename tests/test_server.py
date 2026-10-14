@@ -157,6 +157,9 @@ TOOL_SIGNATURES = {
     ),
     "check_refs": "tag=None, files=None, kinds=None, limit=200, offset=0, counts_only=False",
     "focus_layout": "tag=None, file=None, include_positions=False, limit=300",
+    "focus_overlap_scenarios": (
+        "file, tag, completed=None, date=None, include_positions=False, limit=50, offset=0"
+    ),
     "diff_summary": "base='main', kinds=None, with_ids=True, limit=200",
     "check_encoding": "files=None, limit=200, offset=0",
 }
@@ -370,6 +373,13 @@ TOOL_CALLS: dict[str, tuple[dict, dict]] = {
     ),
     "check_refs": ({"tag": "TST"}, {"ok": True, "files_scanned": 1, "total_unresolved": 4}),
     "focus_layout": ({"tag": "TST"}, {"ok": True, "focus_count": 4}),
+    "focus_overlap_scenarios": (
+        {"file": "common/national_focus/test.txt", "tag": "TST"},
+        {
+            "ok": False,
+            "error": "This Millennium-Dawn checkout has no focus overlap analysis helper.",
+        },
+    ),
     # The fake mod is not a git repository.
     "diff_summary": ({}, {"ok": False, "error": "git diff failed — is this a git repo?"}),
     "check_encoding": (
@@ -675,3 +685,57 @@ def test_analysis_tools_forward_submod_root(fake_mod_root, cache_dir, tmp_path, 
     assert layout["positions"] == [{"id": "OVR_overlay_only", "x": 15, "y": 2, "relative_to": None}]
     assert refs["files_scanned"] == 1
     assert {entry["ref"] for entry in refs["unresolved"]} == {"OverlayMissing.1"}
+
+
+def test_focus_overlap_runs_off_loop_and_forwards_scenario(server, monkeypatch):
+    import threading
+
+    started = threading.Event()
+    release = threading.Event()
+    observed = {}
+
+    def slow_report(mod_root, file, tag, **kwargs):
+        observed.update(mod_root=mod_root, file=file, tag=tag, **kwargs)
+        started.set()
+        assert release.wait(5)
+        return {"ok": True, "file": file, "tag": tag}
+
+    monkeypatch.setattr("md_mcp.server.focus_overlap_scenarios_tool", slow_report)
+
+    async def exercise():
+        slow = asyncio.create_task(
+            server.call_tool(
+                "focus_overlap_scenarios",
+                {
+                    "file": "common/national_focus/test.txt",
+                    "tag": "TST",
+                    "completed": ["TST_root"],
+                    "date": "2001.1.1",
+                    "include_positions": True,
+                    "limit": 7,
+                    "offset": 2,
+                },
+            )
+        )
+        try:
+            assert await asyncio.to_thread(started.wait, 5)
+            fast = await asyncio.wait_for(
+                server.call_tool("calculate_days", {"year": 2000, "month": 1, "day": 1}),
+                timeout=2,
+            )
+            assert json.loads(fast[0].text) == {"ok": True, "days": 0}
+            assert not slow.done()
+        finally:
+            release.set()
+        result = await slow
+        assert json.loads(result[0].text) == {
+            "ok": True,
+            "file": "common/national_focus/test.txt",
+            "tag": "TST",
+        }
+
+    asyncio.run(exercise())
+    assert observed["tag"] == "TST"
+    assert observed["completed"] == ["TST_root"]
+    assert observed["date"] == "2001.1.1"
+    assert observed["limit"] == 7 and observed["offset"] == 2

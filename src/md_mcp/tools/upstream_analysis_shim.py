@@ -328,6 +328,218 @@ def _ai_path_report(mod_root: Path, payload: dict) -> dict:
     return result
 
 
+def _focus_overlap_scenarios(mod_root: Path, payload: dict) -> dict:
+    raw_file = payload.get("file")
+    if not isinstance(raw_file, str) or not Path(raw_file).is_absolute():
+        return {"ok": False, "error": "file must be an absolute path"}
+    roots: list[Path] = []
+    raw_roots = payload.get("allowed_roots", [str(mod_root)])
+    if not isinstance(raw_roots, list) or any(not isinstance(value, str) for value in raw_roots):
+        return {"ok": False, "error": "invalid allowed roots"}
+    try:
+        roots = [Path(value).resolve(strict=True) for value in raw_roots]
+        candidate = Path(raw_file)
+        source = candidate.resolve(strict=True)
+        inside = any(source.is_relative_to(root) for root in roots)
+    except (OSError, ValueError):
+        return {"ok": False, "file": raw_file, "error": "focus file does not exist"}
+    linked = candidate.is_symlink()
+    parent = candidate.parent
+    while not linked and parent != parent.parent:
+        linked = parent.is_symlink()
+        if parent in roots:
+            break
+        parent = parent.parent
+    if not inside or linked or not source.is_file() or source.suffix.casefold() != ".txt":
+        return {
+            "ok": False,
+            "file": raw_file,
+            "error": "file must be a regular .txt focus file inside an allowed mod root",
+        }
+    if source.stat().st_size > 2_000_000:
+        return {
+            "ok": False,
+            "file": raw_file,
+            "error": "focus file exceeds the 2 MB analysis limit",
+        }
+
+    tag = payload.get("tag")
+    if not isinstance(tag, str) or not re.fullmatch(r"[A-Za-z0-9]{2,4}", tag):
+        return {"ok": False, "file": raw_file, "error": "tag must be a 2-4 character country tag"}
+    completed = payload.get("completed", [])
+    if not isinstance(completed, list) or any(not isinstance(value, str) for value in completed):
+        return {"ok": False, "file": raw_file, "error": "completed must be a list of focus ids"}
+    if not isinstance(payload.get("include_positions", False), bool):
+        return {"ok": False, "file": raw_file, "error": "include_positions must be a boolean"}
+    try:
+        limit = min(100, max(0, int(payload.get("limit", 50))))
+        offset = max(0, int(payload.get("offset", 0)))
+    except (TypeError, ValueError, OverflowError) as exc:
+        return {"ok": False, "file": raw_file, "error": f"Invalid pagination values: {exc}"}
+
+    tools_dir = mod_root / "tools"
+    script = tools_dir / "analysis" / "focus_overlap_report.py"
+    if not script.is_file():
+        return {
+            "ok": False,
+            "unsupported": True,
+            "file": raw_file,
+            "error": "This Millennium-Dawn checkout has no focus overlap analysis helper.",
+        }
+    try:
+        # These scripts live in a review-only mod checkout; imports must not add __pycache__ files.
+        sys.dont_write_bytecode = True
+        sys.path.insert(0, str(tools_dir))
+        # The helper's bare shared_utils import must resolve beside the selected mod.
+        sys.modules.pop("shared_utils", None)
+        module = _load_module(script, "_md_mcp_upstream_focus_overlap_report")
+    except Exception as exc:
+        return {
+            "ok": False,
+            "unsupported": True,
+            "file": raw_file,
+            "error": f"Could not load upstream focus overlap APIs: {exc}",
+        }
+    required = (
+        "iter_focus_blocks",
+        "parse_focus_file",
+        "parse_date",
+        "Scenario",
+        "evaluate",
+        "resolve_positions",
+        "resolve_visibility",
+        "build_report",
+    )
+    shared_utils = sys.modules.get("shared_utils")
+    missing = [name for name in required if not callable(getattr(module, name, None))]
+    if shared_utils is None:
+        return {
+            "ok": False,
+            "unsupported": True,
+            "file": raw_file,
+            "error": "Upstream focus overlap API is missing shared_utils.",
+        }
+    missing.extend(
+        f"shared_utils.{name}"
+        for name in ("strip_comments", "blank_quoted_strings")
+        if not callable(getattr(shared_utils, name, None))
+    )
+    if missing:
+        return {
+            "ok": False,
+            "unsupported": True,
+            "file": raw_file,
+            "error": f"Upstream focus overlap API is missing: {', '.join(missing)}",
+        }
+
+    try:
+        raw_date = payload.get("date")
+        if raw_date is not None and not isinstance(raw_date, str):
+            return {"ok": False, "file": raw_file, "error": "date must be a YYYY.M.D string"}
+        scenario_date = module.parse_date(raw_date) if raw_date is not None else None
+        scenario = module.Scenario(
+            tag=tag.upper(), completed=frozenset(completed), date=scenario_date
+        )
+        raw_text = source.read_text(encoding="utf-8-sig")
+        text = shared_utils.blank_quoted_strings(shared_utils.strip_comments(raw_text))
+        focuses = module.parse_focus_file(text)
+        positions = module.resolve_positions(focuses, scenario)
+        visible = module.resolve_visibility(focuses, scenario)
+        report = module.build_report(
+            focuses,
+            positions,
+            visible,
+            scenario,
+            None,
+            False,
+            bool(payload.get("include_positions", False)),
+        )
+        collision_groups = report.get("collisions")
+        if not isinstance(collision_groups, list):
+            return {"ok": False, "file": raw_file, "error": "Upstream report has no collision list"}
+        all_positions = report.get("map", []) if payload.get("include_positions") else []
+        if not isinstance(all_positions, list):
+            return {
+                "ok": False,
+                "file": raw_file,
+                "error": "Upstream report has an invalid position list",
+            }
+    except (OSError, UnicodeError, ValueError, TypeError, KeyError, OverflowError) as exc:
+        return {"ok": False, "file": raw_file, "error": f"Focus analysis failed: {exc}"}
+
+    duplicate_counts: dict[str, int] = {}
+    for focus_id, _kind, _line, _body in module.iter_focus_blocks(text):
+        duplicate_counts[focus_id] = duplicate_counts.get(focus_id, 0) + 1
+    diagnostics: list[dict] = [
+        {"kind": "duplicate_id", "focus_id": focus_id, "definitions": count}
+        for focus_id, count in duplicate_counts.items()
+        if count > 1
+    ]
+    unknown_total = 0
+    unresolved_total = 0
+    for focus_id, focus in focuses.items():
+        if focus.allow_branch is not None and module.evaluate(focus.allow_branch, scenario) is None:
+            diagnostics.append({"kind": "unknown_allow_branch", "focus_id": focus_id})
+            unknown_total += 1
+        for offset_block in focus.offsets:
+            if module.evaluate(offset_block.trigger, scenario) is None:
+                diagnostics.append({"kind": "unknown_offset_trigger", "focus_id": focus_id})
+                unknown_total += 1
+        chain_seen: set[str] = set()
+        current = focus_id
+        while current in focuses:
+            if current in chain_seen:
+                diagnostics.append({"kind": "cyclic_relative_chain", "focus_id": focus_id})
+                unresolved_total += 1
+                break
+            chain_seen.add(current)
+            parent_id = focuses[current].relative_to
+            if parent_id is None:
+                break
+            if parent_id not in focuses:
+                diagnostics.append(
+                    {"kind": "missing_relative_target", "focus_id": current, "target": parent_id}
+                )
+                unresolved_total += 1
+                break
+            current = parent_id
+
+    collisions_page = collision_groups[offset : offset + limit]
+    position_total = int(report.get("visible", 0))
+    positions_page = all_positions[offset : offset + limit]
+    diagnostics_page = diagnostics[offset : offset + limit]
+    return {
+        "ok": True,
+        "file": str(source),
+        "scenario": report.get("scenario", {}),
+        "evaluation": {
+            "kind": "upstream helper approximation",
+            "exact_engine_evaluation": False,
+            "unknown_offsets_applied": False,
+            "unknown_allow_branch_keeps_visibility": True,
+        },
+        "focus_total": int(report.get("focuses", len(focuses))),
+        "visible_total": int(report.get("visible", 0)),
+        "collision_groups_total": len(collision_groups),
+        "collision_groups_returned": len(collisions_page),
+        "collision_groups_truncated": offset + limit < len(collision_groups),
+        "collision_groups": collisions_page,
+        "positions_included": bool(payload.get("include_positions", False)),
+        "positions_total": position_total,
+        "positions_returned": len(positions_page),
+        "positions_truncated": bool(payload.get("include_positions"))
+        and offset + limit < position_total,
+        "positions": positions_page,
+        "diagnostics_total": len(diagnostics),
+        "diagnostics_returned": len(diagnostics_page),
+        "diagnostics_truncated": offset + limit < len(diagnostics),
+        "diagnostics": diagnostics_page,
+        "unknown_condition_total": unknown_total,
+        "unresolved_chain_total": unresolved_total,
+        "positions_are_partial": unknown_total > 0 or unresolved_total > 0,
+    }
+
+
 def run(operation: str, mod_root: Path, payload: dict) -> dict:
     if operation == "tick_audit":
         return _tick_audit(mod_root, payload)
@@ -339,6 +551,8 @@ def run(operation: str, mod_root: Path, payload: dict) -> dict:
         return _game_log_summary(mod_root, payload)
     if operation == "ai_path_report":
         return _ai_path_report(mod_root, payload)
+    if operation == "focus_overlap_scenarios":
+        return _focus_overlap_scenarios(mod_root, payload)
     return {"ok": False, "error": f"Unknown operation: {operation}"}
 
 

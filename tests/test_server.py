@@ -144,6 +144,7 @@ TOOL_SIGNATURES = {
     "generate_loc_stub": "keys, lang='l_english', include_header=True, bom_prefix=False",
     "standardize": "content=None, path=None, content_type=None",
     "tick_audit": "tag=None, limit=20, offset=0",
+    "tick_spot_check": "files, scope=None, limit=100, offset=0",
     "estimate_gdp": "tag",
     "event_load": "tag='USA', window=45, threshold=3, limit=20, offset=0",
     "summarize_game_log": (
@@ -356,6 +357,7 @@ TOOL_CALLS: dict[str, tuple[dict, dict]] = {
         {"ok": False},
     ),
     "tick_audit": ({}, {"ok": False}),
+    "tick_spot_check": ({"files": ["events/test.txt"]}, {"ok": False}),
     "estimate_gdp": ({"tag": "TST"}, {"ok": False}),
     "event_load": ({}, {"ok": False}),
     "summarize_game_log": (
@@ -411,6 +413,7 @@ def test_resource_round_trips(shared_server, uri, fragment):
     [
         ("standardize", "standardization"),
         ("tick_audit", "tick_audit.py"),
+        ("tick_spot_check", "tick_audit.py"),
         ("estimate_gdp", "estimate_gdp.py"),
         ("event_load", "event_load.py"),
         ("ai_path_report", "ai_path_report.py"),

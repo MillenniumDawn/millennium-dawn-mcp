@@ -250,6 +250,88 @@ def test_tick_audit_rejects_non_integer_pagination(tmp_path):
     assert "limit must be an integer" in result["error"]
 
 
+def test_tick_spot_check_rejects_bad_pagination_before_subprocess(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        upstream_analysis,
+        "_run_shim",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not run")),
+    )
+    result = upstream_analysis.tick_spot_check_tool(
+        tmp_path, ["events/a.txt"], limit=cast(Any, "lots")
+    )
+    assert result["ok"] is False
+    assert "limit must be an integer" in result["error"]
+
+
+def test_tick_spot_check_output_budget_is_bounded(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        upstream_analysis,
+        "_run_shim",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "findings": [{"message": "x" * 30_000} for _ in range(100)],
+            "diagnostics": [],
+            "assumptions": [],
+        },
+    )
+    result = upstream_analysis.tick_spot_check_tool(tmp_path, ["events/a.txt"])
+    assert result.get("size_truncated") or result.get("findings_dropped") is not None
+    assert len(str(result)) < 100_000
+
+
+def test_tick_spot_check_runs_isolated_on_explicit_files_and_pages(tmp_path):
+    script = tmp_path / "tools" / "analysis" / "tick_audit.py"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(
+        "def scan_spot_checks(paths=None, scope=None):\n"
+        "    return {'mode': 'spot-check', 'filters': {'paths': paths, 'scope': scope},\n"
+        "            'summary': {'error': 0}, 'assumptions': [],\n"
+        "            'findings': [{'line': n} for n in range(3)],\n"
+        "            'diagnostics': [{'line': 4}]}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "events").mkdir()
+    (tmp_path / "events/changed.txt").write_text("x = 1\n", encoding="utf-8")
+
+    result = upstream_analysis.tick_spot_check_tool(
+        tmp_path, ["events/changed.txt"], scope="daily", limit=1, offset=1
+    )
+
+    assert result["ok"] is True
+    assert result["filters"] == {"paths": ["events/changed.txt"], "scope": "daily"}
+    assert result["findings"] == [{"line": 1}]
+    assert result["total"] == 3 and result["truncated"] is True
+
+
+def test_tick_spot_check_rejects_empty_files_and_reports_old_upstream(tmp_path):
+    empty = upstream_analysis.tick_spot_check_tool(tmp_path, [])
+    assert empty["ok"] is False
+    assert "at least one changed file" in empty["error"]
+
+    script = tmp_path / "tools" / "analysis" / "tick_audit.py"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text("pass\n", encoding="utf-8")
+    result = upstream_analysis.tick_spot_check_tool(tmp_path, ["events/a.txt"])
+
+    assert result["ok"] is False
+    assert result["unsupported"] is True
+    assert "does not support" in result["error"]
+
+
+@pytest.mark.integration
+def test_tick_spot_check_uses_real_upstream_api_without_widening(real_mod_root):
+    candidates = sorted((real_mod_root / "events").rglob("*.txt"))
+    if not candidates:
+        pytest.skip("No event file available for explicit spot-check integration")
+    relpath = candidates[0].relative_to(real_mod_root).as_posix()
+
+    result = upstream_analysis.tick_spot_check_tool(real_mod_root, [relpath], limit=5)
+
+    assert result["ok"] is True
+    assert result["filters"]["paths"] == [relpath]
+    assert result["returned"] <= 5
+
+
 def _gdp_returning_none(root: Path) -> None:
     script = root / "tools" / "analysis" / "estimate_gdp.py"
     script.parent.mkdir(parents=True, exist_ok=True)
@@ -296,6 +378,100 @@ def test_shim_tick_audit_rejects_bad_pagination(tmp_path):
 
     assert result["ok"] is False
     assert "Invalid pagination values" in result["error"]
+
+
+def test_shim_spot_check_pages_findings_and_diagnostics_directly(tmp_path):
+    shim = _load_shim()
+    source = tmp_path / "tools/analysis/tick_audit.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "def scan_spot_checks(paths=None, scope=None):\n"
+        "    return {'findings': [\n"
+        "      {'severity': 'high', 'file': paths[0], 'line': n, 'message': 'bad'}\n"
+        "      for n in range(3)], 'diagnostics': [\n"
+        "      {'fatal': True, 'file': paths[0], 'line': 4},\n"
+        "      {'suppressed': True, 'file': paths[0]},\n"
+        "      {'file': paths[0]}], 'summary': {'high': 3}}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "events").mkdir()
+    (tmp_path / "events/a.txt").write_text("x = 1\n", encoding="utf-8")
+
+    result = shim.run(
+        "tick_spot_check",
+        tmp_path,
+        {"files": ["events/a.txt"], "limit": 1, "offset": 1},
+    )
+
+    assert result["ok"] is True
+    assert result["total"] == 3 and result["findings"] == [
+        {"severity": "high", "file": "events/a.txt", "line": 1, "message": "bad"}
+    ]
+    assert result["diagnostics_total"] == 3
+    assert result["diagnostics_returned"] == 1
+    assert result["diagnostics_summary"] == {
+        "total": 3,
+        "fatal": 1,
+        "suppressed": 1,
+        "warning": 1,
+    }
+    assert result["severity_counts"] == {"error": 4, "warning": 1, "info": 0}
+
+
+@pytest.mark.parametrize("files", [["events"], ["events/a.gfx"], ["../outside.txt"]])
+def test_shim_spot_check_refuses_nonfiles_before_scanner(tmp_path, files):
+    shim = _load_shim()
+    script = tmp_path / "tools/analysis/tick_audit.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        "def scan_spot_checks(paths=None, scope=None):\n"
+        "    raise AssertionError('scanner must not run')\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "events").mkdir()
+    (tmp_path / "events/a.gfx").write_text("x", encoding="utf-8")
+    result = shim.run("tick_spot_check", tmp_path, {"files": files})
+    assert result["ok"] is False
+    assert result["invalid_files"] == files
+
+
+def test_shim_spot_check_refuses_symlinks_and_bad_pagination(tmp_path):
+    shim = _load_shim()
+    script = tmp_path / "tools/analysis/tick_audit.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        "def scan_spot_checks(paths=None, scope=None):\n"
+        "    raise AssertionError('scanner must not run')\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "events").mkdir()
+    target = tmp_path / "events/target.txt"
+    target.write_text("x", encoding="utf-8")
+    (tmp_path / "events/link.txt").symlink_to(target)
+    invalid = shim.run("tick_spot_check", tmp_path, {"files": ["events/link.txt"]})
+    assert invalid["ok"] is False
+    assert invalid["invalid_files"] == ["events/link.txt"]
+    bad_page = shim.run(
+        "tick_spot_check", tmp_path, {"files": ["events/target.txt"], "limit": "bad"}
+    )
+    assert bad_page["ok"] is False
+    assert "Invalid pagination" in bad_page["error"]
+
+
+def test_shim_spot_check_reports_unsupported_and_missing_source(tmp_path):
+    shim = _load_shim()
+    script = tmp_path / "tools/analysis/tick_audit.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("pass\n", encoding="utf-8")
+    (tmp_path / "events").mkdir()
+    (tmp_path / "events/a.txt").write_text("x", encoding="utf-8")
+    unsupported = shim.run("tick_spot_check", tmp_path, {"files": ["events/a.txt"]})
+    assert unsupported["ok"] is False and unsupported["unsupported"] is True
+
+    script.unlink()
+    missing = shim.run("tick_spot_check", tmp_path, {"files": ["events/a.txt"]})
+    assert missing["ok"] is False
+    assert "Could not load" in missing["error"]
 
 
 def test_shim_estimate_gdp_rejects_bad_tag(tmp_path):

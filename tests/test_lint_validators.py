@@ -11,7 +11,7 @@ import pytest
 
 from md_mcp.config import Settings
 from md_mcp.indexes import base as index_base
-from md_mcp.tools import lint_validators
+from md_mcp.tools import lint_validators, linting_tools
 from md_mcp.tools.lint_validators import (
     SCAN_PREFIXES,
     UNATTRIBUTED_SAMPLE,
@@ -1437,6 +1437,69 @@ def test_lint_validators_counts_only(tmp_path):
     out = lint_tool(tmp_path, validators=["history"], counts_only=True, validator_runner=runner)
     assert "issues" not in out
     assert any(c["name"] == "validator:history" for c in out["checks"])
+
+
+def test_lint_tick_spot_check_is_explicit_only_and_aggregates_counts(tmp_path, monkeypatch):
+    init_repo(tmp_path)
+    findings = [
+        {"severity": "high", "file": "events/a.txt", "line": 3, "message": "danger"},
+        {"severity": "low", "file": "events/a.txt", "line": 8, "message": "note"},
+    ]
+    monkeypatch.setattr(
+        linting_tools,
+        "tick_spot_check_tool",
+        lambda root, files: {
+            "ok": True,
+            "findings": findings[:1],
+            "diagnostics": [{"fatal": True, "file": "events/a.txt", "line": 9, "message": "fatal"}],
+            "severity_counts": {"error": 2, "warning": 0, "info": 1},
+            "diagnostics_summary": {"fatal": 1, "warning": 0, "suppressed": 0},
+        },
+    )
+    out = lint_tool(
+        tmp_path,
+        files=["events/a.txt"],
+        checks=["tick_spot_check"],
+        validators=[],
+        limit=1,
+    )
+    assert out["checks_run"] == ["tick_spot_check"]
+    assert out["counts"] == {"error": 2, "warning": 0, "info": 1}
+    assert out["issues_total_after_filter"] == 3
+    assert out["truncated"] is True
+    assert len(out["issues"]) == 1
+    check = out["checks"][0]
+    assert check["diagnostics_summary"]["fatal"] == 1
+
+    counts = lint_tool(
+        tmp_path,
+        files=["events/a.txt"],
+        checks=["tick_spot_check"],
+        validators=[],
+        counts_only=True,
+    )
+    assert "issues" not in counts
+    assert counts["counts"] == {"error": 2, "warning": 0, "info": 1}
+
+    default = lint_tool(tmp_path, files=["events/a.txt"], validators=[])
+    assert "tick_spot_check" not in default["checks_run"]
+
+
+def test_lint_tick_spot_check_empty_explicit_scope_skips(tmp_path, monkeypatch):
+    init_repo(tmp_path)
+
+    def should_not_run(*args, **kwargs):
+        raise AssertionError("empty scope must not invoke scanner")
+
+    monkeypatch.setattr(linting_tools, "tick_spot_check_tool", should_not_run)
+    out = lint_tool(
+        tmp_path,
+        files=[],
+        checks=["tick_spot_check"],
+        validators=[],
+    )
+    assert out["ok"] is True
+    assert out["checks"][0]["skipped"] == "no files in scope"
 
 
 def test_lint_validators_truncation(tmp_path):

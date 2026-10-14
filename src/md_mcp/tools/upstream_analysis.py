@@ -14,6 +14,7 @@ _TICK_TIMEOUT = 120
 _GDP_TIMEOUT = 120
 _EVENT_LOAD_TIMEOUT = 180
 _AI_PATH_TIMEOUT = 240
+_TICK_SPOT_TIMEOUT = 240
 _DAYS_PER_MONTH = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 
 
@@ -65,6 +66,33 @@ def tick_audit_tool(
         timeout=_TICK_TIMEOUT,
     )
     return enforce_budget(result, heavy_keys=("hooks",))
+
+
+def tick_spot_check_tool(
+    mod_root: Path,
+    files: list[str],
+    *,
+    scope: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> dict:
+    """Run upstream spot checks on explicitly selected changed files."""
+    try:
+        limit = coerce_int(limit, name="limit", default=100)
+        offset = coerce_int(offset, name="offset", default=0)
+    except ValueError as exc:
+        return enforce_budget(
+            {"ok": False, "error": str(exc)}, heavy_keys=("findings", "diagnostics")
+        )
+    if not files:
+        return {"ok": False, "error": "Provide at least one changed file in files=."}
+    result = _run_shim(
+        mod_root,
+        "tick_spot_check",
+        {"files": files, "scope": scope, "limit": limit, "offset": offset},
+        timeout=_TICK_SPOT_TIMEOUT,
+    )
+    return enforce_budget(result, heavy_keys=("findings", "diagnostics", "assumptions"))
 
 
 def estimate_gdp_tool(mod_root: Path, tag: str) -> dict:

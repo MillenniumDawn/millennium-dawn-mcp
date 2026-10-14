@@ -49,18 +49,22 @@ async def _probe_concurrent_stdio(
     ):
         await session.initialize()
         slow_call = asyncio.create_task(session.call_tool(tool_name, arguments))
-        deadline = asyncio.get_running_loop().time() + 5
-        while not slow_started.exists() and asyncio.get_running_loop().time() < deadline:
-            await asyncio.sleep(0.02)
-        assert slow_started.exists(), f"{tool_name} helper did not start"
-        fast_result = await asyncio.wait_for(
-            session.call_tool("calculate_days", {"year": 2000, "month": 1, "day": 1}),
-            timeout=3,
-        )
-        assert not fast_result.isError
-        assert json.loads(fast_result.content[0].text) == {"ok": True, "days": 0}
-        assert not slow_call.done(), "the analysis helper should still be waiting"
-        release.touch()
+        try:
+            deadline = asyncio.get_running_loop().time() + 5
+            while not slow_started.exists() and asyncio.get_running_loop().time() < deadline:
+                await asyncio.sleep(0.02)
+            assert slow_started.exists(), f"{tool_name} helper did not start"
+            fast_result = await asyncio.wait_for(
+                session.call_tool("calculate_days", {"year": 2000, "month": 1, "day": 1}),
+                timeout=3,
+            )
+            assert not fast_result.isError
+            assert json.loads(fast_result.content[0].text) == {"ok": True, "days": 0}
+            assert not slow_call.done(), "the analysis helper should still be waiting"
+        finally:
+            release.touch()
+            if not slow_call.done():
+                await asyncio.gather(slow_call, return_exceptions=True)
         result = await slow_call
         assert not result.isError
         assert json.loads(result.content[0].text) == {"ok": True, "tool": tool_name}
@@ -101,7 +105,10 @@ def test_analysis_wrappers_do_not_block_concurrent_stdio_call(
         "def slow(*args, **kwargs):\n"
         "    Path(os.environ['MD_SLOW_STARTED']).touch()\n"
         "    release = Path(os.environ['MD_SLOW_RELEASE'])\n"
+        "    deadline = time.monotonic() + 10\n"
         "    while not release.exists():\n"
+        "        if time.monotonic() >= deadline:\n"
+        "            raise TimeoutError('test did not release the blocking helper')\n"
         "        time.sleep(0.01)\n"
         "    return {'ok': True, 'tool': name}\n"
         "setattr(server, symbol, slow)\n",
@@ -124,3 +131,65 @@ def test_analysis_wrappers_do_not_block_concurrent_stdio_call(
             arguments,
         )
     )
+
+
+async def _probe_slow_lint_stdio(mod_root: Path, cache_dir: Path, slow_started: Path) -> None:
+    source_root = Path(__file__).resolve().parents[1] / "src"
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(
+        part for part in (str(source_root), env.get("PYTHONPATH", "")) if part
+    )
+    code = (
+        "import sys; from pathlib import Path; "
+        "from md_mcp.config import Settings; from md_mcp.server import build_server; "
+        "build_server(Settings(Path(sys.argv[1]), None, Path(sys.argv[2]))).run()"
+    )
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", code, str(mod_root), str(cache_dir)],
+        env=env,
+    )
+    async with (
+        stdio_client(params) as (read, write),
+        ClientSession(read, write, read_timeout_seconds=timedelta(seconds=5)) as session,
+    ):
+        await session.initialize()
+        slow_call = asyncio.create_task(
+            session.call_tool(
+                "lint", {"mode": "all", "checks": ["common_mistakes"], "validators": []}
+            )
+        )
+        deadline = asyncio.get_running_loop().time() + 3
+        while not slow_started.exists() and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.01)
+        assert slow_started.exists(), "lint script did not start"
+        fast_call = await asyncio.wait_for(
+            session.call_tool("generate_focus", {"id": "TST_protocol_probe", "tag": "TST"}),
+            timeout=0.7,
+        )
+        assert not fast_call.isError
+        assert not slow_call.done(), "slow lint call should still be running"
+
+        slow_result = await slow_call
+        assert not slow_result.isError
+        assert slow_result.content[0].type == "text"
+        payload = json.loads(slow_result.content[0].text)
+        assert payload["ok"] is True
+        assert payload["checks"][0]["name"] == "common_mistakes"
+
+
+def test_slow_lint_tool_does_not_block_concurrent_stdio_call(
+    fake_mod_root: Path, tmp_path: Path
+) -> None:
+    linting = fake_mod_root / "tools" / "linting"
+    linting.mkdir(parents=True)
+    slow_started = tmp_path / "lint-started"
+    (linting / "check_common_mistakes.py").write_text(
+        "import time\n"
+        "from pathlib import Path\n"
+        f"Path({str(slow_started)!r}).write_text('started', encoding='utf-8')\n"
+        "time.sleep(1.25)\n"
+        "print('lint complete')\n",
+        encoding="utf-8",
+    )
+    asyncio.run(_probe_slow_lint_stdio(fake_mod_root, tmp_path / "lint-cache", slow_started))

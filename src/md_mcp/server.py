@@ -508,6 +508,25 @@ def build_server(settings: Settings):
             ai_path_report_tool, settings.mod_root, tag, section, limit, offset
         )
 
+    from .tools.ci_timing_tools import validation_timing_summary_tool
+
+    @mcp.tool(name="validation_timing_summary")
+    async def _validation_timing_summary(
+        content: str,
+        limit: int = 20,
+        offset: int = 0,
+        include_steps: bool = False,
+    ) -> dict:
+        """Summarize supplied Actions timing exports by compatible completed runs."""
+        return await blocking_tools.run(
+            validation_timing_summary_tool,
+            settings.mod_root,
+            content,
+            limit,
+            offset,
+            include_steps,
+        )
+
     @mcp.tool(name="calculate_days")
     def _calculate_days(year: int, month: int, day: int) -> dict:
         """Calculate days since 2000 using fixed non-leap years; validates year, month, and day."""

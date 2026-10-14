@@ -150,6 +150,7 @@ TOOL_SIGNATURES = {
         "path, top=15, limit=100, offset=0, countries=None, since=None, until=None"
     ),
     "ai_path_report": "tag, section=None, limit=15, offset=0",
+    "validation_timing_summary": "content, limit=20, offset=0, include_steps=False",
     "calculate_days": "year, month, day",
     "focus_graph": (
         "tag, detail='summary', focus_ids=None, node_limit=100, edge_limit=500, "
@@ -363,6 +364,10 @@ TOOL_CALLS: dict[str, tuple[dict, dict]] = {
         {"ok": False, "error": "path must be an absolute path"},
     ),
     "ai_path_report": ({"tag": "TST"}, {"ok": False}),
+    "validation_timing_summary": (
+        {"content": "{}", "include_steps": True},
+        {"ok": False, "unsupported": True},
+    ),
     "calculate_days": ({"year": 2001, "month": 1, "day": 1}, {"ok": True, "days": 365}),
     "focus_graph": (
         {"tag": "TST"},

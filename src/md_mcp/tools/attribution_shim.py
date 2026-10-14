@@ -61,6 +61,7 @@ def analyze(root: Path, payload: Any) -> dict:
         found = module.findings(content, "supplied text")
         if not isinstance(found, (list, tuple)):
             return {"ok": False, "unsupported": True, "error": "unsupported findings result"}
+        max_line = content.count("\n") + 1
         rows = []
         for item in found:
             if (
@@ -69,7 +70,7 @@ def analyze(root: Path, payload: Any) -> dict:
                 or item[0] != "supplied text"
                 or isinstance(item[1], bool)
                 or not isinstance(item[1], int)
-                or not 1 <= item[1] <= content.count("\n") + 1
+                or not 1 <= item[1] <= max_line
                 or not isinstance(item[2], str)
                 or item[2] not in SUPPORTED_RULES
             ):

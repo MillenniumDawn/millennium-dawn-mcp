@@ -175,6 +175,29 @@ def test_unsupported_upstream_findings_shape_is_not_reported_as_empty(
     assert "findings result" in result["error"]
 
 
+def test_source_line_bound_is_counted_once_for_every_helper_record(tmp_path: Path):
+    helper = tmp_path / "mod/tools/analysis/check_ai_attribution.py"
+    helper.parent.mkdir(parents=True)
+    helper.write_text(
+        "def classify(line): return 'ai-header'\n"
+        "def findings(text, source, numbers=None):\n"
+        " return [(source, number, 'ai-header') for number in range(1, 4)]\n",
+        encoding="utf-8",
+    )
+
+    class CountingText(str):
+        count_calls = 0
+
+        def count(self, sub, *args):
+            self.count_calls += 1
+            return super().count(sub, *args)
+
+    content = CountingText("line\nline\nline")
+    result = analyze(helper.parents[2], {"content": content})
+    assert result["ok"] is True and result["findings_total"] == 3
+    assert content.count_calls == 1
+
+
 def test_large_finding_page_is_truncated_truthfully(tmp_path: Path):
     helper = tmp_path / "mod/tools/analysis/check_ai_attribution.py"
     helper.parent.mkdir(parents=True)
@@ -320,7 +343,9 @@ def test_wrapper_bounds_child_process_failures(tmp_path: Path, monkeypatch, mode
         assert result["ok"] is True
 
 
-async def _stdio_calls(mod_root: Path, cache_dir: Path) -> list[str]:
+async def _stdio_calls(
+    mod_root: Path, cache_dir: Path, *, include_dense: bool = False
+) -> list[str]:
     source_root = Path(__file__).resolve().parents[1] / "src"
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join(
@@ -348,6 +373,14 @@ async def _stdio_calls(mod_root: Path, cache_dir: Path) -> list[str]:
         large = await session.call_tool("check_attribution_labels", {"content": "x" * 150_000})
         assert not large.isError
         answers.append(str(large.model_dump()))
+        if include_dense:
+            dense_content = "Author: Codex\n" * 64_000
+            dense = await session.call_tool(
+                "check_attribution_labels",
+                {"content": dense_content, "limit": 2, "offset": 0},
+            )
+            assert not dense.isError and dense.content and hasattr(dense.content[0], "text")
+            answers.append(dense.content[0].text)
         bad_arguments: list[dict[str, Any]] = [
             {"content": {"private": MARKER}},
             {"content": [MARKER]},
@@ -368,6 +401,24 @@ def test_stdio_never_echoes_supplied_text_or_invalid_argument_values(tmp_path: P
     answers = asyncio.run(_stdio_calls(mod_root, tmp_path / "cache"))
     assert all(MARKER not in answer for answer in answers)
     assert all("Author: Codex" not in answer for answer in answers)
+    assert (helper.stat().st_mtime_ns, helper.stat().st_size) == before
+    assert set(mod_root.rglob("__pycache__")) == set()
+
+
+def test_stdio_dense_near_limit_text_keeps_findings_and_pagination_truthful(tmp_path: Path):
+    mod_root = tmp_path / "mod"
+    helper = _install_helper(mod_root, UPSTREAM_ROOTS[0])
+    before = helper.stat().st_mtime_ns, helper.stat().st_size
+    answers = asyncio.run(_stdio_calls(mod_root, tmp_path / "cache", include_dense=True))
+    result = json.loads(answers[2])
+    assert result["ok"] is True
+    assert result["findings_total"] == 64_000
+    assert result["findings_returned"] == 2
+    assert result["findings_truncated"] is True
+    assert result["findings"] == [
+        {"line": 1, "rule": "ai-header"},
+        {"line": 2, "rule": "ai-header"},
+    ]
     assert (helper.stat().st_mtime_ns, helper.stat().st_size) == before
     assert set(mod_root.rglob("__pycache__")) == set()
 

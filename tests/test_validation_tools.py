@@ -901,3 +901,28 @@ def test_validate_delta_uses_real_sibling_report_lib(tmp_path, line):
         }
     ]
     assert sidecar_new_issues == new_issues
+
+
+def test_validate_run_all_excludes_manual_and_commit_only_but_named_calls_remain(fake_mod_root):
+    for name in ("standardization", "mesh_textures", "ordinary"):
+        plant_validator(fake_mod_root, name, _GOOD)
+    calls = []
+
+    class Runner:
+        def run(self, name, **kwargs):
+            calls.append(name)
+            return {
+                "ok": True,
+                "issues": [],
+                "counts": {"error": 0, "warning": 0, "info": 0},
+            }
+
+    runner = cast(Any, Runner())
+    all_result = validate_tool(mod_settings(fake_mod_root), runner)
+    assert calls == ["ordinary"]
+    assert all_result["skipped_implicit"] == ["mesh_textures", "standardization"]
+
+    calls.clear()
+    named = validate_tool(mod_settings(fake_mod_root), runner, validator="standardization")
+    assert named["ok"] is True
+    assert calls == ["standardization"]

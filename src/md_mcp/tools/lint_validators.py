@@ -35,7 +35,7 @@ from typing import Any, Iterator, Optional, Sequence
 from ..analysis.suppressions import SUPPRESSION_SOURCE, suppressed_count
 from ..util.encoding import read_text
 from ..util.git import GitError, run_git
-from ..validators import SLOW_VALIDATORS, ValidatorRunner
+from ..validators import IMPLICIT_RUN_ALL_EXCLUDED, SLOW_VALIDATORS, ValidatorRunner
 from ..validators.attribution import IssueAttributor
 
 # How many unattributable issues carry their detail into the response. The rest
@@ -57,7 +57,7 @@ EQUIPMENT_VARIANT_CONTEXT_PREFIXES: tuple[str, ...] = (
 )
 _EVENT_CALL_TOKENS = ("country_event", "news_event", "random_events")
 _EVENT_LIST_ASSIGNMENT = re.compile(r"\bevents\s*=")
-AUTO_ROUTING_EXCLUDED = frozenset({"common_mistakes"})
+AUTO_ROUTING_EXCLUDED = frozenset({"common_mistakes"}) | IMPLICIT_RUN_ALL_EXCLUDED
 
 # Path-prefix -> validators whose scan domain covers that directory. A file can
 # match several rows; matches union. Derived from the scan globs in

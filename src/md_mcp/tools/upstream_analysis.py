@@ -64,7 +64,11 @@ def tick_audit_tool(
         {"tag": tag.upper() if tag else None, "limit": limit, "offset": offset},
         timeout=_TICK_TIMEOUT,
     )
-    return enforce_budget(result, heavy_keys=("hooks",))
+    bounded = enforce_budget(result, heavy_keys=("hooks",))
+    if "hooks_dropped" in bounded and bounded["hooks_dropped"] != 0:
+        bounded["returned"] = 0
+        bounded["truncated"] = True
+    return enforce_budget(bounded, heavy_keys=())
 
 
 def estimate_gdp_tool(mod_root: Path, tag: str) -> dict:
@@ -99,7 +103,13 @@ def event_load_tool(
         },
         timeout=_EVENT_LOAD_TIMEOUT,
     )
-    return enforce_budget(result, heavy_keys=("years", "flagged_years"))
+    bounded = enforce_budget(result, heavy_keys=("years", "flagged_years"))
+    if "years_dropped" in bounded and bounded["years_dropped"] != 0:
+        bounded["returned"] = 0
+        bounded["truncated"] = True
+    elif "flagged_years_dropped" in bounded and bounded["flagged_years_dropped"] != 0:
+        bounded["truncated"] = True
+    return enforce_budget(bounded, heavy_keys=())
 
 
 def game_log_summary_tool(
@@ -134,7 +144,7 @@ def game_log_summary_tool(
         },
         timeout=120,
     )
-    return enforce_budget(
+    bounded = enforce_budget(
         result,
         heavy_keys=(
             "focus_countries",
@@ -145,6 +155,20 @@ def game_log_summary_tool(
             "annexations",
         ),
     )
+    for key in (
+        "focus_countries",
+        "economy",
+        "inflation",
+        "conflicts",
+        "politics",
+        "annexations",
+    ):
+        if f"{key}_dropped" not in bounded:
+            continue
+        if bounded[f"{key}_dropped"] != 0:
+            bounded[f"{key}_returned"] = 0
+            bounded[f"{key}_truncated"] = True
+    return enforce_budget(bounded, heavy_keys=())
 
 
 def ai_path_report_tool(

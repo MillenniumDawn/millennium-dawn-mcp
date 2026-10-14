@@ -730,8 +730,12 @@ definition of a duplicate focus id, and unresolved relative chains produce
 partial coordinates. Reports label that uncertainty and include
 total/returned/truncated counts. Missing or unsupported upstream
 helpers, invalid paths, and invalid scenarios return `{ok: false, error}`.
-The file is read-only; oversized optional lists are dropped with explicit
-truncation metadata.
+The file is read-only and checked for balanced Paradox syntax before the
+upstream scan. The MCP parser's focus ids are compared with the helper's parsed
+ids; compact or otherwise unrecognized definitions are refused instead of
+reported as empty results. Dates must be valid calendar dates; quoted focus ids
+are refused because the upstream helper strips their quotes. Oversized optional
+lists are dropped with explicit truncation metadata.
 
 ### `diff_summary(base?, kinds?, with_ids?, limit?) -> dict`
 

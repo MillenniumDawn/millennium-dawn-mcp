@@ -437,12 +437,79 @@ def _focus_overlap_scenarios(mod_root: Path, payload: dict) -> dict:
         if raw_date is not None and not isinstance(raw_date, str):
             return {"ok": False, "file": raw_file, "error": "date must be a YYYY.M.D string"}
         scenario_date = module.parse_date(raw_date) if raw_date is not None else None
+        if scenario_date is not None:
+            from datetime import date as calendar_date
+
+            try:
+                calendar_date(*scenario_date)
+            except (TypeError, ValueError) as exc:
+                return {
+                    "ok": False,
+                    "file": raw_file,
+                    "error": f"date must be a valid calendar date in YYYY.M.D form: {exc}",
+                }
         scenario = module.Scenario(
             tag=tag.upper(), completed=frozenset(completed), date=scenario_date
         )
         raw_text = source.read_text(encoding="utf-8-sig")
+        from md_mcp.paradox import ParseError, parse_string
+        from md_mcp.paradox.nodes import SymbolNode
+
+        try:
+            syntax_tree = parse_string(raw_text, error_prefix=f"{source}: ")
+        except ParseError as exc:
+            return {
+                "ok": False,
+                "file": raw_file,
+                "error": f"Focus file is malformed Paradox script: {exc}",
+            }
+        expected_focus_ids: set[str] = set()
+        for top_level in syntax_tree.children():
+            if top_level.name == "focus_tree":
+                focus_nodes = [node for node in top_level.children() if node.name == "focus"]
+            elif top_level.name in {"shared_focus", "joint_focus"}:
+                focus_nodes = [top_level]
+            else:
+                continue
+            for focus_node in focus_nodes:
+                id_node = focus_node.get("id")
+                id_token = id_node.value_end_token if id_node is not None else None
+                if id_token is not None and id_token.type == "string":
+                    return {
+                        "ok": False,
+                        "file": raw_file,
+                        "error": (
+                            "Quoted focus ids are not supported by the upstream overlap helper; "
+                            "use unquoted focus ids."
+                        ),
+                    }
+                if id_node is None:
+                    continue
+                if isinstance(id_node.value, SymbolNode):
+                    expected_focus_ids.add(id_node.value.name)
+                elif isinstance(id_node.value, (str, int, float)):
+                    expected_focus_ids.add(str(id_node.value))
         text = shared_utils.blank_quoted_strings(shared_utils.strip_comments(raw_text))
         focuses = module.parse_focus_file(text)
+        if not isinstance(focuses, dict):
+            return {
+                "ok": False,
+                "file": raw_file,
+                "error": "Upstream focus parser returned invalid data",
+            }
+        parsed_focus_ids = set(focuses)
+        if parsed_focus_ids != expected_focus_ids:
+            missing = sorted(expected_focus_ids - parsed_focus_ids)[:10]
+            unexpected = sorted(parsed_focus_ids - expected_focus_ids)[:10]
+            return {
+                "ok": False,
+                "file": raw_file,
+                "error": (
+                    "Upstream helper did not recognize the focus definitions in this file; "
+                    f"parsed {len(parsed_focus_ids)} of {len(expected_focus_ids)} ids, "
+                    f"missing={missing}, unexpected={unexpected}."
+                ),
+            }
         positions = module.resolve_positions(focuses, scenario)
         visible = module.resolve_visibility(focuses, scenario)
         report = module.build_report(

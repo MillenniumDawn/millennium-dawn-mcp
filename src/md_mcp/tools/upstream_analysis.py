@@ -226,7 +226,7 @@ def focus_overlap_scenarios_tool(
         "focus_overlap_scenarios",
         {
             "file": str(source_path),
-            "allowed_roots": [str(root) for root in (mod_root, submod_root) if root],
+            "allowed_roots": [str(root) for root in (submod_root, mod_root) if root],
             "tag": tag.upper(),
             "completed": completed,
             "date": date,
@@ -254,7 +254,7 @@ def _focus_source_path(
     mod_root: Path, submod_root: Optional[Path], value: str
 ) -> tuple[Optional[Path], Optional[str]]:
     roots: list[Path] = []
-    for root_value in (mod_root, submod_root):
+    for root_value in (submod_root, mod_root):
         if root_value is None:
             continue
         root = root_value.resolve(strict=True)

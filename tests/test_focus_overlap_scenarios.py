@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import types
@@ -59,11 +61,23 @@ def _fake_api(monkeypatch, root: Path):
     module = types.SimpleNamespace()
     module.Scenario = _Scenario
     module.parse_date = lambda text: tuple(int(part) for part in text.split("."))
-    module.iter_focus_blocks = lambda text: [
-        ("A", "focus", 1, ""),
-        ("A", "focus", 2, ""),
-    ]
-    module.parse_focus_file = lambda text: _fake_focuses()
+
+    def iter_focus_blocks(text):
+        return [
+            (focus_id, "focus", line, "")
+            for line, focus_id in enumerate(re.findall(r"\bid\s*=\s*(\w+)", text), 1)
+        ]
+
+    def parse_focus_file(text):
+        available = _fake_focuses()
+        return {
+            focus_id: available[focus_id]
+            for focus_id, _kind, _line, _body in iter_focus_blocks(text)
+            if focus_id in available
+        }
+
+    module.iter_focus_blocks = iter_focus_blocks
+    module.parse_focus_file = parse_focus_file
 
     def evaluate(body: str, scenario: _Scenario):
         if body.startswith("date >"):
@@ -162,7 +176,18 @@ def test_shim_evaluates_explicit_scenario_and_reports_uncertainty(monkeypatch, t
     root = tmp_path / "mod"
     focus_file = root / "common/national_focus/test.txt"
     focus_file.parent.mkdir(parents=True)
-    focus_file.write_text("fixture", encoding="utf-8")
+    focus_file.write_text(
+        "focus_tree = {\n"
+        ' focus = { id = A x = 0 y = 0 title = "brace } {" # {\n }\n'
+        " focus = { id = A x = 0 y = 0 }\n"
+        " focus = { id = B x = 0 y = 0 }\n"
+        " focus = { id = C x = 0 y = 0 }\n"
+        " focus = { id = MISSING x = 0 y = 0 }\n"
+        " focus = { id = CYCLE_A x = 0 y = 0 }\n"
+        " focus = { id = CYCLE_B x = 0 y = 0 }\n"
+        "}\n",
+        encoding="utf-8",
+    )
     _fake_api(monkeypatch, root)
 
     result = upstream_analysis_shim._focus_overlap_scenarios(
@@ -179,7 +204,7 @@ def test_shim_evaluates_explicit_scenario_and_reports_uncertainty(monkeypatch, t
         },
     )
 
-    assert result["ok"] is True
+    assert result["ok"] is True, result
     assert result["scenario"] == {"tag": "TST", "completed": ["A"], "date": "2006.1.1"}
     assert result["collision_groups_total"] == 2
     assert result["collision_groups_returned"] == 1
@@ -223,6 +248,67 @@ def test_shim_refuses_invalid_scope_and_bad_pagination_before_parser(monkeypatch
     assert "pagination" in result["error"]
 
 
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("relative", "absolute path"),
+        ("roots", "allowed roots"),
+        ("missing", "does not exist"),
+        ("directory", "regular .txt"),
+        ("extension", "regular .txt"),
+        ("oversized", "2 MB"),
+        ("tag", "country tag"),
+        ("completed", "list of focus ids"),
+        ("positions", "boolean"),
+        ("pagination", "pagination"),
+        ("helper", "no focus overlap analysis helper"),
+    ],
+)
+def test_shim_refuses_invalid_payload_before_loading_upstream(monkeypatch, tmp_path, case, message):
+    root = tmp_path / "mod"
+    root.mkdir()
+    source = root / "focus.txt"
+    source.write_text("placeholder", encoding="utf-8")
+    payload = {
+        "file": str(source),
+        "allowed_roots": [str(root)],
+        "tag": "TST",
+        "completed": [],
+        "include_positions": False,
+    }
+    if case == "relative":
+        payload["file"] = "focus.txt"
+    elif case == "roots":
+        payload["allowed_roots"] = str(root)
+    elif case == "missing":
+        payload["file"] = str(root / "missing.txt")
+    elif case == "directory":
+        payload["file"] = str(root)
+    elif case == "extension":
+        payload["file"] = str(root / "notes.yml")
+        Path(payload["file"]).write_text("placeholder", encoding="utf-8")
+    elif case == "oversized":
+        source.write_bytes(b"x" * (2_000_001))
+    elif case == "tag":
+        payload["tag"] = "TOO-LONG"
+    elif case == "completed":
+        payload["completed"] = [1]
+    elif case == "positions":
+        payload["include_positions"] = "false"
+    elif case == "pagination":
+        payload["limit"] = "not-an-int"
+    elif case == "helper":
+        (root / "tools/analysis").mkdir(parents=True)
+    monkeypatch.setattr(
+        upstream_analysis_shim,
+        "_load_module",
+        lambda *args, **kwargs: pytest.fail("invalid payload must be refused before import"),
+    )
+    result = upstream_analysis_shim._focus_overlap_scenarios(root, payload)
+    assert result["ok"] is False
+    assert message in result["error"]
+
+
 @pytest.mark.parametrize("value", ["../outside.txt", "common/national_focus", "wrong.yml"])
 def test_wrapper_refuses_non_focus_paths_without_scanning(monkeypatch, fake_mod_root, value):
     monkeypatch.setattr(
@@ -245,6 +331,38 @@ def test_wrapper_refuses_symlink_and_outside_paths(monkeypatch, fake_mod_root, t
     ]
     assert not upstream_analysis.focus_overlap_scenarios_tool(
         fake_mod_root, "common/national_focus/link.txt", "TST"
+    )["ok"]
+
+
+def test_wrapper_refuses_invalid_arguments_roots_and_oversized_source(
+    monkeypatch, fake_mod_root, tmp_path
+):
+    source = fake_mod_root / "common/national_focus/oversized.txt"
+    source.write_bytes(b"x" * 2_000_001)
+    monkeypatch.setattr(
+        upstream_analysis, "_run_shim", lambda *args, **kwargs: pytest.fail("shim called")
+    )
+    assert not upstream_analysis.focus_overlap_scenarios_tool(
+        fake_mod_root, "common/national_focus/test.txt", "TST", limit="bad"
+    )["ok"]
+    assert not upstream_analysis.focus_overlap_scenarios_tool(fake_mod_root, "", "TST")["ok"]
+    assert not upstream_analysis.focus_overlap_scenarios_tool(
+        fake_mod_root,
+        "common/national_focus/test.txt",
+        "TST",
+        include_positions="yes",
+    )["ok"]
+    assert not upstream_analysis.focus_overlap_scenarios_tool(
+        fake_mod_root,
+        "common/national_focus/test.txt",
+        "TST",
+        date=object(),
+    )["ok"]
+    assert not upstream_analysis.focus_overlap_scenarios_tool(
+        tmp_path / "missing-root", "common/national_focus/test.txt", "TST"
+    )["ok"]
+    assert not upstream_analysis.focus_overlap_scenarios_tool(
+        fake_mod_root, "common/national_focus/oversized.txt", "TST"
     )["ok"]
 
 
@@ -296,6 +414,8 @@ def test_wrapper_accepts_only_explicit_file_from_configured_submod(
     focus_file = submod / "common/national_focus/overlay.txt"
     focus_file.parent.mkdir(parents=True)
     focus_file.write_text("focus = { id = OVERLAY_focus }", encoding="utf-8")
+    mod_file = fake_mod_root / "common/national_focus/overlay.txt"
+    mod_file.write_text("focus = { id = BASE_focus }", encoding="utf-8")
     calls = []
     monkeypatch.setattr(
         upstream_analysis,
@@ -312,7 +432,37 @@ def test_wrapper_accepts_only_explicit_file_from_configured_submod(
 
     assert result["ok"] is True
     assert calls[0]["file"] == str(focus_file.resolve())
-    assert calls[0]["allowed_roots"] == [str(fake_mod_root), str(submod)]
+    assert calls[0]["allowed_roots"] == [str(submod), str(fake_mod_root)]
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        "focus = { id = A x = 0 y = 0",
+        "focus_tree = { focus = { id = A x = 0 y = 0 } focus = { id = B x = 0 y = 0 }",
+    ],
+)
+def test_shim_rejects_unbalanced_paradox_before_permissive_focus_parser(
+    monkeypatch, tmp_path, malformed
+):
+    root = tmp_path / "mod"
+    source = root / "focus.txt"
+    source.parent.mkdir(parents=True)
+    source.write_text(malformed, encoding="utf-8")
+    module = _fake_api(monkeypatch, root)
+    module.parse_focus_file = lambda text: pytest.fail("permissive parser must not run")
+    result = upstream_analysis_shim._focus_overlap_scenarios(
+        root,
+        {
+            "file": str(source),
+            "allowed_roots": [str(root)],
+            "tag": "TST",
+            "completed": [],
+            "include_positions": False,
+        },
+    )
+    assert result["ok"] is False
+    assert "malformed Paradox script" in result["error"]
 
 
 def test_wrapper_budget_drop_marks_page_shortened(monkeypatch, fake_mod_root):
@@ -378,7 +528,7 @@ def test_shim_rejects_invalid_explicit_date(monkeypatch, tmp_path):
     root = tmp_path / "mod"
     source = root / "focus.txt"
     source.parent.mkdir(parents=True)
-    source.write_text("fixture", encoding="utf-8")
+    source.write_text("focus_tree = { focus = { id = A x = 0 y = 0 } }", encoding="utf-8")
     _fake_api(monkeypatch, root)
     result = upstream_analysis_shim._focus_overlap_scenarios(
         root,
@@ -393,6 +543,50 @@ def test_shim_rejects_invalid_explicit_date(monkeypatch, tmp_path):
     )
     assert result["ok"] is False
     assert "Focus analysis failed" in result["error"]
+
+
+@pytest.mark.parametrize("value", ["2006.13.1", "2006.2.30", "0000.1.1", "2001.2.29"])
+def test_shim_rejects_impossible_calendar_dates(monkeypatch, tmp_path, value):
+    root = tmp_path / "mod"
+    source = root / "focus.txt"
+    source.parent.mkdir(parents=True)
+    source.write_text("focus = { id = A x = 0 y = 0 }", encoding="utf-8")
+    _fake_api(monkeypatch, root)
+    result = upstream_analysis_shim._focus_overlap_scenarios(
+        root,
+        {
+            "file": str(source),
+            "allowed_roots": [str(root)],
+            "tag": "TST",
+            "completed": [],
+            "date": value,
+            "include_positions": False,
+        },
+    )
+    assert result["ok"] is False
+    assert "valid calendar date" in result["error"]
+
+
+@pytest.mark.parametrize("value", ["2004.2.29", "2001.2.28"])
+def test_shim_accepts_leap_and_nonleap_calendar_edges(monkeypatch, tmp_path, value):
+    root = tmp_path / "mod"
+    source = root / "focus.txt"
+    source.parent.mkdir(parents=True)
+    source.write_text("focus_tree = { focus = { id = A x = 0 y = 0 } }", encoding="utf-8")
+    _fake_api(monkeypatch, root)
+    result = upstream_analysis_shim._focus_overlap_scenarios(
+        root,
+        {
+            "file": str(source),
+            "allowed_roots": [str(root)],
+            "tag": "TST",
+            "completed": [],
+            "date": value,
+            "include_positions": False,
+        },
+    )
+    assert result["ok"] is True
+    assert result["scenario"]["date"] == value
 
 
 @pytest.mark.parametrize(
@@ -445,3 +639,61 @@ def test_real_poland_report_matches_upstream_helper(mod_root: Path, tmp_path: Pa
     assert result["positions"] == expected["map"][:50]
     assert result["scenario"] == expected["scenario"]
     assert (focus_path.stat().st_mtime_ns, focus_path.stat().st_size) == before
+
+
+@pytest.mark.parametrize(
+    "upstream_root",
+    [Path("/workspace/Millennium-Dawn"), Path("/workspace/scratch/md-upstream-fb657ff7")],
+)
+def test_real_upstream_helper_refuses_quoted_focus_ids(upstream_root: Path, tmp_path: Path):
+    upstream_script = upstream_root / "tools/analysis/focus_overlap_report.py"
+    upstream_shared = upstream_root / "tools/shared_utils.py"
+    if not upstream_script.is_file() or not upstream_shared.is_file():
+        pytest.skip(f"upstream helper unavailable: {upstream_root}")
+    mod_root = tmp_path / "mod"
+    script_dir = mod_root / "tools/analysis"
+    script_dir.mkdir(parents=True)
+    (mod_root / "tools/shared_utils.py").parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(upstream_script, script_dir / upstream_script.name)
+    shutil.copyfile(upstream_shared, mod_root / "tools/shared_utils.py")
+    source = mod_root / "focus.txt"
+    source.write_text(
+        "focus_tree = {\n"
+        ' focus = { id = "A" x = 0 y = 0 }\n'
+        ' focus = { id = "B" x = 0 y = 0 }\n'
+        "}\n",
+        encoding="utf-8",
+    )
+
+    result = upstream_analysis.focus_overlap_scenarios_tool(mod_root, "focus.txt", "TST")
+
+    assert result["ok"] is False
+    assert "Quoted focus ids" in result["error"]
+
+
+@pytest.mark.parametrize(
+    "upstream_root",
+    [Path("/workspace/Millennium-Dawn"), Path("/workspace/scratch/md-upstream-fb657ff7")],
+)
+def test_real_upstream_helper_refuses_compact_focus_definitions(
+    upstream_root: Path, tmp_path: Path
+):
+    upstream_script = upstream_root / "tools/analysis/focus_overlap_report.py"
+    upstream_shared = upstream_root / "tools/shared_utils.py"
+    if not upstream_script.is_file() or not upstream_shared.is_file():
+        pytest.skip(f"upstream helper unavailable: {upstream_root}")
+    mod_root = tmp_path / "mod"
+    script_dir = mod_root / "tools/analysis"
+    script_dir.mkdir(parents=True)
+    shutil.copyfile(upstream_script, script_dir / upstream_script.name)
+    shutil.copyfile(upstream_shared, mod_root / "tools/shared_utils.py")
+    source = mod_root / "focus.txt"
+    source.write_text(
+        "focus_tree = { focus = { id = A x = 0 y = 0 } focus = { id = B x = 0 y = 0 } }\n",
+        encoding="utf-8",
+    )
+
+    result = upstream_analysis.focus_overlap_scenarios_tool(mod_root, "focus.txt", "TST")
+
+    assert result["ok"] is False
+    assert "did not recognize the focus definitions" in result["error"]

@@ -16,6 +16,7 @@ from typing import Any, cast
 
 import pytest
 
+from md_mcp import server as server_module
 from md_mcp.config import Settings
 from md_mcp.server import build_server
 from tests.support.mod import in_process_settings
@@ -175,6 +176,77 @@ def test_tool_signatures(shared_server):
     tools = asyncio.run(shared_server.list_tools())
 
     assert {tool.name: _signature(tool) for tool in tools} == TOOL_SIGNATURES
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "helper_name", "expected_args", "expected_kwargs"),
+    [
+        (
+            "tick_audit",
+            {"tag": "TST", "limit": 7, "offset": 2},
+            "tick_audit_tool",
+            (),
+            {"tag": "TST", "limit": 7, "offset": 2},
+        ),
+        ("estimate_gdp", {"tag": "TST"}, "estimate_gdp_tool", ("TST",), {}),
+        (
+            "summarize_game_log",
+            {
+                "path": "/tmp/game.log",
+                "top": 4,
+                "limit": 8,
+                "offset": 3,
+                "countries": ["Testland"],
+                "since": "1936.1.1",
+                "until": "1936.2.1",
+            },
+            "game_log_summary_tool",
+            ("/tmp/game.log",),
+            {
+                "top": 4,
+                "limit": 8,
+                "offset": 3,
+                "countries": ["Testland"],
+                "since": "1936.1.1",
+                "until": "1936.2.1",
+            },
+        ),
+    ],
+)
+def test_analysis_wrappers_offload_and_forward_arguments(
+    server, monkeypatch, tool_name, arguments, helper_name, expected_args, expected_kwargs
+):
+    started = threading.Event()
+    release = threading.Event()
+    forwarded = {}
+
+    def slow_helper(mod_root, *args, **kwargs):
+        forwarded.update(mod_root=mod_root, args=args, kwargs=kwargs)
+        started.set()
+        assert release.wait(5), "test did not release the blocking helper"
+        return {"ok": True, "tool": tool_name}
+
+    monkeypatch.setattr(server_module, helper_name, slow_helper)
+
+    async def exercise():
+        slow = asyncio.create_task(server.call_tool(tool_name, arguments))
+        try:
+            assert await asyncio.to_thread(started.wait, 5)
+            fast = await asyncio.wait_for(
+                server.call_tool("calculate_days", {"year": 2000, "month": 1, "day": 1}),
+                timeout=2,
+            )
+            assert json.loads(fast[0].text) == {"ok": True, "days": 0}
+            assert not slow.done()
+        finally:
+            release.set()
+        result = await slow
+        assert json.loads(result[0].text) == {"ok": True, "tool": tool_name}
+
+    asyncio.run(exercise())
+    assert forwarded["mod_root"] is not None
+    assert forwarded["args"] == expected_args
+    assert forwarded["kwargs"] == expected_kwargs
 
 
 def _found(ident: str, kind: str, file: str, line: int, **extra) -> dict:

@@ -455,18 +455,20 @@ def build_server(settings: Settings):
     # ---------- M3 analysis ----------
 
     @mcp.tool(name="tick_audit")
-    def _tick_audit(
+    async def _tick_audit(
         tag: Optional[str] = None,
         limit: int = 20,
         offset: int = 0,
     ) -> dict:
         """Summarize recurring tick work. tag filters hooks; limit/offset page hook samples."""
-        return tick_audit_tool(settings.mod_root, tag=tag, limit=limit, offset=offset)
+        return await blocking_tools.run(
+            tick_audit_tool, settings.mod_root, tag=tag, limit=limit, offset=offset
+        )
 
     @mcp.tool(name="estimate_gdp")
-    def _estimate_gdp(tag: str) -> dict:
+    async def _estimate_gdp(tag: str) -> dict:
         """Estimate one country's starting GDP from upstream history. Requires a country tag."""
-        return estimate_gdp_tool(settings.mod_root, tag)
+        return await blocking_tools.run(estimate_gdp_tool, settings.mod_root, tag)
 
     @mcp.tool(name="event_load")
     async def _event_load(
@@ -478,7 +480,7 @@ def build_server(settings: Settings):
         )
 
     @mcp.tool(name="summarize_game_log")
-    def _summarize_game_log(
+    async def _summarize_game_log(
         path: str,
         top: int = 15,
         limit: int = 100,
@@ -488,7 +490,8 @@ def build_server(settings: Settings):
         until: Optional[str] = None,
     ) -> dict:
         """Summarize an absolute .log/.txt path; filter dates/countries and page output."""
-        return game_log_summary_tool(
+        return await blocking_tools.run(
+            game_log_summary_tool,
             settings.mod_root,
             path,
             top=top,

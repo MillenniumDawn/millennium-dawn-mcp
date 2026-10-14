@@ -968,6 +968,15 @@ Build a localisation YAML stub.
 - **`bom_prefix=True`** — prepend the UTF-8 BOM. Use for **new** files only;
   existing files already have a BOM.
 
+### `check_attribution_labels(content, limit=50, offset=0) -> dict`
+
+Check supplied text for explicit attribution labels using the upstream
+`check_ai_attribution` classifier. This is report-only: it does not infer
+authorship, inspect paths or Git state, enforce policy, or change files. The
+response includes paged line numbers and rule names without echoing the text.
+`content` is limited to 1 MB of UTF-8, and the tool reports unsupported when
+the upstream classifier API is unavailable.
+
 ---
 
 ## Resources (`md://` URIs)

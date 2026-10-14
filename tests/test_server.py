@@ -165,6 +165,7 @@ TOOL_SIGNATURES = {
     ),
     "diff_summary": "base='main', kinds=None, with_ids=True, limit=200",
     "check_encoding": "files=None, limit=200, offset=0",
+    "check_attribution_labels": "content, limit=50, offset=0",
 }
 
 
@@ -464,6 +465,10 @@ TOOL_CALLS: dict[str, tuple[dict, dict]] = {
     "check_encoding": (
         {"files": ["common/national_focus/test.txt"], "limit": "1", "offset": 0},
         {"ok": True, "checked": 1, "total": 0},
+    ),
+    "check_attribution_labels": (
+        {"content": "No explicit attribution label here."},
+        {"ok": False, "unsupported": True},
     ),
 }
 

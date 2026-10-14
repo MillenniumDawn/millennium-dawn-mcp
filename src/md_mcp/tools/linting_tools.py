@@ -701,6 +701,8 @@ def lint_tool(
             "total": result.get("total", 0),
             "exit_code": result.get("exit_code"),
         }
+        if result.get("diagnostics_summary"):
+            check_summary["diagnostics_summary"] = result["diagnostics_summary"]
         if result.get("skipped"):
             check_summary["skipped"] = result["skipped"]
         if not result.get("ok"):
@@ -710,7 +712,15 @@ def lint_tool(
         else:
             issues = result.get("issues", []) or []
             omitted = max(0, int(result.get("total", len(issues))) - len(issues))
-            if omitted:
+            if isinstance(result.get("severity_counts"), dict):
+                returned_counts = count_severities(issues)
+                for severity, total in result["severity_counts"].items():
+                    missing = max(0, int(total) - returned_counts.get(severity, 0))
+                    if missing:
+                        omitted_by_severity[severity] = (
+                            omitted_by_severity.get(severity, 0) + missing
+                        )
+            elif omitted:
                 # Encoding wrappers cap their per-check diagnostic arrays. Their
                 # findings have a fixed severity, so preserve complete totals.
                 severity = "warning" if name == "common_mistakes" else "error"

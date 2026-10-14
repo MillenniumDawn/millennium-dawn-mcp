@@ -61,18 +61,14 @@ def check_attribution_labels_tool(
                 proc.kill()
             proc.communicate()
             return {"ok": False, "error": "Attribution analysis exceeded its 30 second limit."}
-    except (OSError, ValueError, UnicodeError) as exc:
-        return {"ok": False, "error": f"Could not start attribution analysis: {exc}"}
+    except (OSError, ValueError, UnicodeError):
+        return {"ok": False, "error": "Could not start attribution analysis subprocess."}
     if proc.returncode != 0:
-        detail = (stderr or "").strip()[-300:]
-        return {
-            "ok": False,
-            "error": "Attribution analysis subprocess failed" + (f": {detail}" if detail else ""),
-        }
+        return {"ok": False, "error": "Attribution analysis subprocess failed."}
     try:
         result = json.loads(stdout)
-    except (TypeError, json.JSONDecodeError) as exc:
-        return {"ok": False, "error": f"Attribution analysis returned invalid JSON: {exc}"}
+    except (TypeError, json.JSONDecodeError):
+        return {"ok": False, "error": "Attribution analysis returned invalid JSON."}
     if not isinstance(result, dict):
         return {"ok": False, "error": "Attribution analysis returned a non-object response"}
     return enforce_budget(result, heavy_keys=("findings",))

@@ -59,13 +59,17 @@ def analyze(root: Path, payload: Any) -> dict:
     try:
         module = _load_helper(root)
         found = module.findings(content, "supplied text")
+        if not isinstance(found, (list, tuple)):
+            return {"ok": False, "unsupported": True, "error": "unsupported findings result"}
         rows = []
         for item in found:
             if (
                 not isinstance(item, (tuple, list))
                 or len(item) != 3
+                or item[0] != "supplied text"
                 or isinstance(item[1], bool)
                 or not isinstance(item[1], int)
+                or not 1 <= item[1] <= content.count("\n") + 1
                 or not isinstance(item[2], str)
                 or item[2] not in SUPPORTED_RULES
             ):
@@ -77,8 +81,12 @@ def analyze(root: Path, payload: Any) -> dict:
             "unsupported": True,
             "error": "upstream attribution helper is unavailable",
         }
-    except ImportError as exc:
-        return {"ok": False, "unsupported": True, "error": str(exc)[:180]}
+    except ImportError:
+        return {
+            "ok": False,
+            "unsupported": True,
+            "error": "upstream attribution helper API is unavailable",
+        }
     except Exception as exc:
         return {
             "ok": False,

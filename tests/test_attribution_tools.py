@@ -131,7 +131,7 @@ def test_unloadable_api_shape_and_analysis_exception_are_structured(tmp_path: Pa
     monkeypatch.setattr(attribution_shim.importlib.util, "spec_from_file_location", lambda *a: None)
     result = analyze(helper.parents[2], {"content": "safe"})
     assert result["ok"] is False and result["unsupported"] is True
-    assert "could not be loaded" in result["error"]
+    assert "API is unavailable" in result["error"]
 
     monkeypatch.undo()
     helper.write_text(
@@ -140,19 +140,32 @@ def test_unloadable_api_shape_and_analysis_exception_are_structured(tmp_path: Pa
     result = analyze(helper.parents[2], {"content": MARKER})
     assert result["ok"] is False and "RuntimeError" in result["error"]
     assert MARKER not in json.dumps(result)
+    helper.write_text(
+        "def classify(line): return None\ndef findings(text, *args): raise ImportError(text)\n"
+    )
+    result = analyze(helper.parents[2], {"content": MARKER})
+    assert result["ok"] is False and result["unsupported"] is True
+    assert MARKER not in json.dumps(result)
 
 
-@pytest.mark.parametrize("result_source", ["bad-shape", "bad-rule"])
+@pytest.mark.parametrize(
+    "result_source",
+    ["bad-shape", "bad-rule", "negative-line", "out-of-range-line", "bool-line", "wrong-source"],
+)
 def test_unsupported_upstream_findings_shape_is_not_reported_as_empty(
     tmp_path: Path, result_source: str
 ):
     helper = tmp_path / result_source / "tools/analysis/check_ai_attribution.py"
     helper.parent.mkdir(parents=True)
-    body = (
-        "['wrong-shape']"
-        if result_source == "bad-shape"
-        else "[('supplied text', 1, 'unknown-rule')]"
-    )
+    bodies = {
+        "bad-shape": "{'looks': 'empty'}",
+        "bad-rule": "[('supplied text', 1, 'unknown-rule')]",
+        "negative-line": "[('supplied text', -77, 'ai-header')]",
+        "out-of-range-line": "[('supplied text', 2, 'ai-header')]",
+        "bool-line": "[('supplied text', True, 'ai-header')]",
+        "wrong-source": "[('private source', 1, 'ai-header')]",
+    }
+    body = bodies[result_source]
     helper.write_text(
         "def classify(line): return None\n" f"def findings(*args): return {body}\n",
         encoding="utf-8",
@@ -264,10 +277,10 @@ def test_wrapper_bounds_child_process_failures(tmp_path: Path, monkeypatch, mode
                 raise subprocess.TimeoutExpired("attribution", timeout)
             stdout = '{"ok":true,"findings":[]}'
             if mode == "bad_json":
-                stdout = "{"
+                stdout = f'{{"secret":"{MARKER}"}} trailing'
             elif mode == "non_object":
                 stdout = "[]"
-            return stdout, "private child detail" if mode == "nonzero" else ""
+            return stdout, MARKER if mode == "nonzero" else ""
 
         def kill(self):
             self.killed = True
@@ -277,7 +290,7 @@ def test_wrapper_bounds_child_process_failures(tmp_path: Path, monkeypatch, mode
         monkeypatch.setattr(
             attribution_tools.subprocess,
             "Popen",
-            lambda *args, **kwargs: (_ for _ in ()).throw(OSError("spawn denied")),
+            lambda *args, **kwargs: (_ for _ in ()).throw(OSError(MARKER)),
         )
     else:
         monkeypatch.setattr(attribution_tools.subprocess, "Popen", lambda *a, **k: process)
@@ -294,10 +307,13 @@ def test_wrapper_bounds_child_process_failures(tmp_path: Path, monkeypatch, mode
         assert process.killed is True
     elif mode == "spawn":
         assert result["ok"] is False and "Could not start" in result["error"]
+        assert MARKER not in json.dumps(result)
     elif mode == "nonzero":
-        assert result["ok"] is False and "private child detail" in result["error"]
+        assert result["ok"] is False and "subprocess failed" in result["error"]
+        assert MARKER not in json.dumps(result)
     elif mode == "bad_json":
         assert result["ok"] is False and "invalid JSON" in result["error"]
+        assert MARKER not in json.dumps(result)
     elif mode == "non_object":
         assert result["ok"] is False and "non-object" in result["error"]
     else:
@@ -354,3 +370,16 @@ def test_stdio_never_echoes_supplied_text_or_invalid_argument_values(tmp_path: P
     assert all("Author: Codex" not in answer for answer in answers)
     assert (helper.stat().st_mtime_ns, helper.stat().st_size) == before
     assert set(mod_root.rglob("__pycache__")) == set()
+
+
+def test_stdio_import_error_cannot_echo_supplied_content(tmp_path: Path):
+    mod_root = tmp_path / "mod"
+    helper = _install_helper(mod_root, UPSTREAM_ROOTS[0])
+    helper.write_text(
+        "def classify(line): return None\ndef findings(text, *args): raise ImportError(text)\n",
+        encoding="utf-8",
+    )
+    answers = asyncio.run(_stdio_calls(mod_root, tmp_path / "cache"))
+    assert all("Author: Codex" not in answer for answer in answers)
+    assert all("x" * 100 not in answer for answer in answers)
+    assert all(MARKER not in answer for answer in answers)

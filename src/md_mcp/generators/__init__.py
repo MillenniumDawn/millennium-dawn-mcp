@@ -4,6 +4,7 @@ from .focus import generate_focus
 from .gfx import generate_gfx_entry, generate_gfx_merge
 from .idea import generate_idea
 from .loc import generate_loc_stub
+from .missing_loc import generate_missing_loc_tool
 
 __all__ = [
     "generate_decision",
@@ -13,4 +14,5 @@ __all__ = [
     "generate_gfx_merge",
     "generate_idea",
     "generate_loc_stub",
+    "generate_missing_loc_tool",
 ]

@@ -1,0 +1,147 @@
+from __future__ import annotations
+
+import pytest
+
+from md_mcp.config import Settings
+from md_mcp.generators import missing_loc
+from md_mcp.indexes import EventIndex, FocusIndex, LocalisationIndex
+
+
+def _tool(fake_mod_root, cache_dir):
+    settings = Settings(
+        mod_root=fake_mod_root,
+        vanilla_path=None,
+        cache_dir=cache_dir,
+        validator_mode="isolated",
+        default_lang="en",
+    )
+    return lambda **kwargs: missing_loc.generate_missing_loc_tool(
+        settings,
+        FocusIndex(fake_mod_root, cache_dir, None),
+        EventIndex(fake_mod_root, cache_dir, None),
+        LocalisationIndex(fake_mod_root, cache_dir, None, langs=("en",)),
+        **kwargs,
+    )
+
+
+def test_generate_missing_loc_omits_existing_keys_and_returns_complete_text(
+    fake_mod_root, cache_dir
+):
+    tool = _tool(fake_mod_root, cache_dir)
+
+    result = tool(focus_ids=["TST_root"], event_ids=["TestnsNews.42"])
+
+    assert result["ok"] is True
+    assert result["complete"] is True
+    assert result["partial"] is False
+    assert result["total"] == 3
+    assert [entry["key"] for entry in result["loc_yml_keys"]] == [
+        "TestnsNews.42.a",
+        "TestnsNews.42.d",
+        "TestnsNews.42.t",
+    ]
+    assert "TST_root:" not in result["txt"]
+    assert "TestnsNews.42.t:" in result["txt"]
+
+
+def test_generate_missing_loc_marks_paged_and_unresolved_results_partial(fake_mod_root, cache_dir):
+    tool = _tool(fake_mod_root, cache_dir)
+
+    result = tool(event_ids=["TestnsNews.42"], focus_ids=["missing"], limit=1)
+
+    assert result["complete"] is False
+    assert result["partial"] is True
+    assert result["truncated"] is True
+    assert result["unresolved"] == ["focus:missing"]
+
+
+def test_generate_missing_loc_marks_final_budget_truncation_partial(
+    fake_mod_root, cache_dir, monkeypatch
+):
+    tool = _tool(fake_mod_root, cache_dir)
+    original = missing_loc.enforce_budget
+
+    def truncate(result, *, heavy_keys):
+        return {**original(result, heavy_keys=heavy_keys), "size_truncated": True, "txt_dropped": 1}
+
+    monkeypatch.setattr(missing_loc, "enforce_budget", truncate)
+    result = tool(event_ids=["TestnsNews.42"])
+
+    assert result["complete"] is False
+    assert result["partial"] is True
+
+
+def test_generate_missing_loc_uses_event_referenced_keys_and_marks_missing_fields(
+    fake_mod_root, cache_dir
+):
+    (fake_mod_root / "events" / "test_events.txt").write_text(
+        "country_event = {\n"
+        "\tid = Testns.8\n"
+        "\ttitle = custom_event_title\n"
+        "\toption = { name = custom_event_option }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    result = _tool(fake_mod_root, cache_dir)(event_ids=["Testns.8"])
+
+    assert [entry["key"] for entry in result["loc_yml_keys"]] == [
+        "custom_event_option",
+        "custom_event_title",
+    ]
+    assert result["complete"] is False
+    assert result["partial"] is True
+    assert result["failures"] == ["event:Testns.8: description localisation key is missing"]
+
+
+def test_generate_missing_loc_marks_generator_byte_budget_drops_partial(
+    fake_mod_root, cache_dir, monkeypatch
+):
+    monkeypatch.setattr(FocusIndex, "resolve", lambda self, ident: {"tag": "TST"})
+    monkeypatch.setattr(LocalisationIndex, "resolve", lambda self, key, lang="en": None)
+    huge_id = "TST_" + "x" * 90_000
+
+    result = _tool(fake_mod_root, cache_dir)(focus_ids=[huge_id])
+
+    assert result["complete"] is False
+    assert result["partial"] is True
+    assert result["txt_truncated"] is True
+
+
+def test_generate_missing_loc_marks_structured_option_key_partial(fake_mod_root, cache_dir):
+    (fake_mod_root / "events" / "structured_option.txt").write_text(
+        "country_event = {\n"
+        "  id = Testns.90\n"
+        "  title = Testns.90.title\n"
+        "  desc = Testns.90.desc\n"
+        "  option = { name = { text = Testns.90.option } }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    result = _tool(fake_mod_root, cache_dir)(event_ids=["Testns.90"])
+    assert result["complete"] is False
+    assert result["partial"] is True
+    assert any("option localisation key is non-scalar" in item for item in result["failures"])
+
+
+@pytest.mark.parametrize("failure", ["missing", "parse"])
+def test_generate_missing_loc_marks_unavailable_or_unreadable_event_source_partial(
+    fake_mod_root, cache_dir, monkeypatch, failure
+):
+    from md_mcp.generators import missing_loc as module
+
+    source = fake_mod_root / "events" / "broken.txt"
+    source.write_text("broken", encoding="utf-8")
+    monkeypatch.setattr(
+        EventIndex,
+        "resolve",
+        lambda self, ident: {"file": "events/broken.txt", "line": 1},
+    )
+    if failure == "missing":
+        monkeypatch.setattr(module, "resolve_scope_file", lambda *args: None)
+    else:
+        monkeypatch.setattr(module, "resolve_scope_file", lambda *args: source)
+        monkeypatch.setattr(module, "parse_cached", lambda path: (_ for _ in ()).throw(OSError()))
+    result = _tool(fake_mod_root, cache_dir)(event_ids=["Testns.91"])
+    assert result["complete"] is False
+    assert result["partial"] is True
+    assert result["failures"]

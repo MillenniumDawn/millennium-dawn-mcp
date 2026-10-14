@@ -33,6 +33,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
@@ -40,9 +41,56 @@ from typing import Iterable, Optional
 from ..analysis.suppressions import SUPPRESSION_SOURCE, suppress_issues
 from ..util.git import GitError, run_git
 from ..util.process import run_in_group
+from ..util.upstream_modules import UpstreamModules
 from .attribution import IssueAttributor
 
 logger = logging.getLogger(__name__)
+
+_CACHE_MAINTENANCE = UpstreamModules("validation", ("disk_cache", "shared_utils"))
+_CACHE_MAINTENANCE_LOCK = threading.Lock()
+_CACHE_MAINTAINED: set[Path] = set()
+
+
+def _prune_obsolete_cache_versions(mod_root: Path) -> None:
+    """Remove only empty obsolete cache directories; preserve every data-bearing DB.
+
+    An upstream version can remain active in another process, so the upstream
+    bulk pruner is unsafe here. Empty older directories are safe to remove with
+    rmdir's atomic non-empty check. Age-based clearing stays in upstream's suite.
+    """
+    if os.environ.get("MD_NO_CACHE") == "1":
+        return
+    root = mod_root.resolve()
+    with _CACHE_MAINTENANCE_LOCK:
+        if root in _CACHE_MAINTAINED:
+            return
+        try:
+            module = _CACHE_MAINTENANCE.load(root, ("disk_cache",)).get("disk_cache")
+            version = getattr(module, "CACHE_VERSION", None)
+            if not isinstance(version, int) or isinstance(version, bool):
+                return
+            cache_name = getattr(module, "_CACHE_DIR_NAME", ".validation_cache")
+            cache_root = root / cache_name
+            try:
+                children = list(cache_root.iterdir())
+            except OSError:
+                return
+            for child in children:
+                match = re.fullmatch(r"v(\d+)", child.name)
+                if (
+                    match is None
+                    or child.is_symlink()
+                    or int(match.group(1)) >= version
+                    or not child.is_dir()
+                ):
+                    continue
+                with contextlib.suppress(OSError):
+                    child.rmdir()
+                    # A DB or any concurrent write makes this directory non-empty.
+        except Exception:
+            logger.debug("upstream validator cache maintenance unavailable", exc_info=True)
+        finally:
+            _CACHE_MAINTAINED.add(root)
 
 
 def _staged_files_env(mod_root: Path) -> str:
@@ -207,6 +255,8 @@ class ValidatorRunner:
                 "validator": name,
                 "error": f"Unknown validator '{name}'. Use validate_list to see options.",
             }
+
+        _prune_obsolete_cache_versions(self.mod_root)
 
         if self.mode == "in_process":
             return self._run_inprocess(

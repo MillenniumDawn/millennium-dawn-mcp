@@ -13,6 +13,25 @@ _SHIM = Path(__file__).with_name("ci_timing_shim.py")
 _TIMEOUT_SECONDS = 60
 
 
+def _sync_budget_metadata(bounded: dict) -> dict:
+    dropped_keys = bounded.get("dropped_keys", [])
+    if not isinstance(dropped_keys, list):
+        dropped_keys = []
+    for name in ("samples", "groups"):
+        dropped = f"{name}_dropped" in bounded or name in dropped_keys
+        if dropped:
+            bounded[f"{name}_returned"] = 0
+            bounded[f"{name}_truncated"] = True
+        elif isinstance(bounded.get(name), list):
+            bounded[f"{name}_returned"] = len(bounded[name])
+        elif bounded.get("ok") is True and f"{name}_total" in bounded:
+            # The last-resort budget fallback may omit both the list and its
+            # per-list dropped count while retaining only a dropped_keys list.
+            bounded[f"{name}_returned"] = 0
+            bounded[f"{name}_truncated"] = True
+    return bounded
+
+
 def validation_timing_summary_tool(
     mod_root: Path,
     content: str,
@@ -81,4 +100,5 @@ def validation_timing_summary_tool(
         return {"ok": False, "error": f"Timing analysis returned invalid JSON: {exc}"}
     if not isinstance(result, dict):
         return {"ok": False, "error": "Timing analysis returned a non-object response"}
-    return enforce_budget(result, heavy_keys=("samples", "groups"))
+    bounded = enforce_budget(result, heavy_keys=("samples", "groups"))
+    return _sync_budget_metadata(bounded)

@@ -206,6 +206,74 @@ def test_input_size_and_pagination_errors_are_bounded(fake_mod_root: Path):
     assert not validation_timing_summary_tool(fake_mod_root, "{}", limit=True)["ok"]
 
 
+@pytest.mark.parametrize("heavy_key", ["samples", "groups"])
+def test_budget_drop_reconciles_returned_counts_and_truncation(
+    fake_mod_root: Path, monkeypatch, heavy_key: str
+):
+    helper = fake_mod_root / "tools/analysis/validation_timing_report.py"
+    helper.parent.mkdir(parents=True)
+    shutil.copyfile(UPSTREAM_ROOTS[0] / "tools/analysis/validation_timing_report.py", helper)
+    original_budget = ci_timing_tools.enforce_budget
+
+    def drop_one_list(result: dict, *, heavy_keys: tuple[str, ...]) -> dict:
+        assert heavy_keys == ("samples", "groups")
+        dropped = dict(result)
+        dropped[f"{heavy_key}_dropped"] = len(dropped.pop(heavy_key))
+        dropped["size_truncated"] = True
+        return dropped
+
+    monkeypatch.setattr(ci_timing_tools, "enforce_budget", drop_one_list)
+    result = validation_timing_summary_tool(fake_mod_root, _content(_export(71)))
+    assert result["ok"] is True
+    assert result[f"{heavy_key}_returned"] == 0
+    assert result[f"{heavy_key}_truncated"] is True
+    other_key = "groups" if heavy_key == "samples" else "samples"
+    assert result[f"{other_key}_returned"] == 1
+    assert result[f"{other_key}_truncated"] is False
+    monkeypatch.setattr(ci_timing_tools, "enforce_budget", original_budget)
+
+
+def test_budget_fallback_marks_omitted_lists_and_preserves_error():
+    result = ci_timing_tools._sync_budget_metadata(
+        {
+            "ok": True,
+            "samples_total": 4,
+            "groups_total": 2,
+            "dropped_keys": ["samples", "groups"],
+        }
+    )
+    assert result["samples_returned"] == result["groups_returned"] == 0
+    assert result["samples_truncated"] is result["groups_truncated"] is True
+    error = ci_timing_tools._sync_budget_metadata({"ok": False, "error": "budget fallback"})
+    assert error == {"ok": False, "error": "budget fallback"}
+
+
+def test_real_budget_drop_reconciles_both_large_unicode_lists(fake_mod_root: Path):
+    helper = fake_mod_root / "tools/analysis/validation_timing_report.py"
+    helper.parent.mkdir(parents=True)
+    shutil.copyfile(UPSTREAM_ROOTS[0] / "tools/analysis/validation_timing_report.py", helper)
+    exports = []
+    for export_index in range(20):
+        export = _export(800 + export_index, head=f"head-{export_index}")
+        export["jobs"] = [
+            dict(
+                export["jobs"][0],
+                databaseId=export_index * 100 + job_index,
+                name=f"{'🌍' * 157}{job_index:03}",
+            )
+            for job_index in range(20)
+        ]
+        exports.append(export)
+    content = _content(exports)
+    assert 400_000 < len(content.encode("utf-8")) < 1_000_000
+    result = validation_timing_summary_tool(fake_mod_root, content, limit=20, include_steps=True)
+    assert result["ok"] is True
+    assert result["samples_total"] == result["groups_total"] == 20
+    assert result["samples_dropped"] == result["groups_dropped"] == 20
+    assert result["samples_returned"] == result["groups_returned"] == 0
+    assert result["samples_truncated"] is result["groups_truncated"] is True
+
+
 @pytest.mark.parametrize(
     ("content", "message"),
     [
@@ -229,7 +297,7 @@ def test_json_deep_nesting_fails_before_parser(fake_mod_root: Path):
     nested: object = 0
     for index in range(13):
         nested = {str(index): nested}
-    result = analyze(fake_mod_root, _request(_content(nested)))
+    result = analyze(fake_mod_root, _request(json.dumps(nested)))
     assert result["ok"] is False
     assert "nesting" in result["error"]
 
@@ -464,6 +532,8 @@ async def _stdio_timing_probe(mod_root: Path, cache_dir: Path, content: str) -> 
             {"content": content, "limit": 2, "offset": 0},
         )
         assert not response.isError
+        if not response.content or not hasattr(response.content[0], "text"):
+            raise AssertionError("timing tool returned no text payload")
         return json.loads(response.content[0].text)
 
 

@@ -508,6 +508,11 @@ def build_server(settings: Settings):
             ai_path_report_tool, settings.mod_root, tag, section, limit, offset
         )
 
+    @mcp.tool(name="calculate_days")
+    def _calculate_days(year: int, month: int, day: int) -> dict:
+        """Calculate days since 2000 using fixed non-leap years; validates year, month, and day."""
+        return calculate_days_tool(year, month, day)
+
     from .tools.ci_timing_tools import validation_timing_summary_tool
 
     @mcp.tool(name="validation_timing_summary")
@@ -526,11 +531,6 @@ def build_server(settings: Settings):
             offset,
             include_steps,
         )
-
-    @mcp.tool(name="calculate_days")
-    def _calculate_days(year: int, month: int, day: int) -> dict:
-        """Calculate days since 2000 using fixed non-leap years; validates year, month, and day."""
-        return calculate_days_tool(year, month, day)
 
     @mcp.tool(name="focus_graph")
     def _focus_graph(

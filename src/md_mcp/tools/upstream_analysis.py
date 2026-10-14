@@ -10,12 +10,12 @@ from typing import Optional
 from ..util.process import run_in_group
 from ..util.response import coerce_int, enforce_budget
 
+_FOCUS_OVERLAP_TIMEOUT = 120
 _SHIM = Path(__file__).with_name("upstream_analysis_shim.py")
 _TICK_TIMEOUT = 120
 _GDP_TIMEOUT = 120
 _EVENT_LOAD_TIMEOUT = 180
 _AI_PATH_TIMEOUT = 240
-_FOCUS_OVERLAP_TIMEOUT = 120
 _DAYS_PER_MONTH = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 
 

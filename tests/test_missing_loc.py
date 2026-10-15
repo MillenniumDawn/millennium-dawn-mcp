@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from md_mcp.config import Settings
@@ -105,6 +107,27 @@ def test_generate_missing_loc_marks_generator_byte_budget_drops_partial(
     assert result["complete"] is False
     assert result["partial"] is True
     assert result["txt_truncated"] is True
+
+
+def test_generate_missing_loc_reconciles_budget_dropped_keys(fake_mod_root, cache_dir, monkeypatch):
+    monkeypatch.setattr(FocusIndex, "resolve", lambda self, ident: {"tag": "TST"})
+    monkeypatch.setattr(LocalisationIndex, "resolve", lambda self, key, lang="en": None)
+    monkeypatch.setattr(
+        missing_loc,
+        "generate_loc_stub",
+        lambda *args, **kwargs: {"txt": "small generated stub\n"},
+    )
+    focus_ids = [f"TST_{number}_" + "x" * 1_000 for number in range(70)]
+
+    result = _tool(fake_mod_root, cache_dir)(focus_ids=focus_ids)
+
+    assert result["loc_yml_keys_dropped"] == 140
+    assert result["total"] == 140
+    assert result["returned"] == 0
+    assert result["truncated"] is True
+    assert result["complete"] is False
+    assert result["partial"] is True
+    assert len(json.dumps(result).encode("utf-8")) <= 100_000
 
 
 def test_generate_missing_loc_marks_structured_option_key_partial(fake_mod_root, cache_dir):

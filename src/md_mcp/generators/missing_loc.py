@@ -143,4 +143,9 @@ def generate_missing_loc_tool(
     ):
         bounded["complete"] = False
         bounded["partial"] = True
-    return bounded
+    if bounded.get("loc_yml_keys_dropped") is not None:
+        bounded["returned"] = 0
+        bounded["truncated"] = bool(bounded.get("total", 0))
+    if bounded.get("txt_dropped") is not None:
+        bounded["txt_truncated"] = True
+    return enforce_budget(bounded, heavy_keys=("loc_yml_keys", "failures", "unresolved", "txt"))

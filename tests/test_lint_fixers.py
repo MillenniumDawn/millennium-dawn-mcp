@@ -753,6 +753,39 @@ def test_event_option_logs_refuses_out_of_scope_and_shared_source_line(tmp_path)
     assert "shares a line" in unsafe["error"]
 
 
+def test_event_option_logs_refuses_unquoted_value_with_closing_brace(tmp_path):
+    _plant_event_log_detector(tmp_path, [("Test.1.a", 5)])
+    source = (
+        "country_event = {\n"
+        "\tid = Test.1\n"
+        "\toption = {\n"
+        "\t\tname = Test.1.a\n"
+        "\t\tlog = nothing}\n"
+        "\t}\n"
+        "}\n"
+    )
+
+    result = fix_lint_tool(
+        tmp_path, fixer="event_option_logs", path="events/test.txt", content=source
+    )
+
+    assert result["ok"] is False
+    assert "shares a line" in result["error"]
+    assert "txt" not in result
+
+
+@pytest.mark.parametrize("log_line", ['log = "nothing happened"\n', "log = nothing_happened\n"])
+def test_event_option_logs_accepts_standalone_quoted_and_unquoted_values(tmp_path, log_line):
+    _plant_event_log_detector(tmp_path, [("option", 1)])
+
+    result = fix_lint_tool(
+        tmp_path, fixer="event_option_logs", path="events/test.txt", content=log_line
+    )
+
+    assert result["ok"] is True
+    assert result["txt"] == ""
+
+
 @pytest.mark.integration
 def test_event_option_logs_uses_real_upstream_detector(real_mod_root):
     source = (

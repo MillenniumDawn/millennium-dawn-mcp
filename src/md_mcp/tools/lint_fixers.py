@@ -196,7 +196,7 @@ def fix_lint_tool(
         remove = {line for _, line in findings if 1 <= line <= len(lines)}
         for number in remove:
             if not re.fullmatch(
-                r'\s*log\s*=\s*(?:"(?:\\.|[^"\\])*"|[^\s#]+)\s*(?:\#[^\r\n]*)?(?:\r?\n)?',
+                r'\s*log\s*=\s*(?:"(?:\\.|[^"\\])*"|[^\s#{}]+)\s*(?:\#[^\r\n]*)?(?:\r?\n)?',
                 lines[number - 1],
             ):
                 return {

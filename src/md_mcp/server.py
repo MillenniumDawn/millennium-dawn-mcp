@@ -476,6 +476,7 @@ def build_server(settings: Settings):
             tick_spot_check_tool,
             settings.mod_root,
             files,
+            submod_root=settings.submod_root,
             scope=scope,
             limit=limit,
             offset=offset,

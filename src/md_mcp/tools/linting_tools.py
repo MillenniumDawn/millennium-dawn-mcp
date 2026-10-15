@@ -615,7 +615,7 @@ def lint_tool(
         return runner()
 
     def _lint_spot_check(paths: list[str]) -> dict:
-        result = tick_spot_check_tool(mod_root, paths)
+        result = tick_spot_check_tool(mod_root, paths, submod_root=submod_root)
         if not result.get("ok"):
             return result
         issues: list[dict] = []

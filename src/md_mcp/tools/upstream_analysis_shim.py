@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -98,14 +99,36 @@ def _tick_spot_check(mod_root: Path, payload: dict) -> dict:
         offset = max(0, int(payload.get("offset", 0)))
     except (TypeError, ValueError, OverflowError) as exc:
         return {"ok": False, "error": f"Invalid pagination values: {exc}"}
-    safe_files, invalid = _validated_spot_files(mod_root, files)
+    scan_root_value = payload.get("scan_root")
+    roots = [Path(scan_root_value), mod_root] if isinstance(scan_root_value, str) else [mod_root]
+    scan_files, invalid = _validated_spot_files(roots, files)
     if invalid:
         return {
             "ok": False,
             "error": "tick spot checks accept only existing regular .txt files inside the mod root",
             "invalid_files": invalid[:20],
         }
-    report = scanner(safe_files, scope=payload.get("scope"))
+    # The upstream helpers resolve and label every file against their module
+    # level root. Build a temporary view containing only the selected files so
+    # overlay files shadow base files and base-only paths remain available to
+    # the same cross-file scan (for example, scripted effect references).
+    original_root = getattr(module, "REPO_ROOT", None)
+    try:
+        with tempfile.TemporaryDirectory(prefix="md-mcp-tick-spot-") as temp_root:
+            selected_root = Path(temp_root)
+            safe_files = []
+            for scan_root, relpaths in scan_files.items():
+                for relpath in relpaths:
+                    destination = selected_root / relpath
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_bytes((scan_root / relpath).read_bytes())
+                    safe_files.append(relpath)
+            if original_root is not None:
+                module.REPO_ROOT = str(selected_root)
+            report = scanner(sorted(safe_files), scope=payload.get("scope"))
+    finally:
+        if original_root is not None:
+            module.REPO_ROOT = original_root
     findings = report.get("findings", [])
     diagnostics = report.get("diagnostics", [])
     total_findings = len(findings)
@@ -151,36 +174,74 @@ def _tick_spot_check(mod_root: Path, payload: dict) -> dict:
     }
 
 
-def _validated_spot_files(mod_root: Path, files: list[str]) -> tuple[list[str], list[str]]:
-    """Resolve explicit scanner inputs without allowing directory expansion or links."""
-    try:
-        root = mod_root.resolve(strict=True)
-    except OSError:
-        return [], [str(mod_root)]
-    if not root.is_dir():
-        return [], [str(mod_root)]
+def _validated_spot_files(
+    roots: list[Path], files: list[str]
+) -> tuple[dict[Path, list[str]], list[str]]:
+    """Resolve explicit files overlay-first without allowing unsafe shadow fallback."""
+    available_roots: list[Path] = []
+    for root in roots:
+        try:
+            resolved_root = root.resolve(strict=True)
+        except OSError:
+            continue
+        if resolved_root.is_dir() and resolved_root not in available_roots:
+            available_roots.append(resolved_root)
 
-    safe: list[str] = []
+    safe: dict[Path, list[str]] = {}
     invalid: list[str] = []
+    selected_roots: dict[str, tuple[Path, str]] = {}
     for value in files:
         requested = Path(value)
-        candidate = requested if requested.is_absolute() else root / requested
-        try:
-            resolved = candidate.resolve(strict=True)
-            inside = os.path.commonpath((str(root), str(resolved))) == str(root)
-        except (OSError, ValueError):
-            inside = False
-            resolved = candidate
-        linked = candidate.is_symlink()
-        parent = candidate.parent
-        while not linked and parent != root and parent != parent.parent:
-            linked = parent.is_symlink()
-            parent = parent.parent
-        if not inside or linked or not resolved.is_file() or resolved.suffix != ".txt":
+        if not requested.is_absolute() and ".." in requested.parts:
             invalid.append(value)
             continue
-        safe.append(resolved.relative_to(root).as_posix())
-    return sorted(set(safe)), invalid
+        selected: tuple[Path, Path] | None = None
+        for root in available_roots:
+            candidate = requested if requested.is_absolute() else root / requested
+            # An absolute path can only be considered by the root containing
+            # it. Relative paths are tested overlay-first; once any overlay
+            # entry exists (including a directory or symlink), it shadows the
+            # base and must be valid rather than silently falling through.
+            try:
+                lexical_inside = os.path.commonpath((str(root), str(candidate.absolute()))) == str(
+                    root
+                )
+            except ValueError:
+                lexical_inside = False
+            if requested.is_absolute() and not lexical_inside:
+                continue
+            linked = candidate.is_symlink()
+            parent = candidate.parent
+            while not linked and parent != root and parent != parent.parent:
+                linked = parent.is_symlink()
+                parent = parent.parent
+            present = os.path.lexists(candidate) or linked
+            if not present:
+                continue
+            try:
+                resolved = candidate.resolve(strict=True)
+                inside = os.path.commonpath((str(root), str(resolved))) == str(root)
+            except (OSError, ValueError):
+                invalid.append(value)
+                break
+            if inside and not linked and resolved.is_file() and resolved.suffix == ".txt":
+                selected = (root, resolved)
+                break
+            invalid.append(value)
+            break
+        if selected is None:
+            if value not in invalid:
+                invalid.append(value)
+            continue
+        root, resolved = selected
+        relpath = resolved.relative_to(root).as_posix()
+        previous = selected_roots.get(relpath)
+        if previous is not None and previous[0] != root:
+            invalid.extend((previous[1], value))
+            continue
+        selected_roots[relpath] = (root, value)
+        safe.setdefault(root, []).append(relpath)
+    return {root: sorted(set(paths)) for root, paths in safe.items()}, list(dict.fromkeys(invalid))
 
 
 def _estimate_gdp(mod_root: Path, payload: dict) -> dict:

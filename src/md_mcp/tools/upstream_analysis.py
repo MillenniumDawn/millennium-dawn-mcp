@@ -72,6 +72,7 @@ def tick_spot_check_tool(
     mod_root: Path,
     files: list[str],
     *,
+    submod_root: Optional[Path] = None,
     scope: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
@@ -89,9 +90,27 @@ def tick_spot_check_tool(
     result = _run_shim(
         mod_root,
         "tick_spot_check",
-        {"files": files, "scope": scope, "limit": limit, "offset": offset},
+        {
+            "files": files,
+            "scan_root": str(submod_root) if submod_root is not None else None,
+            "scope": scope,
+            "limit": limit,
+            "offset": offset,
+        },
         timeout=_TICK_SPOT_TIMEOUT,
     )
+    result = enforce_budget(result, heavy_keys=("findings", "diagnostics", "assumptions"))
+    if result.get("size_truncated"):
+        # The budget guard may remove a whole page. Keep the pagination fields
+        # consistent with the lists that are actually present in the response.
+        for key, total_key, returned_key, truncated_key in (
+            ("findings", "total", "returned", "truncated"),
+            ("diagnostics", "diagnostics_total", "diagnostics_returned", "diagnostics_truncated"),
+        ):
+            dropped = result.get(f"{key}_dropped")
+            if dropped is not None:
+                result[returned_key] = 0
+                result[truncated_key] = bool(result.get(total_key, dropped))
     return enforce_budget(result, heavy_keys=("findings", "diagnostics", "assumptions"))
 
 

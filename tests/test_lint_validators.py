@@ -1448,7 +1448,7 @@ def test_lint_tick_spot_check_is_explicit_only_and_aggregates_counts(tmp_path, m
     monkeypatch.setattr(
         linting_tools,
         "tick_spot_check_tool",
-        lambda root, files: {
+        lambda root, files, **kwargs: {
             "ok": True,
             "findings": findings[:1],
             "diagnostics": [{"fatal": True, "file": "events/a.txt", "line": 9, "message": "fatal"}],

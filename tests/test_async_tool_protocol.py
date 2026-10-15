@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.types import TextContent
 
 
 async def _probe_concurrent_stdio(
@@ -59,7 +60,9 @@ async def _probe_concurrent_stdio(
                 timeout=3,
             )
             assert not fast_result.isError
-            assert json.loads(fast_result.content[0].text) == {"ok": True, "days": 0}
+            fast_content = fast_result.content[0]
+            assert isinstance(fast_content, TextContent)
+            assert json.loads(fast_content.text) == {"ok": True, "days": 0}
             assert not slow_call.done(), "the analysis helper should still be waiting"
         finally:
             release.touch()
@@ -67,7 +70,9 @@ async def _probe_concurrent_stdio(
                 await asyncio.gather(slow_call, return_exceptions=True)
         result = await slow_call
         assert not result.isError
-        assert json.loads(result.content[0].text) == {"ok": True, "tool": tool_name}
+        content = result.content[0]
+        assert isinstance(content, TextContent)
+        assert json.loads(content.text) == {"ok": True, "tool": tool_name}
 
 
 @pytest.mark.parametrize(

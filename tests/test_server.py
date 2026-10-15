@@ -218,7 +218,7 @@ def test_analysis_wrappers_offload_and_forward_arguments(
 ):
     started = threading.Event()
     release = threading.Event()
-    forwarded = {}
+    forwarded: dict[str, Any] = {}
 
     def slow_helper(mod_root, *args, **kwargs):
         forwarded.update(mod_root=mod_root, args=args, kwargs=kwargs)

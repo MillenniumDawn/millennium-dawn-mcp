@@ -5,7 +5,6 @@ import io
 import json
 import os
 import runpy
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -19,32 +18,20 @@ from md_mcp.tools import attribution_shim, attribution_tools
 from md_mcp.tools.attribution_shim import analyze
 from md_mcp.tools.attribution_tools import check_attribution_labels_tool
 
-UPSTREAM_ROOTS = [
-    Path("/workspace/Millennium-Dawn"),
-    Path("/workspace/scratch/md-upstream-fb657ff7"),
-]
 MARKER = "private-marker-49b1"
+UPSTREAM_HELPER_FIXTURE = Path(__file__).parent / "fixtures/upstream/check_ai_attribution.py"
 
 
-def _install_helper(mod_root: Path, upstream: Path) -> Path:
-    source = upstream / "tools/analysis/check_ai_attribution.py"
-    if not source.is_file():
-        pytest.skip(f"upstream attribution helper unavailable: {upstream}")
+def _install_helper(mod_root: Path) -> Path:
     target = mod_root / "tools/analysis/check_ai_attribution.py"
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, target)
-    shared = upstream / "tools/shared_utils.py"
-    if shared.is_file():
-        shutil.copyfile(shared, target.parents[1] / "shared_utils.py")
+    target.write_bytes(UPSTREAM_HELPER_FIXTURE.read_bytes())
     return target
 
 
-@pytest.mark.parametrize("upstream", UPSTREAM_ROOTS)
-def test_saved_and_latest_upstream_classifiers_match_public_findings(
-    tmp_path: Path, upstream: Path
-):
-    mod_root = tmp_path / upstream.name
-    helper = _install_helper(mod_root, upstream)
+def test_public_classifier_fixture_matches_findings_contract(tmp_path: Path):
+    mod_root = tmp_path / "mod"
+    helper = _install_helper(mod_root)
     before = helper.stat().st_mtime_ns, helper.stat().st_size
     pycache_before = set(mod_root.rglob("__pycache__"))
     content = (
@@ -69,10 +56,31 @@ def test_saved_and_latest_upstream_classifiers_match_public_findings(
     assert set(mod_root.rglob("__pycache__")) == pycache_before
 
 
+@pytest.mark.integration
+def test_real_upstream_classifier_matches_public_findings(real_mod_root: Path):
+    result = analyze(
+        real_mod_root,
+        {
+            "content": (
+                "\ufeff# Author: ChatGPT\r\n"
+                "ordinary prose mentions Codex but has no label\r\n"
+                "Co-authored-by: GitHub Copilot\r\n"
+                "Generated with Claude Code\r\n"
+                "Author: Human <person@example.test>\r\n"
+            )
+        },
+    )
+    assert result["ok"] is True
+    assert result["findings"] == [
+        {"line": 1, "rule": "ai-header"},
+        {"line": 3, "rule": "ai-trailer"},
+        {"line": 4, "rule": "ai-footer"},
+    ]
+
+
 def test_report_only_explicit_label_semantics_and_paging(tmp_path: Path):
     mod_root = tmp_path / "mod"
-    upstream = UPSTREAM_ROOTS[0]
-    _install_helper(mod_root, upstream)
+    _install_helper(mod_root)
     content = "\n".join(
         [
             "I used Codex for this task.",
@@ -221,7 +229,7 @@ def test_large_finding_page_is_truncated_truthfully(tmp_path: Path):
 def test_shim_entrypoint_reads_pipe_and_returns_bounded_json(
     tmp_path: Path, monkeypatch, raw: bytes
 ):
-    _install_helper(tmp_path / "mod", UPSTREAM_ROOTS[0])
+    _install_helper(tmp_path / "mod")
     monkeypatch.setattr(sys, "argv", ["attribution_shim.py", str(tmp_path / "mod")])
     monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(raw)))
     output = io.StringIO()
@@ -394,9 +402,8 @@ async def _stdio_calls(
 
 
 def test_stdio_never_echoes_supplied_text_or_invalid_argument_values(tmp_path: Path):
-    upstream = UPSTREAM_ROOTS[0]
     mod_root = tmp_path / "mod"
-    helper = _install_helper(mod_root, upstream)
+    helper = _install_helper(mod_root)
     before = helper.stat().st_mtime_ns, helper.stat().st_size
     answers = asyncio.run(_stdio_calls(mod_root, tmp_path / "cache"))
     assert all(MARKER not in answer for answer in answers)
@@ -407,7 +414,7 @@ def test_stdio_never_echoes_supplied_text_or_invalid_argument_values(tmp_path: P
 
 def test_stdio_dense_near_limit_text_keeps_findings_and_pagination_truthful(tmp_path: Path):
     mod_root = tmp_path / "mod"
-    helper = _install_helper(mod_root, UPSTREAM_ROOTS[0])
+    helper = _install_helper(mod_root)
     before = helper.stat().st_mtime_ns, helper.stat().st_size
     answers = asyncio.run(_stdio_calls(mod_root, tmp_path / "cache", include_dense=True))
     result = json.loads(answers[2])
@@ -425,7 +432,7 @@ def test_stdio_dense_near_limit_text_keeps_findings_and_pagination_truthful(tmp_
 
 def test_stdio_import_error_cannot_echo_supplied_content(tmp_path: Path):
     mod_root = tmp_path / "mod"
-    helper = _install_helper(mod_root, UPSTREAM_ROOTS[0])
+    helper = _install_helper(mod_root)
     helper.write_text(
         "def classify(line): return None\ndef findings(text, *args): raise ImportError(text)\n",
         encoding="utf-8",

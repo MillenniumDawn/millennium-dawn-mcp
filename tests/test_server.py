@@ -602,7 +602,7 @@ def test_event_load_forwards_its_defaults_in_order(server, monkeypatch):
 
 
 def test_summarize_game_log_forwards_every_option(server, monkeypatch):
-    observed = {}
+    observed: dict[str, Any] = {}
 
     def fake_summary(mod_root, path, **kwargs):
         observed.update({"mod_root": mod_root, "path": path, **kwargs})
@@ -692,7 +692,7 @@ def test_focus_overlap_runs_off_loop_and_forwards_scenario(server, monkeypatch):
 
     started = threading.Event()
     release = threading.Event()
-    observed = {}
+    observed: dict[str, Any] = {}
 
     def slow_report(mod_root, file, tag, **kwargs):
         observed.update(mod_root=mod_root, file=file, tag=tag, **kwargs)

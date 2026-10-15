@@ -186,15 +186,22 @@ def focus_overlap_scenarios_tool(
     offset: int = 0,
 ) -> dict:
     """Report same-cell focus groups for one explicit gameplay scenario."""
+
+    def error_result(message: str, *, include_file: bool = True) -> dict:
+        result = {"ok": False, "error": message}
+        if include_file and isinstance(file, str):
+            result["file"] = file
+        return enforce_budget(result)
+
     try:
         limit = min(100, coerce_int(limit, name="limit", default=50))
         offset = coerce_int(offset, name="offset", default=0)
     except ValueError as exc:
-        return enforce_budget({"ok": False, "file": file, "error": str(exc)})
+        return error_result(str(exc))
     if not isinstance(file, str) or not file.strip():
-        return {"ok": False, "error": "file must name one explicit focus-tree .txt file"}
+        return error_result("file must name one explicit focus-tree .txt file", include_file=False)
     if not isinstance(tag, str) or not re.fullmatch(r"[A-Za-z0-9]{2,4}", tag):
-        return {"ok": False, "file": file, "error": "tag must be a 2-4 character country tag"}
+        return error_result("tag must be a 2-4 character country tag")
     if completed is None:
         completed = []
     if (
@@ -202,25 +209,17 @@ def focus_overlap_scenarios_tool(
         or len(completed) > 200
         or any(not isinstance(value, str) or not value or len(value) > 200 for value in completed)
     ):
-        return {
-            "ok": False,
-            "file": file,
-            "error": "completed must be a list of at most 200 focus ids",
-        }
+        return error_result("completed must be a list of at most 200 focus ids")
     if not isinstance(include_positions, bool):
-        return {"ok": False, "file": file, "error": "include_positions must be a boolean"}
+        return error_result("include_positions must be a boolean")
     if date is not None and (not isinstance(date, str) or len(date) > 32):
-        return {"ok": False, "file": file, "error": "date must be a YYYY.M.D string"}
+        return error_result("date must be a YYYY.M.D string")
     try:
         source_path, path_error = _focus_source_path(mod_root, submod_root, file)
     except (OSError, ValueError) as exc:
-        return {"ok": False, "file": file, "error": f"Could not resolve focus file: {exc}"}
+        return error_result(f"Could not resolve focus file: {exc}")
     if path_error or source_path is None:
-        return {
-            "ok": False,
-            "file": file,
-            "error": path_error or "focus file could not be resolved",
-        }
+        return error_result(path_error or "focus file could not be resolved")
     result = _run_shim(
         mod_root,
         "focus_overlap_scenarios",
@@ -241,13 +240,20 @@ def focus_overlap_scenarios_tool(
         "diagnostics",
     )
     shaped = enforce_budget(result, heavy_keys=heavy_keys)
-    if shaped.get("size_truncated"):
+    for _ in range(len(heavy_keys) + 1):
+        metadata_changed = False
         for name in ("positions", "collision_groups", "diagnostics"):
             dropped_key = f"{name}_dropped"
-            if dropped_key in shaped:
+            if dropped_key in shaped and (
+                shaped.get(f"{name}_returned") != 0 or shaped.get(f"{name}_truncated") is not True
+            ):
                 shaped[f"{name}_returned"] = 0
                 shaped[f"{name}_truncated"] = True
-    return shaped
+                metadata_changed = True
+        if not metadata_changed:
+            return shaped
+        shaped = enforce_budget(shaped, heavy_keys=heavy_keys)
+    return enforce_budget(shaped, heavy_keys=heavy_keys)
 
 
 def _focus_source_path(

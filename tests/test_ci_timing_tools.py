@@ -4,7 +4,6 @@ import asyncio
 import io
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -17,10 +16,14 @@ from md_mcp.tools import ci_timing_shim, ci_timing_tools
 from md_mcp.tools.ci_timing_shim import analyze
 from md_mcp.tools.ci_timing_tools import validation_timing_summary_tool
 
-UPSTREAM_ROOTS = [
-    Path("/workspace/Millennium-Dawn"),
-    Path("/workspace/scratch/md-upstream-fb657ff7"),
-]
+UPSTREAM_HELPER_FIXTURE = Path(__file__).parent / "fixtures/upstream/validation_timing_report.py"
+
+
+def _install_helper(mod_root: Path) -> Path:
+    helper = mod_root / "tools/analysis/validation_timing_report.py"
+    helper.parent.mkdir(parents=True, exist_ok=True)
+    helper.write_bytes(UPSTREAM_HELPER_FIXTURE.read_bytes())
+    return helper
 
 
 def _export(
@@ -96,16 +99,12 @@ def _request(content: str = "{}", **options) -> dict:
     return {"content": content, **options}
 
 
-@pytest.mark.parametrize("upstream_root", UPSTREAM_ROOTS)
-def test_saved_and_latest_upstream_parsers_shape_timing_summary(
-    upstream_root: Path,
-):
-    helper = upstream_root / "tools/analysis/validation_timing_report.py"
-    if not helper.is_file():
-        pytest.skip(f"upstream timing helper unavailable: {upstream_root}")
+def test_upstream_parser_fixture_shapes_timing_summary(fake_mod_root: Path):
+    _install_helper(fake_mod_root)
+    helper = fake_mod_root / "tools/analysis/validation_timing_report.py"
     before = helper.stat().st_mtime_ns, helper.stat().st_size
     result = validation_timing_summary_tool(
-        upstream_root,
+        fake_mod_root,
         _content([_export(101), _export(102, cache="warm")]),
         include_steps=True,
     )
@@ -127,12 +126,7 @@ def test_deduplication_conflicting_reruns_and_pairing_thresholds(
     upstream = fake_mod_root / "tools/analysis"
     upstream.mkdir(parents=True)
     # Loading this public-API fixture keeps the analysis focused on aggregation.
-    (upstream / "validation_timing_report.py").write_text(
-        (UPSTREAM_ROOTS[0] / "tools/analysis/validation_timing_report.py").read_text(
-            encoding="utf-8"
-        ),
-        encoding="utf-8",
-    )
+    _install_helper(fake_mod_root)
     rows = [_export(i) for i in range(3)] + [_export(i + 10, cache="warm") for i in range(3)]
     result = analyze(fake_mod_root, {"content": _content(rows)})
     assert result["ok"] is True
@@ -163,9 +157,7 @@ def test_deduplication_conflicting_reruns_and_pairing_thresholds(
 
 
 def test_ineligible_samples_stay_visible_but_out_of_groups(fake_mod_root: Path):
-    helper = fake_mod_root / "tools/analysis/validation_timing_report.py"
-    helper.parent.mkdir(parents=True)
-    shutil.copyfile(UPSTREAM_ROOTS[0] / "tools/analysis/validation_timing_report.py", helper)
+    _install_helper(fake_mod_root)
     failed = _export(201, status="completed", conclusion="failure")
     missing_metadata = _export(202, metadata={})
     no_timestamps = _export(203, with_timestamps=False)
@@ -210,9 +202,7 @@ def test_input_size_and_pagination_errors_are_bounded(fake_mod_root: Path):
 def test_budget_drop_reconciles_returned_counts_and_truncation(
     fake_mod_root: Path, monkeypatch, heavy_key: str
 ):
-    helper = fake_mod_root / "tools/analysis/validation_timing_report.py"
-    helper.parent.mkdir(parents=True)
-    shutil.copyfile(UPSTREAM_ROOTS[0] / "tools/analysis/validation_timing_report.py", helper)
+    _install_helper(fake_mod_root)
     original_budget = ci_timing_tools.enforce_budget
 
     def drop_one_list(result: dict, *, heavy_keys: tuple[str, ...]) -> dict:
@@ -249,9 +239,7 @@ def test_budget_fallback_marks_omitted_lists_and_preserves_error():
 
 
 def test_real_budget_drop_reconciles_both_large_unicode_lists(fake_mod_root: Path):
-    helper = fake_mod_root / "tools/analysis/validation_timing_report.py"
-    helper.parent.mkdir(parents=True)
-    shutil.copyfile(UPSTREAM_ROOTS[0] / "tools/analysis/validation_timing_report.py", helper)
+    _install_helper(fake_mod_root)
     exports = []
     for export_index in range(20):
         export = _export(800 + export_index, head=f"head-{export_index}")
@@ -306,9 +294,7 @@ def test_request_wrong_shapes_and_output_budgets(fake_mod_root: Path):
     assert not analyze(fake_mod_root, None)["ok"]
     assert not analyze(fake_mod_root, {"content": 3})["ok"]
     assert not analyze(fake_mod_root, _request("{}", include_steps="yes"))["ok"]
-    helper = fake_mod_root / "tools/analysis/validation_timing_report.py"
-    helper.parent.mkdir(parents=True)
-    shutil.copyfile(UPSTREAM_ROOTS[0] / "tools/analysis/validation_timing_report.py", helper)
+    _install_helper(fake_mod_root)
 
     source = _export(700)
     long_prefix = "x" * 160
@@ -377,9 +363,7 @@ def test_global_step_limit_fails_before_upstream(fake_mod_root: Path):
 
 
 def test_sample_pagination_and_optional_steps_are_truthful(fake_mod_root: Path):
-    helper = fake_mod_root / "tools/analysis/validation_timing_report.py"
-    helper.parent.mkdir(parents=True)
-    shutil.copyfile(UPSTREAM_ROOTS[0] / "tools/analysis/validation_timing_report.py", helper)
+    _install_helper(fake_mod_root)
     rows = [_export(i) for i in range(4)]
     result = analyze(
         fake_mod_root,
@@ -537,17 +521,10 @@ async def _stdio_timing_probe(mod_root: Path, cache_dir: Path, content: str) -> 
         return json.loads(response.content[0].text)
 
 
-def test_stdio_accepts_large_supplied_json_without_source_writes(tmp_path: Path):
-    upstream_root = UPSTREAM_ROOTS[0]
-    helper = upstream_root / "tools/analysis/validation_timing_report.py"
-    if not helper.is_file():
-        pytest.skip("saved upstream timing helper unavailable")
+def test_stdio_accepts_large_supplied_json_with_fixture_without_source_writes(tmp_path: Path):
     mod_root = tmp_path / "mod"
-    destination = mod_root / "tools/analysis/validation_timing_report.py"
-    destination.parent.mkdir(parents=True)
-    shutil.copyfile(helper, destination)
+    helper = _install_helper(mod_root)
     before = helper.stat().st_mtime_ns, helper.stat().st_size
-    before_pycache = {path for path in upstream_root.rglob("__pycache__")}
     content = _content(_export(909, display_title="x" * 150_000))
     assert len(content.encode("utf-8")) > 128_000
     result = asyncio.run(_stdio_timing_probe(mod_root, tmp_path / "cache", content))
@@ -555,4 +532,20 @@ def test_stdio_accepts_large_supplied_json_without_source_writes(tmp_path: Path)
     assert result["samples_total"] == 1
     assert "displayTitle" not in result["samples"][0]
     assert (helper.stat().st_mtime_ns, helper.stat().st_size) == before
-    assert {path for path in upstream_root.rglob("__pycache__")} == before_pycache
+    assert not list(mod_root.rglob("__pycache__"))
+
+
+@pytest.mark.integration
+def test_stdio_accepts_large_supplied_json_with_real_helper_without_source_writes(
+    real_mod_root: Path, tmp_path: Path
+):
+    helper = real_mod_root / "tools/analysis/validation_timing_report.py"
+    assert helper.is_file()
+    before = helper.stat().st_mtime_ns, helper.stat().st_size
+    content = _content(_export(909, display_title="x" * 150_000))
+    assert len(content.encode("utf-8")) > 128_000
+    result = asyncio.run(_stdio_timing_probe(real_mod_root, tmp_path / "cache", content))
+    assert result["ok"] is True, result
+    assert result["samples_total"] == 1
+    assert "displayTitle" not in result["samples"][0]
+    assert (helper.stat().st_mtime_ns, helper.stat().st_size) == before

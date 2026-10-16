@@ -49,15 +49,13 @@ timeout kills the whole group, so its pool workers don't keep running after it
 fails or times out, the helper still kills and reaps the direct child, but tree
 cleanup is not guaranteed. The lint scripts use the same helper.
 
-Before the first validator call for a mod root, the runner checks cache version
-metadata and removes only empty, older version directories. It preserves the
-current and future versions and every data-bearing directory, since another
-validator process may be using an older SQLite database or its WAL files. The
-empty-directory removal uses `rmdir`, so a directory that becomes non-empty is
-left in place. `MD_NO_CACHE=1` skips this maintenance as well as upstream cache
-reads and writes. Older checkouts without cache-version metadata continue
-without cleanup. Age-based clearing remains in upstream's explicit
-`run_all_validators.py` startup workflow, which owns that policy.
+Before the first validator call for a mod root, the runner does what upstream
+`run_all_validators.py` does at startup. It calls `disk_cache.clear_if_stale`
+with upstream's 7-day default, then `disk_cache.prune_old_versions`, which
+removes every `.validation_cache/v<N>/` except the current version. A cache
+with no `created` marker is stamped, not cleared. This runs once per mod root
+per server process. `MD_NO_CACHE=1` skips it as well as upstream cache reads
+and writes. Older checkouts without these helpers continue without cleanup.
 
 Cost is one interpreter start per call, which is noise next to a multi-second
 validator. Unlike in-process mode there's no module cache across calls.

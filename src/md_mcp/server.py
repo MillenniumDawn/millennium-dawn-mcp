@@ -690,6 +690,19 @@ def build_server(settings: Settings):
             offset=offset,
         )
 
+    from .tools.attribution_tools import check_attribution_labels_tool
+
+    @mcp.tool(name="check_attribution_labels")
+    async def _check_attribution_labels(content: str, limit: int = 50, offset: int = 0) -> dict:
+        """Report explicit AI attribution labels in supplied text; findings are informational only."""
+        return await blocking_tools.run(
+            check_attribution_labels_tool,
+            settings.mod_root,
+            content,
+            limit,
+            offset,
+        )
+
     # ---------- resources ----------
 
     @mcp.resource("md://focus/{focus_id}")

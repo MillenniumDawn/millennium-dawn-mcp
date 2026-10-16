@@ -66,6 +66,20 @@ def test_run_in_group_captures_output_and_exit_code(tmp_path):
     assert (proc.returncode, proc.stdout, proc.stderr) == (3, "''\n", "err\n")
 
 
+def test_run_in_group_pipes_input_with_explicit_encoding(tmp_path):
+    script = tmp_path / "child.py"
+    script.write_text(
+        "import sys\n"
+        "text = sys.stdin.buffer.read().decode('utf-8')\n"
+        "sys.stdout.buffer.write(text.upper().encode('utf-8'))\n",
+        encoding="utf-8",
+    )
+
+    proc = run_in_group([sys.executable, str(script)], timeout=30, encoding="utf-8", input="ab界")
+
+    assert (proc.returncode, proc.stdout) == (0, "AB界")
+
+
 @pytest.mark.parametrize(
     "failure",
     [None, OSError("taskkill unavailable"), subprocess.TimeoutExpired("taskkill", 10)],

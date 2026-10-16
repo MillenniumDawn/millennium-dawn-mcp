@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
-import signal
 import subprocess
 import sys
 from pathlib import Path
 
+from ..util.process import run_in_group
 from ..util.response import enforce_budget
 
 _SHIM = Path(__file__).with_name("ci_timing_shim.py")
@@ -64,38 +63,24 @@ def validation_timing_summary_tool(
         "include_steps": include_steps,
     }
     try:
-        encoded = json.dumps(payload, ensure_ascii=True, allow_nan=False)
-        proc = subprocess.Popen(
+        proc = run_in_group(
             [sys.executable, str(_SHIM), str(mod_root)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+            timeout=_TIMEOUT_SECONDS,
             encoding="utf-8",
-            start_new_session=True,
+            input=json.dumps(payload, ensure_ascii=True, allow_nan=False),
         )
-        try:
-            stdout, stderr = proc.communicate(encoded, timeout=_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired:
-            if os.name == "posix":
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except OSError:
-                    proc.kill()
-            else:
-                proc.kill()
-            proc.communicate()
-            return {"ok": False, "error": "Timing analysis exceeded its 60 second limit."}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "Timing analysis exceeded its 60 second limit."}
     except (OSError, ValueError, UnicodeError) as exc:
         return {"ok": False, "error": f"Could not start timing analysis: {exc}"}
     if proc.returncode != 0:
-        detail = (stderr or "").strip()[-500:]
+        detail = (proc.stderr or "").strip()[-500:]
         return {
             "ok": False,
             "error": "Timing analysis subprocess failed" + (f": {detail}" if detail else ""),
         }
     try:
-        result = json.loads(stdout)
+        result = json.loads(proc.stdout)
     except (TypeError, json.JSONDecodeError) as exc:
         return {"ok": False, "error": f"Timing analysis returned invalid JSON: {exc}"}
     if not isinstance(result, dict):

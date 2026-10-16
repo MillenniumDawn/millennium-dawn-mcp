@@ -11,7 +11,6 @@ Isolated-mode tests plant synthetic `validate_*.py` modules in the fake mod's
 from __future__ import annotations
 
 import os
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -595,69 +594,98 @@ def test_temporary_staged_environment_removes_absent_previous_value(monkeypatch)
     assert "MD_STAGED_FILES" not in os.environ
 
 
-def test_cache_maintenance_honors_no_cache_and_prunes_once_concurrently(monkeypatch, tmp_path):
+def test_cache_maintenance_honors_no_cache_and_runs_upstream_startup_once(
+    monkeypatch, tmp_path, caplog
+):
     from concurrent.futures import ThreadPoolExecutor
     from types import SimpleNamespace
 
     from md_mcp.validators import runner
 
-    root = tmp_path / ".validation_cache"
-    for version in ("v6", "v7", "v9", "v10"):
-        (root / version).mkdir(parents=True)
-    older_db = sqlite3.connect(root / "v7" / "cache.db")
-    older_db.execute("PRAGMA journal_mode=WAL")
-    older_db.execute("CREATE TABLE data (value TEXT)")
-    older_db.execute("INSERT INTO data VALUES ('active older WAL cache')")
-    older_db.commit()
-    assert (root / "v7" / "cache.db-wal").exists()
-    current_db = sqlite3.connect(root / "v9" / "cache.db")
-    current_db.execute("CREATE TABLE data (value TEXT)")
-    future_db = sqlite3.connect(root / "v10" / "cache.db")
-    future_db.execute("CREATE TABLE data (value TEXT)")
-    calls = []
-    loaded = SimpleNamespace(CACHE_VERSION=9, _CACHE_DIR_NAME=".validation_cache")
+    calls: list[tuple] = []
+
+    def clear_if_stale(path, days):
+        calls.append(("clear", path, days))
+        return True
+
+    def prune_old_versions(path):
+        calls.append(("prune", path))
+        return ["v8"]
+
+    disk_cache = SimpleNamespace(
+        clear_if_stale=clear_if_stale, prune_old_versions=prune_old_versions
+    )
+    caplog.set_level("INFO", logger=runner.__name__)
 
     class Loader:
         def load(self, root, names):
-            calls.append(str(root))
-            return {"disk_cache": loaded}
+            return {"disk_cache": disk_cache}
 
     monkeypatch.setattr(runner, "_CACHE_MAINTENANCE", Loader())
     monkeypatch.setattr(runner, "_CACHE_MAINTAINED", set())
     monkeypatch.setenv("MD_NO_CACHE", "1")
-    runner._prune_obsolete_cache_versions(tmp_path)
+    runner._maintain_validator_cache(tmp_path)
     assert calls == []
 
     monkeypatch.delenv("MD_NO_CACHE")
     with ThreadPoolExecutor(max_workers=8) as pool:
-        list(pool.map(lambda _: runner._prune_obsolete_cache_versions(tmp_path), range(24)))
-    assert calls == [str(tmp_path.resolve())]
-    assert not (root / "v6").exists()
-    assert (root / "v7" / "cache.db").exists()
-    assert (root / "v9" / "cache.db").exists()
-    assert (root / "v10" / "cache.db").exists()
-    assert (root / "v7" / "cache.db-wal").exists()
-    assert older_db.execute("SELECT value FROM data").fetchone() == ("active older WAL cache",)
-    older_db.close()
-    current_db.close()
-    future_db.close()
+        list(pool.map(lambda _: runner._maintain_validator_cache(tmp_path), range(24)))
+    root = str(tmp_path.resolve())
+    assert calls == [("clear", root, 7.0), ("prune", root)]
+    assert "cleared validator cache older than 7 days" in caplog.text
+    assert "pruned validator cache versions: v8" in caplog.text
 
 
-def test_cache_maintenance_tolerates_legacy_upstream_without_helper(monkeypatch, tmp_path):
-    from types import SimpleNamespace
-
+@pytest.mark.parametrize("disk_cache", [None, object()])
+def test_cache_maintenance_tolerates_checkouts_without_helpers(monkeypatch, tmp_path, disk_cache):
     from md_mcp.validators import runner
-
-    cache_root = tmp_path / ".validation_cache" / "v8"
-    cache_root.mkdir(parents=True)
-    (cache_root / "cache.db").write_text("possibly active older database")
 
     class Loader:
         def load(self, root, names):
-            return {"disk_cache": SimpleNamespace()}
+            if disk_cache is None:
+                raise ImportError("no disk_cache")
+            return {"disk_cache": disk_cache}
 
     monkeypatch.setattr(runner, "_CACHE_MAINTENANCE", Loader())
     monkeypatch.setattr(runner, "_CACHE_MAINTAINED", set())
-    runner._prune_obsolete_cache_versions(tmp_path)
-    runner._prune_obsolete_cache_versions(tmp_path)
-    assert (cache_root / "cache.db").exists()
+    runner._maintain_validator_cache(tmp_path)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("age_days", [1, 8])
+def test_cache_maintenance_with_real_disk_cache(real_mod_root, monkeypatch, tmp_path, age_days):
+    import sys
+    import time
+
+    from md_mcp.util.upstream_modules import UpstreamModules
+    from md_mcp.validators import runner
+
+    monkeypatch.setattr(sys, "dont_write_bytecode", True)
+    mod_root = tmp_path / "mod"
+    mod_root.mkdir()
+    (mod_root / "tools").symlink_to(real_mod_root / "tools", target_is_directory=True)
+    loader = UpstreamModules("validation", ("disk_cache", "shared_utils"))
+    monkeypatch.setattr(runner, "_CACHE_MAINTENANCE", loader)
+    monkeypatch.setattr(runner, "_CACHE_MAINTAINED", set())
+    try:
+        current = f"v{loader.load(mod_root, ('disk_cache',))['disk_cache'].CACHE_VERSION}"
+        cache = mod_root / ".validation_cache"
+        for version in ("v8", current):
+            (cache / version).mkdir(parents=True)
+            (cache / version / "cache.db").write_text("rows", encoding="utf-8")
+        created = time.time() - age_days * 86400
+        (cache / "created").write_text(str(created), encoding="utf-8")
+
+        runner._maintain_validator_cache(mod_root)
+        runner._maintain_validator_cache(mod_root)
+    finally:
+        loader.reset()
+
+    assert not (cache / "v8").exists()
+    stamp = float((cache / "created").read_text(encoding="utf-8"))
+    if age_days > 7:
+        assert not (cache / current).exists()
+        assert stamp > created
+    else:
+        assert (cache / current / "cache.db").exists()
+        assert stamp == created

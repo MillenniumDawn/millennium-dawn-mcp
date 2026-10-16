@@ -49,48 +49,31 @@ logger = logging.getLogger(__name__)
 _CACHE_MAINTENANCE = UpstreamModules("validation", ("disk_cache", "shared_utils"))
 _CACHE_MAINTENANCE_LOCK = threading.Lock()
 _CACHE_MAINTAINED: set[Path] = set()
+# Upstream run_all_validators.py --cache-max-age-days default.
+_CACHE_MAX_AGE_DAYS = 7.0
 
 
-def _prune_obsolete_cache_versions(mod_root: Path) -> None:
-    """Remove only empty obsolete cache directories; preserve every data-bearing DB.
-
-    An upstream version can remain active in another process, so the upstream
-    bulk pruner is unsafe here. Empty older directories are safe to remove with
-    rmdir's atomic non-empty check. Age-based clearing stays in upstream's suite.
-    """
+def _maintain_validator_cache(mod_root: Path) -> None:
+    """Apply upstream's run-all cache startup once per root: clear if stale, then prune."""
     if os.environ.get("MD_NO_CACHE") == "1":
         return
     root = mod_root.resolve()
     with _CACHE_MAINTENANCE_LOCK:
         if root in _CACHE_MAINTAINED:
             return
+        _CACHE_MAINTAINED.add(root)
         try:
-            module = _CACHE_MAINTENANCE.load(root, ("disk_cache",)).get("disk_cache")
-            version = getattr(module, "CACHE_VERSION", None)
-            if not isinstance(version, int) or isinstance(version, bool):
-                return
-            cache_name = getattr(module, "_CACHE_DIR_NAME", ".validation_cache")
-            cache_root = root / cache_name
-            try:
-                children = list(cache_root.iterdir())
-            except OSError:
-                return
-            for child in children:
-                match = re.fullmatch(r"v(\d+)", child.name)
-                if (
-                    match is None
-                    or child.is_symlink()
-                    or int(match.group(1)) >= version
-                    or not child.is_dir()
-                ):
-                    continue
-                with contextlib.suppress(OSError):
-                    child.rmdir()
-                    # A DB or any concurrent write makes this directory non-empty.
+            disk_cache = _CACHE_MAINTENANCE.load(root, ("disk_cache",))["disk_cache"]
+            clear_if_stale = getattr(disk_cache, "clear_if_stale", None)
+            prune_old_versions = getattr(disk_cache, "prune_old_versions", None)
+            if clear_if_stale is not None and clear_if_stale(str(root), _CACHE_MAX_AGE_DAYS):
+                logger.info("cleared validator cache older than %g days", _CACHE_MAX_AGE_DAYS)
+            if prune_old_versions is not None:
+                pruned = prune_old_versions(str(root))
+                if pruned:
+                    logger.info("pruned validator cache versions: %s", ", ".join(sorted(pruned)))
         except Exception:
             logger.debug("upstream validator cache maintenance unavailable", exc_info=True)
-        finally:
-            _CACHE_MAINTAINED.add(root)
 
 
 def _staged_files_env(mod_root: Path) -> str:
@@ -256,7 +239,7 @@ class ValidatorRunner:
                 "error": f"Unknown validator '{name}'. Use validate_list to see options.",
             }
 
-        _prune_obsolete_cache_versions(self.mod_root)
+        _maintain_validator_cache(self.mod_root)
 
         if self.mode == "in_process":
             return self._run_inprocess(

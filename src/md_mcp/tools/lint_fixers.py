@@ -21,6 +21,7 @@ so its CRLF→LF byte transform is reimplemented inline.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from types import ModuleType
 from typing import Optional
@@ -31,7 +32,14 @@ from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget
 from ..util.upstream_modules import UpstreamModules
 from ..validators.attribution import normalize_path
 
-FIXERS: tuple[str, ...] = ("styling", "loc_yaml", "line_endings", "log_ids", "changelog")
+FIXERS: tuple[str, ...] = (
+    "styling",
+    "loc_yaml",
+    "line_endings",
+    "log_ids",
+    "changelog",
+    "event_option_logs",
+)
 
 # fix_log_ids only rewrites inside these directories (upstream _finder_for).
 LOG_ID_SCOPES: tuple[str, ...] = ("common/national_focus/", "common/decisions/")
@@ -52,9 +60,11 @@ _UPSTREAM_IMPORTS: dict[str, tuple[str, ...]] = {
     "log_ids": ("check_common_mistakes",),
     "line_endings": (),
     "changelog": ("check_changelog",),
+    "event_option_logs": (),
 }
 
 _UPSTREAM = UpstreamModules("linting", _UPSTREAM_MODULES)
+_EVENTS_VALIDATION = UpstreamModules("validation", ("validate_events",))
 
 
 def _load_fixer_modules(mod_root: Path, fixer: str) -> dict[str, ModuleType]:
@@ -94,11 +104,17 @@ def fix_lint_tool(
     norm_path = normalize_path(path) if path else None
     if content is None and norm_path is None:
         return {"ok": False, "error": "Provide content= or path=."}
-    if fixer == "log_ids" and norm_path is None:
+    if fixer in {"log_ids", "event_option_logs"} and norm_path is None:
         return {
             "ok": False,
-            "error": "fixer=log_ids requires path= (scope detection is path-based)",
+            "error": f"fixer={fixer} requires path= (scope detection is path-based)",
         }
+    if (
+        fixer == "event_option_logs"
+        and norm_path is not None
+        and not norm_path.startswith("events/")
+    ):
+        return {"ok": False, "error": "fixer=event_option_logs only applies to events/ files"}
 
     raw: bytes
     if content is not None:
@@ -165,6 +181,34 @@ def fix_lint_tool(
     if fixer == "log_ids":
         assert norm_path is not None
         return _fix_log_ids(result, modules, text, norm_path)
+    if fixer == "event_option_logs":
+        assert norm_path is not None
+        try:
+            detector = _EVENTS_VALIDATION.load(mod_root, ("validate_events",))["validate_events"]
+            findings = detector.find_option_logs_without_effects(text)
+        except (ImportError, AttributeError) as e:
+            return {
+                "ok": False,
+                "fixer": fixer,
+                "error": f"Upstream event detector unavailable: {e}",
+            }
+        lines = text.splitlines(keepends=True)
+        remove = {line for _, line in findings if 1 <= line <= len(lines)}
+        for number in remove:
+            if not re.fullmatch(
+                r'\s*log\s*=\s*(?:"(?:\\.|[^"\\])*"|[^\s#{}]+)\s*(?:\#[^\r\n]*)?(?:\r?\n)?',
+                lines[number - 1],
+            ):
+                return {
+                    "ok": False,
+                    "fixer": fixer,
+                    "error": (
+                        f"Refusing to remove log on line {number}: it shares a line "
+                        "with other source text."
+                    ),
+                }
+        fixed = "".join(line for number, line in enumerate(lines, 1) if number not in remove)
+        return _finish(result, text, fixed, len(remove), {"removed_log_lines": len(remove)}, [])
     if fixer == "changelog":
         fixed = "".join(_load_changelog_core(mod_root).order_lines(text.splitlines(keepends=True)))
         return _finish(result, text, fixed, int(fixed != text), {}, [])

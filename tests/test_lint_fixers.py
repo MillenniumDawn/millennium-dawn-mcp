@@ -706,3 +706,101 @@ def test_content_ignores_submod_root(tmp_path):
     out = fix_lint_tool(tmp_path, fixer="styling", content="a XX b\n", submod_root=submod)
 
     assert out["txt"] == "a YY b\n"
+
+
+def _plant_event_log_detector(root: Path, findings: list[tuple[str, int]] | None = None) -> None:
+    validation = root / "tools" / "validation"
+    validation.mkdir(parents=True, exist_ok=True)
+    (validation / "validate_events.py").write_text(
+        "def find_option_logs_without_effects(text):\n" f"    return {(findings or [])!r}\n",
+        encoding="utf-8",
+    )
+
+
+def test_event_option_logs_uses_detector_and_returns_in_memory_text(tmp_path):
+    _plant_event_log_detector(tmp_path, [("unnamed option", 2)])
+    source = 'option = {\n\tlog = "nothing happened"\n\tadd_political_power = 1\n}\n'
+    path = tmp_path / "events" / "test.txt"
+    path.parent.mkdir()
+    path.write_text(source, encoding="utf-8")
+
+    result = fix_lint_tool(
+        tmp_path, fixer="event_option_logs", path="events/test.txt", content=source
+    )
+
+    assert result["ok"] is True
+    assert result["changed"] is True
+    assert result["fixes"] == 1
+    assert result["summary"] == {"removed_log_lines": 1}
+    assert result["txt"] == "option = {\n\tadd_political_power = 1\n}\n"
+    assert path.read_text(encoding="utf-8") == source
+
+
+def test_event_option_logs_refuses_out_of_scope_and_shared_source_line(tmp_path):
+    _plant_event_log_detector(tmp_path, [("option", 1)])
+    out_of_scope = fix_lint_tool(
+        tmp_path, fixer="event_option_logs", path="common/test.txt", content='log = "x"\n'
+    )
+    unsafe = fix_lint_tool(
+        tmp_path,
+        fixer="event_option_logs",
+        path="events/test.txt",
+        content='log = "x" add_political_power = 1\n',
+    )
+
+    assert out_of_scope["ok"] is False
+    assert unsafe["ok"] is False
+    assert "shares a line" in unsafe["error"]
+
+
+def test_event_option_logs_refuses_unquoted_value_with_closing_brace(tmp_path):
+    _plant_event_log_detector(tmp_path, [("Test.1.a", 5)])
+    source = (
+        "country_event = {\n"
+        "\tid = Test.1\n"
+        "\toption = {\n"
+        "\t\tname = Test.1.a\n"
+        "\t\tlog = nothing}\n"
+        "\t}\n"
+        "}\n"
+    )
+
+    result = fix_lint_tool(
+        tmp_path, fixer="event_option_logs", path="events/test.txt", content=source
+    )
+
+    assert result["ok"] is False
+    assert "shares a line" in result["error"]
+    assert "txt" not in result
+
+
+@pytest.mark.parametrize("log_line", ['log = "nothing happened"\n', "log = nothing_happened\n"])
+def test_event_option_logs_accepts_standalone_quoted_and_unquoted_values(tmp_path, log_line):
+    _plant_event_log_detector(tmp_path, [("option", 1)])
+
+    result = fix_lint_tool(
+        tmp_path, fixer="event_option_logs", path="events/test.txt", content=log_line
+    )
+
+    assert result["ok"] is True
+    assert result["txt"] == ""
+
+
+@pytest.mark.integration
+def test_event_option_logs_uses_real_upstream_detector(real_mod_root):
+    source = (
+        "country_event = {\n"
+        "\tid = MCPFixture.1\n"
+        "\toption = {\n"
+        "\t\tname = MCPFixture.1.a\n"
+        '\t\tlog = "no effect"\n'
+        "\t}\n"
+        "}\n"
+    )
+    result = fix_lint_tool(
+        real_mod_root, fixer="event_option_logs", path="events/mcp_fixture.txt", content=source
+    )
+
+    assert result["ok"] is True
+    assert result["changed"] is True
+    assert "log =" not in result["txt"]

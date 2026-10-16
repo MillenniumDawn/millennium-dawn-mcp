@@ -518,10 +518,12 @@ read-only rule — the caller writes the returned `txt` back via Edit/Write.
   `loc_yaml` (tabs, smart quotes, `key:0 "v"`, `key:"v"`, indent,
   unescaped quotes) / `line_endings` (CRLF→LF) / `log_ids` (mismatched
   focus/decision log ids) / `changelog` (order top-version entries by
-  untagged first, then alphabetic tag).
+  untagged first, then alphabetic tag) / `event_option_logs` (remove
+  effect-free option log lines with the upstream detector; requires an
+  `events/` path and refuses logs sharing a physical line with other source).
 - `content`: text to fix — no file access at all. `path`: mod-relative
-  source when `content` is omitted; always required for `log_ids` (scope is
-  path-based). `loc_yaml` accepts `.yml` only (its tab→space rewrite
+  source when `content` is omitted; always required for `log_ids` and
+  `event_option_logs` (scope is path-based). `loc_yaml` accepts `.yml` only (its tab→space rewrite
   corrupts `.txt`), `styling` accepts `.txt` only, and `changelog` accepts
   `Changelog.txt` only.
 

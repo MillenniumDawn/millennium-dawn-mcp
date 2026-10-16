@@ -368,9 +368,12 @@ for "check this code's quality."
   - `mod_encoding` (`validate_mod_encoding.py` — `.mod` UTF-8 validity)
   - `loc_encoding` (`validate_localization_encoding.py` — English loc YAML BOM)
   - `changelog` (`check_changelog.py` — ordering in the top version of `Changelog.txt`)
+  - `tick_spot_check` (upstream deterministic tick checks for explicitly scoped changed `.txt` files)
 
-  Omit to run all checks. The changelog check runs when `Changelog.txt` is in
-  scope, or for `mode="all"`.
+  Omit to run the four default checks. `tick_spot_check` is opt-in because it
+  is more expensive and requires an explicit file scope; an empty applicable
+  scope skips it. The changelog check runs when `Changelog.txt` is in scope, or
+  for `mode="all"`.
 
   Brace matching, basic style, and coding standards are no longer separate
   checks. They were absorbed into `tools/validation/validate_style.py` on the
@@ -745,6 +748,17 @@ Returns `{ok, tag, totals, cadences, timed_decisions, event_loops, event_fires,
 total, returned, truncated, hooks}`. Each hook sample includes file/line,
 work-unit counts, and counts of referenced effects/events. Subprocess failures
 and timeouts return `{ok: false, error}`.
+
+### `tick_spot_check(files, scope?, limit?, offset?) -> dict`
+
+Run upstream deterministic spot checks in an isolated subprocess for the
+explicit changed-file list. An empty list is rejected to avoid upstream's
+empty-list default to a broad scan. Findings and diagnostics are paginated
+with independent totals. Older checkouts without `scan_spot_checks` return
+`{ok: false, unsupported: true, error}`. Inputs must be existing regular `.txt`
+files inside the mod root; directories, symlinks, and unsupported paths are
+refused before the upstream scanner runs. The same analysis is available as
+the explicit-only `lint(checks=["tick_spot_check"], files=[...])` check.
 
 ### `estimate_gdp(tag) -> dict`
 

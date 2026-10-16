@@ -14,6 +14,7 @@ _TICK_TIMEOUT = 120
 _GDP_TIMEOUT = 120
 _EVENT_LOAD_TIMEOUT = 180
 _AI_PATH_TIMEOUT = 240
+_TICK_SPOT_TIMEOUT = 240
 _DAYS_PER_MONTH = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 
 
@@ -69,6 +70,52 @@ def tick_audit_tool(
         bounded["returned"] = 0
         bounded["truncated"] = True
     return enforce_budget(bounded, heavy_keys=())
+
+
+def tick_spot_check_tool(
+    mod_root: Path,
+    files: list[str],
+    *,
+    submod_root: Optional[Path] = None,
+    scope: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> dict:
+    """Run upstream spot checks on explicitly selected changed files."""
+    try:
+        limit = coerce_int(limit, name="limit", default=100)
+        offset = coerce_int(offset, name="offset", default=0)
+    except ValueError as exc:
+        return enforce_budget(
+            {"ok": False, "error": str(exc)}, heavy_keys=("findings", "diagnostics")
+        )
+    if not files:
+        return {"ok": False, "error": "Provide at least one changed file in files=."}
+    result = _run_shim(
+        mod_root,
+        "tick_spot_check",
+        {
+            "files": files,
+            "scan_root": str(submod_root) if submod_root is not None else None,
+            "scope": scope,
+            "limit": limit,
+            "offset": offset,
+        },
+        timeout=_TICK_SPOT_TIMEOUT,
+    )
+    result = enforce_budget(result, heavy_keys=("findings", "diagnostics", "assumptions"))
+    if result.get("size_truncated"):
+        # The budget guard may remove a whole page. Keep the pagination fields
+        # consistent with the lists that are actually present in the response.
+        for key, total_key, returned_key, truncated_key in (
+            ("findings", "total", "returned", "truncated"),
+            ("diagnostics", "diagnostics_total", "diagnostics_returned", "diagnostics_truncated"),
+        ):
+            dropped = result.get(f"{key}_dropped")
+            if dropped is not None:
+                result[returned_key] = 0
+                result[truncated_key] = bool(result.get(total_key, dropped))
+    return enforce_budget(result, heavy_keys=("findings", "diagnostics", "assumptions"))
 
 
 def estimate_gdp_tool(mod_root: Path, tag: str) -> dict:

@@ -82,6 +82,7 @@ from .tools.upstream_analysis import (
     event_load_tool,
     game_log_summary_tool,
     tick_audit_tool,
+    tick_spot_check_tool,
 )
 from .tools.validation_tools import validate_list_tool, validate_tool
 from .util.offload import BoundedOffloader
@@ -463,6 +464,24 @@ def build_server(settings: Settings):
         """Summarize recurring tick work. tag filters hooks; limit/offset page hook samples."""
         return await blocking_tools.run(
             tick_audit_tool, settings.mod_root, tag=tag, limit=limit, offset=offset
+        )
+
+    @mcp.tool(name="tick_spot_check")
+    async def _tick_spot_check(
+        files: list[str],
+        scope: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        """Run tick spot checks on explicit changed files; page findings with limit/offset."""
+        return await blocking_tools.run(
+            tick_spot_check_tool,
+            settings.mod_root,
+            files,
+            submod_root=settings.submod_root,
+            scope=scope,
+            limit=limit,
+            offset=offset,
         )
 
     @mcp.tool(name="estimate_gdp")

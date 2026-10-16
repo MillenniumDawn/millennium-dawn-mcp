@@ -47,6 +47,7 @@ from .lint_validators import (
     run_validators_for_lint,
     select_validators,
 )
+from .upstream_analysis import tick_spot_check_tool
 from .validation_tools import filter_and_cap
 
 _LINT_LINE_RE = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):\s*(?P<msg>.+)$")
@@ -414,6 +415,9 @@ _ALL_CHECKS: tuple[str, ...] = (
     "changelog",
 )
 
+# Expensive analysis remains opt-in and accepts only explicit file scopes.
+_EXPLICIT_CHECKS: tuple[str, ...] = ("tick_spot_check",)
+
 
 def lint_tool(
     mod_root: Path,
@@ -458,11 +462,13 @@ def lint_tool(
         }
 
     selected = list(checks) if checks else list(_ALL_CHECKS)
-    unknown = [c for c in selected if c not in _ALL_CHECKS]
+    unknown = [c for c in selected if c not in (*_ALL_CHECKS, *_EXPLICIT_CHECKS)]
     if unknown:
         return {
             "ok": False,
-            "error": f"Unknown check(s): {unknown}. Valid: {list(_ALL_CHECKS)}",
+            "error": (
+                f"Unknown check(s): {unknown}. Valid: " f"{list((*_ALL_CHECKS, *_EXPLICIT_CHECKS))}"
+            ),
         }
 
     # Resolve the canonical "files of interest" set.
@@ -613,6 +619,49 @@ def lint_tool(
             return _skipped()
         return runner()
 
+    def _lint_spot_check(paths: list[str]) -> dict:
+        result = tick_spot_check_tool(mod_root, paths, submod_root=submod_root)
+        if not result.get("ok"):
+            return result
+        issues: list[dict] = []
+        for finding in result.get("findings", []):
+            severity = str(finding.get("severity", "medium")).casefold()
+            lint_severity = (
+                "error"
+                if severity in {"critical", "high", "error"}
+                else "info"
+                if severity in {"low", "info"}
+                else "warning"
+            )
+            issues.append(
+                {
+                    "file": finding.get("file", ""),
+                    "line": finding.get("line"),
+                    "message": finding.get("message", "Tick spot-check finding"),
+                    "severity": lint_severity,
+                }
+            )
+        for diagnostic in result.get("diagnostics", []):
+            if diagnostic.get("suppressed"):
+                continue
+            fatal = bool(diagnostic.get("fatal"))
+            issues.append(
+                {
+                    "file": diagnostic.get("file", ""),
+                    "line": diagnostic.get("line"),
+                    "message": diagnostic.get("message", "Tick spot-check diagnostic"),
+                    "severity": "error" if fatal else "warning",
+                }
+            )
+        return {
+            "ok": True,
+            "total": sum(result.get("severity_counts", {}).values()),
+            "issues": issues,
+            "severity_counts": result.get("severity_counts", {}),
+            "diagnostics_summary": result.get("diagnostics_summary", {}),
+            "exit_code": 0,
+        }
+
     runners: dict[str, Callable[[], dict]] = {
         "common_mistakes": lambda: _maybe(
             script_files,
@@ -638,6 +687,10 @@ def lint_tool(
             else [],
             lambda: lint_changelog_tool(mod_root, submod_root=submod_root),
         ),
+        "tick_spot_check": lambda: _maybe(
+            (spot_files := [path for path in (present_relevant or []) if path.endswith(".txt")]),
+            lambda: _lint_spot_check(spot_files),
+        ),
     }
 
     per_check: list[dict] = []
@@ -653,6 +706,8 @@ def lint_tool(
             "total": result.get("total", 0),
             "exit_code": result.get("exit_code"),
         }
+        if result.get("diagnostics_summary"):
+            check_summary["diagnostics_summary"] = result["diagnostics_summary"]
         if result.get("skipped"):
             check_summary["skipped"] = result["skipped"]
         if not result.get("ok"):
@@ -662,7 +717,15 @@ def lint_tool(
         else:
             issues = result.get("issues", []) or []
             omitted = max(0, int(result.get("total", len(issues))) - len(issues))
-            if omitted:
+            if isinstance(result.get("severity_counts"), dict):
+                returned_counts = count_severities(issues)
+                for severity, total in result["severity_counts"].items():
+                    missing = max(0, int(total) - returned_counts.get(severity, 0))
+                    if missing:
+                        omitted_by_severity[severity] = (
+                            omitted_by_severity.get(severity, 0) + missing
+                        )
+            elif omitted:
                 # Encoding wrappers cap their per-check diagnostic arrays. Their
                 # findings have a fixed severity, so preserve complete totals.
                 severity = "warning" if name == "common_mistakes" else "error"

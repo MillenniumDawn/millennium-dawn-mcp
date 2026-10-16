@@ -885,7 +885,8 @@ def test_validate_delta_uses_real_sibling_report_lib(tmp_path, line):
     )
     toolshash = importlib.import_module("md_mcp.analysis.issue_delta")._compute_toolshash(mod_root)
     (baseline_dir / "baseline-meta.json").write_text(
-        json.dumps({"toolshash": toolshash}), encoding="utf-8"
+        json.dumps({"toolshash": toolshash, "sidecars": ["synthetic.json"]}),
+        encoding="utf-8",
     )
     sidecar_new_issues = delta_helper(settings, records, str(baseline_dir)).issues
 

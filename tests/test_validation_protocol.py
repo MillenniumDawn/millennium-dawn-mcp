@@ -60,14 +60,20 @@ async def _probe_delta(mod_root: Path, tmp_path: Path) -> None:
         sidecars.mkdir()
         (sidecars / "style.json").write_text(json.dumps(original["issues"]), encoding="utf-8")
         meta = sidecars / "baseline-meta.json"
-        meta.write_text(json.dumps({"toolshash": _compute_toolshash(fixture)}), encoding="utf-8")
+        meta.write_text(
+            json.dumps({"toolshash": _compute_toolshash(fixture), "sidecars": ["style.json"]}),
+            encoding="utf-8",
+        )
         for baseline in (snapshot, sidecars):
             delta = await validate(**args, delta=True, baseline=str(baseline))
             assert delta["ok"] is True, delta
             assert delta["issues"] == [], delta
             assert delta["unclassified"] == 0, delta
 
-        meta.write_text('{"toolshash": "stale"}', encoding="utf-8")
+        meta.write_text(
+            json.dumps({"toolshash": "stale", "sidecars": ["style.json"]}),
+            encoding="utf-8",
+        )
         stale = await validate(**args, delta=True, baseline=str(sidecars))
         assert stale["ok"] is False
         assert "toolshash mismatch" in stale["error"]

@@ -764,9 +764,10 @@ days, and leap years are not applied. Rejects years before 2000 and invalid
 months/days. Returns `{ok: true, days}` or `{ok: false, error}`.
 
 `tick_audit` and `estimate_gdp` run via an isolated subprocess with a timeout;
-`calculate_days` is plain arithmetic and runs in process. None of them write to
-the mod or vanilla installation. List-bearing responses enforce the normal
-output budget.
+these blocking analyses use the bounded worker pool so they do not block
+unrelated requests. `calculate_days` is plain arithmetic and runs in process.
+None of them write to the mod or vanilla installation. List-bearing responses
+enforce the normal output budget.
 
 ### `event_load(tag?, window?, threshold?, limit?, offset?) -> dict`
 
@@ -786,7 +787,8 @@ ranked countries; optional `countries` requests country deep dives and `since`
 and `until` apply the upstream date filters. `limit`/`offset` page conflict,
 politics, annexation, economy, inflation, and country-detail maps.
 Relative paths, other extensions, missing files, and logs without parsed MD
-entries return `{ok: false, error}`.
+entries return `{ok: false, error}`. This blocking analysis also runs through
+the bounded worker pool, keeping the server responsive to unrelated requests.
 
 ### `ai_path_report(tag, section?, limit?, offset?) -> dict`
 

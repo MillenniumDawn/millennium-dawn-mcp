@@ -69,6 +69,7 @@ def test_upstream_standardizer_round_trips(real_mod_root: Path, kind: str, text:
     assert (result["txt"] if second_pass is None else second_pass) == result["txt"]
 
 
+@pytest.mark.integration
 def test_path_input_detects_kind_and_does_not_write(
     real_mod_root: Path, tmp_path: Path, monkeypatch
 ):

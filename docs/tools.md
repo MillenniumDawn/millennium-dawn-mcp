@@ -837,6 +837,20 @@ select a report section (`rule`, `wiring`, `owners`, `matrix`, `graph`, `plans`,
 total and truncation. Output is budgeted; subprocess errors and invalid country
 tags return `{ok: false, error}`.
 
+### `validation_timing_summary(content, limit?, offset?, include_steps?) -> dict`
+
+Summarize one supplied GitHub Actions timing export or an array of exports.
+The JSON content is parsed in memory with the upstream timing parser; no paths,
+GitHub calls, or export-file reads are accepted. Groups preserve the upstream
+compatibility key, including revision, metadata, workload, and job/step shape.
+Only completed successful samples with usable metadata and complete timings
+enter descriptive summaries. Every metadata value is labeled user-supplied and
+unverified. A group needs three compatible samples to meet the minimum-sample
+rule; a paired cache-baseline claim needs three matching cold and three warm
+samples. These thresholds establish no performance gain by themselves.
+`limit`/`offset` page samples and groups; `include_steps` opts into bounded
+step details. Input and output sizes are capped.
+
 ---
 
 ## Generators — return strings, never write

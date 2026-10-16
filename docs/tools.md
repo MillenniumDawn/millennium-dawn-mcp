@@ -25,7 +25,7 @@ Look up a focus by ID and return file/line plus parsed metadata.
   "id": "ISR_idf_modernization",
   "file": "common/national_focus/MD_ISR_focus.txt",
   "line": 1234,
-  "kind": "focus",
+  "kind": "focus_tree",
   "parsed": {
     "x": 8, "y": 3, "cost": 10,
     "icon": "GFX_focus_generic_military",
@@ -627,11 +627,11 @@ Prereq/mutex DAG for a tag's focuses, with **four detail tiers**:
   completion set through its prerequisite closure, `estimated_days` (7 days per
   cost point, focus rush, cheapest prerequisite chain per OR group, shared
   prereqs counted once, missing cost counted as 10), the `chain` in completion
-  order, and the focus's `ai_will_do` summary. Answers "how long until the
-  AI/player can have X" and "will the AI ever pick this branch". The set is a
-  greedy estimate, not a proven minimum: every found entry has
-  `estimate_approximate: true`. It prefers OR members that avoid a mutually
-  exclusive pair. Entries add `mutex_conflicts` when a pair remains,
+  order, and the focus's `ai_will_do` summary. This is a static estimate; it
+  does not simulate dynamic availability or predict whether the AI will select
+  the branch. The set is a greedy estimate, not a proven minimum: every found
+  entry has `estimate_approximate: true`. It prefers OR members that avoid a
+  mutually exclusive pair. Entries add `mutex_conflicts` when a pair remains,
   `unresolved_prereq_groups` when every member of a group is missing, and
   `estimate_unreliable` for a prerequisite cycle or an exhausted budget.
 

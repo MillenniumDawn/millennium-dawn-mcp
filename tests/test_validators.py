@@ -594,7 +594,9 @@ def test_temporary_staged_environment_removes_absent_previous_value(monkeypatch)
     assert "MD_STAGED_FILES" not in os.environ
 
 
-def test_cache_maintenance_honors_no_cache_and_runs_upstream_startup_once(monkeypatch, tmp_path):
+def test_cache_maintenance_honors_no_cache_and_runs_upstream_startup_once(
+    monkeypatch, tmp_path, caplog
+):
     from concurrent.futures import ThreadPoolExecutor
     from types import SimpleNamespace
 
@@ -602,14 +604,18 @@ def test_cache_maintenance_honors_no_cache_and_runs_upstream_startup_once(monkey
 
     calls: list[tuple] = []
 
+    def clear_if_stale(path, days):
+        calls.append(("clear", path, days))
+        return True
+
     def prune_old_versions(path):
         calls.append(("prune", path))
-        return []
+        return ["v8"]
 
     disk_cache = SimpleNamespace(
-        clear_if_stale=lambda path, days: calls.append(("clear", path, days)),
-        prune_old_versions=prune_old_versions,
+        clear_if_stale=clear_if_stale, prune_old_versions=prune_old_versions
     )
+    caplog.set_level("INFO", logger=runner.__name__)
 
     class Loader:
         def load(self, root, names):
@@ -626,6 +632,8 @@ def test_cache_maintenance_honors_no_cache_and_runs_upstream_startup_once(monkey
         list(pool.map(lambda _: runner._maintain_validator_cache(tmp_path), range(24)))
     root = str(tmp_path.resolve())
     assert calls == [("clear", root, 7.0), ("prune", root)]
+    assert "cleared validator cache older than 7 days" in caplog.text
+    assert "pruned validator cache versions: v8" in caplog.text
 
 
 @pytest.mark.parametrize("disk_cache", [None, object()])

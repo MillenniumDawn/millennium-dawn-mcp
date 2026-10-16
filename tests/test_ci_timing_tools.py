@@ -438,47 +438,20 @@ def test_shim_main_reads_payload_from_private_pipe(monkeypatch, fake_mod_root: P
 
 @pytest.mark.parametrize("mode", ["spawn", "nonzero", "bad_json", "non_object", "timeout"])
 def test_shim_process_failures_are_bounded(monkeypatch, fake_mod_root: Path, mode: str):
-    class FakeProcess:
-        pid = 42
-        returncode = 0
-
-        def __init__(self):
-            self.calls = 0
-            self.was_killed = False
-            if mode == "nonzero":
-                self.returncode = 1
-
-        def communicate(self, payload=None, timeout=None):
-            self.calls += 1
-            if mode == "timeout" and self.calls == 1:
-                raise subprocess.TimeoutExpired("probe", timeout)
-            if mode == "bad_json":
-                return "{", ""
-            if mode == "non_object":
-                return "[]", ""
-            return "{}", "private detail" if mode == "nonzero" else ""
-
-        def kill(self):
-            self.was_killed = True
-
-    process = FakeProcess()
-    if mode == "spawn":
-        monkeypatch.setattr(
-            ci_timing_tools.subprocess,
-            "Popen",
-            lambda *args, **kwargs: (_ for _ in ()).throw(OSError("spawn denied")),
-        )
-    else:
-        monkeypatch.setattr(ci_timing_tools.subprocess, "Popen", lambda *args, **kwargs: process)
+    def fake_run(cmd, *, timeout, encoding, input):
+        if mode == "spawn":
+            raise OSError("spawn denied")
         if mode == "timeout":
-            monkeypatch.setattr(
-                ci_timing_tools.os, "killpg", lambda *args: (_ for _ in ()).throw(OSError())
-            )
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        stdout = {"bad_json": "{", "non_object": "[]"}.get(mode, "{}")
+        returncode = 1 if mode == "nonzero" else 0
+        return subprocess.CompletedProcess(cmd, returncode, stdout, "private detail")
+
+    monkeypatch.setattr(ci_timing_tools, "run_in_group", fake_run)
 
     result = validation_timing_summary_tool(fake_mod_root, "{}")
     assert result["ok"] is False
     if mode == "timeout":
-        assert process.was_killed
         assert "60 second limit" in result["error"]
     elif mode == "bad_json":
         assert "invalid JSON" in result["error"]

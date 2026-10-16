@@ -95,6 +95,55 @@ def test_generate_missing_loc_uses_event_referenced_keys_and_marks_missing_field
     assert result["failures"] == ["event:Testns.8: description localisation key is missing"]
 
 
+def test_generate_missing_loc_collects_every_triggered_title_and_desc(fake_mod_root, cache_dir):
+    (fake_mod_root / "events" / "triggered.txt").write_text(
+        "country_event = {\n"
+        "\tid = Testns.30\n"
+        "\ttitle = { trigger = { has_war = yes } text = Testns.30.t0 }\n"
+        "\ttitle = { trigger = { has_war = no } text = Testns.30.t1 }\n"
+        "\tdesc = Testns.30.d\n"
+        "\tdesc = { trigger = { has_war = yes } text = Testns.30.d_war }\n"
+        '\tdesc = { trigger = { has_war = no } text = "[GetTestDesc]" }\n'
+        "\toption = { name = Testns.30.a }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    result = _tool(fake_mod_root, cache_dir)(event_ids=["Testns.30"])
+
+    assert [entry["key"] for entry in result["loc_yml_keys"]] == [
+        "Testns.30.a",
+        "Testns.30.d",
+        "Testns.30.d_war",
+        "Testns.30.t0",
+        "Testns.30.t1",
+    ]
+    assert result["failures"] == []
+    assert result["complete"] is True
+
+
+def test_generate_missing_loc_reports_text_less_title_and_skips_hidden_fields(
+    fake_mod_root, cache_dir
+):
+    (fake_mod_root / "events" / "odd_titles.txt").write_text(
+        "country_event = {\n"
+        "\tid = Testns.31\n"
+        "\ttitle = { trigger = { has_war = yes } }\n"
+        "\tdesc = Testns.31.d\n"
+        "}\n"
+        "country_event = {\n"
+        "\tid = Testns.32\n"
+        "\thidden = yes\n"
+        "\toption = { name = Testns.32.a }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    result = _tool(fake_mod_root, cache_dir)(event_ids=["Testns.31", "Testns.32"])
+
+    assert [entry["key"] for entry in result["loc_yml_keys"]] == ["Testns.31.d", "Testns.32.a"]
+    assert result["failures"] == ["event:Testns.31: title has no scalar or text key"]
+    assert result["partial"] is True
+
+
 def test_generate_missing_loc_marks_generator_byte_budget_drops_partial(
     fake_mod_root, cache_dir, monkeypatch
 ):

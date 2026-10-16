@@ -78,16 +78,21 @@ def generate_missing_loc_tool(
         except Exception as exc:
             failures.append(f"event:{ident}: could not read event details ({type(exc).__name__})")
             continue
-        title_key = symbol_or_str(node.get("title"))
-        description_key = symbol_or_str(node.get("desc"))
-        if title_key:
-            candidates.setdefault(title_key, f"Event: {ident}")
-        else:
-            failures.append(f"event:{ident}: title localisation key is missing")
-        if description_key:
-            candidates.setdefault(description_key, "TODO: event description.")
-        else:
-            failures.append(f"event:{ident}: description localisation key is missing")
+        hidden = symbol_or_str(node.get("hidden")) == "yes"
+        for field, label, value in (
+            ("title", "title", f"Event: {ident}"),
+            ("desc", "description", "TODO: event description."),
+        ):
+            entries = node.get_all(field)
+            if not entries and not hidden:
+                failures.append(f"event:{ident}: {label} localisation key is missing")
+            for entry in entries:
+                # Triggered variants are `title = { trigger = { ... } text = KEY }`.
+                key = symbol_or_str(entry) or symbol_or_str(entry.get("text"))
+                if key:
+                    candidates.setdefault(key, value)
+                else:
+                    failures.append(f"event:{ident}: {label} has no scalar or text key")
         for child in node.get_all("option"):
             raw_name = child.get("name")
             option_name = symbol_or_str(raw_name)
@@ -100,10 +105,11 @@ def generate_missing_loc_tool(
                 # surface the omission so the generated text cannot claim completeness.
                 failures.append(f"event:{ident}: option localisation key is non-scalar")
 
+    # `[GetSomething]` is a scripted-localisation call, not a YAML key.
     missing = [
         {"key": key, "value": value}
         for key, value in sorted(candidates.items())
-        if loc_index.resolve(key, lang) is None
+        if not key.startswith("[") and loc_index.resolve(key, lang) is None
     ]
     selected, page_truncated, total = paginate(missing, offset=offset, limit=limit)
     lang_suffix = LANG_ISO_TO_SUFFIX[lang]

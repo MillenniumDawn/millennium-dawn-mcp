@@ -719,6 +719,30 @@ Scope by `tag=` (prefix-matched focuses; relative refs to out-of-scope focuses
 still resolve) or `file=` (every focus in the file). Dynamic `offset = {...}`
 blocks are ignored.
 
+### `focus_overlap_scenarios(file, tag, completed?, date?, include_positions?, limit?, offset?) -> dict`
+
+Read one explicit focus-tree `.txt` file from the mod or configured submod and
+evaluate its same-cell overlaps for the supplied country tag and optional
+completed-focus/date scenario. The tool never guesses a file, tag, or current
+game date. `limit`/`offset` page collision groups, optional visible positions,
+and diagnostics. Diagnostics include duplicate ids, unknown trigger results,
+and missing or cyclic relative-position chains.
+
+This is the upstream helper's approximate tri-valued evaluation, not a full
+engine simulation: unknown offset conditions are left unapplied and unknown
+`allow_branch` conditions keep a focus visible; other unknown condition
+statements are also reported as uncertain. The upstream parser keeps the first
+definition of a duplicate focus id, and unresolved relative chains produce
+partial coordinates. Reports label that uncertainty and include
+total/returned/truncated counts. Missing or unsupported upstream
+helpers, invalid paths, and invalid scenarios return `{ok: false, error}`.
+The file is read-only and checked for balanced Paradox syntax before the
+upstream scan. The MCP parser's focus ids are compared with the helper's parsed
+ids; compact or otherwise unrecognized definitions are refused instead of
+reported as empty results. Dates must be valid calendar dates; quoted focus ids
+are refused because the upstream helper strips their quotes. Oversized optional
+lists are dropped with explicit truncation metadata.
+
 ### `diff_summary(base?, kinds?, with_ids?, limit?) -> dict`
 
 Structured branch diff vs `base` (default `main`).

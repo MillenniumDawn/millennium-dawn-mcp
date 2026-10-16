@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Optional
 from ..util.process import run_in_group
 from ..util.response import coerce_int, enforce_budget
 
+_FOCUS_OVERLAP_TIMEOUT = 120
 _SHIM = Path(__file__).with_name("upstream_analysis_shim.py")
 _TICK_TIMEOUT = 120
 _GDP_TIMEOUT = 120
@@ -240,6 +242,124 @@ def ai_path_report_tool(
     return enforce_budget(
         result, heavy_keys=("pagination", "matrix", "graph", "plans", "mechanics")
     )
+
+
+def focus_overlap_scenarios_tool(
+    mod_root: Path,
+    file: str,
+    tag: str,
+    *,
+    submod_root: Optional[Path] = None,
+    completed: Optional[list[str]] = None,
+    date: Optional[str] = None,
+    include_positions: bool = False,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    """Report same-cell focus groups for one explicit gameplay scenario."""
+
+    def error_result(message: str, *, include_file: bool = True) -> dict:
+        result = {"ok": False, "error": message}
+        if include_file and isinstance(file, str):
+            result["file"] = file
+        return enforce_budget(result)
+
+    try:
+        limit = min(100, coerce_int(limit, name="limit", default=50))
+        offset = coerce_int(offset, name="offset", default=0)
+    except ValueError as exc:
+        return error_result(str(exc))
+    if not isinstance(file, str) or not file.strip():
+        return error_result("file must name one explicit focus-tree .txt file", include_file=False)
+    if not isinstance(tag, str) or not re.fullmatch(r"[A-Za-z0-9]{2,4}", tag):
+        return error_result("tag must be a 2-4 character country tag")
+    if completed is None:
+        completed = []
+    if (
+        not isinstance(completed, list)
+        or len(completed) > 200
+        or any(not isinstance(value, str) or not value or len(value) > 200 for value in completed)
+    ):
+        return error_result("completed must be a list of at most 200 focus ids")
+    if not isinstance(include_positions, bool):
+        return error_result("include_positions must be a boolean")
+    if date is not None and (not isinstance(date, str) or len(date) > 32):
+        return error_result("date must be a YYYY.M.D string")
+    try:
+        source_path, path_error = _focus_source_path(mod_root, submod_root, file)
+    except (OSError, ValueError) as exc:
+        return error_result(f"Could not resolve focus file: {exc}")
+    if path_error or source_path is None:
+        return error_result(path_error or "focus file could not be resolved")
+    result = _run_shim(
+        mod_root,
+        "focus_overlap_scenarios",
+        {
+            "file": str(source_path),
+            "allowed_roots": [str(root) for root in (submod_root, mod_root) if root],
+            "tag": tag.upper(),
+            "completed": completed,
+            "date": date,
+            "include_positions": include_positions,
+            "limit": limit,
+            "offset": offset,
+        },
+        timeout=_FOCUS_OVERLAP_TIMEOUT,
+    )
+    heavy_keys = (("positions",) if result.get("positions_included") else ()) + (
+        "collision_groups",
+        "diagnostics",
+    )
+    shaped = enforce_budget(result, heavy_keys=heavy_keys)
+    for _ in range(len(heavy_keys) + 1):
+        metadata_changed = False
+        for name in ("positions", "collision_groups", "diagnostics"):
+            dropped_key = f"{name}_dropped"
+            if dropped_key in shaped and (
+                shaped.get(f"{name}_returned") != 0 or shaped.get(f"{name}_truncated") is not True
+            ):
+                shaped[f"{name}_returned"] = 0
+                shaped[f"{name}_truncated"] = True
+                metadata_changed = True
+        if not metadata_changed:
+            return shaped
+        shaped = enforce_budget(shaped, heavy_keys=heavy_keys)
+    return enforce_budget(shaped, heavy_keys=heavy_keys)
+
+
+def _focus_source_path(
+    mod_root: Path, submod_root: Optional[Path], value: str
+) -> tuple[Optional[Path], Optional[str]]:
+    roots: list[Path] = []
+    for root_value in (submod_root, mod_root):
+        if root_value is None:
+            continue
+        root = root_value.resolve(strict=True)
+        if root.is_dir():
+            roots.append(root)
+    if not roots:
+        return None, "configured mod roots are unavailable"
+
+    requested = Path(value)
+    candidates = [requested] if requested.is_absolute() else [root / requested for root in roots]
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve(strict=True)
+            inside = any(resolved.is_relative_to(root) for root in roots)
+        except (OSError, ValueError):
+            continue
+        linked = candidate.is_symlink()
+        parent = candidate.parent
+        while not linked and parent != parent.parent:
+            linked = parent.is_symlink()
+            if parent in roots:
+                break
+            parent = parent.parent
+        if inside and not linked and resolved.is_file() and resolved.suffix.casefold() == ".txt":
+            if resolved.stat().st_size > 2_000_000:
+                return None, "focus file exceeds the 2 MB analysis limit"
+            return resolved, None
+    return None, "file must be an existing regular .txt file inside a configured mod root"
 
 
 def calculate_days_tool(year: int, month: int, day: int) -> dict:

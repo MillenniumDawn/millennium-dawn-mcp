@@ -80,6 +80,7 @@ from .tools.upstream_analysis import (
     calculate_days_tool,
     estimate_gdp_tool,
     event_load_tool,
+    focus_overlap_scenarios_tool,
     game_log_summary_tool,
     tick_audit_tool,
     tick_spot_check_tool,
@@ -528,6 +529,30 @@ def build_server(settings: Settings):
         """Report a country's AI path; section selects sections and limit/offset page every list."""
         return await blocking_tools.run(
             ai_path_report_tool, settings.mod_root, tag, section, limit, offset
+        )
+
+    @mcp.tool(name="focus_overlap_scenarios")
+    async def _focus_overlap_scenarios(
+        file: str,
+        tag: str,
+        completed: Optional[list[str]] = None,
+        date: Optional[str] = None,
+        include_positions: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict:
+        """Read one focus file in an explicit tag/date/completion scenario; page overlaps and optional visible positions."""
+        return await blocking_tools.run(
+            focus_overlap_scenarios_tool,
+            settings.mod_root,
+            file,
+            tag,
+            submod_root=settings.submod_root,
+            completed=completed,
+            date=date,
+            include_positions=include_positions,
+            limit=limit,
+            offset=offset,
         )
 
     @mcp.tool(name="calculate_days")

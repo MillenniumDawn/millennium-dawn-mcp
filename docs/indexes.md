@@ -97,6 +97,11 @@ to `spawn` on Windows.
 | `DecisionIndex` | `common/decisions/` | `id` | Stores category. |
 | `IdeaIndex` | `common/ideas/` | `id` | Stores category + slot. |
 | `GfxIndex` | `interface/` | `name` | Sprite name → texture path. |
+| `CountryTagIndex` | `common/country_tags/` | `tag` | Tag → country-history path. |
+| `CharacterIndex` | `common/characters/` | `id` | Character definitions. |
+| `TraitIndex` | `common/country_leader/`, `common/unit_leader/` | `id` | Country + unit leader traits. |
+| `ScriptedEffectIndex` | `common/scripted_effects/` | `id` | Scripted effect definitions. |
+| `ScriptedTriggerIndex` | `common/scripted_triggers/` | `id` | Scripted trigger definitions. |
 | `LocalisationIndex` | `localisation/**/*_l_<lang>.yml` | `(lang, key)` | Only the configured `loc_langs` (default English); see [Localisation languages](#localisation-languages). Sharded cache. |
 
 Each index is independent — they stat their own subdirs and don't coordinate.

@@ -33,7 +33,12 @@ from ..util.git import GitError, run_git
 from ..util.pathing import contained, roots_for
 from ..util.process import run_in_group
 from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget, fit_prefix
-from ..validators import SLOW_VALIDATORS, ValidatorRunner, count_severities
+from ..validators import (
+    IMPLICIT_RUN_ALL_EXCLUDED,
+    SLOW_VALIDATORS,
+    ValidatorRunner,
+    count_severities,
+)
 from ..validators.attribution import normalize_path
 from .lint_fixers import _load_changelog_core
 from .lint_validators import (
@@ -560,7 +565,7 @@ def lint_tool(
                 expanded: set = set()
                 for v in validator_request:
                     if v == "*":
-                        expanded |= available - SLOW_VALIDATORS
+                        expanded |= available - SLOW_VALIDATORS - IMPLICIT_RUN_ALL_EXCLUDED
                     elif v != "auto":
                         expanded.add(v)
                 unknown_validators = sorted(expanded - available)

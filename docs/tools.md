@@ -257,8 +257,9 @@ Run one validator or the full fast suite. Set `delta=True` to return only new
 issues compared with a baseline snapshot.
 
 - **`validator`** — name from `validate_list` (`localisation`, `focus_id`,
-  etc.). Omit to run all *fast* validators (slow `unused_scripted` and
-  `unused_textures` are skipped by default — call them by name when you want them).
+  etc.). Omit to run implicit run-all validators. This skips slow
+  `unused_scripted` and `unused_textures`, plus `standardization` and
+  `mesh_textures`; all remain available by explicit name.
 - **`staged_only=True`** — restrict to git-staged files. Much faster mid-edit.
   The MCP passes Git's NUL-parsed staged paths to upstream validators through
   `MD_STAGED_FILES`; paths containing newline characters are rejected because
@@ -391,7 +392,7 @@ for "check this code's quality."
     Global cross-reference validators (`variables`, `set_variables`,
     `cosmetic_tags`) and the slow two
     (`unused_scripted`, `unused_textures`) are never auto-selected.
-  - `["*"]` — every fast validator (same exclusions as `validate`'s run-all).
+  - `["*"]` — every implicit run-all validator (same exclusions as `validate`).
   - Explicit names run exactly those; sentinels and names union. For example,
     `["history"]` runs `history`, not `history` plus the default `style`.
 

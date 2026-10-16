@@ -14,6 +14,7 @@ from ..config import Settings
 from ..util.pathing import resolve_scope_file
 from ..util.response import coerce_int, enforce_budget, paginate
 from ..validators import (
+    IMPLICIT_RUN_ALL_EXCLUDED,
     SEVERITY_RANK,
     SLOW_VALIDATORS,
     ValidatorRunner,
@@ -165,7 +166,7 @@ def validate_tool(
 
     # Run-all path: skip the slow opt-in validators by default.
     infos = available_validators(settings.mod_root)
-    targets = [v for v in infos if v.name not in SLOW_VALIDATORS]
+    targets = [v for v in infos if v.name not in SLOW_VALIDATORS | IMPLICIT_RUN_ALL_EXCLUDED]
 
     aggregated: list[dict] = []
     issue_records: list[tuple[dict, str]] = []
@@ -242,6 +243,7 @@ def validate_tool(
     summary: dict = {
         "ok": all(v["ok"] for v in per_validator),
         "skipped_slow": sorted(SLOW_VALIDATORS),
+        "skipped_implicit": sorted(set(v.name for v in infos) & IMPLICIT_RUN_ALL_EXCLUDED),
         "validators": per_validator,
         "counts": overall,
         "issues_total_after_filter": total,

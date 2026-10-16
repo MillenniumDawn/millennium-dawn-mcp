@@ -463,7 +463,9 @@ def test_select_validators_dedups_across_files():
 
 def test_select_validators_mode_all_is_fast_set():
     got = select_validators(None, set(_ALL_NAMES))
-    assert got == sorted(set(_ALL_NAMES) - SLOW_VALIDATORS - {"common_mistakes"})
+    assert got == sorted(
+        set(_ALL_NAMES) - SLOW_VALIDATORS - {"common_mistakes", "standardization", "mesh_textures"}
+    )
 
 
 def test_select_validators_empty_scope_selects_nothing():
@@ -486,7 +488,7 @@ def test_select_validators_never_auto_selects_globals():
     ]
     got = set(select_validators(paths, set(_ALL_NAMES)))
     assert not got & {"variables", "set_variables", "cosmetic_tags"}
-    assert not got & SLOW_VALIDATORS
+    assert not got & (SLOW_VALIDATORS | {"standardization", "mesh_textures"})
 
 
 def test_select_validators_intersects_available():

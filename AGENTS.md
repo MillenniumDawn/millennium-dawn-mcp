@@ -15,10 +15,8 @@ live under [`docs/`](./docs/).
 `Millennium-Dawn/tools/` validators and ports the `MD-VSCode-Utility-Tool`
 paradox-script parser. It exposes:
 
-- **30 tools** (`resolve_*`, `find_*`, `parse_*`, `validate*`, `generate_*`,
-  `check_equipment_variant`, `lookup_docs`, `focus_graph`, `check_refs`, `focus_layout`,
-  `diff_summary`, `check_encoding`, `lint`, `fix_lint`, `review_branch`,
-  `list_country_content`)
+- **52 tools** (resolvers, parsers, finders, validation, generators,
+  analysis — full inventory in [`docs/tools.md`](./docs/tools.md))
 - **6 resources** under the `md://` URI scheme (`md://focus/{id}` etc.)
 
 It is **read-only** by design. Generators return content as strings; the agent
@@ -43,22 +41,34 @@ src/md_mcp/
 │   ├── parser.py        Recursive-descent
 │   ├── nodes.py         Node, Token, SymbolNode dataclasses
 │   └── schema.py        Typed projections (focus/event/decision/idea/sprite)
-├── indexes/             Two-tier cache (in-process + persistent JSONL)
+├── indexes/             Two-tier cache (in-process + persistent JSON)
 │   ├── base.py          GenericTxtIndex, IndexCache, staleness checking
-│   └── {focus,event,decision,idea,localisation,gfx}.py
-├── validators/runner.py Wraps Millennium-Dawn validate_*.py modules in-process
+│   └── {focus,event,decision,idea,localisation,gfx,country_tag,character,
+│       scripted_effect,scripted_trigger}.py
+├── validators/          Runs Millennium-Dawn validate_*.py modules (isolated
+│                         default); issue attribution
+│   ├── runner.py        ValidatorRunner + _collect adapter point
+│   └── attribution.py   IssueAttributor (resolves non-uniform Issue.file)
 ├── generators/          Pure-string generators (focus/event/decision/idea/gfx/loc)
 ├── analysis/            High-level queries
 │   ├── focus_graph.py   Prereq/mutex DAG with tiered detail
+│   ├── focus_layout.py  relative_position_id geometry, collisions
 │   ├── refs.py          Find-all-references over scan dirs
+│   ├── ref_audit.py     Scoped cross-reference audit (check_refs)
 │   ├── manifest.py      Per-country file/ID inventory
 │   ├── diff_summary.py  git diff + AST-level ID diff
+│   ├── issue_delta.py   validate(delta=True) baseline comparison
+│   ├── suppressions.py  manifest-backed icon suppression
 │   └── encoding.py      BOM compliance check
 ├── tools/               Thin @mcp.tool() wrappers
 └── util/
     ├── response.py      paginate, enforce_budget, BUDGET_BYTES
     ├── encoding.py      BOM-aware read_text
-    └── pathing.py       mod_root / vanilla discovery
+    ├── pathing.py       mod_root / vanilla discovery
+    ├── line_numbers.py  Token offset → line mapping
+    ├── git.py           run_git (stdin-closed, timeout-required)
+    ├── offload.py       bounded thread pool for blocking tools
+    └── process.py       child process-group + timeout helper
 ```
 
 Tests live in `tests/`. Integration tests are marker-gated
@@ -161,18 +171,21 @@ sub-command that primes caches before the server starts).
 sure it's gated on `MD_MCP_SERIAL_PARSE` and never reaches a fork inside
 `mcp.run()`.
 
-The mod validators are the other fork source: 19 of 26 fork a `Pool` from
-`validator_common.py`, which we don't control. That's why `ValidatorRunner`
+The mod validators are the other fork source: many have pool-aware paths via
+`validator_common.py`, which we don't control (see `docs/validators.md` for
+the pinned-commit count). That's why `ValidatorRunner`
 defaults to `isolated` mode (runs each validator in a child via `_shim.py`) and
 `serve` forces it — in-process validation hangs the server the same way. Don't
 route validators through the in-process path from inside `mcp.run()`.
 
 ### 7. `Node.children()` is a method, not an attribute
 
-The Python AST diverges from the TS port in one place: `Node.children` is a
+The Python AST diverges from the TS port in two places: `Node.children` is a
 **method** (returns `[]` if value isn't a block, otherwise the block contents).
 Earlier code wrote `for c in node.children:` and crashed with
-`'method' object is not iterable`. Always call it: `node.children()`.
+`'method' object is not iterable`. Always call it: `node.children()`. `Node`
+also keeps only `name_token` and `value_end_token`; the TS operator,
+value-start, and value-attachment tokens are not stored.
 
 Similarly, `Token.start` is a Python **str index**, not a line number. To translate,
 use `line_starts(text)` + `pos_to_line(pos, line_starts)` from
@@ -192,8 +205,10 @@ use `line_starts(text)` + `pos_to_line(pos, line_starts)` from
 4. **Register in `server.py`** with `@mcp.tool()` and a one-line description.
    That description shows up in the agent's prompt **every turn**; it's
    prompt budget, so keep it tight and informative (mention the key knobs).
-5. **Tests** under `tests/test_<name>.py` with at least: signature guard,
-   small-output happy path, and one truncation case.
+5. **Tests** under `tests/test_<name>.py` with at least a small-output happy
+   path and one truncation case. Add the tool to both tables in
+   `tests/test_server.py` (`TOOL_SIGNATURES` pins agent-facing params,
+   `TOOL_CALLS` round-trips it); a tool missing from either fails the suite.
 
 Example skeleton:
 
@@ -224,7 +239,7 @@ Run the full unit suite:
 pytest -q
 ```
 
-Sub-second, no mod checkout needed.
+About 20 s, no mod checkout needed.
 
 Run the integration suite (requires a real `Millennium-Dawn/` checkout):
 
@@ -251,6 +266,7 @@ The ISR focus_graph probe in the git history is a useful template.
 | Env var | Effect |
 | --- | --- |
 | `MD_MOD_ROOT` | Path to the `Millennium-Dawn/` checkout. Required when not auto-discovered. |
+| `MD_MCP_SUBMOD_ROOT` | Optional submod/worktree overlay; matching files take precedence. |
 | `HOI4_PATH` | Path to vanilla `Hearts of Iron IV/`. Optional; doubles cold-build time. |
 | `MD_MCP_CACHE_DIR` | Override `.md-mcp-cache/` location (use for read-only checkouts). |
 | `MD_MCP_VALIDATOR_MODE` | `isolated` (default) or `in_process`. `in_process` is unsafe under `serve`; see rule 6. |
@@ -259,7 +275,7 @@ The ISR focus_graph probe in the git history is a useful template.
 | `MD_MCP_SERIAL_PARSE` | `1` forces serial parsing — auto-set by `md-mcp serve`. |
 | `MD_MCP_TEXT_CACHE_BYTES` | Bound on decoded text held by `find_references`' in-memory file cache, measured as the strings cost in memory (default 134217728 = 128 MB; `0` disables). Once full, further files are read but not cached. |
 | `MD_MCP_AST_CACHE_SIZE` | Parsed-AST LRU capacity in files (default 32, `0` disables). |
-| `MD_MCP_AST_CACHE_BYTES` | Bound on source text held by the parsed-AST cache (default 8000000). Resident cost is ~30x that: 8 MB of source is ~230 MB of trees on the real mod. |
+| `MD_MCP_AST_CACHE_BYTES` | Bound on source text held by the parsed-AST cache (default 8000000). Resident cost is ~23x that: 8 MB of source is ~184 MB of trees on the real mod. |
 
 Config-file equivalents in `~/.config/md-mcp/config.toml`. CLI flag > env >
 file > computed default.
@@ -286,7 +302,7 @@ not in the hook. Run `pytest -q` yourself; it isn't a hook either.
    (`MD-VSCode-Utility-Tool/src/hoiformat/hoiparser.ts`) and confirm the
    behaviour there before changing the Python side.
 3. The index cache is **stat-based**, not content-based. If an index seems
-   stale, blow away `<mod_root>/.md-mcp-cache/v1/` and rerun
+   stale, blow away `<mod_root>/.md-mcp-cache/` and rerun
    `md-mcp build-index`.
 4. The MCP framing layer can swallow exceptions raised inside a `@mcp.tool()`.
    When debugging mid-call failures, run the tool directly:

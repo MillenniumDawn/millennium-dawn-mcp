@@ -168,9 +168,10 @@ result = validate(severity_min="warning", limit=200)
 ```
 
 See [`docs/output-budgets.md`](./output-budgets.md#when-to-break-the-rules) for the
-severity-filter pattern. Run-all path skips two known-slow validators by
-default: `unused_scripted` and `unused_textures`. Call them by name when
-you want them:
+severity-filter pattern. Run-all path skips four validators by
+default: the slow `unused_scripted` and `unused_textures`, plus the implicit
+run-all exclusions `standardization` and `mesh_textures`. Call them by name
+when you want them:
 
 ```python
 validate(validator="unused_textures")

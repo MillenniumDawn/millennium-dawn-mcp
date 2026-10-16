@@ -2,8 +2,8 @@
 
 Mod scripts and validators fork ``multiprocessing`` pools. ``subprocess.run``
 kills only the direct child on timeout, which leaves the pool workers running at
-full CPU. The child also gets ``stdin=DEVNULL`` so it can never read the server's
-JSON-RPC stream.
+full CPU. The child gets ``stdin=DEVNULL``, or a pipe carrying ``input``, so it
+can never read the server's JSON-RPC stream.
 """
 
 from __future__ import annotations
@@ -21,7 +21,9 @@ def run_in_group(
     timeout: float,
     cwd: Optional[str] = None,
     text: bool = False,
+    encoding: Optional[str] = None,
     env: Optional[Mapping[str, str]] = None,
+    input: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
     """``subprocess.run(capture_output=True)`` that kills the child's process group on timeout.
 
@@ -31,15 +33,16 @@ def run_in_group(
     with subprocess.Popen(
         cmd,
         cwd=cwd,
-        stdin=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL if input is None else subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=text,
+        encoding=encoding,
         env=env,
         start_new_session=True,
     ) as proc:
         try:
-            stdout, stderr = proc.communicate(timeout=timeout)
+            stdout, stderr = proc.communicate(input, timeout=timeout)
         except subprocess.TimeoutExpired:
             if hasattr(os, "killpg"):
                 with contextlib.suppress(OSError):

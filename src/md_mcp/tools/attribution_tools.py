@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
-import signal
 import subprocess
 import sys
 from pathlib import Path
 
+from ..util.process import run_in_group
 from ..util.response import enforce_budget
 
 _SHIM = Path(__file__).with_name("attribution_shim.py")
@@ -39,34 +38,20 @@ def check_attribution_labels_tool(
         return {"ok": False, "error": "limit and offset must be integers"}
     payload = {"content": content, "limit": limit, "offset": offset}
     try:
-        encoded = json.dumps(payload, ensure_ascii=True, allow_nan=False)
-        proc = subprocess.Popen(
+        proc = run_in_group(
             [sys.executable, str(_SHIM), str(mod_root)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+            timeout=_TIMEOUT_SECONDS,
             encoding="utf-8",
-            start_new_session=True,
+            input=json.dumps(payload, ensure_ascii=True, allow_nan=False),
         )
-        try:
-            stdout, stderr = proc.communicate(encoded, timeout=_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired:
-            if os.name == "posix":
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except OSError:
-                    proc.kill()
-            else:
-                proc.kill()
-            proc.communicate()
-            return {"ok": False, "error": "Attribution analysis exceeded its 30 second limit."}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "Attribution analysis exceeded its 30 second limit."}
     except (OSError, ValueError, UnicodeError):
         return {"ok": False, "error": "Could not start attribution analysis subprocess."}
     if proc.returncode != 0:
         return {"ok": False, "error": "Attribution analysis subprocess failed."}
     try:
-        result = json.loads(stdout)
+        result = json.loads(proc.stdout)
     except (TypeError, json.JSONDecodeError):
         return {"ok": False, "error": "Attribution analysis returned invalid JSON."}
     if not isinstance(result, dict):

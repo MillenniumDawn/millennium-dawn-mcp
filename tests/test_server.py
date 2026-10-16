@@ -143,6 +143,9 @@ TOOL_SIGNATURES = {
         "legacy_lazy_load=False, protected=None, limit=100, offset=0, include_file=False"
     ),
     "generate_loc_stub": "keys, lang='l_english', include_header=True, bom_prefix=False",
+    "generate_missing_loc": (
+        "focus_ids=None, event_ids=None, lang='en', limit=200, offset=0, bom_prefix=False"
+    ),
     "standardize": "content=None, path=None, content_type=None",
     "tick_audit": "tag=None, limit=20, offset=0",
     "tick_spot_check": "files, scope=None, limit=100, offset=0",
@@ -428,6 +431,10 @@ TOOL_CALLS: dict[str, tuple[dict, dict]] = {
     "generate_loc_stub": (
         {"keys": [{"key": "TST_new", "value": "New"}]},
         {"txt": 'l_english:\n TST_new: "New"\n'},
+    ),
+    "generate_missing_loc": (
+        {"focus_ids": ["TST_unindexed"]},
+        {"ok": True, "complete": False, "partial": True},
     ),
     "standardize": (
         {"content": "focus = { id = TST_new }\n", "content_type": "focus"},

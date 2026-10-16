@@ -959,6 +959,18 @@ last page the closing brace, so appending the pages in order rebuilds the file.
 Returns `{ok, txt, new, changed, orphaned, deduped, conflicts, scan_duplicates,
 would_write, exists, scanned, ...}` plus a `*_total` per list.
 
+### `generate_missing_loc(focus_ids?, event_ids?, lang?, limit?, offset?, bom_prefix?) -> dict`
+
+Generate an English YAML stub for missing localisation keys associated with
+selected focus and event ids. Existing keys are excluded. Event titles,
+descriptions, and option names are read from the indexed event source. Every
+`title`/`desc` counts, including triggered `{ trigger = { ... } text = KEY }`
+variants. Hidden events need neither. `[Scripted]` loc calls are skipped.
+Unsupported structured keys are reported as partial output. It returns text only and never writes
+mod files. `complete` is true only when every requested id resolved, all keys
+fit the requested page, and the text was not clipped; otherwise `partial` is
+true with unresolved, read-failure, or truncation details.
+
 ### `generate_loc_stub(keys: [{key, value}], lang?, include_header?, bom_prefix?) -> dict`
 
 Build a localisation YAML stub.

@@ -32,6 +32,7 @@ from .generators import (
     generate_gfx_merge,
     generate_idea,
     generate_loc_stub,
+    generate_missing_loc_tool,
 )
 from .indexes import (
     CharacterIndex,
@@ -449,6 +450,18 @@ def build_server(settings: Settings):
         name="generate_loc_stub",
         description="Build a localisation YAML stub from [{key, value}, ...]. Use bom_prefix=True for new files.",
     )(generate_loc_stub)
+    mcp.tool(
+        name="generate_missing_loc",
+        description="Generate missing English localisation for selected focus_ids and event_ids. Returns bounded YAML text only; reports complete versus partial results.",
+    )(
+        _bind_tool(
+            generate_missing_loc_tool,
+            settings,
+            focus_index,
+            event_index,
+            loc_index,
+        )
+    )
     mcp.tool(
         name="standardize",
         description="Standardize content in memory using upstream formatters: content= with content_type=focus|event|decision|idea|mio|technology|history|localisation, or mod-relative path= (.txt, or .yml for localisation; bounded category scan per call). txt is BOM-free — localisation reports had_bom, keep the BOM when writing .yml. Clipped txt must not be written back.",

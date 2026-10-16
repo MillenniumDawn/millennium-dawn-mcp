@@ -83,6 +83,8 @@ return {"total": total, "returned": len(sliced), "truncated": truncated, "matche
 If `result` JSON-encodes larger than `budget`, drop keys from `heavy_keys` (in
 order) until it fits. Each dropped key gets a `<key>_dropped: <original_count>`
 sibling and the result is tagged `size_truncated=True`.
+Wrappers with pagination metadata should update `returned` and `truncated` after
+a payload is dropped, then check the corrected response against the same budget.
 
 ```python
 return enforce_budget(

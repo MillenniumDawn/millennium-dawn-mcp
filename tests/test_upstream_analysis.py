@@ -182,13 +182,58 @@ def test_tick_audit_enforces_budget(monkeypatch, tmp_path):
     monkeypatch.setattr(
         upstream_analysis,
         "_run_shim",
-        lambda *args, **kwargs: {"ok": True, "hooks": ["x" * 10_000] * 12},
+        lambda *args, **kwargs: {
+            "ok": True,
+            "total": 12,
+            "returned": 12,
+            "truncated": False,
+            "hooks": [
+                {
+                    "cadence": "daily",
+                    "scope": "USA",
+                    "file": "common/on_actions/" + "界" * 5_000,
+                    "line": index,
+                    "work_units": 3,
+                    "direct_effect_calls": 1,
+                    "reached_effects": 2,
+                    "events_direct": 1,
+                    "events_random": 0,
+                }
+                for index in range(12)
+            ],
+        },
     )
 
     result = upstream_analysis.tick_audit_tool(tmp_path, limit=20)
 
     assert result["size_truncated"] is True
     assert result["hooks_dropped"] == 12
+    assert result["total"] == 12
+    assert result["returned"] == 0
+    assert result["truncated"] is True
+    assert "界" not in json.dumps(result, ensure_ascii=False)
+
+
+def test_tick_audit_rechecks_budget_after_metadata_correction(monkeypatch, tmp_path):
+    from md_mcp.util.response import BUDGET_BYTES
+
+    monkeypatch.setattr(
+        upstream_analysis,
+        "_run_shim",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "total": 1,
+            "diagnostic": "x" * 99_890,
+            "hooks": ["界" * 40_000],
+        },
+    )
+
+    result = upstream_analysis.tick_audit_tool(tmp_path)
+
+    assert result["ok"] is False
+    assert result["size_truncated"] is True
+    assert "exceeded byte budget" in result["error"]
+    assert len(json.dumps(result, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
 
 
 def test_subprocess_timeout_is_an_error(monkeypatch, tmp_path):
@@ -482,6 +527,9 @@ def busiest(days, window):
     assert invalid_num["ok"] is False
     large = upstream_analysis.event_load_tool(tmp_path, limit=1800)
     assert large["size_truncated"] is True
+    assert large["total"] == 1
+    assert large["returned"] == 0
+    assert large["truncated"] is True
 
 
 def test_event_load_missing_upstream_script_is_reported(tmp_path):
@@ -718,6 +766,92 @@ def to_json(data, countries=None, top=15):
     assert result["economy_total"] == 700
     assert result["inflation_total"] == 700
     assert len(result["economy"]) == len(result["inflation"]) == 1
+
+
+@pytest.mark.parametrize(
+    "key",
+    ("focus_countries", "economy", "inflation", "conflicts", "politics", "annexations"),
+)
+def test_game_log_summary_budget_drop_updates_collection_metadata(monkeypatch, tmp_path, key):
+    log = tmp_path / "game.log"
+    log.write_text("readonly", encoding="utf-8")
+    data = (
+        [{"amount": "界" * 5_000} for _ in range(12)]
+        if key in {"conflicts", "politics", "annexations"}
+        else {f"C{index:03d}": {"amount": "界" * 5_000} for index in range(12)}
+    )
+    total_key = f"{key}_total"
+    returned_key = f"{key}_returned"
+    truncated_key = f"{key}_truncated"
+    monkeypatch.setattr(
+        upstream_analysis,
+        "_run_shim",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "path": str(log),
+            key: data,
+            total_key: 12,
+            returned_key: 12,
+            truncated_key: False,
+        },
+    )
+
+    result = upstream_analysis.game_log_summary_tool(tmp_path, str(log))
+
+    assert result["size_truncated"] is True
+    assert result[f"{key}_dropped"] == 12
+    assert result[total_key] == 12
+    assert result[returned_key] == 0
+    assert result[truncated_key] is True
+    assert "界" not in json.dumps(result, ensure_ascii=False)
+
+
+def test_game_log_summary_budget_fallback_keeps_error_and_hides_payload(monkeypatch, tmp_path):
+    log = tmp_path / "game.log"
+    log.write_text("readonly", encoding="utf-8")
+    secret = "private-log-content-" * 10_000
+    monkeypatch.setattr(
+        upstream_analysis,
+        "_run_shim",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "path": str(log),
+            "economy": {"USA": {"amount": "界" * 5_000}},
+            "economy_total": 1,
+            "economy_returned": 1,
+            "economy_truncated": False,
+            "diagnostic": secret,
+        },
+    )
+
+    result = upstream_analysis.game_log_summary_tool(tmp_path, str(log))
+
+    assert result["ok"] is False
+    assert result["size_truncated"] is True
+    assert "exceeded byte budget" in result["error"]
+    assert secret not in json.dumps(result)
+
+
+def test_game_log_summary_budget_drop_keeps_missing_total_unknown(monkeypatch, tmp_path):
+    log = tmp_path / "game.log"
+    log.write_text("readonly", encoding="utf-8")
+    monkeypatch.setattr(
+        upstream_analysis,
+        "_run_shim",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "path": str(log),
+            "economy": {"USA": {"amount": "界" * 40_000}},
+            "economy_returned": 1,
+            "economy_truncated": False,
+        },
+    )
+
+    result = upstream_analysis.game_log_summary_tool(tmp_path, str(log))
+
+    assert "economy_total" not in result
+    assert result["economy_returned"] == 0
+    assert result["economy_truncated"] is True
 
 
 @pytest.mark.integration

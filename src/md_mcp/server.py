@@ -658,6 +658,7 @@ def build_server(settings: Settings):
         file: Optional[str] = None,
         include_positions: bool = False,
         limit: int = 300,
+        offset: int = 0,
     ) -> dict:
         """Focus tree geometry for a tag or file: resolves relative_position_id chains to absolute x/y; reports collisions, broken chains, bounding box. include_positions=True adds per-focus coordinates. limit caps each list."""
         return focus_layout(
@@ -669,6 +670,7 @@ def build_server(settings: Settings):
             submod_root=settings.submod_root,
             include_positions=include_positions,
             limit=limit,
+            offset=offset,
         )
 
     @mcp.tool(name="diff_summary")

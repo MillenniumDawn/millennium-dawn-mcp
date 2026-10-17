@@ -698,26 +698,35 @@ Returns `{ok, scope, files_scanned, kinds_checked, not_checked,
 vanilla_indexed, vanilla_manifest, counts: {kind: {checked, unresolved}},
 total_unresolved, returned, truncated, unresolved: [...]}`.
 
-### `focus_layout(tag?, file?, include_positions?, limit?) -> dict`
+### `focus_layout(tag?, file?, include_positions?, limit?, offset?) -> dict`
 
 Focus tree geometry. Resolves every focus to absolute grid coordinates by
 walking `relative_position_id` chains, then reports what only shows up in-game
 otherwise:
 
 - **`collisions`** — two+ distinct focuses at the same resolved cell.
+- **`spacing_warnings`** — static same-row pairs less than two grid columns apart.
 - **`chain_errors`** — `missing_relative` (target doesn't exist),
-  `cyclic_relative`, `missing_xy`. `missing_relative` is reported per referring
-  focus; an unresolvable focus is reported once, not once per descendant.
-- **`duplicate_definitions`** — present only when the same focus id is defined
-  in more than one scope file, as `{id, files}`. The first definition wins for
-  position resolution.
+  `cyclic_relative`, `missing_xy`, `nonfinite_xy` (relative-coordinate overflow),
+  `duplicate_definition`, and `missing_shared`.
+  `missing_relative` is reported per referring focus; an unresolvable focus is
+  reported once, not once per descendant. Errors include source line and
+  assembled-tree identity.
+- **`duplicate_definitions`** — present only when an id is duplicated within
+  an assembled tree, with tree and file provenance; ambiguous definitions do
+  not resolve. When present, `duplicate_definitions_total` and
+  `duplicate_definitions_truncated` support the same `limit`/`offset` paging.
 - **`bounding_box`** — the tree's extent.
-- **`include_positions=True`** — per-focus `{id, x, y, relative_to}` (capped by
-  `limit`), for picking a free slot near a branch.
+- **`include_positions=True`** — per-instance `{id, x, y, relative_to, tree,
+  file, line, dynamic}` coordinates.
 
-Scope by `tag=` (prefix-matched focuses; relative refs to out-of-scope focuses
-still resolve) or `file=` (every focus in the file). Dynamic `offset = {...}`
-blocks are ignored.
+Scope by `tag=` (prefix-matching focuses within assembled trees) or `file=`. A file request without
+shared-focus imports parses only that file. When imports exist, shared/joint
+metadata selects the other files to parse; unrelated country trees are not parsed
+or merged. `limit` and `offset` page each list. Fractional
+coordinates are preserved. Positions influenced by `allow_branch` ancestry or
+`offset` are marked `dynamic`; dynamic positions are excluded from static
+collision checks. Independent trees are resolved separately.
 
 ### `focus_overlap_scenarios(file, tag, completed?, date?, include_positions?, limit?, offset?) -> dict`
 

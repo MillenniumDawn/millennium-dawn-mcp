@@ -126,7 +126,9 @@ a dict lookup.
   key, so it never leaks between callers.
 - **Shared and read-only**: callers get the same `Node` tree and text on every
   hit and must not mutate them. Lookups are guarded by a lock; parsing runs
-  outside it, so two racing misses may both parse and the last write wins.
+  outside it, so two racing misses may both parse. Before publishing a tree,
+  the cache checks its file signature again under the lock. A parse of an old
+  version cannot evict a newer version that finished first.
 - Tests call `ast_cache.clear()` (an autouse fixture in `tests/conftest.py`).
 
 This is separate from the persistent per-index caches below: those store

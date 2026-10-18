@@ -92,7 +92,7 @@ def parse_cached(abs_path: Path, *, error_prefix: str = "") -> tuple[str, Node]:
             return hit
 
     # Parse outside the lock: it takes ~1 s on the biggest files and must not block
-    # readers of other entries. Two racing misses may both parse; the last one wins.
+    # readers of other entries. Two racing misses may both parse.
     text = read_text(path)
     root = parse_string(text, error_prefix=error_prefix)
 
@@ -101,6 +101,13 @@ def parse_cached(abs_path: Path, *, error_prefix: str = "") -> tuple[str, Node]:
     byte_limit = max_bytes()
     if limit > 0 and len(text) <= byte_limit:
         with _lock:
+            # An older parse must not replace a newer version that finished first.
+            try:
+                current = os.stat(path)
+            except OSError:
+                return text, root
+            if (current.st_mtime_ns, current.st_size) != key[1:]:
+                return text, root
             stale_key = _by_path.get(key[0])
             if stale_key is not None:
                 old = _cache.pop(stale_key, None)

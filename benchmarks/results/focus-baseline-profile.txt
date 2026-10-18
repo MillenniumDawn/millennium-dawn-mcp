@@ -1,0 +1,31 @@
+         289131 function calls (284800 primitive calls) in 0.103 seconds
+
+   Ordered by: cumulative time
+   List reduced from 171 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.103    0.103 /workspace/mcp-baseline/src/md_mcp/indexes/base.py:545(ensure_fresh)
+        1    0.000    0.000    0.103    0.103 /workspace/mcp-baseline/src/md_mcp/indexes/base.py:565(_rebuild)
+        3    0.000    0.000    0.081    0.027 /workspace/millennium-dawn-mcp/benchmarks/cache_paths.py:63(timed)
+        1    0.030    0.030    0.050    0.050 /workspace/mcp-baseline/src/md_mcp/indexes/base.py:583(_rebuild_tag_indexes)
+        1    0.001    0.001    0.033    0.033 /workspace/mcp-baseline/src/md_mcp/indexes/base.py:725(_rebuild_incremental)
+        1    0.000    0.000    0.023    0.023 /workspace/mcp-baseline/src/md_mcp/indexes/base.py:622(_parse_results)
+        1    0.000    0.000    0.023    0.023 /workspace/mcp-baseline/src/md_mcp/indexes/base.py:901(_parse_parallel)
+        1    0.000    0.000    0.023    0.023 /workspace/mcp-baseline/src/md_mcp/indexes/base.py:366(parse_files)
+        1    0.000    0.000    0.023    0.023 /workspace/mcp-baseline/src/md_mcp/indexes/focus.py:49(_parse_focus_file)
+        1    0.000    0.000    0.017    0.017 /workspace/mcp-baseline/src/md_mcp/paradox/parser.py:29(parse_string)
+    252/1    0.001    0.000    0.017    0.017 /workspace/mcp-baseline/src/md_mcp/paradox/parser.py:134(_parse_block_content)
+   1001/1    0.003    0.000    0.017    0.017 /workspace/mcp-baseline/src/md_mcp/paradox/parser.py:52(_parse_node)
+   1001/1    0.001    0.000    0.017    0.017 /workspace/mcp-baseline/src/md_mcp/paradox/parser.py:96(_parse_node_value)
+      160    0.001    0.000    0.015    0.000 /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/pathlib.py:663(relative_to)
+     6760    0.001    0.000    0.011    0.000 /workspace/mcp-baseline/src/md_mcp/paradox/lexer.py:86(peek)
+        1    0.000    0.000    0.010    0.010 /workspace/mcp-baseline/src/md_mcp/indexes/base.py:562(_collect_files)
+        1    0.000    0.000    0.010    0.010 /workspace/mcp-baseline/src/md_mcp/indexes/base.py:285(collect_files)
+        1    0.000    0.000    0.010    0.010 /workspace/mcp-baseline/src/md_mcp/indexes/base.py:328(plan_rebuild)
+     3255    0.005    0.000    0.009    0.000 /workspace/mcp-baseline/src/md_mcp/paradox/lexer.py:70(_advance)
+        1    0.000    0.000    0.009    0.009 /workspace/mcp-baseline/src/md_mcp/indexes/base.py:242(signatures_for)
+        1    0.000    0.000    0.008    0.008 /workspace/mcp-baseline/src/md_mcp/indexes/base.py:833(_persist)
+      160    0.000    0.000    0.008    0.000 /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/pathlib.py:690(is_relative_to)
+        1    0.000    0.000    0.008    0.008 /workspace/mcp-baseline/src/md_mcp/indexes/base.py:174(save_data)
+        2    0.000    0.000    0.007    0.003 /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/json/__init__.py:183(dumps)
+        2    0.000    0.000    0.007    0.003 /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/json/encoder.py:183(encode)

@@ -107,6 +107,38 @@ def test_find_variable_references_ignores_comments_and_quoted_prose(fake_mod_roo
     ] == [result["matches"][1]]
 
 
+@pytest.mark.parametrize(
+    ("kind", "target", "text", "expected"),
+    [
+        ("event", "TST_block.1", "country_event = {\n\t# fires later\n\tid = TST_block.1\n}\n", 1),
+        ("event", "TST_block.1", "country_event = {\n\t# id = TST_block.1\n}\n", 0),
+        ("idea", "TST_block_idea", "add_ideas = {\n\t# comment\n\tidea = TST_block_idea\n}\n", 1),
+        ("variable", "block_var", "set_temp_variable = {\n\t# note\n\tblock_var = 10\n}\n", 1),
+        (
+            "variable",
+            "block_var",
+            'check_variable = {\n\ttooltip = "x"\n\tvar = block_var value = 1\n}\n',
+            1,
+        ),
+    ],
+    ids=[
+        "event-comment",
+        "event-commented-target",
+        "idea-comment",
+        "variable-comment",
+        "variable-string",
+    ],
+)
+def test_find_references_judges_the_target_not_tokens_before_it(
+    fake_mod_root, kind, target, text, expected
+):
+    path = fake_mod_root / "events" / "block_refs.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+    assert find_references(fake_mod_root, kind, target)["total"] == expected
+
+
 def test_find_variable_references_match_quoted_scoped_values_only_in_code(fake_mod_root):
     path = fake_mod_root / "common" / "scripted_effects" / "quoted_scoped_refs.txt"
     path.parent.mkdir(parents=True, exist_ok=True)

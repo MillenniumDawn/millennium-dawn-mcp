@@ -49,8 +49,12 @@ Kind = Literal[
 #   * extensions to match (.txt usually; .yml for loc)
 #   * a regex generator that, given the target id, returns the pattern to search for
 def _identifier(target: str) -> str:
-    escaped = re.escape(target)
-    return r'(?<![\w.])(?:"' + escaped + r'"|' + escaped + r")(?![\w.])"
+    return _target_group(re.escape(target))
+
+
+def _target_group(body: str) -> str:
+    # The only capture in each pattern: `_active_matches` judges this span.
+    return r'(?<![\w.])("' + body + r'"|' + body + r")(?![\w.])"
 
 
 def _focus_pattern(target: str) -> re.Pattern:
@@ -112,8 +116,7 @@ def _variable_pattern(target: str) -> re.Pattern:
     base = target.rsplit(".", 1)[-1]
     target_ref = _identifier(target)
     if "." not in target:
-        scoped = r"(?:[A-Za-z_]\w*\.)?" + re.escape(base)
-        target_ref = r'(?<![\w.])(?:"' + scoped + r'"|' + scoped + r")(?![\w.])"
+        target_ref = _target_group(r"(?:[A-Za-z_]\w*\.)?" + re.escape(base))
     operators = (
         r"var|has_variable|set_variable|set_temp_variable|add_to_variable|subtract_from_variable"
         r"|multiply_variable|divide_variable|check_variable|clamp_variable|modulo_variable"
@@ -488,54 +491,40 @@ def _active_matches(
     loc_yaml: bool = False,
     allow_quoted_scopes: bool = False,
 ):
-    """Yield code and identifier-value matches outside comments and quoted prose."""
-    tokens = iter(_SCRIPT_TOKEN_RE.finditer(text))
+    """Yield matches whose keyword is code and whose target is code or a quoted value.
+
+    Comments and strings between the keyword and the target do not count.
+    """
+    tokens = _SCRIPT_TOKEN_RE.finditer(text)
     token = next(tokens, None)
 
-    for match in pattern.finditer(text):
-        while token is not None and token.end() <= match.start():
+    def token_at(pos: int) -> Optional[re.Match]:
+        nonlocal token
+        while token is not None and token.end() <= pos:
             token = next(tokens, None)
+        return token if token is not None and token.start() <= pos else None
 
-        active = True
-        overlapping = token
-        while overlapping is not None and overlapping.start() < match.end():
-            if overlapping.end() > match.start():
-                if overlapping.lastgroup == "comment":
-                    active = False
-                    break
-                content_start = overlapping.start() + 1
-                content_end = overlapping.end() - 1
-                content = text[content_start:content_end]
-                is_quoted_scope = (
-                    allow_quoted_scopes
-                    and "." not in target
-                    and re.fullmatch(r"[A-Za-z_]\w*\." + re.escape(target), content) is not None
-                )
-                if content != target and not is_quoted_scope:
-                    is_loc_marker = (
-                        loc_yaml
-                        and match.start() >= content_start
-                        and match.end() <= content_end
-                        and (
-                            (
-                                text[match.start() - 1 : match.start()] == "$"
-                                and text[match.end() : match.end() + 1] == "$"
-                            )
-                            or (
-                                text[match.start() - 1 : match.start()] == "["
-                                and text[match.end() : match.end() + 1] == "]"
-                            )
-                        )
-                    )
-                    if not is_loc_marker:
-                        active = False
-                        break
-            if overlapping.end() <= match.end():
-                overlapping = next(tokens, None)
-            else:
-                break
-        token = overlapping
-        if active:
+    for match in pattern.finditer(text):
+        start, end = match.span(match.lastindex or 0)
+        if start > match.start() and token_at(match.start()) is not None:
+            continue
+        found = token_at(start)
+        if found is None:
+            yield match
+            continue
+        if found.lastgroup == "comment":
+            continue
+        content = text[found.start() + 1 : found.end() - 1]
+        quoted_scope = (
+            allow_quoted_scopes
+            and "." not in target
+            and re.fullmatch(r"[A-Za-z_]\w*\." + re.escape(target), content) is not None
+        )
+        loc_marker = loc_yaml and (text[start - 1 : start], text[end : end + 1]) in (
+            ("$", "$"),
+            ("[", "]"),
+        )
+        if content == target or quoted_scope or loc_marker:
             yield match
 
 

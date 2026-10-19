@@ -189,6 +189,20 @@ def test_loc_references_keep_marked_localisation_text_but_ignore_comments_and_pr
     assert [match["line"] for match in result["matches"]] == [1, 1, 2]
 
 
+def test_loc_value_with_inner_quotes_ends_at_its_line(fake_mod_root):
+    """HOI4 reads a loc value from the first to the last quote on its line."""
+    loc_path = fake_mod_root / "localisation" / "english" / "quotes_l_english.yml"
+    loc_path.parent.mkdir(parents=True, exist_ok=True)
+    loc_path.write_text(
+        'l_english:\n FOO:0 "a 5" gun"\n TST_after_odd_quotes:0 "text"\n',
+        encoding="utf-8",
+    )
+
+    result = find_references(fake_mod_root, "loc", "TST_after_odd_quotes")
+
+    assert [match["line"] for match in result["matches"]] == [3]
+
+
 def test_find_references_keeps_quoted_gui_sprite_values(fake_mod_root):
     path = fake_mod_root / "interface" / "sprites.gui"
     path.parent.mkdir(parents=True, exist_ok=True)

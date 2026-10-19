@@ -1,0 +1,908 @@
+{
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+  "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+  "commits": {
+    "baseline": "858a5a99011c56ae81823fdcdd456885e95f0923",
+    "candidate": "fece5cff0940d0f9f5e775f35d913abfda2eb5f8"
+  },
+  "repetitions": 8,
+  "order": "AB on even repetitions, BA on odd repetitions; each sample is a fresh process",
+  "rss": "Linux KiB high-water RSS over process lifetime including fixture setup",
+  "samples": [
+    {
+      "revision": "baseline",
+      "scenario": "focus",
+      "repetition": 0,
+      "cold_build_ms": 561.8615019999424,
+      "unchanged_ms": 5.694704999996247,
+      "edit_ms": 26.345109999965644,
+      "phase_ms": {
+        "_parse_parallel": 7.141284999988784,
+        "_persist": 7.059824000066328,
+        "_rebuild_tag_indexes": 6.457578999970792
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 32868,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "focus",
+      "repetition": 0,
+      "cold_build_ms": 683.6800089999997,
+      "unchanged_ms": 5.0993790000575245,
+      "edit_ms": 25.892366999983096,
+      "phase_ms": {
+        "_parse_parallel": 6.695491999948899,
+        "_persist": 6.811996000010367,
+        "_rebuild_tag_indexes": 7.3355130000436475
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 33144,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "ast",
+      "repetition": 0,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 270.9425000000465,
+      "next_read_ms": 95.47774200007098,
+      "parse_calls": 3,
+      "cache_before_next_read_chars": 120797,
+      "expected_chars": 120814,
+      "new_tree_reused": false,
+      "warm_hit_us": 4.842087499980607,
+      "peak_rss_kib": 38908,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "ast",
+      "repetition": 0,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 159.83411299998806,
+      "next_read_ms": 0.06282399999690824,
+      "parse_calls": 2,
+      "cache_before_next_read_chars": 120814,
+      "expected_chars": 120814,
+      "new_tree_reused": true,
+      "warm_hit_us": 4.508912000005694,
+      "peak_rss_kib": 32384,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "live",
+      "repetition": 0,
+      "first_call_ms": 295.938279999973,
+      "warm_call_ms": 22.486113999889312,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 96772,
+      "peak_rss_kib": 50404,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "live",
+      "repetition": 0,
+      "first_call_ms": 331.21846799997456,
+      "warm_call_ms": 23.35209099999247,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 96756,
+      "peak_rss_kib": 50088,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "focus",
+      "repetition": 1,
+      "cold_build_ms": 668.2490680000228,
+      "unchanged_ms": 5.470322000064698,
+      "edit_ms": 27.69698999998127,
+      "phase_ms": {
+        "_parse_parallel": 7.707847000006041,
+        "_persist": 6.995968999945035,
+        "_rebuild_tag_indexes": 7.618145000037657
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 33040,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "focus",
+      "repetition": 1,
+      "cold_build_ms": 620.3201390000004,
+      "unchanged_ms": 5.373617000032027,
+      "edit_ms": 30.4916239999784,
+      "phase_ms": {
+        "_parse_parallel": 6.656252999960088,
+        "_persist": 7.45442099992033,
+        "_rebuild_tag_indexes": 8.02787299994634
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 32868,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "ast",
+      "repetition": 1,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 165.26162200000272,
+      "next_read_ms": 0.060459999986051116,
+      "parse_calls": 2,
+      "cache_before_next_read_chars": 120814,
+      "expected_chars": 120814,
+      "new_tree_reused": true,
+      "warm_hit_us": 4.464451500041378,
+      "peak_rss_kib": 32384,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "ast",
+      "repetition": 1,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 256.8543590000445,
+      "next_read_ms": 85.58072999994693,
+      "parse_calls": 3,
+      "cache_before_next_read_chars": 120797,
+      "expected_chars": 120814,
+      "new_tree_reused": false,
+      "warm_hit_us": 5.315741499998694,
+      "peak_rss_kib": 38908,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "live",
+      "repetition": 1,
+      "first_call_ms": 286.77534500002366,
+      "warm_call_ms": 22.61941200004003,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 96736,
+      "peak_rss_kib": 50080,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "live",
+      "repetition": 1,
+      "first_call_ms": 291.447369000025,
+      "warm_call_ms": 23.485359999995126,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 96692,
+      "peak_rss_kib": 50404,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "focus",
+      "repetition": 2,
+      "cold_build_ms": 584.1671100000667,
+      "unchanged_ms": 4.892572000017026,
+      "edit_ms": 25.428437999948983,
+      "phase_ms": {
+        "_parse_parallel": 6.900046000055227,
+        "_persist": 6.8015499999773965,
+        "_rebuild_tag_indexes": 6.863071999987369
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 32868,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "focus",
+      "repetition": 2,
+      "cold_build_ms": 582.370319000006,
+      "unchanged_ms": 4.457987000023422,
+      "edit_ms": 25.821973000006437,
+      "phase_ms": {
+        "_parse_parallel": 6.752025999958278,
+        "_persist": 7.229316000007202,
+        "_rebuild_tag_indexes": 6.787709999912295
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 33120,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "ast",
+      "repetition": 2,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 249.31592300004013,
+      "next_read_ms": 81.5451479999183,
+      "parse_calls": 3,
+      "cache_before_next_read_chars": 120797,
+      "expected_chars": 120814,
+      "new_tree_reused": false,
+      "warm_hit_us": 6.3576649999959045,
+      "peak_rss_kib": 38912,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "ast",
+      "repetition": 2,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 178.8323279999986,
+      "next_read_ms": 0.06122100000993669,
+      "parse_calls": 2,
+      "cache_before_next_read_chars": 120814,
+      "expected_chars": 120814,
+      "new_tree_reused": true,
+      "warm_hit_us": 4.703130500047337,
+      "peak_rss_kib": 32380,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "live",
+      "repetition": 2,
+      "first_call_ms": 313.17004900006395,
+      "warm_call_ms": 22.897151000051963,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 96704,
+      "peak_rss_kib": 50400,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "live",
+      "repetition": 2,
+      "first_call_ms": 285.36401799999567,
+      "warm_call_ms": 21.23222000000169,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 96260,
+      "peak_rss_kib": 50392,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "focus",
+      "repetition": 3,
+      "cold_build_ms": 576.5957570000637,
+      "unchanged_ms": 4.705314000034377,
+      "edit_ms": 25.200068999993164,
+      "phase_ms": {
+        "_parse_parallel": 6.919945999925403,
+        "_persist": 6.501784999954907,
+        "_rebuild_tag_indexes": 7.051471000067977
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 33040,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "focus",
+      "repetition": 3,
+      "cold_build_ms": 586.122979000038,
+      "unchanged_ms": 4.835417999970559,
+      "edit_ms": 25.95676300006744,
+      "phase_ms": {
+        "_parse_parallel": 6.926725999960581,
+        "_persist": 7.28562899996632,
+        "_rebuild_tag_indexes": 6.660140000008141
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 32872,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "ast",
+      "repetition": 3,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 167.99081399994975,
+      "next_read_ms": 0.06421499995212798,
+      "parse_calls": 2,
+      "cache_before_next_read_chars": 120814,
+      "expected_chars": 120814,
+      "new_tree_reused": true,
+      "warm_hit_us": 4.5106850000138365,
+      "peak_rss_kib": 32380,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "ast",
+      "repetition": 3,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 243.17741999993814,
+      "next_read_ms": 71.02855000005093,
+      "parse_calls": 3,
+      "cache_before_next_read_chars": 120797,
+      "expected_chars": 120814,
+      "new_tree_reused": false,
+      "warm_hit_us": 4.6757450000427525,
+      "peak_rss_kib": 38908,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "live",
+      "repetition": 3,
+      "first_call_ms": 282.23249799998484,
+      "warm_call_ms": 22.498511999970106,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 96688,
+      "peak_rss_kib": 50336,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "live",
+      "repetition": 3,
+      "first_call_ms": 267.41036999999324,
+      "warm_call_ms": 22.282382000071266,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 96524,
+      "peak_rss_kib": 50412,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "focus",
+      "repetition": 4,
+      "cold_build_ms": 600.0827500000696,
+      "unchanged_ms": 4.939192000051662,
+      "edit_ms": 26.956028999961745,
+      "phase_ms": {
+        "_parse_parallel": 7.88581200004046,
+        "_persist": 7.218539999939821,
+        "_rebuild_tag_indexes": 6.800558000009005
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 32848,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "focus",
+      "repetition": 4,
+      "cold_build_ms": 580.8598859999847,
+      "unchanged_ms": 5.108023000047979,
+      "edit_ms": 25.385604999996758,
+      "phase_ms": {
+        "_parse_parallel": 7.026695000035943,
+        "_persist": 6.581213000004027,
+        "_rebuild_tag_indexes": 6.583906999935607
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 33044,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "ast",
+      "repetition": 4,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 222.19568100001652,
+      "next_read_ms": 68.0190059999859,
+      "parse_calls": 3,
+      "cache_before_next_read_chars": 120797,
+      "expected_chars": 120814,
+      "new_tree_reused": false,
+      "warm_hit_us": 4.869358500002363,
+      "peak_rss_kib": 38908,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "ast",
+      "repetition": 4,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 175.44751299999461,
+      "next_read_ms": 0.0659980000818905,
+      "parse_calls": 2,
+      "cache_before_next_read_chars": 120814,
+      "expected_chars": 120814,
+      "new_tree_reused": true,
+      "warm_hit_us": 4.574654999998984,
+      "peak_rss_kib": 32380,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "live",
+      "repetition": 4,
+      "first_call_ms": 274.5875089999572,
+      "warm_call_ms": 22.16916300005778,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 96784,
+      "peak_rss_kib": 50392,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "live",
+      "repetition": 4,
+      "first_call_ms": 321.7759220000289,
+      "warm_call_ms": 21.98292599996421,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 96764,
+      "peak_rss_kib": 50360,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "focus",
+      "repetition": 5,
+      "cold_build_ms": 612.8156009999657,
+      "unchanged_ms": 5.127582000000075,
+      "edit_ms": 26.959093000073153,
+      "phase_ms": {
+        "_parse_parallel": 7.26630099995873,
+        "_persist": 6.997391000027164,
+        "_rebuild_tag_indexes": 7.414862000018729
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 33040,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "focus",
+      "repetition": 5,
+      "cold_build_ms": 615.1293160000932,
+      "unchanged_ms": 4.901215000018055,
+      "edit_ms": 27.772541999979694,
+      "phase_ms": {
+        "_parse_parallel": 7.0389940000268325,
+        "_persist": 8.17707499993503,
+        "_rebuild_tag_indexes": 7.172290999960751
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 32872,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "ast",
+      "repetition": 5,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 158.86000599994077,
+      "next_read_ms": 0.05669499989835458,
+      "parse_calls": 2,
+      "cache_before_next_read_chars": 120814,
+      "expected_chars": 120814,
+      "new_tree_reused": true,
+      "warm_hit_us": 4.977413500000694,
+      "peak_rss_kib": 32384,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "ast",
+      "repetition": 5,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 232.76178700007222,
+      "next_read_ms": 71.4357959999461,
+      "parse_calls": 3,
+      "cache_before_next_read_chars": 120797,
+      "expected_chars": 120814,
+      "new_tree_reused": false,
+      "warm_hit_us": 4.738448500006598,
+      "peak_rss_kib": 38908,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "live",
+      "repetition": 5,
+      "first_call_ms": 306.47971100006544,
+      "warm_call_ms": 23.055472000010013,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 96720,
+      "peak_rss_kib": 50456,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "live",
+      "repetition": 5,
+      "first_call_ms": 334.29597899998953,
+      "warm_call_ms": 22.695174999967094,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 96596,
+      "peak_rss_kib": 50476,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "focus",
+      "repetition": 6,
+      "cold_build_ms": 608.7267450000127,
+      "unchanged_ms": 4.283226999973522,
+      "edit_ms": 24.44179200006147,
+      "phase_ms": {
+        "_parse_parallel": 6.498921000002156,
+        "_persist": 6.478060000063124,
+        "_rebuild_tag_indexes": 6.701321000036842
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 32868,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "focus",
+      "repetition": 6,
+      "cold_build_ms": 559.0310200000204,
+      "unchanged_ms": 4.640207999955237,
+      "edit_ms": 25.874360999978308,
+      "phase_ms": {
+        "_parse_parallel": 6.695992999993905,
+        "_persist": 6.801800999937768,
+        "_rebuild_tag_indexes": 7.2565469999972265
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 33044,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "ast",
+      "repetition": 6,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 281.87261300001865,
+      "next_read_ms": 81.64326000007804,
+      "parse_calls": 3,
+      "cache_before_next_read_chars": 120797,
+      "expected_chars": 120814,
+      "new_tree_reused": false,
+      "warm_hit_us": 6.051991000049384,
+      "peak_rss_kib": 38908,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "ast",
+      "repetition": 6,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 200.07072800001424,
+      "next_read_ms": 0.05464100001972838,
+      "parse_calls": 2,
+      "cache_before_next_read_chars": 120814,
+      "expected_chars": 120814,
+      "new_tree_reused": true,
+      "warm_hit_us": 5.5163545000027625,
+      "peak_rss_kib": 32380,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "live",
+      "repetition": 6,
+      "first_call_ms": 301.50528699994084,
+      "warm_call_ms": 22.21609199989416,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 96692,
+      "peak_rss_kib": 50404,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "live",
+      "repetition": 6,
+      "first_call_ms": 358.12469699999383,
+      "warm_call_ms": 26.83022099995469,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 96792,
+      "peak_rss_kib": 50356,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "focus",
+      "repetition": 7,
+      "cold_build_ms": 704.5590709999487,
+      "unchanged_ms": 4.261535000068761,
+      "edit_ms": 24.783721000062542,
+      "phase_ms": {
+        "_parse_parallel": 6.67729600002076,
+        "_persist": 7.148827000037272,
+        "_rebuild_tag_indexes": 6.1885799999572555
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 33040,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "focus",
+      "repetition": 7,
+      "cold_build_ms": 601.9245460000775,
+      "unchanged_ms": 4.872743999953855,
+      "edit_ms": 27.231929999970816,
+      "phase_ms": {
+        "_parse_parallel": 6.830044000025737,
+        "_persist": 7.763090000025841,
+        "_rebuild_tag_indexes": 7.422292999990532
+      },
+      "parsed_files": 1,
+      "cache_writes": 2,
+      "written_bytes": 1128091,
+      "payload_bytes": 1123051,
+      "peak_rss_kib": 32868,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "ast",
+      "repetition": 7,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 176.42490399998678,
+      "next_read_ms": 0.10366499998326617,
+      "parse_calls": 2,
+      "cache_before_next_read_chars": 120814,
+      "expected_chars": 120814,
+      "new_tree_reused": true,
+      "warm_hit_us": 5.002435999983845,
+      "peak_rss_kib": 32380,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "ast",
+      "repetition": 7,
+      "source_bytes": 120814,
+      "race_and_next_read_ms": 235.32872500004487,
+      "next_read_ms": 75.4746029999751,
+      "parse_calls": 3,
+      "cache_before_next_read_chars": 120797,
+      "expected_chars": 120814,
+      "new_tree_reused": false,
+      "warm_hit_us": 4.823660500051119,
+      "peak_rss_kib": 38912,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "candidate",
+      "scenario": "live",
+      "repetition": 7,
+      "first_call_ms": 286.6145210000468,
+      "warm_call_ms": 21.23111000003064,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 97032,
+      "peak_rss_kib": 50372,
+      "source_file": "/workspace/millennium-dawn-mcp/src/md_mcp/__init__.py"
+    },
+    {
+      "revision": "baseline",
+      "scenario": "live",
+      "repetition": 7,
+      "first_call_ms": 316.9263590000355,
+      "warm_call_ms": 22.193439000034232,
+      "node_count": 667,
+      "payload_sha256": "ce683e23fc4363e58dc702fe89c16bee57b7a749bc5d02c38d44073483d1ec26",
+      "server_peak_rss_kib": 96592,
+      "peak_rss_kib": 50332,
+      "source_file": "/workspace/mcp-baseline/src/md_mcp/__init__.py"
+    }
+  ],
+  "mod_commit": "532b046fd6fb8c19089a52b4a53b2578816a704d",
+  "summary": {
+    "focus:baseline": {
+      "cold_build_ms": {
+        "median": 601.0036480000736,
+        "min": 561.8615019999424,
+        "max": 620.3201390000004,
+        "stdev": 19.12663492600002
+      },
+      "unchanged_ms": {
+        "median": 4.896893500017541,
+        "min": 4.283226999973522,
+        "max": 5.694704999996247,
+        "stdev": 0.41384507838575363
+      },
+      "edit_ms": {
+        "median": 26.650569499963694,
+        "min": 24.44179200006147,
+        "max": 30.4916239999784,
+        "stdev": 1.8181171712710742
+      },
+      "peak_rss_kib": {
+        "median": 32868.0,
+        "min": 32848,
+        "max": 32872,
+        "stdev": 7.690439333539869
+      }
+    },
+    "focus:candidate": {
+      "cold_build_ms": {
+        "median": 597.5929599999859,
+        "min": 559.0310200000204,
+        "max": 704.5590709999487,
+        "stdev": 56.22115735951197
+      },
+      "unchanged_ms": {
+        "median": 4.902346500045951,
+        "min": 4.261535000068761,
+        "max": 5.470322000064698,
+        "stdev": 0.4061861351221644
+      },
+      "edit_ms": {
+        "median": 25.848166999992372,
+        "min": 24.783721000062542,
+        "max": 27.69698999998127,
+        "stdev": 0.951449741376917
+      },
+      "peak_rss_kib": {
+        "median": 33042.0,
+        "min": 33040,
+        "max": 33144,
+        "stdev": 42.49369701160733
+      }
+    },
+    "ast:baseline": {
+      "race_and_next_read_ms": {
+        "median": 246.24667149998913,
+        "min": 222.19568100001652,
+        "max": 281.87261300001865,
+        "stdev": 20.095503511933618
+      },
+      "next_read_ms": {
+        "median": 78.5098754999467,
+        "min": 68.0190059999859,
+        "max": 95.47774200007098,
+        "stdev": 9.115572341898462
+      },
+      "warm_hit_us": {
+        "median": 4.855722999991485,
+        "min": 4.6757450000427525,
+        "max": 6.3576649999959045,
+        "stdev": 0.6487025751645554
+      },
+      "peak_rss_kib": {
+        "median": 38908.0,
+        "min": 38908,
+        "max": 38912,
+        "stdev": 1.8516401995451028
+      }
+    },
+    "ast:candidate": {
+      "race_and_next_read_ms": {
+        "median": 171.71916349997218,
+        "min": 158.86000599994077,
+        "max": 200.07072800001424,
+        "stdev": 13.323507417681988
+      },
+      "next_read_ms": {
+        "median": 0.062022500003422465,
+        "min": 0.05464100001972838,
+        "max": 0.10366499998326617,
+        "stdev": 0.015587066100449593
+      },
+      "warm_hit_us": {
+        "median": 4.63889275002316,
+        "min": 4.464451500041378,
+        "max": 5.5163545000027625,
+        "stdev": 0.3633755948243627
+      },
+      "peak_rss_kib": {
+        "median": 32380.0,
+        "min": 32380,
+        "max": 32384,
+        "stdev": 2.0701966780270626
+      }
+    },
+    "live:baseline": {
+      "first_call_ms": {
+        "median": 298.7217834999569,
+        "min": 267.41036999999324,
+        "max": 334.29597899998953,
+        "stdev": 22.146177519596616
+      },
+      "warm_call_ms": {
+        "median": 22.38424799998029,
+        "min": 22.16916300005778,
+        "max": 23.485359999995126,
+        "stdev": 0.4591573819468359
+      },
+      "server_peak_rss_kib": {
+        "median": 96692.0,
+        "min": 96524,
+        "max": 96784,
+        "stdev": 91.33767803361015
+      },
+      "peak_rss_kib": {
+        "median": 50404.0,
+        "min": 50332,
+        "max": 50476,
+        "stdev": 38.88444419044716
+      }
+    },
+    "live:candidate": {
+      "first_call_ms": {
+        "median": 296.62752800004455,
+        "min": 282.23249799998484,
+        "max": 358.12469699999383,
+        "stdev": 27.578929092173937
+      },
+      "warm_call_ms": {
+        "median": 22.558962000005067,
+        "min": 21.23111000003064,
+        "max": 26.83022099995469,
+        "stdev": 1.7849778615355365
+      },
+      "server_peak_rss_kib": {
+        "median": 96746.0,
+        "min": 96260,
+        "max": 97032,
+        "stdev": 213.3481393671587
+      },
+      "peak_rss_kib": {
+        "median": 50358.0,
+        "min": 50080,
+        "max": 50456,
+        "stdev": 140.99645385611655
+      }
+    }
+  }
+}

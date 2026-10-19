@@ -223,3 +223,135 @@ def test_resolve_focus_tool_twice_parses_once(fake_mod_root, tmp_path, parse_cou
     assert first["ok"] is True
     assert "warning" not in first
     assert parse_counter["n"] == 1
+
+
+def _cache_thread(path):
+    results = []
+    errors = []
+
+    def work():
+        try:
+            results.append(ast_cache.parse_cached(path))
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=work, daemon=True)
+    thread.start()
+    return thread, results, errors
+
+
+def _join(thread, errors):
+    thread.join(timeout=10)
+    assert not thread.is_alive(), "cache request did not finish"
+    assert errors == []
+
+
+def test_concurrent_same_key_misses_count_source_once(tmp_path, monkeypatch):
+    path = _write(tmp_path / "race.txt", SRC)
+    other = _write(tmp_path / "other.txt", SRC)
+    monkeypatch.setenv("MD_MCP_AST_CACHE_BYTES", str(2 * len(SRC)))
+    ast_cache.parse_cached(other)
+    ready = threading.Barrier(3, timeout=10)
+    parse = ast_cache.parse_string
+    calls = []
+
+    def blocked(text, **kwargs):
+        calls.append(text)
+        root = parse(text, **kwargs)
+        ready.wait()
+        return root
+
+    monkeypatch.setattr(ast_cache, "parse_string", blocked)
+    threads = [_cache_thread(path) for _ in range(2)]
+    try:
+        ready.wait()
+    finally:
+        for thread, _results, errors in threads:
+            _join(thread, errors)
+    assert calls == [SRC, SRC]
+    assert ast_cache.size() == 2
+    assert ast_cache.total_chars() == 2 * len(SRC)
+    assert ast_cache.parse_cached(path)[1] in [result[0][1] for _, result, _ in threads]
+    ast_cache.parse_cached(other)
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("first", ["old", "new"])
+def test_edit_completion_order_keeps_new_version_and_exact_accounting(tmp_path, monkeypatch, first):
+    path = _write(tmp_path / "edited.txt", SRC)
+    new_text = SRC.replace("TST_a", "TST_new_focus")
+    old_ready = threading.Event()
+    both_ready = threading.Barrier(3, timeout=10)
+    release = {version: threading.Event() for version in ("old", "new")}
+    parse = ast_cache.parse_string
+    calls = []
+
+    def blocked(text, **kwargs):
+        version = "old" if text == SRC else "new"
+        calls.append(version)
+        root = parse(text, **kwargs)
+        if version == "old":
+            old_ready.set()
+        both_ready.wait()
+        assert release[version].wait(timeout=10), f"{version} parse was not released"
+        return root
+
+    monkeypatch.setattr(ast_cache, "parse_string", blocked)
+    old = _cache_thread(path)
+    threads = {"old": old}
+    try:
+        assert old_ready.wait(timeout=10)
+        st = path.stat()
+        _write(path, new_text)
+        os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+        threads["new"] = _cache_thread(path)
+        both_ready.wait()
+        release[first].set()
+        _join(threads[first][0], threads[first][2])
+    finally:
+        for event in release.values():
+            event.set()
+        for thread, _results, errors in threads.values():
+            _join(thread, errors)
+    assert threads["old"][1][0][0] == SRC
+    assert threads["new"][1][0][0] == new_text
+    assert ast_cache.size() == 1
+    assert ast_cache.total_chars() == len(new_text)
+    assert ast_cache.parse_cached(path) == threads["new"][1][0]
+    assert calls == ["old", "new"]
+
+
+@pytest.mark.parametrize("change", ["edit", "remove"])
+def test_source_changed_during_parse_is_returned_but_not_published(tmp_path, monkeypatch, change):
+    path = _write(tmp_path / "changing.txt", SRC)
+    ready = threading.Barrier(2, timeout=10)
+    release = threading.Event()
+    parse = ast_cache.parse_string
+
+    def blocked(text, **kwargs):
+        root = parse(text, **kwargs)
+        ready.wait()
+        assert release.wait(timeout=10)
+        return root
+
+    monkeypatch.setattr(ast_cache, "parse_string", blocked)
+    thread, results, errors = _cache_thread(path)
+    try:
+        ready.wait()
+        if change == "remove":
+            path.unlink()
+        else:
+            _write(path, SRC + "# edited during parse\n")
+    finally:
+        release.set()
+        _join(thread, errors)
+    assert results[0][0] == SRC
+    assert ast_cache.size() == ast_cache.total_chars() == 0
+    monkeypatch.setattr(ast_cache, "parse_string", parse)
+    if change == "remove":
+        with pytest.raises(OSError):
+            ast_cache.parse_cached(path)
+    else:
+        text, _ = ast_cache.parse_cached(path)
+        assert text == SRC + "# edited during parse\n"
+        assert ast_cache.total_chars() == len(text)

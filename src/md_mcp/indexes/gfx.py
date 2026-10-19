@@ -16,14 +16,13 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Optional
 
 from ..paradox import parse_string
 from ..paradox.parser import _unescape_string
 from ..paradox.schema import SPRITE_KINDS, extract_sprite_records
 from ..util.encoding import read_text
 from ..util.line_numbers import line_starts, pos_to_line
-from .base import GenericTxtIndex
+from .base import FILE_NOT_FOUND, GenericTxtIndex, ParseResult
 
 logger = logging.getLogger(__name__)
 
@@ -140,34 +139,36 @@ def _scan_sprite_blocks(text: str) -> list[dict]:
     return records
 
 
-def _parse_gfx_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
+def _parse_gfx_file(abs_path: str, relpath: str) -> ParseResult:
     try:
         text = read_text(abs_path)
     except OSError as e:
         logger.warning("gfx index: cannot read %s: %s", abs_path, e)
-        return None
+        return ParseResult.failed("read", e)
     if "spriteType" not in text and "spritetype" not in text:
-        return []
+        return ParseResult([])
 
     # Fast path: structural scanner. Falls back to the AST parser if anything looks
     # off — guarantees we never silently lose a sprite to scanner brittleness.
     try:
-        return _scan_sprite_blocks(text)
+        return ParseResult(_scan_sprite_blocks(text))
     except Exception as e:
         logger.info("gfx index: fast scan failed on %s, falling back to AST parser: %s", relpath, e)
 
     try:
         root = parse_string(text, error_prefix=f"In file {relpath}:\n")
+        return ParseResult(extract_sprite_records(root, source=text))
     except Exception as e:
         logger.warning("gfx index: parse failed for %s: %s", relpath, e)
-        return None
-    return extract_sprite_records(root, source=text)
+        return ParseResult.failed("parse", e)
 
 
 class GfxIndex(GenericTxtIndex):
-    cache_version = 2
+    cache_version = 3
     cache_name = "gfx"
     subdir = "interface"
     pattern = "*.gfx"
     primary_key = "name"
     parser_fn = staticmethod(_parse_gfx_file)
+    missing_result = FILE_NOT_FOUND
+    track_parse_errors = True

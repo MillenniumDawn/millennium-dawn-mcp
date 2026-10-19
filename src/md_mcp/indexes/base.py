@@ -56,6 +56,21 @@ class FileSig:
         return cls(mtime_ns=mtime_ns, size=size)
 
 
+@dataclass(frozen=True)
+class ParseResult:
+    """One file's parse outcome. `records` is None when the file could not be read or parsed."""
+
+    records: Optional[list[dict]]
+    error: Optional[str] = None
+
+    @classmethod
+    def failed(cls, stage: str, exc: Exception) -> "ParseResult":
+        return cls(None, f"{stage} failed: {exc}"[:200])
+
+
+FILE_NOT_FOUND = ParseResult(None, "file not found")
+
+
 def file_signature(path: Path) -> FileSig | None:
     try:
         st = path.stat()

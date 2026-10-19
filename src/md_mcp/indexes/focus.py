@@ -22,13 +22,11 @@ Cache layout (JSON, under <cache_dir>/v3/focus.data.json):
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from typing import Optional
 
 from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records, is_focus_file_content
 from ..util.encoding import read_text
-from .base import GenericTxtIndex
+from .base import FILE_NOT_FOUND, GenericTxtIndex, ParseResult
 
 logger = logging.getLogger(__name__)
 
@@ -36,34 +34,22 @@ FOCUS_CACHE_VERSION = 3
 FOCUS_SUBDIR = "common/national_focus"
 
 
-@dataclass(frozen=True)
-class FocusParseResult:
-    records: Optional[list[dict]]
-    error: Optional[str] = None
-
-
-def _error_message(prefix: str, exc: Exception) -> str:
-    return f"{prefix}: {exc}"[:200]
-
-
-def _parse_focus_file(abs_path: str, relpath: str) -> FocusParseResult:
+def _parse_focus_file(abs_path: str, relpath: str) -> ParseResult:
     """Module-level parser fn so ProcessPoolExecutor can pickle/dispatch it."""
     try:
         text = read_text(abs_path)
     except OSError as exc:
         logger.warning("focus index: cannot read %s: %s", abs_path, exc)
-        return FocusParseResult(None, _error_message("read failed", exc))
+        return ParseResult.failed("read", exc)
     if not is_focus_file_content(text):
-        return FocusParseResult([])
+        return ParseResult([])
     try:
         root = parse_string(text, error_prefix=f"In file {relpath}:\n")
         records = extract_focus_records(root, source=text)
     except Exception as exc:
         logger.warning("focus index: parse failed for %s: %s", abs_path, exc)
-        return FocusParseResult(None, _error_message("parse failed", exc))
-    return FocusParseResult(
-        [{"id": r["id"], "line": r["line"], "kind": r["kind"]} for r in records]
-    )
+        return ParseResult.failed("parse", exc)
+    return ParseResult([{"id": r["id"], "line": r["line"], "kind": r["kind"]} for r in records])
 
 
 class FocusIndex(GenericTxtIndex):
@@ -73,7 +59,7 @@ class FocusIndex(GenericTxtIndex):
     cache_name = "focus"
     subdir = FOCUS_SUBDIR
     parser_fn = staticmethod(_parse_focus_file)
-    missing_result = FocusParseResult(None, "file not found")
+    missing_result = FILE_NOT_FOUND
     track_parse_errors = True
     tag_indexed = True
     tag_file_indexed = True

@@ -954,3 +954,80 @@ def test_check_refs_does_not_audit_fake_wrapper_calls(fake_mod_root, cache_dir):
     # Neither fake wrapper contributes a checked reference.
     assert result["counts"]["scripted_effect"]["checked"] == 0
     assert result["counts"]["scripted_trigger"]["checked"] == 0
+
+
+# ----- incomplete indexes --------------------------------------------------------
+
+_AUDIT_FILES = ["common/national_focus/TST_audit.txt"]
+
+
+def _break(root: Path, subdir: str, name: str, text: str) -> str:
+    (root / subdir / name).write_text(text, encoding="utf-8")
+    return str(Path(subdir) / name)
+
+
+def test_check_refs_reports_bounded_index_errors_per_kind(audit_mod):
+    root, cache = audit_mod
+    for n in range(7):
+        _break(root, "events", f"broken_{n}.txt", "country_event = {{{")
+    idea = _break(root, "common/ideas", "broken.txt", "ideas = {{{")
+    _break(root, "interface", "broken.gfx", "spriteTypes = { spriteType = {{{")
+    _break(root, "common/national_focus", "broken.txt", "focus_tree = { focus = { id = X x = {{{")
+
+    out = check_refs(root, files=_AUDIT_FILES, **_indexes(root, cache))
+
+    errors = out["index_errors"]
+    assert set(errors) == {"focus", "event", "idea", "sprite"}
+    assert errors["event"]["total"] == 7
+    assert errors["event"]["truncated"] is True
+    assert len(errors["event"]["sample"]) == 5
+    for entry in errors["event"]["sample"]:
+        assert set(entry) == {"file", "error"}
+        assert entry["error"].startswith("parse failed:")
+    assert errors["idea"] == {
+        "total": 1,
+        "sample": [{"file": idea, "error": errors["idea"]["sample"][0]["error"]}],
+        "truncated": False,
+    }
+    assert errors["idea"]["sample"][0]["error"].startswith("parse failed:")
+
+
+def test_check_refs_marks_incomplete_kinds_without_hiding_the_misses(audit_mod):
+    root, cache = audit_mod
+    _break(root, "events", "broken.txt", "country_event = {{{")
+
+    out = check_refs(root, files=_AUDIT_FILES, **_indexes(root, cache))
+
+    assert {kind for kind, count in out["counts"].items() if count.get("incomplete")} == {"event"}
+    assert ("event", "Missing.99") in {(e["kind"], e["ref"]) for e in out["unresolved"]}
+    assert out["counts"]["event"]["unresolved"] == 1
+
+
+def test_check_refs_only_reports_selected_kinds(audit_mod):
+    root, cache = audit_mod
+    _break(root, "events", "broken.txt", "country_event = {{{")
+    _break(root, "common/ideas", "broken.txt", "ideas = {{{")
+
+    out = check_refs(root, files=_AUDIT_FILES, kinds=["event"], **_indexes(root, cache))
+
+    assert set(out["index_errors"]) == {"event"}
+
+
+def test_check_refs_omits_index_errors_when_every_index_is_clean(audit_mod):
+    root, cache = audit_mod
+
+    out = check_refs(root, files=_AUDIT_FILES, **_indexes(root, cache))
+
+    assert "index_errors" not in out
+    assert all("incomplete" not in count for count in out["counts"].values())
+
+
+def test_check_refs_reports_an_incomplete_scripted_index(fake_mod_root, cache_dir):
+    _break(fake_mod_root, "common/scripted_effects", "broken.txt", "TST_broken = {{{")
+
+    result = _audit_definitions(fake_mod_root, cache_dir, _DEFINITION_REFS, _SCRIPTED_KINDS)
+
+    assert set(result["index_errors"]) == {"scripted_effect"}
+    assert result["index_errors"]["scripted_effect"]["total"] == 1
+    assert result["counts"]["scripted_effect"]["incomplete"] is True
+    assert "incomplete" not in result["counts"]["scripted_trigger"]

@@ -16,6 +16,7 @@ from ..indexes import (
     DecisionIndex,
     EventIndex,
     FocusIndex,
+    GenericTxtIndex,
     GfxIndex,
     IdeaIndex,
     LocalisationIndex,
@@ -27,7 +28,15 @@ from ..paradox.ast_cache import parse_cached
 from ..paradox.schema import extract_focus_records
 from ..util.index_anchor import IndexAnchorError, select_indexed_anchor
 from ..util.pathing import resolve_scope_file
-from ..util.response import enforce_budget
+from ..util.response import enforce_budget, summarize_index_errors
+
+
+def _miss(index: GenericTxtIndex, response: dict) -> dict:
+    """Add `index_errors` to a not-found response when the index dropped files it could not read."""
+    errors = index.parse_errors()
+    if errors:
+        response["index_errors"] = summarize_index_errors(errors)
+    return response
 
 
 def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusIndex) -> dict:
@@ -39,7 +48,9 @@ def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusInde
     """
     cached = focus_index.resolve(focus_id)
     if cached is None:
-        return {"ok": False, "id": focus_id, "error": "Focus not found in mod or vanilla"}
+        return _miss(
+            focus_index, {"ok": False, "id": focus_id, "error": "Focus not found in mod or vanilla"}
+        )
 
     indexed = {
         "ok": True,
@@ -147,7 +158,9 @@ def resolve_sprite_tool(
             "line": None,
         }
     if rec is None:
-        return {"ok": False, "name": name, "error": "Sprite not found in mod or vanilla"}
+        return _miss(
+            gfx_index, {"ok": False, "name": name, "error": "Sprite not found in mod or vanilla"}
+        )
     return {
         "ok": True,
         "name": rec["name"],
@@ -162,7 +175,7 @@ def resolve_event_tool(event_id: str, event_index: EventIndex) -> dict:
     """Get an event's file/line + namespace context (for namespace-mismatch debugging)."""
     rec = event_index.resolve(event_id)
     if rec is None:
-        return {"ok": False, "id": event_id, "error": "Event not found"}
+        return _miss(event_index, {"ok": False, "id": event_id, "error": "Event not found"})
     return enforce_budget(
         {
             "ok": True,
@@ -181,7 +194,9 @@ def resolve_decision_tool(decision_id: str, decision_index: DecisionIndex) -> di
     """Get a decision's file/line + category."""
     rec = decision_index.resolve(decision_id)
     if rec is None:
-        return {"ok": False, "id": decision_id, "error": "Decision not found"}
+        return _miss(
+            decision_index, {"ok": False, "id": decision_id, "error": "Decision not found"}
+        )
     return {
         "ok": True,
         "id": rec["id"],
@@ -195,7 +210,7 @@ def resolve_idea_tool(idea_id: str, idea_index: IdeaIndex) -> dict:
     """Get an idea's file/line + category + slot."""
     rec = idea_index.resolve(idea_id)
     if rec is None:
-        return {"ok": False, "id": idea_id, "error": "Idea not found"}
+        return _miss(idea_index, {"ok": False, "id": idea_id, "error": "Idea not found"})
     return {
         "ok": True,
         "id": rec["id"],
@@ -206,10 +221,10 @@ def resolve_idea_tool(idea_id: str, idea_index: IdeaIndex) -> dict:
     }
 
 
-def _resolve_definition(index, target: str, *, label: str) -> dict:
+def _resolve_definition(index: GenericTxtIndex, target: str, *, label: str) -> dict:
     rec = index.resolve(target)
     if rec is None:
-        return {"ok": False, "id": target, "error": f"{label} not found"}
+        return _miss(index, {"ok": False, "id": target, "error": f"{label} not found"})
     return {
         "ok": True,
         "id": rec["id"],

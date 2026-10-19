@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from md_mcp.tools import lint_fixers
 from md_mcp.tools.lint_fixers import (
     LOG_ID_SCOPES,
     fix_lint_tool,
@@ -34,6 +35,8 @@ LINTING = "tools/linting"
 # ---------------------------------------------------------------------------
 
 _STANDIN_SHARED_UTILS = r"""
+import os
+
 def strip_inline_comment(line):
     if "#" not in line:
         return line
@@ -44,6 +47,36 @@ def strip_inline_comment(line):
         elif c == "#" and not in_str:
             return line[:i]
     return line
+
+def is_excluded_path(path, excluded_dirs, repo_root):
+    rel = os.path.relpath(os.path.abspath(path), os.path.abspath(repo_root))
+    return any(part in excluded_dirs for part in rel.split(os.sep))
+"""
+
+# OR1 becomes AND1 in the OR pass and AND1 becomes "done" in the AND pass, so
+# "OR1" only reaches "done" when the passes run in that order. A "DROP" line
+# vanishes in the AND pass, which shows where the wrapper split the lines.
+_STANDIN_CLEANUP_OR = r"""
+from shared_utils import is_excluded_path
+
+_EXCLUDED_DIRS = {"resources", ".git", ".claude"}
+
+def _is_excluded_path(path, repo_root=None):
+    return is_excluded_path(path, _EXCLUDED_DIRS, repo_root)
+
+def simplify_or_block(lines):
+    if any("UNCLOSED" in line for line in lines):
+        raise ValueError("substring not found")
+    return [line.replace("OR1", "AND1") for line in lines]
+
+def simplify_and_block(lines):
+    return [line.replace("AND1", "done") for line in lines if line != "DROP\n"]
+
+def find_single_condition_or_blocks(lines):
+    return [(n, "or") for n, line in enumerate(lines, 1) if "OR1" in line]
+
+def find_redundant_and_blocks(lines):
+    return [(n, "and") for n, line in enumerate(lines, 1) if "AND1" in line]
 """
 
 
@@ -103,6 +136,7 @@ def _plant_upstream(root: Path, *, styling_replacement: str = "YY") -> None:
     (linting / "fix_loc_yaml.py").write_text(_STANDIN_FIX_LOC_YAML, encoding="utf-8")
     (linting / "check_common_mistakes.py").write_text(_STANDIN_CHECK_COMMON, encoding="utf-8")
     (linting / "check_changelog.py").write_text(_STANDIN_CHECK_CHANGELOG, encoding="utf-8")
+    (root / "tools" / "cleanup_or.py").write_text(_STANDIN_CLEANUP_OR, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +157,7 @@ def _plant_upstream(root: Path, *, styling_replacement: str = "YY") -> None:
         ),
         pytest.param({"fixer": "loc_yaml", "path": "script.txt"}, ".yml", id="loc-yaml-given-txt"),
         pytest.param({"fixer": "styling", "path": "loc.yml"}, ".txt", id="styling-given-yml"),
+        pytest.param({"fixer": "cleanup_or", "path": "loc.yml"}, ".txt", id="cleanup-or-given-yml"),
         pytest.param({"fixer": "styling", "path": "../outside.txt"}, "", id="path-traversal"),
         pytest.param({"fixer": "styling", "path": "common/nope.txt"}, "", id="missing-file"),
     ],
@@ -462,6 +497,156 @@ def test_styling_warnings_capped_like_upstream(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# cleanup_or: pass order, line splitting, line endings, excluded paths
+# ---------------------------------------------------------------------------
+
+
+def test_cleanup_or_runs_or_pass_then_and_pass(tmp_path):
+    _plant_upstream(tmp_path)
+
+    out = fix_lint_tool(tmp_path, fixer="cleanup_or", content="OR1\n")
+
+    assert out["ok"] is True
+    assert out["changed"] is True
+    assert out["txt"] == "done\n"
+    # The AND detector sees the OR pass output, where OR1 became AND1.
+    assert out["summary"] == {"or_blocks": 1, "and_blocks": 1}
+    assert out["fixes"] == 2
+
+
+def test_cleanup_or_reports_upstream_value_error(tmp_path):
+    """Upstream raises ValueError on an unclosed `OR = {` at end of input."""
+    _plant_upstream(tmp_path)
+
+    out = fix_lint_tool(tmp_path, fixer="cleanup_or", content="UNCLOSED\n")
+
+    assert out == {
+        "ok": False,
+        "fixer": "cleanup_or",
+        "error": "upstream cleanup_or could not process the input: substring not found",
+    }
+
+
+def test_cleanup_or_unchanged_omits_txt(tmp_path):
+    _plant_upstream(tmp_path)
+
+    out = fix_lint_tool(tmp_path, fixer="cleanup_or", content="plain\n")
+
+    assert out["ok"] is True
+    assert out["changed"] is False
+    assert out["fixes"] == 0
+    assert "txt" not in out
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a\x0cDROP\nb\n", None, id="form-feed-does-not-split"),
+        pytest.param("a\x1cDROP\nb\n", None, id="file-separator-does-not-split"),
+        pytest.param("a DROP\nb\n", None, id="line-separator-does-not-split"),
+        pytest.param("a\r\nDROP\r\nb\r\n", "a\r\nb\r\n", id="crlf-is-kept"),
+        pytest.param("a\r\nDROP\nb\rc\n", "a\r\nb\r\nc\r\n", id="mixed-with-crlf-becomes-crlf"),
+        pytest.param("a\rDROP\rb\r", "a\nb\n", id="lone-cr-becomes-lf"),
+        pytest.param("a\r\nb\nc\r", None, id="mixed-endings-nothing-to-do"),
+        pytest.param("a\rb\r", None, id="lone-cr-nothing-to-do"),
+    ],
+)
+def test_cleanup_or_matches_upstream_read_and_write(tmp_path, source, expected):
+    """Upstream reads with universal newlines and writes only when the lines change,
+    keeping CRLF when the file already had any (atomic_write_text)."""
+    _plant_upstream(tmp_path)
+
+    out = fix_lint_tool(tmp_path, fixer="cleanup_or", content=source)
+
+    assert out["ok"] is True
+    assert out["changed"] is (expected is not None)
+    assert out.get("txt") == expected
+
+
+def test_cleanup_or_path_source_keeps_crlf_and_never_writes(tmp_path):
+    _plant_upstream(tmp_path)
+    f = tmp_path / "common" / "x.txt"
+    f.parent.mkdir()
+    original = b"OR1\r\nDROP\r\n"
+    f.write_bytes(original)
+
+    out = fix_lint_tool(tmp_path, fixer="cleanup_or", path="common/x.txt")
+
+    assert out["ok"] is True
+    assert out["source"] == "path"
+    assert out["txt"] == "done\r\n"
+    assert f.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "rel",
+    ["resources/x.txt", ".git/x.txt", ".claude/x.txt", "common/resources/x.txt"],
+)
+def test_cleanup_or_refuses_excluded_directories(tmp_path, rel):
+    _plant_upstream(tmp_path)
+    (tmp_path / rel).parent.mkdir(parents=True)
+    (tmp_path / rel).write_text("OR1\n", encoding="utf-8")
+
+    from_path = fix_lint_tool(tmp_path, fixer="cleanup_or", path=rel)
+    from_content = fix_lint_tool(tmp_path, fixer="cleanup_or", path=rel, content="OR1\n")
+
+    for out in (from_path, from_content):
+        assert out["ok"] is False
+        assert "excluded directory" in out["error"]
+        assert "txt" not in out
+
+
+def test_cleanup_or_exclusion_is_relative_to_mod_root_not_cwd(tmp_path, monkeypatch):
+    """A mod under an ancestor named `resources`, and a cwd inside the mod's own
+    `resources/`, must not change which mod-relative paths are excluded."""
+    root = tmp_path / "resources" / "mod"
+    _plant_upstream(root)
+    (root / "resources").mkdir()
+    monkeypatch.chdir(root / "resources")
+
+    kept = fix_lint_tool(root, fixer="cleanup_or", path="common/x.txt", content="OR1\n")
+    refused = fix_lint_tool(root, fixer="cleanup_or", path="resources/x.txt", content="OR1\n")
+
+    assert kept["ok"] is True
+    assert kept["txt"] == "done\n"
+    assert refused["ok"] is False
+
+
+@pytest.mark.parametrize(
+    "module_source",
+    [None, "import md_missing_dependency\n"],
+    ids=["missing", "broken-import"],
+)
+def test_unusable_cleanup_or_does_not_break_other_fixers(tmp_path, module_source):
+    _plant_upstream(tmp_path)
+    module = tmp_path / "tools" / "cleanup_or.py"
+    if module_source is None:
+        module.unlink()
+    else:
+        module.write_text(module_source, encoding="utf-8")
+
+    refused = fix_lint_tool(tmp_path, fixer="cleanup_or", content="OR1\n")
+    styled = fix_lint_tool(tmp_path, fixer="styling", content="a XX b\n")
+
+    assert refused["ok"] is False
+    assert "not found" in refused["error"]
+    assert styled["ok"] is True
+    assert styled["txt"] == "a YY b\n"
+
+
+def test_cleanup_or_truncation_clips_txt(tmp_path):
+    _plant_upstream(tmp_path)
+
+    out = fix_lint_tool(tmp_path, fixer="cleanup_or", content="OR1\n" + "a" * 120_000 + "\n")
+
+    assert out["ok"] is True
+    assert out["txt_truncated"] is True
+    assert out["txt_bytes"] > MAX_TEXT_BYTES >= out["txt_returned_bytes"]
+    assert "do NOT write clipped content back" in out["note"]
+    assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+
+
+# ---------------------------------------------------------------------------
 # Integration: real upstream fixer cores, fixtures with known violations
 # ---------------------------------------------------------------------------
 
@@ -667,6 +852,163 @@ def test_integration_all_fixers_at_max_txt_bytes_are_clipped(upstream_root):
     assert out["txt_bytes"] > MAX_TEXT_BYTES >= out["txt_returned_bytes"]
     assert "do NOT write clipped content back" in out["note"]
     assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+
+
+_CLEANUP_OR_SIMPLIFIABLE = (
+    "trigger = {\n"
+    "\tOR = {\n"
+    "\t\thas_idea = single_a\n"
+    "\t}\n"
+    "\tOR = { has_idea = inline_b }\n"
+    "\tNOT = { OR = { has_idea = inline_c } }\n"
+    "\tAND = {\n"
+    "\t\thas_idea = promoted_d\n"
+    "\t\thas_idea = promoted_e\n"
+    "\t}\n"
+    "\tOR = {\n"
+    "\t\thas_idea = multi_f\n"
+    "\t\thas_idea = multi_g\n"
+    "\t}\n"
+    "\tOR = {\n"
+    "\t\tAND = {\n"
+    "\t\t\thas_idea = kept_h\n"
+    "\t\t\thas_idea = kept_i\n"
+    "\t\t}\n"
+    "\t\thas_idea = kept_j\n"
+    "\t}\n"
+    "\tNOT = {\n"
+    "\t\tAND = {\n"
+    "\t\t\thas_idea = kept_k\n"
+    "\t\t\thas_idea = kept_l\n"
+    "\t\t}\n"
+    "\t}\n"
+    "\tOR = {\n"
+    "\t\tAND = {\n"
+    "\t\t\thas_idea = chain_m\n"
+    "\t\t\thas_idea = chain_n\n"
+    "\t\t}\n"
+    "\t}\n"
+    "}\n"
+)
+_CLEANUP_OR_SIMPLIFIED = (
+    "trigger = {\n"
+    "\thas_idea = single_a\n"
+    "\thas_idea = inline_b\n"
+    "\tNOT = { has_idea = inline_c }\n"
+    "\thas_idea = promoted_d\n"
+    "\thas_idea = promoted_e\n"
+    "\tOR = {\n"
+    "\t\thas_idea = multi_f\n"
+    "\t\thas_idea = multi_g\n"
+    "\t}\n"
+    "\tOR = {\n"
+    "\t\tAND = {\n"
+    "\t\t\thas_idea = kept_h\n"
+    "\t\t\thas_idea = kept_i\n"
+    "\t\t}\n"
+    "\t\thas_idea = kept_j\n"
+    "\t}\n"
+    "\tNOT = {\n"
+    "\t\tAND = {\n"
+    "\t\t\thas_idea = kept_k\n"
+    "\t\t\thas_idea = kept_l\n"
+    "\t\t}\n"
+    "\t}\n"
+    "\thas_idea = chain_m\n"
+    "\thas_idea = chain_n\n"
+    "}\n"
+)
+_CLEANUP_OR_CLEAN = (
+    "trigger = {\n"
+    "\tOR = {\n"
+    "\t\thas_idea = multi_f\n"
+    "\t\thas_idea = multi_g\n"
+    "\t}\n"
+    "\tNOT = {\n"
+    "\t\tAND = {\n"
+    "\t\t\thas_idea = kept_k\n"
+    "\t\t\thas_idea = kept_l\n"
+    "\t\t}\n"
+    "\t}\n"
+    "}\n"
+)
+
+
+def _with_newlines(text: str, style: str) -> bytes:
+    endings = {"lf": ["\n"], "crlf": ["\r\n"], "cr": ["\r"], "mixed": ["\r\n", "\n", "\r"]}[style]
+    lines = text.split("\n")[:-1]
+    return "".join(line + endings[i % len(endings)] for i, line in enumerate(lines)).encode()
+
+
+@pytest.mark.integration
+def test_integration_cleanup_or_simplifies_each_wrapper_kind(upstream_root):
+    out = fix_lint_tool(upstream_root, fixer="cleanup_or", content=_CLEANUP_OR_SIMPLIFIABLE)
+
+    assert out["ok"] is True
+    assert out["changed"] is True
+    assert out["txt"] == _CLEANUP_OR_SIMPLIFIED
+    assert out["summary"] == {"or_blocks": 4, "and_blocks": 2}
+    assert out["fixes"] == 6
+
+    again = fix_lint_tool(upstream_root, fixer="cleanup_or", content=out["txt"])
+    assert again["changed"] is False
+    assert "txt" not in again
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("style", ["lf", "crlf", "cr", "mixed"])
+@pytest.mark.parametrize(
+    ("source", "expect_changed"),
+    [(_CLEANUP_OR_SIMPLIFIABLE, True), (_CLEANUP_OR_CLEAN, False)],
+    ids=["simplifiable", "clean"],
+)
+def test_integration_cleanup_or_matches_upstream_process_file(
+    upstream_root, source, expect_changed, style
+):
+    raw = _with_newlines(source, style)
+    _write(upstream_root, "common/mine.txt", raw)
+    _write(upstream_root, "common/upstream.txt", raw)
+
+    out = fix_lint_tool(upstream_root, fixer="cleanup_or", path="common/mine.txt")
+    core = lint_fixers._UPSTREAM.load(upstream_root, ("cleanup_or",))["cleanup_or"]
+    upstream_changed = core.process_file(str(upstream_root / "common" / "upstream.txt"))
+    upstream_bytes = (upstream_root / "common" / "upstream.txt").read_bytes()
+
+    assert upstream_changed is expect_changed
+    assert out["ok"] is True
+    assert out["changed"] is expect_changed
+    if expect_changed:
+        assert out["txt"].encode("utf-8") == upstream_bytes
+    else:
+        assert "txt" not in out
+        assert upstream_bytes == raw
+    assert (upstream_root / "common" / "mine.txt").read_bytes() == raw
+
+
+@pytest.mark.integration
+def test_integration_cleanup_or_refuses_excluded_paths_relative_to_mod_root(
+    upstream_root, monkeypatch
+):
+    (upstream_root / "resources").mkdir()
+    monkeypatch.chdir(upstream_root / "resources")
+
+    refused = fix_lint_tool(
+        upstream_root,
+        fixer="cleanup_or",
+        path="resources/x.txt",
+        content=_CLEANUP_OR_SIMPLIFIABLE,
+    )
+    kept = fix_lint_tool(
+        upstream_root,
+        fixer="cleanup_or",
+        path="common/x.txt",
+        content=_CLEANUP_OR_SIMPLIFIABLE,
+    )
+
+    assert refused["ok"] is False
+    assert "excluded directory" in refused["error"]
+    assert kept["ok"] is True
+    assert kept["txt"] == _CLEANUP_OR_SIMPLIFIED
 
 
 def test_path_prefers_submod_copy_over_shadowed_base(tmp_path):

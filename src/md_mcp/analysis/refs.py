@@ -48,13 +48,20 @@ Kind = Literal[
 #   * subdirs to scan (mod-relative)
 #   * extensions to match (.txt usually; .yml for loc)
 #   * a regex generator that, given the target id, returns the pattern to search for
+def _identifier(target: str) -> str:
+    return _target_group(re.escape(target))
+
+
+def _target_group(body: str) -> str:
+    # The only capture in each pattern: `_active_matches` judges this span.
+    return r'(?<![\w.])("' + body + r'"|' + body + r")(?![\w.])"
+
+
 def _focus_pattern(target: str) -> re.Pattern:
     # `focus = X`, `prerequisite = { focus = X }`, `mutually_exclusive = { focus = X }`,
     # `complete_national_focus = X`, `mark_focus_tree_layout_dirty` style false-positives skipped.
     return re.compile(
-        r"\b(?:focus|complete_national_focus|unlock_national_focus)\s*=\s*"
-        + re.escape(target)
-        + r"\b"
+        r"\b(?:focus|complete_national_focus|unlock_national_focus)\s*=\s*" + _identifier(target)
     )
 
 
@@ -63,11 +70,10 @@ def _event_pattern(target: str) -> re.Pattern:
     event_kinds = "|".join(re.escape(kind) for kind in EVENT_KINDS)
     return re.compile(
         rf"\b(?:{event_kinds})\s*=\s*(?:"
-        + re.escape(target)
-        + r"\b"
+        + _identifier(target)
         + r"|\{\s*(?:[^{}]*\s)?id\s*=\s*"
-        + re.escape(target)
-        + r"\b)"
+        + _identifier(target)
+        + r")"
     )
 
 
@@ -75,8 +81,7 @@ def _decision_pattern(target: str) -> re.Pattern:
     # `activate_decision = X`, `unlock_decision_tooltip = X`, decision target in tooltips.
     return re.compile(
         r"\b(?:activate_decision|unlock_decision_tooltip|remove_decision|decision)\s*=\s*"
-        + re.escape(target)
-        + r"\b"
+        + _identifier(target)
     )
 
 
@@ -84,11 +89,10 @@ def _idea_pattern(target: str) -> re.Pattern:
     return re.compile(
         r"\b(?:has_idea|add_ideas|remove_ideas|swap_ideas|add_timed_idea)\s*=\s*"
         + r"(?:"
-        + re.escape(target)
-        + r"\b"
+        + _identifier(target)
         + r"|\{\s*(?:[^{}]*\s)?(?:idea|add)\s*=\s*"
-        + re.escape(target)
-        + r"\b)"
+        + _identifier(target)
+        + r")"
     )
 
 
@@ -99,50 +103,58 @@ def _flag_pattern(target: str) -> re.Pattern:
         r"|has_state_flag|set_state_flag|clr_state_flag"
         r"|has_character_flag|set_character_flag|clr_character_flag)\s*=\s*"
         + r"(?:"
-        + re.escape(target)
-        + r"\b"
+        + _identifier(target)
         + r"|\{\s*flag\s*=\s*"
-        + re.escape(target)
-        + r"\b)"
+        + _identifier(target)
+        + r")"
     )
 
 
 def _variable_pattern(target: str) -> re.Pattern:
-    # Bare references (`check_variable = { var = X ... }`) plus dotted refs (`ROOT.X`).
+    # References can be explicit (`var = X`), scoped (`var = ROOT.X`),
+    # or short-form assignments (`set_temp_variable = { X = 10 }`).
+    target_ref = _identifier(target)
+    if "." not in target:
+        target_ref = _target_group(r"(?:[A-Za-z_]\w*\.)?" + re.escape(target))
+    operators = (
+        r"var|has_variable|set_variable|set_temp_variable|add_to_variable|subtract_from_variable"
+        r"|multiply_variable|divide_variable|check_variable|clamp_variable|modulo_variable"
+    )
     return re.compile(
-        r"\b(?:var|set_variable|set_temp_variable|add_to_variable|subtract_from_variable"
-        r"|multiply_variable|divide_variable|check_variable|clamp_variable|modulo_variable)\s*=\s*"
-        + r"(?:"
-        + re.escape(target)
-        + r"\b"
-        + r"|\{\s*(?:[^{}]*\s)?(?:var|name)\s*=\s*"
-        + re.escape(target)
-        + r"\b)"
+        r"\b(?:"
+        + operators
+        + r")\s*=\s*(?:"
+        + target_ref
+        + r"|\{\s*(?:[^{}]*?\s)?(?:var|name)\s*=\s*"
+        + target_ref
+        + r"(?:\s|\})|\{\s*(?:[^{}]*?\s)?"
+        + target_ref
+        + r"\s*=)"
     )
 
 
 def _loc_pattern(target: str) -> re.Pattern:
     # Both `KEY:` definitions and `[KEY]` / `$KEY$` references.
-    return re.compile(r"(?<![\w])" + re.escape(target) + r"(?![\w])")
+    return re.compile(_identifier(target))
 
 
 def _sprite_pattern(target: str) -> re.Pattern:
-    return re.compile(r"\b" + re.escape(target) + r"\b")
+    return re.compile(_identifier(target))
 
 
 def _named_definition_pattern(target: str) -> re.Pattern:
     """Match a top-level definition or direct scripted call by name."""
-    return re.compile(r"(?<![\w])" + re.escape(target) + r"\s*=\s*(?:\{|[^\s{}#]+)")
+    return re.compile(_identifier(target) + r"\s*=\s*(?:\{|[^\s{}#]+)")
 
 
 def _country_tag_pattern(target: str) -> re.Pattern:
     return re.compile(
         r"\b(?:original_tag|tag|change_tag|set_cosmetic_tag|target_tag|"
         r"original_tag_to_check|tag_to_check)\s*=\s*(?:"
-        + re.escape(target)
-        + r"\b|\{\s*(?:tag|original_tag)\s*=\s*"
-        + re.escape(target)
-        + r"\b)"
+        + _identifier(target)
+        + r"|\{\s*(?:tag|original_tag)\s*=\s*"
+        + _identifier(target)
+        + r")"
     )
 
 
@@ -150,20 +162,20 @@ def _character_pattern(target: str) -> re.Pattern:
     return re.compile(
         r"\b(?:character|has_character|create_character|remove_character|"
         r"modify_character|set_character)\s*=\s*(?:"
-        + re.escape(target)
-        + r"\b|\{\s*character\s*=\s*"
-        + re.escape(target)
-        + r"\b)"
+        + _identifier(target)
+        + r"|\{\s*character\s*=\s*"
+        + _identifier(target)
+        + r")"
     )
 
 
 def _trait_pattern(target: str) -> re.Pattern:
     return re.compile(
         r"\b(?:trait|has_trait|add_trait|remove_trait|remove_leader_trait)\s*=\s*(?:"
-        + re.escape(target)
-        + r"\b|\{\s*trait\s*=\s*"
-        + re.escape(target)
-        + r"\b)"
+        + _identifier(target)
+        + r"|\{\s*trait\s*=\s*"
+        + _identifier(target)
+        + r")"
     )
 
 
@@ -400,8 +412,15 @@ def find_references(
                     if prefilter and target not in text:
                         continue
 
+                    loc_yaml = canonical == "loc" and ext == ".yml"
                     starts: Optional[list[int]] = None
-                    for m in pattern.finditer(text):
+                    for m in _active_matches(
+                        pattern,
+                        text,
+                        target,
+                        loc_yaml=loc_yaml,
+                        allow_quoted_scopes=canonical == "variable",
+                    ):
                         if files_only:
                             file_hits[rel] = file_hits.get(rel, 0) + 1
                             continue
@@ -458,6 +477,54 @@ def find_references(
         },
         heavy_keys=("matches",),
     )
+
+
+_SCRIPT_TOKEN_RE = re.compile(r'(?P<comment>\#.*)|(?P<string>"(?:\\.|[^"\\])*")')
+
+
+def _active_matches(
+    pattern: re.Pattern,
+    text: str,
+    target: str,
+    *,
+    loc_yaml: bool = False,
+    allow_quoted_scopes: bool = False,
+):
+    """Yield matches whose keyword is code and whose target is code or a quoted value.
+
+    Comments and strings between the keyword and the target do not count.
+    """
+    tokens = _SCRIPT_TOKEN_RE.finditer(text)
+    token = next(tokens, None)
+
+    def token_at(pos: int) -> Optional[re.Match]:
+        nonlocal token
+        while token is not None and token.end() <= pos:
+            token = next(tokens, None)
+        return token if token is not None and token.start() <= pos else None
+
+    for match in pattern.finditer(text):
+        start, end = match.span(match.lastindex or 0)
+        if start > match.start() and token_at(match.start()) is not None:
+            continue
+        found = token_at(start)
+        if found is None:
+            yield match
+            continue
+        if found.lastgroup == "comment":
+            continue
+        content = text[found.start() + 1 : found.end() - 1]
+        quoted_scope = (
+            allow_quoted_scopes
+            and "." not in target
+            and re.fullmatch(r"[A-Za-z_]\w*\." + re.escape(target), content) is not None
+        )
+        loc_marker = loc_yaml and (text[start - 1 : start], text[end : end + 1]) in (
+            ("$", "$"),
+            ("[", "]"),
+        )
+        if content == target or quoted_scope or loc_marker:
+            yield match
 
 
 def _line_at(text: str, pos: int) -> str:

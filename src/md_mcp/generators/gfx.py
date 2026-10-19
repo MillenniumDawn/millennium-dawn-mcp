@@ -38,8 +38,10 @@ _TEXTUREFILE_RE = re.compile(_SKIP + r'|(?<!\w)texture[fF]ile\s*=\s*"([^"]+)"')
 _SPRITE_TYPES_RE = re.compile(_SKIP + r"|(?<!\w)(spriteTypes\s*=\s*\{)", re.IGNORECASE)
 # Closing quote is captured. A missing group means the scanners ended inside a string.
 _UNCLOSED_STRING_RE = re.compile(r'#[^\n]*|"(?:\\[\s\S]?|[^"\\]+)*(")?')
-_HIDDEN_ROOT_RE = re.compile(r"spriteTypes\s*=\s*\{", re.IGNORECASE)
+_HIDDEN_BLOCK_RE = re.compile(r"(?<!\w)spriteTypes?\s*=\s*\{", re.IGNORECASE)
 _NO_SPRITE_TYPES_ROOT = "gfx_file has no spriteTypes block"
+_UNTERMINATED_STRING = "gfx_file has an unterminated string at line {}"
+_STRING_HIDES_BLOCK = "gfx_file has a multi-line string that hides a sprite block at line {}"
 
 _Render = Callable[[str, str], str]
 
@@ -109,7 +111,15 @@ def generate_gfx_merge(
     `include_file=True` to also get `file_txt` (the complete merged document);
     real MD files like `goals.gfx` will trip `enforce_budget` and drop it.
     A nonempty file with no closed `spriteTypes` root returns
-    `{ok: false, error: "gfx_file has no spriteTypes block"}`.
+    `{ok: false, error: "gfx_file has no spriteTypes block"}`. A string that never
+    closes, anywhere in the file, returns
+    `{ok: false, error: "gfx_file has an unterminated string at line N"}`. N is the
+    line where the first string that crosses a line opens, or where the unclosed
+    one opens if none does. That is the stray quote unless a valid multi-line
+    string comes earlier. Two stray quotes can instead pair up around a
+    `spriteType` or `spriteTypes` block. The error is then "gfx_file has a
+    multi-line string that hides a sprite block at line N", where N is the line
+    where that string opens.
 
     Returns `{ok, txt, new, changed, orphaned, ...}`. Never writes.
     """
@@ -133,9 +143,9 @@ def generate_gfx_merge(
     original = read_text(gfx_path) if exists else ""
     if not original.strip():
         original = ""
-    root_error = _gfx_root_error(original)
-    if root_error:
-        return {"ok": False, "error": root_error, **extra}
+    text_error = _gfx_error(original)
+    if text_error:
+        return {"ok": False, "error": text_error, **extra}
 
     def render(name: str, texture_path: str) -> str:
         return (
@@ -231,19 +241,21 @@ def merge_gfx_text(
 
     Pure function: returns the merged text and the same report lists as
     `merge_gfx_entries` in the mod tool. Does not touch the filesystem. An
-    empty `original` means "no document yet" and gets a `header`/`}` wrapper.
-    A nonempty document with no closed spriteTypes root raises ValueError.
-    A quote that hides the root is left for #269.
+    empty or whitespace-only `original` means "no document yet" and gets a
+    `header`/`}` wrapper. Otherwise ValueError is raised, with the messages and
+    line rule of `generate_gfx_merge`, for a document with no closed spriteTypes
+    root, a string that never closes, or a multi-line string that hides a sprite
+    block.
 
     `changed` is a list of `(name, old_texturefile)` pairs. `conflicts` is a
     list of `{name, kept, dropped}` dicts for de-duplicated blocks whose
     texturefiles disagreed.
     """
     normalized = original.replace("\r\n", "\n").replace("\r", "\n") if original else ""
-    root_error = _gfx_root_error(normalized)
-    if root_error:
-        raise ValueError(root_error)
-    original = normalized or f"{header}}}\n"
+    original = normalized if normalized.strip() else f"{header}}}\n"
+    text_error = _gfx_error(original)
+    if text_error:
+        raise ValueError(text_error)
 
     existing: dict[str, tuple[Optional[str], int, int]] = {}
     dup_spans: list[tuple[int, int]] = []
@@ -288,6 +300,11 @@ def merge_gfx_text(
 
     orphaned = sorted(set(existing) - set(entries) - set(protected))
 
+    if new_names:
+        insert_at = _sprite_types_close(original)
+        appended = "".join(render(name, entries[name]) for name in new_names)
+        splices.append((insert_at, insert_at, appended))
+
     if splices:
         splices.sort(key=lambda s: s[0])
         pieces: list[str] = []
@@ -300,15 +317,6 @@ def merge_gfx_text(
         text = "".join(pieces)
     else:
         text = original
-
-    if new_names:
-        appended = "".join(render(name, entries[name]) for name in new_names)
-        insert_at = _sprite_types_close(text)
-        if insert_at == -1:
-            # Hidden root (#269). Do not append into a trailing comment line.
-            text = text + ("" if text.endswith("\n") else "\n") + appended
-        else:
-            text = text[:insert_at] + appended + text[insert_at:]
 
     return {
         "txt": text,
@@ -400,23 +408,38 @@ def _sprite_types_close(text: str) -> int:
     return -1 if root is None else _match_brace(text, root.end() - 1)
 
 
-def _string_hides_root(text: str) -> bool:
-    """True when a skipped string hides a root, or runs to the end of the file."""
+def _line_at(text: str, pos: int) -> int:
+    # count, not line_starts: a 10 MB file of short lines would build a huge list.
+    return text.count("\n", 0, pos) + 1
+
+
+def _gfx_error(text: str) -> Optional[str]:
+    """Return why `text` cannot be merged into, or None.
+
+    Strings are paired left to right, so one stray quote flips every pairing after
+    it. For an unterminated string the line is where the first string that crosses
+    a line opens: the stray quote, unless a valid multi-line string comes first
+    (rare in gfx files). For a hidden block it is where the hiding string opens.
+    """
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    if not text.strip():
+        return None
+    crossing: Optional[int] = None
+    hider: Optional[int] = None
+    tail: Optional[int] = None
     for match in _UNCLOSED_STRING_RE.finditer(text):
-        token = match.group(0)
-        if not token.startswith('"'):
+        start, end = match.span()
+        if text[start] != '"':
             continue
         if match.group(1) is None:
-            return True
-        if "\n" in token and _HIDDEN_ROOT_RE.search(token):
-            return True
-    return False
-
-
-def _gfx_root_error(text: str) -> Optional[str]:
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    if not text.strip() or _sprite_types_close(text) != -1:
-        return None
-    if _string_hides_root(text):
-        return None
-    return _NO_SPRITE_TYPES_ROOT
+            tail = start
+        elif text.find("\n", start, end) != -1:
+            if crossing is None:
+                crossing = start
+            if hider is None and _HIDDEN_BLOCK_RE.search(text, start, end):
+                hider = start
+    if tail is not None:
+        return _UNTERMINATED_STRING.format(_line_at(text, tail if crossing is None else crossing))
+    if hider is not None:
+        return _STRING_HIDES_BLOCK.format(_line_at(text, hider))
+    return _NO_SPRITE_TYPES_ROOT if _sprite_types_close(text) == -1 else None

@@ -967,6 +967,19 @@ paging `new` stay in step. If `gfx_file` is missing or empty, `txt` is a full
 last page the closing brace, so appending the pages in order rebuilds the file.
 A nonempty file with no closed `spriteTypes` root returns
 `{ok: false, error: "gfx_file has no spriteTypes block"}` and does not append.
+
+A stray quote is refused the same way, so it cannot hide an existing sprite and
+produce a duplicate. A string that never closes, anywhere in the file, returns
+`error: "gfx_file has an unterminated string at line N"`. `N` is the line where
+the first string that crosses a line opens, or where the unclosed one opens if
+none does. That is the stray quote unless a valid multi-line string comes
+earlier in the file. Two stray quotes that pair up and swallow a `spriteType` or
+`spriteTypes` block return
+`error: "gfx_file has a multi-line string that hides a sprite block at line N"`,
+where `N` is the line where that string opens. Escaped quotes, quotes inside `#`
+comments, and closed multi-line strings that hide no sprite block are not
+refused. A stray quote that hides only a `name` or `texturefile` line inside one
+block is not detected.
 `changed` entries include a replacement `txt` for in-place Edit.
 
 Returns `{ok, txt, new, changed, orphaned, deduped, conflicts, scan_duplicates,

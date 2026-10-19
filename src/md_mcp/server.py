@@ -444,7 +444,7 @@ def build_server(settings: Settings):
     )(generate_gfx_entry)
     mcp.tool(
         name="generate_gfx_merge",
-        description="Merge a texture dir into a .gfx file. Returns new entries plus new/changed/orphaned; never writes. Refuses a nonempty file with no closed spriteTypes root. prefix must match the target file; limit/offset page the names and txt together; include_file adds the full merged file.",
+        description="Merge a texture dir into a .gfx file. Returns new entries plus new/changed/orphaned; never writes. Refuses a nonempty file with no closed spriteTypes root or with a stray quote. prefix must match the target file; limit/offset page the names and txt together; include_file adds the full merged file.",
     )(_bind_tool(generate_gfx_merge, settings.mod_root))
     mcp.tool(
         name="generate_loc_stub",

@@ -712,16 +712,27 @@ _A = _render("GFX_a", "gfx/a.dds")
         ),
         pytest.param("spriteTypes = {\n" + _A, "}\n# end", ["GFX_b"], id="comment-on-last-line"),
         pytest.param(
-            'note = "never closed\nspriteTypes = {\n' + _A + "}\n",
-            "",
-            ["GFX_a", "GFX_b"],
-            id="unterminated-string-hides-everything",
+            'spriteTypes = {\n\tnote = "say \\"hi\\""\n\tpath = "ends in a backslash\\\\"\n' + _A,
+            "}\n",
+            ["GFX_b"],
+            id="escaped-quote-and-backslash",
+        ),
+        pytest.param(
+            '# a "stray quote in a comment\nspriteTypes = {\n' + _A,
+            '} # and "another\n',
+            ["GFX_b"],
+            id="quotes-in-comments",
+        ),
+        pytest.param(
+            'spriteTypes = {\n\tnote = "line one\n\tline two"\n' + _A,
+            "}\n",
+            ["GFX_b"],
+            id="closed-multiline-string",
         ),
     ],
 )
 def test_merge_places_new_entries(head, tail, new):
-    """New blocks go before the root's closing brace. A stray quote still hides
-    the root and appends a second copy; that stays until #269."""
+    """New blocks go before the root's closing brace."""
     entries = {"GFX_a": "gfx/a.dds", "GFX_b": "gfx/b.dds"}
 
     out = gfx_mod.merge_gfx_text(head + tail, entries, _render)
@@ -760,25 +771,113 @@ def test_merge_refuses_unclosed_root_with_nothing_to_append():
         gfx_mod.merge_gfx_text(original, {}, _render)
 
 
-def test_merge_inserts_inside_a_closed_root_before_a_later_unclosed_quote():
-    original = "spriteTypes = {\n" + _A + '}\nnote = "never closed\n'
+@pytest.mark.parametrize(
+    ("original", "error"),
+    [
+        pytest.param(
+            'note = "never closed\nspriteTypes = {\n' + _A + "}\n",
+            "gfx_file has an unterminated string at line 1",
+            id="unterminated-string-hides-everything",
+        ),
+        pytest.param(
+            "spriteTypes = {\n" + _A + '}\nnote = "never closed\n',
+            "gfx_file has an unterminated string at line 7",
+            id="unterminated-after-closed-root",
+        ),
+        pytest.param(
+            'note = "never closed',
+            "gfx_file has an unterminated string at line 1",
+            id="unterminated-without-root",
+        ),
+        pytest.param(
+            "spriteTypes = {\n" + _A + '}\nnote = "abc\\',
+            "gfx_file has an unterminated string at line 7",
+            id="terminal-backslash",
+        ),
+        pytest.param(
+            "spriteTypes = {\n" + _A + '}\nnote = "abc\\"',
+            "gfx_file has an unterminated string at line 7",
+            id="escaped-quote-at-eof",
+        ),
+        pytest.param(
+            'spriteTypes = {\n\tnote = "oops\n\tlabel = "\n}\nother = "never closed\n',
+            "gfx_file has an unterminated string at line 2",
+            id="stray-quote-inside-root-that-still-closes",
+        ),
+        pytest.param(
+            '# one\r\n# two\r\nnote = "never closed\r\nspriteTypes = {\r\n'
+            + _A.replace("\n", "\r\n")
+            + "}\r\n",
+            "gfx_file has an unterminated string at line 3",
+            id="crlf-line-count",
+        ),
+        pytest.param(
+            'a = "x\nspriteTypes = {\n' + _A + 'b = "y\n}\n',
+            "gfx_file has a multi-line string that hides a sprite block at line 1",
+            id="two-quotes-hide-the-root",
+        ),
+        pytest.param(
+            'spriteTypes = {\n\tnote = "oops\n' + _A + '\tother = "x\n}\n',
+            "gfx_file has a multi-line string that hides a sprite block at line 2",
+            id="two-quotes-hide-a-block-in-a-closed-root",
+        ),
+        pytest.param(
+            'spriteTypes = {\n\tnote = "valid\n\tmulti-line"\n'
+            + _A
+            + '\toops = "x\n'
+            + _render("GFX_c", "gfx/c.dds")
+            + '\tend = "y\n}\n',
+            "gfx_file has a multi-line string that hides a sprite block at line 8",
+            id="hidden-block-line-is-the-hiding-string-not-an-earlier-multiline-one",
+        ),
+    ],
+)
+def test_merge_refuses_a_document_with_stray_quotes(original, error):
+    with pytest.raises(ValueError) as raised:
+        gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds", "GFX_b": "gfx/b.dds"}, _render)
 
-    out = gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds", "GFX_b": "gfx/b.dds"}, _render)
-
-    added = _render("GFX_b", "gfx/b.dds")
-    assert out["new"] == ["GFX_b"]
-    assert out["txt"].index(added) < out["txt"].index("never closed")
-    assert out["txt"].rstrip().endswith('note = "never closed')
+    assert str(raised.value) == error
 
 
-def test_merge_appends_on_a_new_line_when_a_quote_runs_to_eof():
-    """#269 still appends, and the block does not join the unfinished last line."""
-    original = 'note = "never closed'
+def test_merge_refuses_a_ten_megabyte_open_string():
+    original = "spriteTypes = {\n" + _A + '}\nnote = "' + "a" * 10_000_000
+
+    with pytest.raises(ValueError, match=r"^gfx_file has an unterminated string at line 7$"):
+        gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds"}, _render)
+
+
+def test_merge_leaves_valid_strings_and_comments_unchanged():
+    original = (
+        '# a "stray quote in a comment\n'
+        "spriteTypes = {\n"
+        '\tnote = "say \\"hi\\""\n'
+        '\tpath = "ends in a backslash\\\\"\n'
+        '\ttext = "line one\n\tline two"\n' + _A + '} # and "another\n'
+    )
 
     out = gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds"}, _render)
 
+    assert out["txt"] == original
+    assert out["would_write"] is False
+    assert out["new"] == []
+
+
+def test_merge_appends_inside_the_root_when_a_replaced_block_breaks_quoting():
+    original = "spriteTypes = {\n" + _A + "}\n"
+    entries = {"GFX_a": 'gfx/"a.dds', "GFX_b": "gfx/b.dds"}
+
+    out = gfx_mod.merge_gfx_text(original, entries, _render)
+
+    assert out["changed"] == [("GFX_a", "gfx/a.dds")]
+    assert out["new"] == ["GFX_b"]
+    assert out["txt"].endswith(_render("GFX_b", "gfx/b.dds") + "}\n")
+
+
+def test_merge_treats_whitespace_only_as_no_document():
+    out = gfx_mod.merge_gfx_text(" \n\t", {"GFX_a": "gfx/a.dds"}, _render)
+
     assert out["new"] == ["GFX_a"]
-    assert out["txt"] == original + "\n" + _A
+    assert out["txt"] == "spriteTypes = {\n" + _A + "}\n"
 
 
 def test_merge_skips_a_sprite_block_that_never_closes():
@@ -980,26 +1079,43 @@ def test_generate_gfx_merge_refuses_file_without_closed_root(tmp_path, gfx_body)
     assert gfx_path.read_bytes() == before
 
 
-def test_generate_gfx_merge_does_not_relabel_an_unterminated_string(tmp_path):
-    """A stray quote hides the root. That stays a successful duplicate merge until #269."""
-    hidden = (
-        'note = "never closed\nspriteTypes = {\n' + _render("GFX_old", "gfx/icons/old.dds") + "}\n"
-    )
-    _tex, gfx_path = _plant_merge_mod(tmp_path, textures=["old", "new"], gfx_body=hidden)
+_OLD = _render("GFX_old", "gfx/icons/old.dds")
+
+
+@pytest.mark.parametrize(
+    ("gfx_body", "error"),
+    [
+        pytest.param(
+            'note = "never closed\nspriteTypes = {\n' + _OLD + "}\n",
+            "gfx_file has an unterminated string at line 1",
+            id="stray-quote-before-root",
+        ),
+        pytest.param(
+            "spriteTypes = {\n" + _OLD + '}\nnote = "never closed\n',
+            "gfx_file has an unterminated string at line 7",
+            id="unterminated-after-root",
+        ),
+        pytest.param(
+            'a = "x\nspriteTypes = {\n' + _OLD + 'b = "y\n}\n',
+            "gfx_file has a multi-line string that hides a sprite block at line 1",
+            id="two-quotes-hide-the-root",
+        ),
+    ],
+)
+def test_generate_gfx_merge_refuses_stray_quotes(tmp_path, gfx_body, error):
+    _tex, gfx_path = _plant_merge_mod(tmp_path, textures=["old", "new"], gfx_body=gfx_body)
     before = gfx_path.read_bytes()
 
     r = generate_gfx_merge(
-        tmp_path,
-        texture_dir="gfx/icons",
-        gfx_file="interface/icons.gfx",
-        prefix="GFX_",
-        include_file=True,
+        tmp_path, texture_dir="gfx/icons", gfx_file="interface/icons.gfx", prefix="GFX_"
     )
 
-    assert r["ok"] is True
-    assert "error" not in r
-    assert r["new"] == ["GFX_new", "GFX_old"]
-    assert r["file_txt"].count('name = "GFX_old"') == 2
+    assert r == {
+        "ok": False,
+        "error": error,
+        "texture_dir": "gfx/icons",
+        "gfx_file": "interface/icons.gfx",
+    }
     assert gfx_path.read_bytes() == before
 
 

@@ -196,7 +196,7 @@ def focus_layout(
     chain_errors: list[dict] = []
     duplicate_contexts: list[dict] = []
     bbox_points: list[tuple[float, float]] = []
-    geometry: list[tuple[dict, dict, set[str], list[dict]]] = []
+    geometry: list[tuple[dict, dict, set[str], set[str]]] = []
 
     for instance in scope_instances:
         focuses = instance["focuses"]
@@ -218,7 +218,7 @@ def focus_layout(
                         "files": sorted(f["file"] for f in definitions),
                     }
                 )
-        geometry.append((instance, positions, hidden, instance["reported"]))
+        geometry.append((instance, positions, hidden, reported_ids))
         for missing_ref in instance["missing_shared"]:
             chain_errors.append(
                 {
@@ -279,16 +279,19 @@ def focus_layout(
                 )
 
     # Keep collisions tree-local: same coordinates in unrelated trees are not clashes.
+    # Check the whole tree, and report what involves at least one in-scope focus.
     collision_by_tree: dict[tuple[str, str], list[dict]] = defaultdict(list)
-    for instance, resolved, hidden_ids, reported in geometry:
+    for instance, resolved, hidden_ids, reported_ids in geometry:
         tree_key = instance["key"]
         local: dict[tuple[Decimal, Decimal], list[dict]] = defaultdict(list)
-        for focus in reported:
+        for focus in instance["focuses"]:
             pos = resolved.get(focus["id"])
             if pos is not None and focus["id"] not in hidden_ids and not pos[2]:
                 local[(pos[0], pos[1])].append(focus)
         for (x, y), defs in sorted(local.items()):
-            if len({(f["id"], f["file"], f["line"]) for f in defs}) > 1:
+            if len({(f["id"], f["file"], f["line"]) for f in defs}) > 1 and any(
+                f["id"] in reported_ids for f in defs
+            ):
                 collision_by_tree[tree_key].append(
                     {
                         "x": float(x),
@@ -301,9 +304,9 @@ def focus_layout(
                 )
     collisions = [item for values in collision_by_tree.values() for item in values]
     spacing_warnings: list[dict] = []
-    for instance, positions, hidden_ids, reported in geometry:
+    for instance, positions, hidden_ids, reported_ids in geometry:
         rows: dict[Decimal, dict[Decimal, list[dict]]] = defaultdict(lambda: defaultdict(list))
-        for focus in reported:
+        for focus in instance["focuses"]:
             position = positions.get(focus["id"])
             if position is not None and focus["id"] not in hidden_ids and not position[2]:
                 rows[position[1]][position[0]].append(focus)
@@ -316,6 +319,8 @@ def focus_layout(
                         break
                     for left in columns[x]:
                         for right in columns[other_x]:
+                            if left["id"] not in reported_ids and right["id"] not in reported_ids:
+                                continue
                             spacing_warnings.append(
                                 {
                                     "x": float(x),

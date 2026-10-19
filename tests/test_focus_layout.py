@@ -673,6 +673,36 @@ focus_tree = {
         assert out["files_scanned"] == 1
 
 
+def test_tag_scope_checks_imported_shared_focuses(tmp_path):
+    shared = """shared_focus = { id = SHR_x x = 5 y = 0 }
+shared_focus = { id = SHR_y x = 9 y = 0 }
+shared_focus = { id = SHR_z x = 20 y = 0 }
+shared_focus = { id = SHR_w x = 20 y = 0 }
+"""
+    body = """focus_tree = {
+    id = TST_tree
+    shared_focus = SHR_x
+    shared_focus = SHR_y
+    shared_focus = SHR_z
+    shared_focus = SHR_w
+    focus = { id = TST_a x = 5 y = 0 }
+    focus = { id = TST_b x = 8 y = 0 }
+}
+"""
+    _write_tree(tmp_path, shared, name="SHR_shared.txt")
+    rel = _write_tree(tmp_path, body, name="TST_tree.txt")
+
+    by_tag = focus_layout(tmp_path, _StubIndex([rel]), tag="TST")
+    by_file = focus_layout(tmp_path, None, file=rel)
+
+    assert [item["focuses"] for item in by_tag["collisions"]] == [["SHR_x", "TST_a"]]
+    assert [item["focuses"] for item in by_tag["spacing_warnings"]] == [["SHR_y", "TST_b"]]
+    assert [item["focuses"] for item in by_file["collisions"]] == [
+        ["SHR_x", "TST_a"],
+        ["SHR_w", "SHR_z"],
+    ]
+
+
 def test_tree_identity_shared_imports_dynamic_descendants_and_long_chains(tmp_path):
     shared = """shared_focus = {
     id = TST_shared

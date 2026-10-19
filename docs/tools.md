@@ -954,6 +954,8 @@ so you pass `prefix` and it applies to the whole directory.
 paging `new` stay in step. If `gfx_file` is missing or empty, `txt` is a full
 `spriteTypes = { ... }` document instead: page 0 carries the header and the
 last page the closing brace, so appending the pages in order rebuilds the file.
+A nonempty file with no closed `spriteTypes` root returns
+`{ok: false, error: "gfx_file has no spriteTypes block"}` and does not append.
 `changed` entries include a replacement `txt` for in-place Edit.
 
 Returns `{ok, txt, new, changed, orphaned, deduped, conflicts, scan_duplicates,

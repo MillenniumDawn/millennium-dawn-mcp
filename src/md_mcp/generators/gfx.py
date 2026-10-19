@@ -36,6 +36,10 @@ _NAME_RE = re.compile(_SKIP + r'|(?<!\w)name\s*=\s*"([^"]+)"')
 _TEXTUREFILE_RE = re.compile(_SKIP + r'|(?<!\w)texture[fF]ile\s*=\s*"([^"]+)"')
 # Real mod files also use lowercase spritetypes.
 _SPRITE_TYPES_RE = re.compile(_SKIP + r"|(?<!\w)(spriteTypes\s*=\s*\{)", re.IGNORECASE)
+# Closing quote is captured. A missing group means the scanners ended inside a string.
+_UNCLOSED_STRING_RE = re.compile(r'#[^\n]*|"(?:\\[\s\S]?|[^"\\]+)*(")?')
+_HIDDEN_ROOT_RE = re.compile(r"spriteTypes\s*=\s*\{", re.IGNORECASE)
+_NO_SPRITE_TYPES_ROOT = "gfx_file has no spriteTypes block"
 
 _Render = Callable[[str, str], str]
 
@@ -104,6 +108,8 @@ def generate_gfx_merge(
     closing brace, so concatenating the pages in order rebuilds the file. Pass
     `include_file=True` to also get `file_txt` (the complete merged document);
     real MD files like `goals.gfx` will trip `enforce_budget` and drop it.
+    A nonempty file with no closed `spriteTypes` root returns
+    `{ok: false, error: "gfx_file has no spriteTypes block"}`.
 
     Returns `{ok, txt, new, changed, orphaned, ...}`. Never writes.
     """
@@ -127,6 +133,9 @@ def generate_gfx_merge(
     original = read_text(gfx_path) if exists else ""
     if not original.strip():
         original = ""
+    root_error = _gfx_root_error(original)
+    if root_error:
+        return {"ok": False, "error": root_error, **extra}
 
     def render(name: str, texture_path: str) -> str:
         return (
@@ -223,12 +232,18 @@ def merge_gfx_text(
     Pure function: returns the merged text and the same report lists as
     `merge_gfx_entries` in the mod tool. Does not touch the filesystem. An
     empty `original` means "no document yet" and gets a `header`/`}` wrapper.
+    A nonempty document with no closed spriteTypes root raises ValueError.
+    A quote that hides the root is left for #269.
 
     `changed` is a list of `(name, old_texturefile)` pairs. `conflicts` is a
     list of `{name, kept, dropped}` dicts for de-duplicated blocks whose
     texturefiles disagreed.
     """
-    original = original.replace("\r\n", "\n").replace("\r", "\n") if original else f"{header}}}\n"
+    normalized = original.replace("\r\n", "\n").replace("\r", "\n") if original else ""
+    root_error = _gfx_root_error(normalized)
+    if root_error:
+        raise ValueError(root_error)
+    original = normalized or f"{header}}}\n"
 
     existing: dict[str, tuple[Optional[str], int, int]] = {}
     dup_spans: list[tuple[int, int]] = []
@@ -290,7 +305,7 @@ def merge_gfx_text(
         appended = "".join(render(name, entries[name]) for name in new_names)
         insert_at = _sprite_types_close(text)
         if insert_at == -1:
-            # A last line with no newline may be a comment; do not append into it.
+            # Hidden root (#269). Do not append into a trailing comment line.
             text = text + ("" if text.endswith("\n") else "\n") + appended
         else:
             text = text[:insert_at] + appended + text[insert_at:]
@@ -383,3 +398,25 @@ def _sprite_types_close(text: str) -> int:
     """Return the closing brace of the outer spriteTypes block, or -1."""
     root = next(_code_matches(_SPRITE_TYPES_RE, text), None)
     return -1 if root is None else _match_brace(text, root.end() - 1)
+
+
+def _string_hides_root(text: str) -> bool:
+    """True when a skipped string hides a root, or runs to the end of the file."""
+    for match in _UNCLOSED_STRING_RE.finditer(text):
+        token = match.group(0)
+        if not token.startswith('"'):
+            continue
+        if match.group(1) is None:
+            return True
+        if "\n" in token and _HIDDEN_ROOT_RE.search(token):
+            return True
+    return False
+
+
+def _gfx_root_error(text: str) -> Optional[str]:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    if not text.strip() or _sprite_types_close(text) != -1:
+        return None
+    if _string_hides_root(text):
+        return None
+    return _NO_SPRITE_TYPES_ROOT

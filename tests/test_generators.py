@@ -712,13 +712,6 @@ _A = _render("GFX_a", "gfx/a.dds")
         ),
         pytest.param("spriteTypes = {\n" + _A, "}\n# end", ["GFX_b"], id="comment-on-last-line"),
         pytest.param(
-            'spriteType = { name = "GFX_a" texturefile = "gfx/a.dds" }\n',
-            "",
-            ["GFX_b"],
-            id="no-root",
-        ),
-        pytest.param("spriteTypes = {\n" + _A, "", ["GFX_b"], id="root-never-closed"),
-        pytest.param(
             'note = "never closed\nspriteTypes = {\n' + _A + "}\n",
             "",
             ["GFX_a", "GFX_b"],
@@ -727,9 +720,8 @@ _A = _render("GFX_a", "gfx/a.dds")
     ],
 )
 def test_merge_places_new_entries(head, tail, new):
-    """New blocks go before the root's closing brace, or at the end of a document
-    with no closed root. The malformed cases record what the merge does today, not
-    what it should do: a stray quote makes it add `GFX_a` a second time."""
+    """New blocks go before the root's closing brace. A stray quote still hides
+    the root and appends a second copy; that stays until #269."""
     entries = {"GFX_a": "gfx/a.dds", "GFX_b": "gfx/b.dds"}
 
     out = gfx_mod.merge_gfx_text(head + tail, entries, _render)
@@ -741,21 +733,56 @@ def test_merge_places_new_entries(head, tail, new):
 
 @pytest.mark.parametrize(
     "original",
-    ["# no sprites yet", 'spriteType = { name = "GFX_z" texturefile = "gfx/z.dds" } # last'],
-    ids=["comment-only", "block-then-comment"],
+    [
+        'spriteType = { name = "GFX_a" texturefile = "gfx/a.dds" }\n',
+        "spriteTypes = {\n" + _A,
+        "# no sprites yet",
+        'spriteType = { name = "GFX_z" texturefile = "gfx/z.dds" } # last',
+        'note = "spriteTypes = { fake }"\n' + _A,
+    ],
+    ids=[
+        "no-root",
+        "root-never-closed",
+        "comment-only",
+        "block-then-comment",
+        "one-line-string-mentions-root",
+    ],
 )
-def test_merge_appends_on_a_new_line_after_an_unfinished_last_line(original):
-    """With no root the new block goes at the end. A last line with no newline may
-    be a comment, and it must not take the block's opening line with it."""
+def test_merge_refuses_document_without_closed_root(original):
+    with pytest.raises(ValueError, match=r"^gfx_file has no spriteTypes block$"):
+        gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds", "GFX_b": "gfx/b.dds"}, _render)
+
+
+def test_merge_refuses_unclosed_root_with_nothing_to_append():
+    original = 'spriteTypes = {\n\tspriteType = {\n\t\tname = "GFX_a" # never closed'
+
+    with pytest.raises(ValueError, match=r"^gfx_file has no spriteTypes block$"):
+        gfx_mod.merge_gfx_text(original, {}, _render)
+
+
+def test_merge_inserts_inside_a_closed_root_before_a_later_unclosed_quote():
+    original = "spriteTypes = {\n" + _A + '}\nnote = "never closed\n'
+
+    out = gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds", "GFX_b": "gfx/b.dds"}, _render)
+
+    added = _render("GFX_b", "gfx/b.dds")
+    assert out["new"] == ["GFX_b"]
+    assert out["txt"].index(added) < out["txt"].index("never closed")
+    assert out["txt"].rstrip().endswith('note = "never closed')
+
+
+def test_merge_appends_on_a_new_line_when_a_quote_runs_to_eof():
+    """#269 still appends, and the block does not join the unfinished last line."""
+    original = 'note = "never closed'
+
     out = gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds"}, _render)
 
+    assert out["new"] == ["GFX_a"]
     assert out["txt"] == original + "\n" + _A
-    again = gfx_mod.merge_gfx_text(out["txt"], {"GFX_a": "gfx/a.dds"}, _render)
-    assert again["new"] == []
 
 
-def test_merge_skips_a_block_that_never_closes():
-    original = 'spriteTypes = {\n\tspriteType = {\n\t\tname = "GFX_a" # never closed'
+def test_merge_skips_a_sprite_block_that_never_closes():
+    original = 'spriteTypes = {\n}\nspriteType = {\n\tname = "GFX_a" # never closed'
 
     out = gfx_mod.merge_gfx_text(original, {}, _render)
 
@@ -915,6 +942,65 @@ def test_generate_gfx_merge_empty_file_returns_full_document(tmp_path):
     assert r["exists"] is True
     assert r["txt"].startswith("spriteTypes = {")
     assert r["txt"].rstrip().endswith("}")
+
+
+def test_generate_gfx_merge_whitespace_file_returns_full_document(tmp_path):
+    _plant_merge_mod(tmp_path, textures=["only"], gfx_body=" \n\t")
+    r = generate_gfx_merge(
+        tmp_path, texture_dir="gfx/icons", gfx_file="interface/icons.gfx", prefix="GFX_"
+    )
+    assert r["ok"] is True
+    assert r["exists"] is True
+    assert r["txt"].startswith("spriteTypes = {")
+    assert r["txt"].rstrip().endswith("}")
+
+
+@pytest.mark.parametrize(
+    "gfx_body",
+    [
+        'spriteType = { name = "GFX_old" texturefile = "gfx/icons/old.dds" }\n',
+        "spriteTypes = {\n" + _render("GFX_old", "gfx/icons/old.dds"),
+    ],
+    ids=["no-root", "root-never-closed"],
+)
+def test_generate_gfx_merge_refuses_file_without_closed_root(tmp_path, gfx_body):
+    _tex, gfx_path = _plant_merge_mod(tmp_path, textures=["old", "new"], gfx_body=gfx_body)
+    before = gfx_path.read_bytes()
+
+    r = generate_gfx_merge(
+        tmp_path, texture_dir="gfx/icons", gfx_file="interface/icons.gfx", prefix="GFX_"
+    )
+
+    assert r == {
+        "ok": False,
+        "error": "gfx_file has no spriteTypes block",
+        "texture_dir": "gfx/icons",
+        "gfx_file": "interface/icons.gfx",
+    }
+    assert gfx_path.read_bytes() == before
+
+
+def test_generate_gfx_merge_does_not_relabel_an_unterminated_string(tmp_path):
+    """A stray quote hides the root. That stays a successful duplicate merge until #269."""
+    hidden = (
+        'note = "never closed\nspriteTypes = {\n' + _render("GFX_old", "gfx/icons/old.dds") + "}\n"
+    )
+    _tex, gfx_path = _plant_merge_mod(tmp_path, textures=["old", "new"], gfx_body=hidden)
+    before = gfx_path.read_bytes()
+
+    r = generate_gfx_merge(
+        tmp_path,
+        texture_dir="gfx/icons",
+        gfx_file="interface/icons.gfx",
+        prefix="GFX_",
+        include_file=True,
+    )
+
+    assert r["ok"] is True
+    assert "error" not in r
+    assert r["new"] == ["GFX_new", "GFX_old"]
+    assert r["file_txt"].count('name = "GFX_old"') == 2
+    assert gfx_path.read_bytes() == before
 
 
 def test_generate_gfx_merge_paginates_scan_duplicates(tmp_path):

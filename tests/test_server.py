@@ -162,7 +162,7 @@ TOOL_SIGNATURES = {
         "include_edges=True, include_nodes=True"
     ),
     "check_refs": "tag=None, files=None, kinds=None, limit=200, offset=0, counts_only=False",
-    "focus_layout": "tag=None, file=None, include_positions=False, limit=300",
+    "focus_layout": "tag=None, file=None, include_positions=False, limit=300, offset=0",
     "focus_overlap_scenarios": (
         "file, tag, completed=None, date=None, include_positions=False, limit=50, offset=0"
     ),
@@ -459,7 +459,7 @@ TOOL_CALLS: dict[str, tuple[dict, dict]] = {
         {"ok": True, "node_count": 4, "roots": ["TST_root", "TST_shared"]},
     ),
     "check_refs": ({"tag": "TST"}, {"ok": True, "files_scanned": 1, "total_unresolved": 4}),
-    "focus_layout": ({"tag": "TST"}, {"ok": True, "focus_count": 4}),
+    "focus_layout": ({"tag": "TST"}, {"ok": True, "focus_count": 3}),
     "focus_overlap_scenarios": (
         {"file": "common/national_focus/test.txt", "tag": "TST"},
         {
@@ -752,6 +752,38 @@ def test_review_branch_forwards_submod_root(fake_mod_root, cache_dir, tmp_path, 
     assert "review_branch.py not found" in payload["error"]
 
 
+def test_focus_layout_tool_resolves_cross_file_shared_import(
+    fake_mod_root, cache_dir, server_factory
+):
+    focus_dir = fake_mod_root / "common" / "national_focus"
+    focus_dir.mkdir(parents=True, exist_ok=True)
+    (focus_dir / "00_cross_file_shared.txt").write_text(
+        "shared_focus = { id = TST_imported x = 3 y = 1 }\n",
+        encoding="utf-8",
+    )
+    (focus_dir / "TST_cross_file_consumer.txt").write_text(
+        """focus_tree = {
+    id = TST_cross_file_tree
+    shared_focus = TST_imported
+    focus = { id = TST_consumer x = 1 y = 0 relative_position_id = TST_imported }
+}
+""",
+        encoding="utf-8",
+    )
+    srv = server_factory(in_process_settings(fake_mod_root, cache_dir))
+
+    result = _call(
+        srv,
+        "focus_layout",
+        {"file": "common/national_focus/TST_cross_file_consumer.txt", "include_positions": True},
+    )
+
+    by_id = {position["id"]: position for position in result["positions"]}
+    assert result["focus_count"] == 2
+    assert by_id["TST_imported"]["file"] == "common/national_focus/00_cross_file_shared.txt"
+    assert by_id["TST_consumer"]["x"] == 4
+
+
 def test_analysis_tools_forward_submod_root(fake_mod_root, cache_dir, tmp_path, server_factory):
     submod_root = tmp_path / "overlay"
     focus = submod_root / "common/national_focus/OVR_overlay_only.txt"
@@ -774,7 +806,19 @@ def test_analysis_tools_forward_submod_root(fake_mod_root, cache_dir, tmp_path, 
     refs = _call(srv, "check_refs", {"tag": "OVR", "kinds": ["event"]})
 
     assert layout["focus_count"] == 1
-    assert layout["positions"] == [{"id": "OVR_overlay_only", "x": 15, "y": 2, "relative_to": None}]
+    assert layout["positions"] == [
+        {
+            "id": "OVR_overlay_only",
+            "x": 15,
+            "y": 2,
+            "relative_to": None,
+            "tree": "tree at line 1",
+            "tree_line": 1,
+            "file": "common/national_focus/OVR_overlay_only.txt",
+            "line": 2,
+            "dynamic": False,
+        }
+    ]
     assert refs["files_scanned"] == 1
     assert {entry["ref"] for entry in refs["unresolved"]} == {"OverlayMissing.1"}
 

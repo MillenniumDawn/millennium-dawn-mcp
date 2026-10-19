@@ -638,6 +638,41 @@ def test_fractional_coordinates_and_offset_pagination(tmp_path):
     assert any(item.get("other_x") == 1.75 for item in warnings)
 
 
+def test_decimal_coordinates_add_and_space_exactly(tmp_path):
+    body = """focus_tree = {
+    focus = { id = TST_a x = 0.1 y = 0 }
+    focus = { id = TST_b x = 0.2 y = 1 relative_position_id = TST_a }
+    focus = { id = TST_c x = 0.3 y = 1 }
+    focus = { id = TST_d x = 2.3 y = 1 }
+}
+"""
+    rel = _write_tree(tmp_path, body, name="TST_decimal.txt")
+
+    out = focus_layout(tmp_path, None, file=rel, include_positions=True)
+
+    assert [item["focuses"] for item in out["collisions"]] == [["TST_b", "TST_c"]]
+    assert out["spacing_warnings_total"] == 0
+    assert next(item for item in out["positions"] if item["id"] == "TST_b")["x"] == 0.3
+
+
+def test_file_scope_normalizes_dot_and_absolute_spellings(tmp_path):
+    body = """shared_focus = { id = SHR_x x = 1 y = 0 }
+focus_tree = {
+    id = TST_mixed
+    shared_focus = SHR_x
+    focus = { id = TST_a x = 5 y = 0 }
+}
+"""
+    rel = _write_tree(tmp_path, body, name="TST_mixed.txt")
+    expected = focus_layout(tmp_path, None, file=rel, include_positions=True)
+
+    for spelling in (f"./{rel}", str(tmp_path / rel)):
+        out = focus_layout(tmp_path, None, file=spelling, include_positions=True)
+        assert out["chain_errors"] == expected["chain_errors"] == []
+        assert out["positions"] == expected["positions"]
+        assert out["files_scanned"] == 1
+
+
 def test_tree_identity_shared_imports_dynamic_descendants_and_long_chains(tmp_path):
     shared = """shared_focus = {
     id = TST_shared
@@ -825,9 +860,12 @@ def test_focus_layout_live_stdio_and_brazil_matches_upstream_helper(
     )
     upstream_started = time.perf_counter()
     scans = validator._focus_scans()
-    upstream_layout = upstream_validator.analyze_layout(
-        [scan["layout"] for scan in scans], {brazil_file}
-    )
+    # A reportable set selects every importing tree, so keep only Brazil's trees.
+    brazil_only = [
+        layout if layout["filepath"] == brazil_file else {**layout, "trees": []}
+        for layout in (scan["layout"] for scan in scans)
+    ]
+    upstream_layout = upstream_validator.analyze_layout(brazil_only)
     upstream_seconds = time.perf_counter() - upstream_started
 
     same_cell_pairs = sum(

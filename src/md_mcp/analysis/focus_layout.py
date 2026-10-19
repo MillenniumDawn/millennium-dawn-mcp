@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict, deque
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from ..paradox.nodes import Node, SymbolNode, node_line, symbol_or_str
 from ..util.line_numbers import line_starts
-from ..util.pathing import roots_for
+from ..util.pathing import contained, roots_for
 from ..util.response import coerce_int, enforce_budget, paginate
 from .scope import iter_scope_files
 
@@ -60,6 +61,15 @@ def _available_shared_files(
     return files
 
 
+def _relpath(file: str, mod_root: Path, vanilla_path: Path | None, submod_root: Path | None) -> str:
+    # Shared files are matched by relpath, so `./x` or an absolute path would parse twice.
+    for root in roots_for(mod_root, vanilla_path, submod_root):
+        path = contained(root, file)
+        if path is not None and path.is_file():
+            return path.relative_to(root.resolve()).as_posix()
+    return file
+
+
 def focus_layout(
     mod_root: Path,
     focus_index: Optional[_SupportsFilesForTag] = None,
@@ -82,6 +92,7 @@ def focus_layout(
         return {"ok": False, "error": str(exc)}
 
     if file:
+        file = _relpath(file, mod_root, vanilla_path, submod_root)
         candidate_files = [file]
         scope_desc = {"file": file}
         prefix = None
@@ -249,21 +260,21 @@ def focus_layout(
             position = positions.get(focus["id"])
             if position is None:
                 continue
-            x, y, dynamic_offset = position
-            bbox_points.append((x, y))
+            point = (float(position[0]), float(position[1]))
+            bbox_points.append(point)
             resolved_total += 1
             if include_positions:
                 output_positions.append(
                     {
                         "id": focus["id"],
-                        "x": x,
-                        "y": y,
+                        "x": point[0],
+                        "y": point[1],
                         "relative_to": focus["relative"],
                         "tree": instance["tree"]["id"],
                         "tree_line": instance["tree"]["line"],
                         "file": focus["file"],
                         "line": focus["line"],
-                        "dynamic": focus["id"] in hidden or dynamic_offset,
+                        "dynamic": focus["id"] in hidden or position[2],
                     }
                 )
 
@@ -271,7 +282,7 @@ def focus_layout(
     collision_by_tree: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for instance, resolved, hidden_ids, reported in geometry:
         tree_key = instance["key"]
-        local: dict[tuple[float, float], list[dict]] = defaultdict(list)
+        local: dict[tuple[Decimal, Decimal], list[dict]] = defaultdict(list)
         for focus in reported:
             pos = resolved.get(focus["id"])
             if pos is not None and focus["id"] not in hidden_ids and not pos[2]:
@@ -280,8 +291,8 @@ def focus_layout(
             if len({(f["id"], f["file"], f["line"]) for f in defs}) > 1:
                 collision_by_tree[tree_key].append(
                     {
-                        "x": x,
-                        "y": y,
+                        "x": float(x),
+                        "y": float(y),
                         "focuses": sorted(f["id"] for f in defs),
                         "tree": instance["tree"]["id"],
                         "tree_line": instance["tree"]["line"],
@@ -291,7 +302,7 @@ def focus_layout(
     collisions = [item for values in collision_by_tree.values() for item in values]
     spacing_warnings: list[dict] = []
     for instance, positions, hidden_ids, reported in geometry:
-        rows: dict[float, dict[float, list[dict]]] = defaultdict(lambda: defaultdict(list))
+        rows: dict[Decimal, dict[Decimal, list[dict]]] = defaultdict(lambda: defaultdict(list))
         for focus in reported:
             position = positions.get(focus["id"])
             if position is not None and focus["id"] not in hidden_ids and not position[2]:
@@ -307,9 +318,9 @@ def focus_layout(
                         for right in columns[other_x]:
                             spacing_warnings.append(
                                 {
-                                    "x": x,
-                                    "y": y,
-                                    "other_x": other_x,
+                                    "x": float(x),
+                                    "y": float(y),
+                                    "other_x": float(other_x),
                                     "focuses": sorted((left["id"], right["id"])),
                                     "tree": instance["tree"]["id"],
                                     "tree_line": instance["tree"]["line"],
@@ -448,37 +459,31 @@ def _focus_layout_record(node: Node, filepath: str, starts: list[int]) -> dict |
     }
 
 
-def _coordinate(node: Node | None) -> float | None:
+def _coordinate(node: Node | None) -> Decimal | None:
+    # Decimal like upstream, so 0.1 + 0.2 lands on 0.3. Output must still fit a float.
     value = None if node is None else node.value
     if isinstance(value, bool):
         return None
-    if isinstance(value, int):
-        try:
-            result = float(value)
-        except OverflowError:
-            return None
-    elif isinstance(value, float):
-        result = value
+    if isinstance(value, (int, float)):
+        text = repr(value)
     elif isinstance(value, SymbolNode):
-        try:
-            result = float(value.name)
-        except ValueError:
-            return None
+        text = value.name
     elif isinstance(value, str):
-        try:
-            result = float(value)
-        except ValueError:
-            return None
+        text = value
     else:
         return None
-    return result if math.isfinite(result) else None
+    try:
+        result = Decimal(text)
+    except InvalidOperation:
+        return None
+    return result if result.is_finite() and math.isfinite(float(result)) else None
 
 
 def _resolve_positions(
     index: dict[str, list[dict]],
-) -> tuple[dict[str, tuple[float, float, bool] | None], dict]:
+) -> tuple[dict[str, tuple[Decimal, Decimal, bool] | None], dict]:
     """Iterative port of the upstream geometry resolver; handles arbitrarily long chains."""
-    positions: dict[str, tuple[float, float, bool] | None] = {}
+    positions: dict[str, tuple[Decimal, Decimal, bool] | None] = {}
     failures: dict[tuple[str, str], tuple[dict, str]] = {}
     for start in sorted(index):
         path: list[str] = []
@@ -522,7 +527,7 @@ def _resolve_positions(
                 continue
             x = anchor[0] + focus["x"]
             y = anchor[1] + focus["y"]
-            if not math.isfinite(x) or not math.isfinite(y):
+            if not math.isfinite(float(x)) or not math.isfinite(float(y)):
                 positions[name] = None
                 failures[("coordinates", name)] = (focus, "nonfinite_xy")
             else:

@@ -30,6 +30,10 @@ Only known direct scripted calls are counted; undefined calls are not detected.
 not configured, vanilla-defined ids may show as unresolved (`vanilla_indexed`).
 The committed `vanilla_sprites` manifest resolves vanilla-only sprites without
 an install (`vanilla_manifest`).
+
+A kind whose index failed to read or parse some files is incomplete: `index_errors`
+samples the failures and `counts[kind]["incomplete"]` marks its unresolved refs as
+unconfirmed, since the missing definition may sit in a file the index dropped.
 """
 
 from __future__ import annotations
@@ -52,7 +56,7 @@ from ..indexes import (
 )
 from ..paradox.nodes import Node, node_line, symbol_or_str
 from ..util.line_numbers import line_starts
-from ..util.response import enforce_budget
+from ..util.response import enforce_budget, summarize_index_errors
 from .refs import KIND_ALIASES
 from .scope import iter_scope_files
 
@@ -184,10 +188,14 @@ def check_refs(
         "scripted_effect": scripted_effect_index,
         "scripted_trigger": scripted_trigger_index,
     }
-    for kind in selected_set:
+    index_errors: dict[str, dict] = {}
+    for kind in sorted(selected_set):
         index = indexes.get(kind)
-        if index is not None:
-            index.ensure_fresh()
+        if index is None:
+            continue
+        errors = index.parse_errors()  # refreshes the index first
+        if errors:
+            index_errors[kind] = summarize_index_errors(errors)
 
     scripted_effect_names = (
         set(scripted_effect_index.list_keys()) if scripted_effect_index else set()
@@ -331,6 +339,10 @@ def check_refs(
     }
     if parse_errors:
         result["parse_errors"] = parse_errors
+    if index_errors:
+        result["index_errors"] = index_errors
+        for kind in index_errors:
+            result["counts"][kind]["incomplete"] = True
     if not counts_only:
         result["unresolved"] = sliced
     if "duplicate_icons" in selected_set:
@@ -345,7 +357,9 @@ def check_refs(
         if not counts_only:
             result["duplicate_icons"] = page
 
-    return enforce_budget(result, heavy_keys=("duplicate_icons", "unresolved", "parse_errors"))
+    return enforce_budget(
+        result, heavy_keys=("duplicate_icons", "unresolved", "parse_errors", "index_errors")
+    )
 
 
 def _walk(

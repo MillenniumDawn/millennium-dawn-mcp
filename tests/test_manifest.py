@@ -154,11 +154,11 @@ def test_manifest_uses_explicit_country_file_mapping_for_long_names(fake_mod_roo
 
     parsed_events = [
         {**item, "file": "events/Testland.txt"}
-        for item in (_parse_event_file(str(event), "events/Testland.txt") or [])
+        for item in (_parse_event_file(str(event), "events/Testland.txt").records or [])
     ]
     parsed_events.extend(
         {**item, "file": "events/shared_events.txt"}
-        for item in (_parse_event_file(str(shared_event), "events/shared_events.txt") or [])
+        for item in (_parse_event_file(str(shared_event), "events/shared_events.txt").records or [])
     )
     event_adapter = CacheFreeEvents(parsed_events)
     tags = CountryTagIndex(fake_mod_root, cache_dir, include_vanilla=False)

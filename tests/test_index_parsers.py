@@ -18,6 +18,7 @@ from md_mcp.indexes import (
     ScriptedTriggerIndex,
     TraitIndex,
 )
+from md_mcp.indexes.base import ParseResult
 from md_mcp.indexes.decision import _parse_decision_file
 from md_mcp.indexes.definitions import (
     _parse_root,
@@ -28,7 +29,7 @@ from md_mcp.indexes.definitions import (
     parse_trait_file,
 )
 from md_mcp.indexes.event import _parse_event_file
-from md_mcp.indexes.focus import FocusParseResult, _parse_focus_file
+from md_mcp.indexes.focus import _parse_focus_file
 from md_mcp.indexes.gfx import _parse_gfx_file
 from md_mcp.indexes.idea import _parse_idea_file
 
@@ -135,15 +136,12 @@ def test_real_mod_definition_indexes(real_mod_root, tmp_path):
         assert len(index.list_keys()) > floor, index_cls.__name__
 
 
-# Each parser with a body that does not parse. The body carries the token the
-# parser prefilters on, so the failure comes from the parse and not the prefilter.
+# Each tracked parser with a body that does not parse. The body carries the token
+# the parser prefilters on, so the failure comes from the parse and not the prefilter.
 MALFORMED = [
     (_parse_decision_file, "TST_category = {{{"),
     (_parse_event_file, "country_event = {{{"),
     (_parse_idea_file, "ideas = {{{"),
-    (parse_country_tag_file, "TST = {{{"),
-    (parse_character_file, "characters = {{{"),
-    (parse_trait_file, "leader_traits = {{{"),
     (parse_scripted_effect_file, "TST_effect = {{{"),
     (parse_scripted_trigger_file, "TST_trigger = {{{"),
     # The sprite scanner rejects unbalanced braces and the AST fallback fails too.
@@ -151,9 +149,31 @@ MALFORMED = [
     (_parse_gfx_file, "spriteTypes = { spriteType = { } } }"),
 ]
 
+# These indexes do not track parse errors, so their parsers still drop the reason.
+UNTRACKED_MALFORMED = [
+    (parse_country_tag_file, "TST = {{{"),
+    (parse_character_file, "characters = {{{"),
+    (parse_trait_file, "leader_traits = {{{"),
+]
+
 
 @pytest.mark.parametrize(("parse", "malformed"), MALFORMED)
-def test_parser_returns_none_for_a_file_it_cannot_read_or_parse(tmp_path, parse, malformed):
+def test_parser_says_why_it_could_not_read_or_parse_a_file(tmp_path, parse, malformed):
+    broken = tmp_path / "broken.txt"
+    broken.write_text(malformed, encoding="utf-8")
+
+    unreadable = parse(str(tmp_path / "missing.txt"), "missing.txt")
+    assert unreadable.records is None
+    assert unreadable.error.startswith("read failed:")
+    unparsable = parse(str(broken), "broken.txt")
+    assert unparsable.records is None
+    assert unparsable.error.startswith("parse failed:")
+
+
+@pytest.mark.parametrize(("parse", "malformed"), UNTRACKED_MALFORMED)
+def test_untracked_parser_returns_none_for_a_file_it_cannot_read_or_parse(
+    tmp_path, parse, malformed
+):
     broken = tmp_path / "broken.txt"
     broken.write_text(malformed, encoding="utf-8")
 
@@ -171,7 +191,27 @@ def test_parser_skips_a_file_without_its_token(tmp_path, parse):
     f = tmp_path / "unrelated.txt"
     f.write_text(_TOKEN_FREE_MALFORMED, encoding="utf-8")
 
-    assert parse(str(f), "unrelated.txt") == []
+    assert parse(str(f), "unrelated.txt") == ParseResult([])
+
+
+# A valid file that carries the prefilter token (decisions and scripted files have
+# none) but defines nothing is empty, not failed.
+EMPTY_BUT_VALID = [
+    (_parse_decision_file, ""),
+    (_parse_event_file, "# country_event\nadd_namespace = tst\n"),
+    (_parse_idea_file, "ideas = { }\n"),
+    (parse_scripted_effect_file, ""),
+    (parse_scripted_trigger_file, "scripted_triggers = { }\n"),
+    (_parse_gfx_file, "spriteTypes = { }\n"),
+]
+
+
+@pytest.mark.parametrize(("parse", "text"), EMPTY_BUT_VALID)
+def test_parser_reports_a_valid_file_without_definitions_as_empty(tmp_path, parse, text):
+    f = tmp_path / "empty.txt"
+    f.write_text(text, encoding="utf-8")
+
+    assert parse(str(f), "empty.txt") == ParseResult([])
 
 
 def test_focus_parser_reports_a_read_failure_and_skips_a_file_without_focuses(tmp_path):
@@ -181,10 +221,25 @@ def test_focus_parser_reports_a_read_failure_and_skips_a_file_without_focuses(tm
     missing = _parse_focus_file(str(tmp_path / "missing.txt"), "missing.txt")
     assert missing.records is None
     assert missing.error is not None and missing.error.startswith("read failed:")
-    assert _parse_focus_file(str(f), "unrelated.txt") == FocusParseResult([])
+    assert _parse_focus_file(str(f), "unrelated.txt") == ParseResult([])
 
 
-def test_parse_root_returns_none_for_missing_file(tmp_path, caplog):
+def test_parse_root_reports_why_it_failed(tmp_path):
+    broken = tmp_path / "broken.txt"
+    broken.write_text("TST = {{{", encoding="utf-8")
+    fine = tmp_path / "fine.txt"
+    fine.write_text("TST = { }", encoding="utf-8")
+
+    unparsable = _parse_root(str(broken), "broken.txt")
+    assert isinstance(unparsable, ParseResult)
+    assert unparsable.records is None
+    assert unparsable.error is not None and unparsable.error.startswith("parse failed:")
+    parsed = _parse_root(str(fine), "fine.txt")
+    assert not isinstance(parsed, ParseResult)
+    assert parsed[1] == "TST = { }"
+
+
+def test_parse_root_reports_a_missing_file(tmp_path, caplog):
     """An unreadable file logs a single warning with both the path and the
     exception rendered — not a stray `--- Logging error ---` traceback from
     a mismatched format string. Regression for the missing second `%s` in
@@ -193,9 +248,10 @@ def test_parse_root_returns_none_for_missing_file(tmp_path, caplog):
     """
     missing = tmp_path / "does_not_exist.txt"
     with caplog.at_level(logging.WARNING, logger="md_mcp.indexes.definitions"):
-        root, text = _parse_root(str(missing), "does_not_exist.txt")
-    assert root is None
-    assert text is None
+        result = _parse_root(str(missing), "does_not_exist.txt")
+    assert isinstance(result, ParseResult)
+    assert result.records is None
+    assert result.error is not None and result.error.startswith("read failed:")
     assert len(caplog.records) == 1
     record = caplog.records[0]
     assert record.levelno == logging.WARNING
@@ -211,7 +267,10 @@ def test_parse_root_returns_none_for_missing_file(tmp_path, caplog):
 def _ids(parse, tmp_path: Path, name: str, text: str) -> list[str]:
     f = tmp_path / name
     f.write_text(text, encoding="utf-8")
-    return [record["id"] for record in parse(str(f), name)]
+    result = parse(str(f), name)
+    records = result.records if isinstance(result, ParseResult) else result
+    assert records is not None
+    return [record["id"] for record in records]
 
 
 def test_country_tag_parser_keeps_only_tag_shaped_names_with_a_file(tmp_path):

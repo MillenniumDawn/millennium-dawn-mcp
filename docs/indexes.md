@@ -215,12 +215,42 @@ file/line** path:
 Heavy fields (`x`, `y`, `cost`, `prerequisites`, `mutually_exclusive`,
 `icon`, …) are **recomputed on demand** from source — they're only needed
 when the caller explicitly asks for them via `resolve_focus`. This keeps the
-cache file small enough to load and parse in <50 ms cold. Focus cache v3 also
-persists per-file read and parse errors so callers can distinguish an incomplete
-index from a clean search.
+cache file small enough to load and parse in <50 ms cold. The focus, event, idea,
+decision, scripted effect, scripted trigger, and gfx caches also persist per-file
+read and parse errors so callers can distinguish an incomplete index from a clean
+search; see [Parse errors](#parse-errors).
 
 The trade-off: `resolve_focus` re-parses the focus's file on every call. In
 practice that's a few KB of paradox script and ~1 ms.
+
+## Parse errors
+
+A file that cannot be read or parsed contributes no records. Indexes that set
+`track_parse_errors = True` keep the reason instead of dropping it, and
+`parse_errors()` returns the sorted `[{file, error}]` list. The focus, event, idea,
+decision, scripted effect, scripted trigger, and gfx indexes track errors. Country
+tag, character, trait, and localisation indexes do not: their failed files are
+still dropped without a trace.
+
+- **Messages**: `read failed: <reason>`, `parse failed: <reason>`, `file not found`
+  (the file vanished between the directory walk and the parse), or `parser worker
+  failed` (a pool worker raised and left no message). Each is cut to 200 characters.
+- **Empty is not failed**: a valid file that defines nothing parses to `[]` and has
+  no error.
+- **Cold start**: the error is stored in the `parse_errors` map of `data.json`,
+  next to `files`. An unchanged failed file is neither re-parsed nor reported as a
+  worker failure; it reloads with its original message.
+- **Warm refresh**: a changed file's old error is dropped and its new result is
+  recorded, so breaking a file adds an error and repairing it clears the error. The
+  same holds when the repair lands between two server starts.
+- **Consumers**: `check_refs` reports `index_errors` per incomplete kind and flags
+  `counts[kind].incomplete`; the resolvers that read these indexes add `index_errors`
+  to a not-found response. See [`tools.md`](./tools.md).
+
+Event, idea, decision, scripted effect, scripted trigger caches are v2 and the gfx
+cache is v3, because their payload gained `parse_errors`. None is sharded, so there
+are no per-file shards to migrate; the localisation index, the only sharded one,
+is unchanged.
 
 ## Adding a new index
 
@@ -228,8 +258,12 @@ practice that's a few KB of paradox script and ~1 ms.
 2. Set the class attributes: `cache_version`, `cache_name`, `primary_key`,
    and either `subdir`/`pattern` or `subdirs`/`patterns`.
 3. Define a **module-level** parser fn (so `ProcessPoolExecutor` can pickle it)
-   with signature `(abs_path: str, relpath: str) -> Optional[List[dict]]`.
-   Return `None` for "can't parse"; `[]` for "no records found". Have it read
+   with signature `(abs_path: str, relpath: str) -> ParseResult`. Return
+   `ParseResult([...])` for records (`[]` for "no records found") and
+   `ParseResult.failed("read" | "parse", exc)` for a failure, then set
+   `track_parse_errors = True` and `missing_result = FILE_NOT_FOUND` on the index
+   (see `event.py`). A parser that returns a bare `Optional[List[dict]]` (`None` for
+   "can't parse") still works, but its failures are dropped. Have the parser read
    the file and do its own cheap substring check up front (see `event.py`,
    `idea.py`, `gfx.py`) so files that obviously don't contain the record kind
    skip the full parse.

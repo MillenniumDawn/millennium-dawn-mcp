@@ -15,6 +15,13 @@ to fit in <5 KB; you opt into bigger responses explicitly.
 
 ## Resolvers — "where is X defined?"
 
+When `resolve_focus`, `resolve_sprite`, `resolve_event`, `resolve_decision`,
+`resolve_idea`, `resolve_scripted_effect`, or `resolve_scripted_trigger` misses and
+its index could not read or parse some files, the not-found response adds
+`index_errors: {total, sample, truncated}`. `sample` holds at most 5
+`{file, error}` entries. The id may be defined in one of those files, so the miss is
+not proof. The key is absent when the index read every file.
+
 ### `resolve_focus(focus_id: str) -> dict`
 
 Look up a focus by ID and return file/line plus parsed metadata.
@@ -671,6 +678,15 @@ validators can't be scoped to a file, and `resolve_*` is one id per call.
   (`{file, line, via, referrer}`).
 - **`limit=200`**, **`offset=0`** — paginate the unresolved list. `-1` returns
   it in full, guarded only by `enforce_budget`.
+- **`index_errors`**: present only when the index behind a selected kind
+  (`focus`, `event`, `idea`, `sprite`, `decision`, `scripted_effect`, or
+  `scripted_trigger`) could not read or parse some files:
+  `{kind: {total, sample: [{file, error}], truncated}}`, with at most 5 samples
+  per kind. `counts[kind].incomplete` is then `true`. The kind's unresolved refs
+  stay in `unresolved` but are unconfirmed: the definition may sit in a file the
+  index dropped. For the two scripted kinds the cost is the other way round, since
+  a call into a dropped file is never seen, so it cannot be flagged. Unrelated to
+  `parse_errors`, which lists scope files that failed to parse.
 - `not_checked` lists what no index covers yet: `country_flags`, `variables`,
   `scripted_effects`, and `scripted_triggers`. The two scripted kinds stay
   there because a direct scripted call is only audited when its key is
@@ -695,8 +711,9 @@ list, `duplicate_icons_dropped` and `size_truncated` are set and the totals
 remain.
 
 Returns `{ok, scope, files_scanned, kinds_checked, not_checked,
-vanilla_indexed, vanilla_manifest, counts: {kind: {checked, unresolved}},
-total_unresolved, returned, truncated, unresolved: [...]}`.
+vanilla_indexed, vanilla_manifest, counts: {kind: {checked, unresolved,
+incomplete?}}, total_unresolved, returned, truncated, unresolved: [...],
+index_errors?}`.
 
 ### `focus_layout(tag?, file?, include_positions?, limit?, offset?) -> dict`
 

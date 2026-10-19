@@ -66,6 +66,15 @@ def paginate(
     return sliced, truncated, total
 
 
+def summarize_index_errors(errors: Sequence[dict], sample: int = 5) -> dict:
+    """Bounded view of an index's per-file errors: `{total, sample, truncated}`."""
+    return {
+        "total": len(errors),
+        "sample": list(errors[:sample]),
+        "truncated": len(errors) > sample,
+    }
+
+
 def enforce_budget(
     result: dict,
     *,

@@ -439,6 +439,82 @@ def test_resolver_returns_the_record_or_a_shaped_miss(
     assert resolve("TST_absent", index) == {"ok": False, "id": "TST_absent", "error": miss}
 
 
+# (index, resolver, an id in the fake mod, a subdir, a body there that does not parse)
+BROKEN_DEFINITIONS = [
+    (EventIndex, resolve_event_tool, "Testns.1", "events", "country_event = {{{"),
+    (
+        DecisionIndex,
+        resolve_decision_tool,
+        "TST_simple_decision",
+        "common/decisions",
+        "TST_category = {{{",
+    ),
+    (IdeaIndex, resolve_idea_tool, "TST_acme_tanks", "common/ideas", "ideas = {{{"),
+    (
+        ScriptedEffectIndex,
+        resolve_scripted_effect_tool,
+        "TST_test_effect",
+        "common/scripted_effects",
+        "TST_broken = {{{",
+    ),
+    (
+        ScriptedTriggerIndex,
+        resolve_scripted_trigger_tool,
+        "TST_test_trigger",
+        "common/scripted_triggers",
+        "TST_broken = {{{",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("index_cls", "resolve", "ident", "subdir", "body"),
+    BROKEN_DEFINITIONS,
+    ids=[row[1].__name__ for row in BROKEN_DEFINITIONS],
+)
+def test_resolver_miss_says_the_index_dropped_a_file(
+    fake_mod_root, cache_dir, index_cls, resolve, ident, subdir, body
+):
+    (fake_mod_root / subdir / "broken.txt").write_text(body, encoding="utf-8")
+    index = index_cls(fake_mod_root, cache_dir, include_vanilla=False)
+
+    miss = resolve("TST_absent", index)
+
+    assert miss["ok"] is False
+    hint = miss["index_errors"]
+    assert hint["total"] == 1
+    assert hint["truncated"] is False
+    assert hint["sample"][0]["file"] == str(Path(subdir) / "broken.txt")
+    assert hint["sample"][0]["error"].startswith("parse failed:")
+    # A hit is a definite answer, so it carries no hint.
+    assert "index_errors" not in resolve(ident, index)
+
+
+def test_resolve_sprite_miss_says_the_index_dropped_a_file(fake_mod_root, cache_dir):
+    (fake_mod_root / "interface" / "broken.gfx").write_text(
+        "spriteTypes = { spriteType = {{{", encoding="utf-8"
+    )
+    index = GfxIndex(fake_mod_root, cache_dir, None)
+    manifest = frozenset({"GFX_vanilla_icon"})
+
+    miss = resolve_sprite_tool("GFX_nope", index, manifest)
+
+    assert miss["ok"] is False
+    assert miss["index_errors"]["total"] == 1
+    assert "index_errors" not in resolve_sprite_tool("GFX_vanilla_icon", index, manifest)
+    assert "index_errors" not in resolve_sprite_tool("GFX_test_sprite_one", index, manifest)
+
+
+def test_resolve_focus_miss_says_the_index_dropped_a_file(tmp_path):
+    settings, index = _focus_mod(tmp_path, "focus_tree = { focus = { id = TST_a x = {{{")
+
+    miss = resolve_focus_tool("TST_a", settings, index)
+
+    assert miss["ok"] is False
+    assert miss["index_errors"]["total"] == 1
+    assert miss["index_errors"]["sample"][0]["error"].startswith("parse failed:")
+
+
 @pytest.mark.parametrize(
     ("name", "manifest", "expected"),
     [

@@ -10,6 +10,7 @@ from ..paradox import parse_string
 from ..paradox.nodes import Node, node_line, symbol_or_str
 from ..util.encoding import read_text
 from ..util.line_numbers import line_starts
+from .base import ParseResult
 
 logger = logging.getLogger(__name__)
 
@@ -27,23 +28,25 @@ def _record(node: Node, relpath: str, starts: list[int], *, kind: str, **extra: 
     return record
 
 
-def _parse_root(abs_path: str, relpath: str) -> tuple[Optional[Node], Optional[str]]:
+def _parse_root(abs_path: str, relpath: str) -> tuple[Node, str] | ParseResult:
+    """The parsed `(root, text)`, or the failed result for an unreadable or unparsable file."""
     try:
         text = read_text(abs_path)
     except OSError as exc:
         logger.warning("definition index: cannot read %s: %s", abs_path, exc)
-        return None, None
+        return ParseResult.failed("read", exc)
     try:
         return parse_string(text, error_prefix=f"In file {relpath}:\n"), text
     except Exception as exc:
         logger.warning("definition index: parse failed for %s: %s", relpath, exc)
-        return None, None
+        return ParseResult.failed("parse", exc)
 
 
 def parse_country_tag_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
-    root, text = _parse_root(abs_path, relpath)
-    if root is None or text is None:
+    parsed = _parse_root(abs_path, relpath)
+    if isinstance(parsed, ParseResult):
         return None
+    root, text = parsed
     starts = line_starts(text)
     records: list[dict] = []
     for node in root.children():
@@ -85,9 +88,10 @@ def _wrapped_records(
 
 
 def parse_character_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
-    root, text = _parse_root(abs_path, relpath)
-    if root is None or text is None:
+    parsed = _parse_root(abs_path, relpath)
+    if isinstance(parsed, ParseResult):
         return None
+    root, text = parsed
     starts = line_starts(text)
     records: list[dict] = []
     for top in root.children():
@@ -101,16 +105,18 @@ def parse_character_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
 
 
 def parse_trait_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
-    root, text = _parse_root(abs_path, relpath)
-    if root is None or text is None:
+    parsed = _parse_root(abs_path, relpath)
+    if isinstance(parsed, ParseResult):
         return None
+    root, text = parsed
     return _wrapped_records(root, relpath, line_starts(text), wrapper="leader_traits", kind="trait")
 
 
-def _parse_scripted_file(abs_path: str, relpath: str, *, kind: str) -> Optional[list[dict]]:
-    root, text = _parse_root(abs_path, relpath)
-    if root is None or text is None:
-        return None
+def _parse_scripted_file(abs_path: str, relpath: str, *, kind: str) -> ParseResult:
+    parsed = _parse_root(abs_path, relpath)
+    if isinstance(parsed, ParseResult):
+        return parsed
+    root, text = parsed
     starts = line_starts(text)
     records: list[dict] = []
     for node in root.children():
@@ -122,12 +128,12 @@ def _parse_scripted_file(abs_path: str, relpath: str, *, kind: str) -> Optional[
             )
         elif node.name and isinstance(node.value, list):
             records.append(_record(node, relpath, starts, kind=kind))
-    return records
+    return ParseResult(records)
 
 
-def parse_scripted_effect_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
+def parse_scripted_effect_file(abs_path: str, relpath: str) -> ParseResult:
     return _parse_scripted_file(abs_path, relpath, kind="scripted_effect")
 
 
-def parse_scripted_trigger_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
+def parse_scripted_trigger_file(abs_path: str, relpath: str) -> ParseResult:
     return _parse_scripted_file(abs_path, relpath, kind="scripted_trigger")

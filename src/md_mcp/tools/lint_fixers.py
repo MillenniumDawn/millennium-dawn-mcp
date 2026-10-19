@@ -14,6 +14,8 @@ validator `_issues`; keep both sides in mind when upstream refactors):
   * `check_common_mistakes._find_focus_log_mismatches` /
     `_find_decision_log_mismatches` — log-id detection (shared with the checker)
   * `check_changelog.check_lines` / `order_lines` — changelog validation and ordering
+  * `cleanup_or.simplify_or_block` / `simplify_and_block` — OR/AND wrapper removal,
+    counted with the `find_*` detectors the checker shares
 
 `fix_line_endings` has no importable core (its only entry point writes files),
 so its CRLF→LF byte transform is reimplemented inline.
@@ -21,6 +23,7 @@ so its CRLF→LF byte transform is reimplemented inline.
 
 from __future__ import annotations
 
+import io
 import re
 from pathlib import Path
 from types import ModuleType
@@ -39,6 +42,7 @@ FIXERS: tuple[str, ...] = (
     "log_ids",
     "changelog",
     "event_option_logs",
+    "cleanup_or",
 )
 
 # fix_log_ids only rewrites inside these directories (upstream _finder_for).
@@ -50,6 +54,7 @@ _UPSTREAM_MODULES: tuple[str, ...] = (
     "fix_loc_yaml",
     "check_common_mistakes",
     "check_changelog",
+    "cleanup_or",
 )
 
 # Per-fixer import sets: line_endings needs nothing upstream, and a broken
@@ -61,6 +66,7 @@ _UPSTREAM_IMPORTS: dict[str, tuple[str, ...]] = {
     "line_endings": (),
     "changelog": ("check_changelog",),
     "event_option_logs": (),
+    "cleanup_or": ("shared_utils", "cleanup_or"),
 }
 
 _UPSTREAM = UpstreamModules("linting", _UPSTREAM_MODULES)
@@ -89,13 +95,16 @@ def fix_lint_tool(
     """Apply one upstream lint fixer in-memory and return the fixed text.
 
     Args:
-        fixer   — `styling` | `loc_yaml` | `line_endings` | `log_ids`
+        fixer   — `styling` | `loc_yaml` | `line_endings` | `log_ids` | `changelog`
+                  | `event_option_logs` | `cleanup_or`
         path    — mod-relative path, read from `submod_root` first when set.
                   Source when `content` is omitted; always
-                  required for `log_ids` (scope detection is path-based);
-                  `loc_yaml` is restricted to .yml (its tab→space rewrite
-                  corrupts .txt) and `styling` to .txt. Pure metadata when
-                  `content` is supplied.
+                  required for `log_ids` and `event_option_logs` (scope
+                  detection is path-based); `loc_yaml` is restricted to .yml
+                  (its tab→space rewrite corrupts .txt), `styling` and
+                  `cleanup_or` to .txt. Pure metadata when `content` is
+                  supplied, except that `cleanup_or` refuses paths under
+                  upstream's excluded directories.
         content — text to fix; no file access at all when given.
     """
     if fixer not in FIXERS:
@@ -129,10 +138,10 @@ def fix_lint_tool(
                 "ok": False,
                 "error": f"fixer=loc_yaml only applies to .yml files, got {norm_path}",
             }
-        if fixer == "styling" and not norm_path.endswith(".txt"):
+        if fixer in {"styling", "cleanup_or"} and not norm_path.endswith(".txt"):
             return {
                 "ok": False,
-                "error": f"fixer=styling only applies to .txt files, got {norm_path}",
+                "error": f"fixer={fixer} only applies to .txt files, got {norm_path}",
             }
         if fixer == "changelog" and norm_path.casefold() != "changelog.txt":
             return {
@@ -209,6 +218,8 @@ def fix_lint_tool(
                 }
         fixed = "".join(line for number, line in enumerate(lines, 1) if number not in remove)
         return _finish(result, text, fixed, len(remove), {"removed_log_lines": len(remove)}, [])
+    if fixer == "cleanup_or":
+        return _fix_cleanup_or(result, modules["cleanup_or"], text, norm_path, mod_root)
     if fixer == "changelog":
         fixed = "".join(_load_changelog_core(mod_root).order_lines(text.splitlines(keepends=True)))
         return _finish(result, text, fixed, int(fixed != text), {}, [])
@@ -286,6 +297,55 @@ def _fix_loc_yaml(
         fixed_lines.append(fix_line(line))
 
     return "\n".join(fixed_lines), sum(counts.values()), counts, []
+
+
+def _fix_cleanup_or(
+    result: dict,
+    core: ModuleType,
+    text: str,
+    norm_path: Optional[str],
+    mod_root: Path,
+) -> dict:
+    """Upstream `cleanup_or.process_file` in memory: OR pass, then AND pass."""
+    # Absolute, because upstream's abspath would resolve a relative path against the cwd.
+    if norm_path is not None and core._is_excluded_path(
+        str(mod_root / norm_path), repo_root=str(mod_root)
+    ):
+        return {
+            "ok": False,
+            "fixer": "cleanup_or",
+            "error": (
+                f"{norm_path} is under an excluded directory "
+                f"({', '.join(sorted(core._EXCLUDED_DIRS))}); upstream never modifies it"
+            ),
+        }
+
+    # Text-mode readlines like upstream: CRLF and lone CR become "\n"; form feed does not split.
+    lines = io.StringIO(text, newline=None).readlines()
+    try:
+        or_lines = core.simplify_or_block(lines)
+        new_lines = core.simplify_and_block(or_lines)
+    except ValueError as e:
+        # An unclosed `OR = {` makes upstream's rindex("}") raise; process_file crashes too.
+        return {
+            "ok": False,
+            "fixer": "cleanup_or",
+            "error": f"upstream cleanup_or could not process the input: {e}",
+        }
+    if new_lines == lines:
+        # Upstream writes nothing when the normalized lists match, whatever the endings.
+        return _finish(result, text, text, 0, {"or_blocks": 0, "and_blocks": 0}, [])
+
+    fixed = "".join(new_lines)
+    if "\r\n" in text:
+        # Upstream's atomic_write_text restores CRLF when the file had any.
+        fixed = fixed.replace("\n", "\r\n")
+    # The AND detector reads the OR pass output, where a collapsed OR can expose an AND.
+    summary = {
+        "or_blocks": len(core.find_single_condition_or_blocks(lines)),
+        "and_blocks": len(core.find_redundant_and_blocks(or_lines)),
+    }
+    return _finish(result, text, fixed, sum(summary.values()), summary, [])
 
 
 def _finish(

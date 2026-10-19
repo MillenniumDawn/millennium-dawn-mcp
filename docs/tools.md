@@ -531,12 +531,20 @@ read-only rule — the caller writes the returned `txt` back via Edit/Write.
   focus/decision log ids) / `changelog` (order top-version entries by
   untagged first, then alphabetic tag) / `event_option_logs` (remove
   effect-free option log lines with the upstream detector; requires an
-  `events/` path and refuses logs sharing a physical line with other source).
+  `events/` path and refuses logs sharing a physical line with other source) /
+  `cleanup_or` (upstream `tools/cleanup_or.py`: drop single-condition `OR`
+  wrappers, then `AND` wrappers outside an `OR`/`NOT`; `summary` is
+  `{or_blocks, and_blocks}` from upstream's detectors, which report only the
+  outermost redundant `AND` at each spot, so use `changed`, not `fixes`, to
+  tell whether text changed).
 - `content`: text to fix — no file access at all. `path`: mod-relative
   source when `content` is omitted; always required for `log_ids` and
   `event_option_logs` (scope is path-based). `loc_yaml` accepts `.yml` only (its tab→space rewrite
-  corrupts `.txt`), `styling` accepts `.txt` only, and `changelog` accepts
-  `Changelog.txt` only.
+  corrupts `.txt`), `styling` and `cleanup_or` accept `.txt` only, and
+  `changelog` accepts `Changelog.txt` only. `cleanup_or` also refuses a `path`
+  with a `resources`, `.git` or `.claude` component (`ok: false`), even with `content`.
+  It keeps CRLF when the input had any, as upstream does, and leaves a file
+  with nothing to simplify as `changed: false` whatever its line endings.
 
 Returns `{ok, fixer, file, source, changed, fixes, summary, warnings, txt,
 txt_bytes, txt_returned_bytes, txt_truncated}` plus `had_bom` when the source

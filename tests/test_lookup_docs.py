@@ -724,6 +724,7 @@ def test_lookup_docs_real_mcp_stdio(real_mod_root, cache_dir) -> None:
                     },
                 )
                 guide_payload = json.loads(cast(Any, guide_page).content[0].text)
+                assert guide_payload["ok"] is True, guide_payload
                 guide_entry = guide_payload["entries"][0]
                 guide_chunks.append(guide_entry["content"])
                 if guide_entry["content_complete"]:

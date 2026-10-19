@@ -480,6 +480,8 @@ def find_references(
 
 
 _SCRIPT_TOKEN_RE = re.compile(r'(?P<comment>\#.*)|(?P<string>"(?:\\.|[^"\\])*")')
+# HOI4 reads a loc value from the first quote to the last quote on its line.
+_LOC_TOKEN_RE = re.compile(r'(?P<comment>\#.*)|(?P<string>"[^\n]*")')
 
 
 def _active_matches(
@@ -494,7 +496,7 @@ def _active_matches(
 
     Comments and strings between the keyword and the target do not count.
     """
-    tokens = _SCRIPT_TOKEN_RE.finditer(text)
+    tokens = (_LOC_TOKEN_RE if loc_yaml else _SCRIPT_TOKEN_RE).finditer(text)
     token = next(tokens, None)
 
     def token_at(pos: int) -> Optional[re.Match]:

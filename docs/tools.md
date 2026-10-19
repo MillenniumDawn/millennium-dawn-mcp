@@ -720,11 +720,11 @@ otherwise:
 - **`include_positions=True`** — per-instance `{id, x, y, relative_to, tree,
   file, line, dynamic}` coordinates.
 
-Scope by `tag=` (prefix-matching focuses within assembled trees) or `file=`. A file request without
-shared-focus imports parses only that file. When imports exist, shared/joint
-metadata selects the other files to parse; unrelated country trees are not parsed
-or merged. `limit` and `offset` page each list. Fractional
-coordinates are preserved. Positions influenced by `allow_branch` ancestry or
+Scope by `tag=` (prefix-matching focuses within assembled trees) or `file=`. A
+file request without shared-focus imports parses only that file. When imports
+exist, every file that defines a shared or joint focus is parsed too (29 on the
+real mod); their own trees are not merged. `limit` and `offset` page each list.
+Fractional coordinates are preserved. Positions influenced by `allow_branch` ancestry or
 `offset` are marked `dynamic`; dynamic positions are excluded from static
 collision checks. Independent trees are resolved separately.
 

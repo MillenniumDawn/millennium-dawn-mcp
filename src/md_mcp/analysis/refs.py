@@ -113,10 +113,9 @@ def _flag_pattern(target: str) -> re.Pattern:
 def _variable_pattern(target: str) -> re.Pattern:
     # References can be explicit (`var = X`), scoped (`var = ROOT.X`),
     # or short-form assignments (`set_temp_variable = { X = 10 }`).
-    base = target.rsplit(".", 1)[-1]
     target_ref = _identifier(target)
     if "." not in target:
-        target_ref = _target_group(r"(?:[A-Za-z_]\w*\.)?" + re.escape(base))
+        target_ref = _target_group(r"(?:[A-Za-z_]\w*\.)?" + re.escape(target))
     operators = (
         r"var|has_variable|set_variable|set_temp_variable|add_to_variable|subtract_from_variable"
         r"|multiply_variable|divide_variable|check_variable|clamp_variable|modulo_variable"

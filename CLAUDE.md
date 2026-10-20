@@ -86,8 +86,10 @@ generators or tools.**
 Rationale: direct writes bypass the agent's normal file-state tracking and
 hide diffs from the user. The `.md-mcp-cache/` write paths in
 `indexes/base.py` are the only legitimate writes, and they go into a cache
-directory the user can blow away safely. The one other exception is upstream's
-`.validation_cache/` startup maintenance in `validators/runner.py` (#177).
+directory the user can blow away safely. `render_focus_tree` also writes its
+PNG/HTML output and decoded icons under `<cache_dir>/renders/`, inside that same
+cache. The one other exception is upstream's `.validation_cache/` startup
+maintenance in `validators/runner.py` (#177).
 
 ### 3. Don't touch `Hearts of Iron IV/` (the vanilla install)
 

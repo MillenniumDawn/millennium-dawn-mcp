@@ -19,6 +19,7 @@ from .analysis.diff_summary import diff_summary
 from .analysis.encoding import check_encoding
 from .analysis.focus_graph import focus_graph
 from .analysis.focus_layout import focus_layout
+from .analysis.focus_render import render_focus_tree
 from .analysis.manifest import list_country_content
 from .analysis.ref_audit import check_refs
 from .analysis.refs import find_references
@@ -671,6 +672,49 @@ def build_server(settings: Settings):
             include_positions=include_positions,
             limit=limit,
             offset=offset,
+        )
+
+    @mcp.tool(name="render_focus_tree")
+    async def _render_focus_tree(
+        tree: Optional[str] = None,
+        file: Optional[str] = None,
+        tag: Optional[str] = None,
+        country: Optional[str] = None,
+        focus_ids: Optional[list[str]] = None,
+        region: Optional[list[float]] = None,
+        margin: int = 2,
+        hide_branches: Optional[list[str]] = None,
+        highlight: Optional[list[str]] = None,
+        labels: str = "both",
+        format: str = "png",
+        scale: Optional[float] = None,
+        ref: Optional[str] = None,
+        limit: int = 20,
+    ) -> dict:
+        """Draw a focus tree like the VSCode preview to png/html under the cache dir; returns file paths (Read the png to see it). Pick tree/file/tag; country picks offsets; crop with focus_ids globs or region [x0,y0,x1,y1]; hide_branches, highlight, ref=git rev for before/after."""
+        return await blocking_tools.run(
+            render_focus_tree,
+            settings.mod_root,
+            settings.cache_dir,
+            focus_index,
+            gfx_index,
+            loc_index,
+            tag=tag,
+            file=file,
+            tree=tree,
+            country=country,
+            focus_ids=focus_ids,
+            region=region,
+            margin=margin,
+            hide_branches=hide_branches,
+            highlight=highlight,
+            labels=labels,
+            format=format,
+            scale=scale,
+            ref=ref,
+            vanilla_path=settings.vanilla_path,
+            submod_root=settings.submod_root,
+            limit=limit,
         )
 
     @mcp.tool(name="diff_summary")

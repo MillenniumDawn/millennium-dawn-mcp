@@ -4,6 +4,19 @@
 
 ### Added
 
+- `render_focus_tree` draws one assembled focus tree the way the VSCode focus preview does
+  (96x130 slots, prerequisite lines that turn half a row from the parent toward the child,
+  dashed OR groups, red mutually exclusive links) and writes a PNG and/or a self-contained HTML
+  page under `<cache_dir>/renders/`, returning the paths and their sizes. Writes are atomic and
+  the PNG stays within 8192 px a side and 40 M pixels. Choose the tree with `tree`, `file`, or `tag`;
+  `country` picks which `offset` blocks apply (`tag`, `original_tag`, `has_focus_tree`,
+  `AND`/`OR`/`NOT` triggers; anything else is reported as unevaluated), defaulting to the
+  tree's own country. `focus_ids` globs or `region` crop the view, `hide_branches` hides a
+  branch and every focus that only it unlocks, `highlight` outlines focuses, and `ref` renders
+  a git revision for before/after comparisons. A tag or file holding only shared focuses gets
+  the trees that import them. PNG output and icons need Pillow, the new `render` extra
+  (also in `dev`); uncompressed BGRA `.dds` icons are decoded directly, about four times faster
+  than Pillow's own decoder.
 - `check_refs(kinds=["duplicate_icons"])` reports focus icon ids reused within a file, with
   focus ids and file:line sites, pagination, and counts-only support. It runs only when named.
 - `loc_langs` setting (`MD_MCP_LOC_LANGS`, config.toml `loc_langs`; comma-separated ISO codes or

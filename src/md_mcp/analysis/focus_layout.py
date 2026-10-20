@@ -128,52 +128,7 @@ def focus_layout(
         ):
             files.append(_layout_file(parsed.relpath, parsed.root, parsed.text))
 
-    shared: dict[str, list[dict]] = defaultdict(list)
-    for source in files:
-        for focus in source["shared"]:
-            shared[focus["id"]].append(focus)
-    shared_dependencies = {
-        name: {
-            parent
-            for focus in definitions
-            for group in focus["prerequisites"]
-            for parent in group
-            if parent in shared
-        }
-        for name, definitions in shared.items()
-    }
-    shared_dependents: dict[str, set[str]] = defaultdict(set)
-    for name, parents in shared_dependencies.items():
-        for parent in parents:
-            shared_dependents[parent].add(name)
-
-    instances: list[dict] = []
-    for source in files:
-        for tree in source["trees"]:
-            imported = set(tree["shared_refs"]) & shared.keys()
-            pending = deque(sorted(imported))
-            remaining: dict[str, set[str]] = {}
-            while pending:
-                name = pending.popleft()
-                for child in sorted(shared_dependents.get(name, ())):
-                    if child in imported:
-                        continue
-                    remaining.setdefault(child, shared_dependencies[child] - imported)
-                    remaining[child].discard(name)
-                    if not remaining[child]:
-                        imported.add(child)
-                        pending.append(child)
-            focuses = [*tree["focuses"]]
-            for name in sorted(imported):
-                focuses.extend(shared.get(name, ()))
-            instances.append(
-                {
-                    "key": (source["filepath"], tree["id"], tree["line"]),
-                    "tree": tree,
-                    "focuses": focuses,
-                    "missing_shared": sorted(set(tree["shared_refs"]) - shared.keys()),
-                }
-            )
+    instances = assemble_tree_instances(files)
 
     scope_instances = [
         instance
@@ -396,6 +351,63 @@ def focus_layout(
     )
 
 
+def assemble_tree_instances(files: list[dict]) -> list[dict]:
+    """Assemble every focus_tree in `files` with the shared focuses it imports.
+
+    `files` are `_layout_file` results. A shared focus joins a tree when the tree
+    imports it by `shared_focus`, or when every shared prerequisite it has is
+    already in the tree. Each instance carries `key` (file, tree id, tree line),
+    `tree`, `focuses`, and `missing_shared`.
+    """
+    shared: dict[str, list[dict]] = defaultdict(list)
+    for source in files:
+        for focus in source["shared"]:
+            shared[focus["id"]].append(focus)
+    shared_dependencies = {
+        name: {
+            parent
+            for focus in definitions
+            for group in focus["prerequisites"]
+            for parent in group
+            if parent in shared
+        }
+        for name, definitions in shared.items()
+    }
+    shared_dependents: dict[str, set[str]] = defaultdict(set)
+    for name, parents in shared_dependencies.items():
+        for parent in parents:
+            shared_dependents[parent].add(name)
+
+    instances: list[dict] = []
+    for source in files:
+        for tree in source["trees"]:
+            imported = set(tree["shared_refs"]) & shared.keys()
+            pending = deque(sorted(imported))
+            remaining: dict[str, set[str]] = {}
+            while pending:
+                name = pending.popleft()
+                for child in sorted(shared_dependents.get(name, ())):
+                    if child in imported:
+                        continue
+                    remaining.setdefault(child, shared_dependencies[child] - imported)
+                    remaining[child].discard(name)
+                    if not remaining[child]:
+                        imported.add(child)
+                        pending.append(child)
+            focuses = [*tree["focuses"]]
+            for name in sorted(imported):
+                focuses.extend(shared.get(name, ()))
+            instances.append(
+                {
+                    "key": (source["filepath"], tree["id"], tree["line"]),
+                    "tree": tree,
+                    "focuses": focuses,
+                    "missing_shared": sorted(set(tree["shared_refs"]) - shared.keys()),
+                }
+            )
+    return instances
+
+
 def _layout_file(filepath: str, root: Node, source: str) -> dict:
     starts = line_starts(source)
     trees = []
@@ -441,14 +453,12 @@ def _focus_layout_record(node: Node, filepath: str, starts: list[int]) -> dict |
         ]
         if group:
             prerequisites.append(group)
-    mutex = []
-    mutex_node = node.get("mutually_exclusive")
-    if mutex_node:
-        mutex = [
-            value
-            for child in mutex_node.children()
-            if child.name == "focus" and (value := symbol_or_str(child))
-        ]
+    mutex = [
+        value
+        for block in node.get_all("mutually_exclusive")
+        for child in block.children()
+        if child.name == "focus" and (value := symbol_or_str(child))
+    ]
     dynamic = node.get("offset") is not None
     return {
         "id": focus_id,

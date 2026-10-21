@@ -17,7 +17,7 @@ from typing import Iterator, Optional
 
 from ..util.encoding import UTF8_BOM
 from ..util.pathing import PathAccessError, roots_for, validate_user_path
-from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget, fit_prefix
+from ..util.response import bounded_text
 from ..util.upstream_modules import UpstreamModules
 
 SUPPORTED_KINDS: tuple[str, ...] = (
@@ -58,37 +58,6 @@ def _load_standardize_api(mod_root: Path) -> ModuleType:
 def _load_localisation_core(mod_root: Path) -> ModuleType:
     """Load upstream standardize_localisation (pure cores only) from this mod root."""
     return _UPSTREAM.load(mod_root, ("standardize_localisation",))["standardize_localisation"]
-
-
-def _clip_txt(result: dict, txt: str) -> dict:
-    """Fit `txt` to the JSON output budget and report any content clipping."""
-    note = "txt clipped to fit the response budget; do NOT write clipped content back"
-    if result.get("note"):
-        note = f"{result['note']}; {note}"
-    txt, total, returned, truncated = clip_utf8(txt, MAX_TEXT_BYTES)
-    result.update(
-        {
-            "txt": txt,
-            "txt_bytes": total,
-            "txt_returned_bytes": returned,
-            "txt_truncated": truncated,
-        }
-    )
-    if truncated:
-        result["note"] = note
-
-    # Escaping can inflate txt past the budget; keep the longest prefix that fits.
-    def shrunk(chars: int) -> dict:
-        prefix = txt[:chars]
-        return {
-            **result,
-            "txt": prefix,
-            "txt_returned_bytes": len(prefix.encode("utf-8")),
-            "txt_truncated": True,
-            "note": note,
-        }
-
-    return enforce_budget(fit_prefix(result, len(txt), shrunk), heavy_keys=("txt",))
 
 
 def _bounded_localisation_index(
@@ -226,7 +195,7 @@ def _standardize_localisation(
             "input had a UTF-8 BOM and the standardizer output has none; upstream "
             "writes localisation with a UTF-8 BOM — keep the BOM when writing the file back"
         )
-    return _clip_txt(result, txt)
+    return bounded_text(result, txt)
 
 
 def standardize_tool(
@@ -329,7 +298,7 @@ def standardize_tool(
         "kind": kind,
         "changed": txt != text or had_bom,
     }
-    return _clip_txt(result, txt)
+    return bounded_text(result, txt)
 
 
 def _upstream_import_error(mod_root: Path, exc: ImportError) -> dict:

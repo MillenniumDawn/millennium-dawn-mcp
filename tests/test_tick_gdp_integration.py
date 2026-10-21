@@ -10,18 +10,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
-import shutil
 import subprocess
 import sys
 import time
-from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
 import md_mcp.tools.upstream_analysis as upstream_analysis
+from tests.support.stdio import server_parameters
 
 _TAG = "GER"
 
@@ -151,23 +149,10 @@ def test_estimate_gdp_matches_upstream_cli_fields(real_mod_root):
 
 @pytest.mark.integration
 def test_tick_and_gdp_over_real_stdio(real_mod_root, tmp_path):
-    command = shutil.which("md-mcp")
-    if command is None:
-        pytest.skip("md-mcp executable not installed")
-
-    from mcp import ClientSession, StdioServerParameters
+    from mcp import ClientSession
     from mcp.client.stdio import stdio_client
 
-    server_params = StdioServerParameters(
-        command=command,
-        args=["serve", "--mod-root", str(real_mod_root)],
-        env={
-            **os.environ,
-            "MD_MCP_CACHE_DIR": str(tmp_path / "cache"),
-            "MD_MCP_VALIDATOR_MODE": "isolated",
-            "PYTHONPATH": str(Path(__file__).parents[1] / "src"),
-        },
-    )
+    server_params = server_parameters(real_mod_root, tmp_path / "cache")
 
     async def go():
         async with (

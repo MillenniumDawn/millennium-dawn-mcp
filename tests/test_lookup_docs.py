@@ -2,9 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import shutil
-from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -13,6 +10,7 @@ from md_mcp.server import build_server
 from md_mcp.tools.lookup_docs import lookup_docs_tool
 from md_mcp.util.response import BUDGET_BYTES
 from tests.support.mod import in_process_settings
+from tests.support.stdio import server_parameters
 
 
 def _write_docs(mod_root, kind: str, content: str) -> None:
@@ -574,24 +572,21 @@ def test_lookup_docs_missing_claude_tree_is_graceful(fake_mod_root, cache_dir) -
     assert "not found" in out["error"].lower()
 
 
-def test_lookup_docs_oversized_metadata_over_stdio(fake_mod_root, cache_dir) -> None:
-    from mcp import ClientSession, StdioServerParameters
+def test_lookup_docs_oversized_metadata_over_stdio(fake_mod_root, cache_dir, monkeypatch) -> None:
+    from mcp import ClientSession
     from mcp.client.stdio import stdio_client
+
+    stale_install = cache_dir / "stale-install"
+    package = stale_install / "md_mcp"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("raise AssertionError('stale install imported')\n")
+    monkeypatch.setenv("PATH", str(cache_dir / "no-executables"))
+    monkeypatch.setenv("PYTHONPATH", str(stale_install))
+    monkeypatch.chdir(stale_install)
 
     original = "# " + "x" * 60_000 + "\nBody.\n"
     _write_system_doc(fake_mod_root, "docs", "large", original)
-    command = shutil.which("md-mcp")
-    assert command is not None
-    parameters = StdioServerParameters(
-        command=command,
-        args=["serve", "--mod-root", str(fake_mod_root)],
-        env={
-            **os.environ,
-            "MD_MCP_CACHE_DIR": str(cache_dir),
-            "MD_MCP_VALIDATOR_MODE": "isolated",
-            "PYTHONPATH": str(Path(__file__).parents[1] / "src"),
-        },
-    )
+    parameters = server_parameters(fake_mod_root, cache_dir)
 
     async def go():
         chunks = []
@@ -675,23 +670,10 @@ def test_lookup_docs_mcp_registration_and_call(fake_mod_root, cache_dir) -> None
 
 @pytest.mark.integration
 def test_lookup_docs_real_mcp_stdio(real_mod_root, cache_dir) -> None:
-    command = shutil.which("md-mcp")
-    if command is None:
-        pytest.skip("md-mcp executable not installed")
-
-    from mcp import ClientSession, StdioServerParameters
+    from mcp import ClientSession
     from mcp.client.stdio import stdio_client
 
-    server_params = StdioServerParameters(
-        command=command,
-        args=["serve", "--mod-root", str(real_mod_root)],
-        env={
-            **os.environ,
-            "MD_MCP_CACHE_DIR": str(cache_dir),
-            "MD_MCP_VALIDATOR_MODE": "isolated",
-            "PYTHONPATH": str(Path(__file__).parents[1] / "src"),
-        },
-    )
+    server_params = server_parameters(real_mod_root, cache_dir)
 
     async def go():
         async with (

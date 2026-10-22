@@ -755,7 +755,7 @@ Fractional coordinates are preserved. Positions influenced by `allow_branch` anc
 `offset` are marked `dynamic`; dynamic positions are excluded from static
 collision checks. Independent trees are resolved separately.
 
-### `render_focus_tree(tree?, file?, tag?, country?, focus_ids?, region?, margin?, hide_branches?, highlight?, labels?, format?, scale?, ref?, limit?) -> dict`
+### `render_focus_tree(tree?, file?, tag?, country?, completed?, date?, focus_ids?, region?, margin?, hide_branches?, highlight?, labels?, format?, scale?, ref?, limit?) -> dict`
 
 Draws one assembled focus tree the way the MD VSCode extension's focus preview
 does, so an agent can look at a layout or hand it to its user. It writes the
@@ -769,11 +769,23 @@ picture to disk and returns the paths, not the image:
   holding most of the tag's own focuses). A tag or file that holds only shared
   focuses (USoE, for example) answers `ok: false` with `shared_roots` and the
   `trees` that import them, paged by `limit`.
-- **`country`**: which `offset` blocks apply. Triggers made of `tag`,
-  `original_tag`, `has_focus_tree`, `always`, `AND`, `OR`, and `NOT` are
-  evaluated; an offset whose trigger needs anything else does not apply and is
-  counted in `offsets.unevaluated`. Without `country`, the tree's own `country`
-  block decides when it names a single tag; `country_source` says which.
+- **`country`, `completed`, `date`**: the scenario that decides which `offset`
+  blocks apply and which conditional icon shows. They are checked as in
+  `focus_overlap_scenarios`: a 2-4 character tag, at most 200 completed ids,
+  and a real calendar date in `YYYY.M.D` form. The decision is made by the
+  mod's own evaluator, `tools/analysis/focus_overlap_report.py`, loaded from the
+  configured mod root. It decides `tag`, `original_tag`, `has_completed_focus`
+  (against `completed`), `date` (against `date`), `always`, `AND`, `OR`, `NOT`,
+  `hidden_trigger` and `custom_trigger_tooltip`. `has_focus_tree` is decided
+  against the tree being drawn, since a country has one focus tree. Anything
+  else (`has_game_rule`, flags, scripted triggers) is unknown: that offset does
+  not apply and is counted in `offsets.unevaluated`. As in that evaluator, an
+  offset with no trigger applies. Without `country`, the tree's own `country`
+  block decides when it names a single tag; `country_source` says which. With
+  no country at all, `tag` and `original_tag` tests are unknown too. When the
+  mod checkout has no such script, or one without the functions used, the
+  render still works with no offsets applied, `offsets.evaluator` is null, and
+  a warning says why.
 - **Cropping**: `focus_ids` (ids or globs such as `USoE6*`) crops to their
   bounding box plus `margin` cells; `region=[min_x, min_y, max_x, max_y]` crops
   to grid cells. Without either, the whole tree is drawn.
@@ -787,10 +799,17 @@ picture to disk and returns the paths, not the image:
   from, for before and after pictures. Localisation and icons always come from
   the working tree.
 - **`labels`**: `both` (id and English name, the preview's default), `name`,
-  `id`, or `none`. **`scale`**: 0.1 to 2, default 1. Any scale is lowered to keep
-  the PNG within 8192 px a side and 40 M pixels (an explicit one with a warning);
-  a view that would need less than 0.1 is refused for PNG, so crop it or use
-  HTML. `region` may span at most 1000 cells a side.
+  `id`, or `none`. A label wraps into the room up to the nearest focus on either
+  side of its row (at most three slots wide), at spaces first and then after
+  `_`, `.`, `/` or `-`. It takes at most three lines, and a cut line ends in
+  `...`; with `both` the id keeps up to two of them. The HTML page shows the full
+  id and name on hover. PNG labels use a system font with accented letters
+  (Arial, DejaVu Sans or Liberation Sans), falling back to Pillow's own font,
+  which covers ASCII only. **`scale`**: 0.1 to 2, default 1. Any scale is
+  lowered to keep the PNG within 8192 px a side and 40 M pixels (an explicit one
+  with a warning); a view that would need less than 0.1 is refused for PNG, so
+  crop it or use HTML. Below 0.75 a warning says the PNG labels are too small to
+  read. `region` may span at most 1000 cells a side.
 
 Drawing follows the extension: 96x130 px slots; icons centred 18 px above the
 slot middle and clipped to their slot; prerequisite lines from the parent's
@@ -798,16 +817,19 @@ centre that turn half a row from the parent toward the child, solid `#88aaff`
 for a single prerequisite and dashed for an OR group; red lines between mutually
 exclusive focuses; every branch shown unless hidden. A whole-tree view keeps a
 spare column on each side for the outermost labels. Fallbacks differ from the
-preview in small ways: an unresolvable icon is a grey square, a conditional icon
-with no holding condition shows its first choice, and focuses whose position
-cannot be resolved (missing x/y, a missing or cyclic `relative_position_id`, a
-duplicate id) are left out and counted as `unresolved`.
+preview in small ways: labels wrap instead of running into their neighbours, an
+unresolvable icon is a grey square, a conditional icon with no holding condition
+shows its first choice, and focuses whose position cannot be resolved (missing
+x/y, a missing or cyclic `relative_position_id`, a duplicate id) are left out
+and counted as `unresolved`.
 
 The response carries `outputs` (`png` and/or `html` paths), `bytes` (their
-sizes), `image` (pixel size and scale), `tree`, `country`, `source`
+sizes), `image` (pixel size and scale), `tree`, `country`, `scenario`
+(`completed` count and `date`), `source`
 (`working tree` or the ref), `region`, `focuses` counts (`in_tree`, `rendered`,
 `hidden`, `unresolved`, `highlighted`), `icons` (`resolved`, `missing`,
-`failed`, `no_icon`, samples), `offsets`, `warnings` (patterns that matched
+`failed`, `no_icon`, samples), `offsets` (`evaluator`, `applied`,
+`unevaluated`, sample), `warnings` (patterns that matched
 nothing, a lowered scale, an empty region, an HTML page over 15 MB), and a
 `hint`. A whole-tree HTML page embeds every icon and can reach 10 to 20 MB on
 the largest trees; crop for something smaller to share.

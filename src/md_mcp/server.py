@@ -680,6 +680,8 @@ def build_server(settings: Settings):
         file: Optional[str] = None,
         tag: Optional[str] = None,
         country: Optional[str] = None,
+        completed: Optional[list[str]] = None,
+        date: Optional[str] = None,
         focus_ids: Optional[list[str]] = None,
         region: Optional[list[float]] = None,
         margin: int = 2,
@@ -691,7 +693,7 @@ def build_server(settings: Settings):
         ref: Optional[str] = None,
         limit: int = 20,
     ) -> dict:
-        """Draw a focus tree like the VSCode preview to png/html under the cache dir; returns file paths (Read the png to see it). Pick tree/file/tag; country picks offsets; crop with focus_ids globs or region [x0,y0,x1,y1]; hide_branches, highlight, ref=git rev for before/after."""
+        """Draw a focus tree like the VSCode preview to png/html under the cache dir; returns file paths (Read the png to see it). Pick tree/file/tag; country, completed, date set the offset scenario; crop with focus_ids globs or region [x0,y0,x1,y1]; hide_branches, highlight, ref=git rev for before/after."""
         return await blocking_tools.run(
             render_focus_tree,
             settings.mod_root,
@@ -703,6 +705,8 @@ def build_server(settings: Settings):
             file=file,
             tree=tree,
             country=country,
+            completed=completed,
+            date=date,
             focus_ids=focus_ids,
             region=region,
             margin=margin,

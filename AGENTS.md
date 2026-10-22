@@ -52,7 +52,10 @@ src/md_mcp/
 ├── generators/          Pure-string generators (focus/event/decision/idea/gfx/loc)
 ├── analysis/            High-level queries
 │   ├── focus_graph.py   Prereq/mutex DAG with tiered detail
+│   ├── focus_tree.py    Shared tree assembly and static positions
+│   ├── focus_scenario.py Shared scenario checks; the mod's trigger evaluator
 │   ├── focus_layout.py  relative_position_id geometry, collisions
+│   ├── focus_render.py  PNG/HTML focus tree renders
 │   ├── refs.py          Find-all-references over scan dirs
 │   ├── ref_audit.py     Scoped cross-reference audit (check_refs)
 │   ├── manifest.py      Per-country file/ID inventory

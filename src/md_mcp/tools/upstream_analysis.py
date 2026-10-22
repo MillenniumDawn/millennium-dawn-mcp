@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
 
+from ..analysis.focus_scenario import check_completed, check_country, check_date
 from ..util.process import run_in_group
 from ..util.response import coerce_int, enforce_budget
 
@@ -271,20 +271,14 @@ def focus_overlap_scenarios_tool(
         return error_result(str(exc))
     if not isinstance(file, str) or not file.strip():
         return error_result("file must name one explicit focus-tree .txt file", include_file=False)
-    if not isinstance(tag, str) or not re.fullmatch(r"[A-Za-z0-9]{2,4}", tag):
-        return error_result("tag must be a 2-4 character country tag")
-    if completed is None:
-        completed = []
-    if (
-        not isinstance(completed, list)
-        or len(completed) > 200
-        or any(not isinstance(value, str) or not value or len(value) > 200 for value in completed)
-    ):
-        return error_result("completed must be a list of at most 200 focus ids")
+    try:
+        tag = check_country(tag, "tag")
+        completed = check_completed(completed)
+        date = check_date(date)
+    except ValueError as exc:
+        return error_result(str(exc))
     if not isinstance(include_positions, bool):
         return error_result("include_positions must be a boolean")
-    if date is not None and (not isinstance(date, str) or len(date) > 32):
-        return error_result("date must be a YYYY.M.D string")
     try:
         source_path, path_error = _focus_source_path(mod_root, submod_root, file)
     except (OSError, ValueError) as exc:

@@ -3,22 +3,28 @@
 from __future__ import annotations
 
 import json
+import shutil
+import sys
 from pathlib import Path
 
 import pytest
 
 from md_mcp.analysis import focus_render
 from md_mcp.analysis.focus_render import (
-    _icon_choices,
-    _pick_icon,
+    EVALUATOR,
+    _font,
+    _label_lines,
+    _label_room,
     _segments,
-    _trigger,
+    _wrap,
     render_focus_tree,
 )
 from md_mcp.indexes import FocusIndex, GfxIndex, LocalisationIndex
-from md_mcp.paradox import parse_string
 from md_mcp.util.response import BUDGET_BYTES
 from tests.support.mod import git, init_repo, make_mod_root
+from tests.support.upstream import plant_focus_scenario
+
+pytestmark = pytest.mark.usefixtures("fresh_scenario_imports")
 
 _TREE = """focus_tree = {
     id = rnd_tree
@@ -127,7 +133,16 @@ def mod(tmp_path: Path) -> Path:
     goals = root / "gfx" / "interface" / "goals"
     goals.mkdir(parents=True)
     pil.new("RGBA", (40, 30), (200, 50, 50, 255)).save(goals / "rnd_icon.tga")
+    plant_focus_scenario(root)
     return root
+
+
+@pytest.fixture(params=["stand-in", pytest.param("mod", marks=pytest.mark.integration)])
+def scenario_mod(request: pytest.FixtureRequest, mod: Path) -> Path:
+    """`mod`, with the evaluator stand-ins or, under integration, the mod's real scripts."""
+    if request.param == "mod":
+        plant_focus_scenario(mod, request.getfixturevalue("real_mod_root"))
+    return mod
 
 
 def _render(mod: Path, cache: Path, **kwargs) -> dict:
@@ -281,6 +296,11 @@ def test_shared_file_points_at_importing_trees(mod: Path, tmp_path: Path) -> Non
         ({"tag": "RND", "ref": "--output=x"}, "ref must be a plain git revision"),
         ({"tag": "RND", "country": "TOOLONG"}, "country must be"),
         ({"tag": "RND", "focus_ids": "RND_root"}, "focus_ids must be a list"),
+        ({"tag": "RND", "date": "June 2010"}, "date must be a YYYY.M.D string"),
+        ({"tag": "RND", "date": "2010.13.45"}, "date must be a valid calendar date"),
+        ({"tag": "RND", "date": "2010.2.30"}, "date must be a valid calendar date"),
+        ({"tag": "RND", "completed": "RND_root"}, "completed must be a list"),
+        ({"tag": "RND", "completed": ["X"] * 201}, "completed must be a list of at most 200"),
         ({"tree": "no_such_tree"}, "No focus file matches"),
         ({"tag": "RND", "focus_ids": ["ZZZ_*"]}, "focus_ids matched no visible focus"),
     ],
@@ -322,46 +342,481 @@ def test_segments_follow_the_preview_line_model() -> None:
     assert _segments((48, 65), (48, 325)) == [(48, 65, 48, 325)]
 
 
-def _block(text: str):
-    return parse_string(text).children()[0]
+def _six(text: str) -> float:
+    return len(text) * 6.0
+
+
+def test_labels_wrap_at_spaces_then_id_separators_then_anywhere() -> None:
+    assert _wrap("Create The African Investment Bank", 90, _six) == [
+        "Create The",
+        "African",
+        "Investment Bank",
+    ]
+    assert _wrap("AFRICAN_UNION_shared_focus_create", 90, _six) == [
+        "AFRICAN_UNION_",
+        "shared_focus_",
+        "create",
+    ]
+    assert _wrap("Supercalifragilistic", 60, _six) == ["Supercalif", "ragilistic"]
+    assert _wrap("", 60, _six) == []
+
+
+def test_the_id_keeps_two_lines_and_cut_lines_end_in_dots() -> None:
+    focus_id = "AFRICAN_UNION_shared_focus_create_stock_exchange_south_africa"
+    name = "Create Stock Exchange In South Africa And Beyond"
+
+    lines = _label_lines([focus_id, name], 180, _six)
+
+    assert lines == [
+        "AFRICAN_UNION_shared_focus_",
+        "create_stock_exchange_south...",
+        "Create Stock Exchange In So...",
+    ]
+    assert all(_six(line) <= 180 for line in lines)
+    assert _label_lines(["SHORT_id", name], 180, _six) == ["SHORT_id", *_wrap(name, 180, _six)[:2]]
+    assert _label_lines([focus_id], 90, _six)[-1].endswith("...")
+
+
+def test_label_room_reaches_the_nearest_focus_in_the_row() -> None:
+    room = _label_room({"a": (0, 0), "b": (2, 0), "c": (3, 0), "lone": (5, 1), "pair": (5, 2)})
+
+    assert room["a"] == 2 * 96 - 8
+    assert room["b"] == room["c"] == 96 - 8
+    assert room["lone"] == room["pair"] == 3 * 96 - 8
+
+
+def test_png_labels_have_accented_letters() -> None:
+    from PIL import ImageFont
+
+    font = _font(ImageFont, 12)
+
+    if font.getbbox("c") == font.getbbox("\u0e01"):
+        pytest.skip("no system font with more than ASCII glyphs")
+    assert font.getmask("\u00e7").getbbox() != font.getmask("\u00e9").getbbox()
+
+
+def test_long_labels_wrap_into_the_room_beside_them(
+    mod: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PIL import ImageDraw
+
+    drawn: list[str] = []
+    draw_text = ImageDraw.ImageDraw.text
+
+    def record(self, xy, value, *args, **kwargs):
+        drawn.append(value)
+        return draw_text(self, xy, value, *args, **kwargs)
+
+    monkeypatch.setattr(ImageDraw.ImageDraw, "text", record)
+    long_id = "LNG_a_very_long_focus_identifier_that_needs_several_lines"
+    (mod / "common" / "national_focus" / "lng.txt").write_text(
+        f"""focus_tree = {{
+    id = lng_tree
+    focus = {{ id = {long_id} x = 0 y = 0 }}
+    focus = {{ id = LNG_b x = 1 y = 0 }}
+}}
+""",
+        encoding="utf-8",
+    )
+
+    result = _render(mod, tmp_path / "cache", tag="LNG", format="both", labels="id")
+
+    page = Path(result["outputs"]["html"]).read_text(encoding="utf-8")
+    label = (
+        page.split(f'title="{long_id} (0, 0)')[1].split('<span class="t">')[1].split("</span>")[0]
+    )
+    lines = label.split("<br>")
+    assert len(lines) == 3 and lines[-1].endswith("...")
+    assert long_id not in label
+    assert all(line in drawn for line in lines) and long_id not in drawn
 
 
 @pytest.mark.parametrize(
-    ("trigger", "country", "expected"),
+    ("kwargs", "warned"),
     [
-        ("trigger = { tag = RND }", "RND", True),
-        ("trigger = { original_tag = rnd }", "RND", True),
-        ("trigger = { tag = RND }", "OTH", False),
-        ("trigger = { tag = RND }", None, None),
-        ("trigger = { has_focus_tree = rnd_tree }", None, True),
-        ("trigger = { OR = { tag = AAA tag = RND } }", "RND", True),
-        ("trigger = { OR = { tag = AAA has_country_flag = x } }", "RND", None),
-        ("trigger = { NOT = { tag = AAA } }", "RND", True),
-        ("trigger = { NOT = { tag = RND } }", "RND", False),
-        ("trigger = { AND = { tag = RND always = no } }", "RND", False),
-        ("trigger = { tag = RND has_country_flag = x }", "OTH", False),
-        ("trigger = { has_country_flag = x }", "RND", None),
+        ({"scale": 0.5}, True),
+        ({"scale": 0.5, "labels": "none"}, False),
+        ({"scale": 1}, False),
+        ({"scale": 0.5, "format": "html"}, False),
     ],
 )
-def test_offset_triggers_are_decided_statically(
-    trigger: str, country: str | None, expected: bool | None
+def test_a_png_too_small_to_read_says_so(
+    mod: Path, tmp_path: Path, kwargs: dict, warned: bool
 ) -> None:
-    assert _trigger(_block(trigger), country, "rnd_tree") is expected
+    result = _render(mod, tmp_path / "cache", tag="RND", **kwargs)
+
+    assert result["ok"] is True
+    assert any("too small to read" in w for w in result["warnings"]) is warned
 
 
-def test_conditional_icons_pick_the_first_that_holds() -> None:
-    old_form = _block(
-        "focus = { icon = { trigger = { tag = AAA } value = GFX_a } icon = GFX_plain }"
+def _offset_tree(mod: Path, offsets: str, country: str = "OFS") -> None:
+    country_block = f"country = {{ factor = 0 modifier = {{ add = 10 tag = {country} }} }}"
+    (mod / "common" / "national_focus" / "ofs.txt").write_text(
+        f"""focus_tree = {{
+    id = ofs_tree
+    {country_block if country else ""}
+    focus = {{ id = OFS_a x = 0 y = 0 {offsets} }}
+}}
+""",
+        encoding="utf-8",
     )
-    new_form = _block("focus = { icon = { GFX_b = { tag = RND } GFX_c = yes } }")
-    neither = _block("focus = { icon = { GFX_d = { tag = AAA } } }")
 
-    assert _pick_icon(_icon_choices(old_form), "RND", "t") == "GFX_plain"
-    assert _pick_icon(_icon_choices(old_form), "AAA", "t") == "GFX_a"
-    assert _pick_icon(_icon_choices(new_form), "RND", "t") == "GFX_b"
-    assert _pick_icon(_icon_choices(new_form), "OTH", "t") == "GFX_c"
-    assert _pick_icon(_icon_choices(neither), "RND", "t") == "GFX_d"
-    assert _pick_icon([], "RND", "t") is None
+
+def _ofs_x(mod: Path, tmp_path: Path, **kwargs) -> tuple[int, dict]:
+    kwargs.setdefault("tag", "OFS")
+    result = _render(
+        mod, tmp_path / "cache", format="html", focus_ids=["OFS_a"], margin=0, **kwargs
+    )
+    return result["region"]["min_x"], result
+
+
+@pytest.mark.parametrize(
+    ("trigger", "kwargs", "expected_x", "unevaluated"),
+    [
+        ("has_completed_focus = OFS_done", {}, 0, 0),
+        ("has_completed_focus = OFS_done", {"completed": ["OFS_done"]}, 5, 0),
+        ("date > 2010.1.1", {}, 0, 1),
+        ("date > 2010.1.1", {"date": "2012.6.1"}, 5, 0),
+        ("date > 2010.1.1", {"date": "2001.1.1"}, 0, 0),
+        ("OR = { tag = AAA tag = OFS }", {}, 5, 0),
+        ("NOT = { tag = OFS }", {}, 0, 0),
+        ("has_focus_tree = ofs_tree", {}, 5, 0),
+        ("has_focus_tree = other_tree", {}, 0, 0),
+        ("NOT = { has_focus_tree = ofs_tree }", {}, 0, 0),
+        ("OR = { has_focus_tree = other_tree has_focus_tree = ofs_tree }", {}, 5, 0),
+        ("# always = no { }\n has_completed_focus = OFS_done", {"completed": ["OFS_done"]}, 5, 0),
+    ],
+)
+def test_offsets_follow_the_scenario(
+    scenario_mod: Path,
+    tmp_path: Path,
+    trigger: str,
+    kwargs: dict,
+    expected_x: int,
+    unevaluated: int,
+) -> None:
+    _offset_tree(scenario_mod, f"offset = {{ x = 5 y = 0 trigger = {{ {trigger} }} }}")
+
+    x, result = _ofs_x(scenario_mod, tmp_path, **kwargs)
+
+    assert x == expected_x
+    assert result["offsets"]["evaluator"] == EVALUATOR
+    assert result["offsets"]["unevaluated"] == unevaluated
+
+
+def test_the_scenario_is_reported(mod: Path, tmp_path: Path) -> None:
+    _offset_tree(mod, "")
+
+    _x, result = _ofs_x(mod, tmp_path, completed=["OFS_a", "OFS_b"], date="2012.6.1")
+
+    assert result["scenario"] == {"completed": 2, "date": "2012.6.1"}
+    assert result["country"] == "OFS" and result["country_source"] == "tree"
+
+
+def test_an_offset_without_a_trigger_applies_as_upstream_decides(mod: Path, tmp_path: Path) -> None:
+    _offset_tree(mod, "offset = { x = 3 y = 0 }")
+
+    x, result = _ofs_x(mod, tmp_path)
+
+    assert x == 3 and result["offsets"]["applied"] == 1
+
+
+def test_an_undecidable_trigger_is_reported_not_applied(scenario_mod: Path, tmp_path: Path) -> None:
+    _offset_tree(scenario_mod, "offset = { x = 4 y = 0 trigger = { has_country_flag = ofs_flag } }")
+
+    x, result = _ofs_x(scenario_mod, tmp_path)
+
+    assert x == 0
+    assert result["offsets"]["unevaluated_sample"] == [{"focus": "OFS_a", "x": 4.0, "y": 0.0}]
+
+
+@pytest.mark.parametrize(
+    ("trigger", "expected_x", "unevaluated"),
+    [
+        ("tag = AAA", 0, 1),
+        ("NOT = { tag = AAA }", 0, 1),
+        ("NOT = { original_tag = AAA }", 0, 1),
+        ("OR = { tag = AAA tag = BBB}", 0, 1),
+        ("OR = { tag = AAA always = yes }", 5, 0),
+        ("OR = { tag = AAA tag = BBB} has_completed_focus = OFS_never", 0, 0),
+    ],
+)
+def test_with_no_country_tag_tests_stay_undecided(
+    scenario_mod: Path, tmp_path: Path, trigger: str, expected_x: int, unevaluated: int
+) -> None:
+    _offset_tree(scenario_mod, f"offset = {{ x = 5 y = 0 trigger = {{ {trigger} }} }}", country="")
+
+    x, result = _ofs_x(scenario_mod, tmp_path, tag=None, file="common/national_focus/ofs.txt")
+
+    assert result["country"] is None
+    assert x == expected_x
+    assert result["offsets"]["unevaluated"] == unevaluated
+
+
+def test_a_country_argument_decides_tag_tests(scenario_mod: Path, tmp_path: Path) -> None:
+    _offset_tree(scenario_mod, "offset = { x = 5 y = 0 trigger = { NOT = { tag = AAA } } }", "")
+
+    x, result = _ofs_x(
+        scenario_mod, tmp_path, tag=None, file="common/national_focus/ofs.txt", country="BBB"
+    )
+
+    assert x == 5 and result["offsets"]["unevaluated"] == 0
+
+
+def test_a_shared_focus_offset_follows_the_importing_tree(
+    scenario_mod: Path, tmp_path: Path
+) -> None:
+    focus_dir = scenario_mod / "common" / "national_focus"
+    (focus_dir / "hft_shared.txt").write_text(
+        """shared_focus = {
+    id = HFT_shared
+    x = 0
+    y = 0
+    offset = { x = 6 y = 0 trigger = { has_focus_tree = hft_a } }
+}
+""",
+        encoding="utf-8",
+    )
+    for name in ("hft_a", "hft_b"):
+        (focus_dir / f"{name}.txt").write_text(
+            f"focus_tree = {{\n    id = {name}\n    shared_focus = HFT_shared\n}}\n",
+            encoding="utf-8",
+        )
+    cache = tmp_path / "cache"
+
+    def shared_x(tree: str) -> int:
+        result = _render(
+            scenario_mod, cache, tree=tree, focus_ids=["HFT_shared"], margin=0, format="html"
+        )
+        assert result["ok"] is True, result
+        return result["region"]["min_x"]
+
+    assert shared_x("hft_a") == 6
+    assert shared_x("hft_b") == 0
+
+
+def test_fractional_coordinates_keep_offsets_and_icons(scenario_mod: Path, tmp_path: Path) -> None:
+    (scenario_mod / "common" / "national_focus" / "frc.txt").write_text(
+        """focus_tree = {
+    id = frc_tree
+    country = { factor = 0 modifier = { add = 10 tag = FRC } }
+    focus = { id = FRC_half x = 1.5 y = 0 }
+    focus = { id = FRC_moved x = 0 y = 1
+        offset = { x = 2.5 y = 0 trigger = { has_completed_focus = FRC_done } }
+        icon = { GFX_rnd_icon = { has_completed_focus = FRC_done } GFX_rnd_missing = yes } }
+}
+""",
+        encoding="utf-8",
+    )
+
+    result = _render(
+        scenario_mod,
+        tmp_path / "cache",
+        tag="FRC",
+        format="html",
+        focus_ids=["FRC_moved"],
+        margin=0,
+        completed=["FRC_done"],
+    )
+
+    assert result["offsets"] == {
+        "evaluator": EVALUATOR,
+        "applied": 1,
+        "unevaluated": 0,
+        "unevaluated_sample": [],
+    }
+    assert result["region"]["min_x"] == 2
+    assert result["icons"]["resolved"] == 1 and result["icons"]["missing"] == 0
+    assert result["warnings"] == []
+
+
+def test_without_the_mod_evaluator_the_render_still_works(mod: Path, tmp_path: Path) -> None:
+    shutil.rmtree(mod / "tools" / "analysis")
+    _offset_tree(mod, "offset = { x = 5 y = 0 trigger = { tag = OFS } }")
+
+    x, result = _ofs_x(mod, tmp_path)
+
+    assert result["ok"] is True and x == 0
+    assert result["offsets"]["evaluator"] is None
+    assert result["warnings"][0].startswith("offsets and conditional icons were not evaluated")
+
+
+@pytest.mark.parametrize(
+    ("script_path", "patch", "reason"),
+    [
+        ("tools/analysis/focus_overlap_report.py", "evaluate = None", "missing evaluate"),
+        ("tools/analysis/focus_overlap_report.py", "del Scenario", "missing Scenario"),
+        ("tools/shared_utils.py", "del strip_comments", "missing shared_utils.strip_comments"),
+        (
+            "tools/shared_utils.py",
+            "blank_quoted_strings = None",
+            "missing shared_utils.blank_quoted_strings",
+        ),
+    ],
+)
+def test_a_changed_evaluator_api_is_reported(
+    mod: Path, tmp_path: Path, script_path: str, patch: str, reason: str
+) -> None:
+    script = mod / script_path
+    script.write_text(script.read_text(encoding="utf-8") + f"\n{patch}\n", encoding="utf-8")
+    _offset_tree(mod, "offset = { x = 5 y = 0 trigger = { always = yes } }")
+
+    x, result = _ofs_x(mod, tmp_path)
+
+    assert result["ok"] is True and x == 0
+    assert result["offsets"]["evaluator"] is None
+    assert reason in result["warnings"][0]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "raise RuntimeError('boom')",
+        "return 'yes'",
+        "return 1",
+    ],
+)
+def test_an_evaluator_that_fails_leaves_the_offset_undecided(
+    mod: Path, tmp_path: Path, body: str
+) -> None:
+    script = mod / "tools" / "analysis" / "focus_overlap_report.py"
+    script.write_text(
+        script.read_text(encoding="utf-8") + f"\n\ndef evaluate(body, scenario):\n    {body}\n",
+        encoding="utf-8",
+    )
+    _offset_tree(mod, "offset = { x = 5 y = 0 trigger = { always = yes } }")
+
+    x, result = _ofs_x(mod, tmp_path)
+
+    assert x == 0
+    assert result["offsets"]["applied"] == 0 and result["offsets"]["unevaluated"] == 1
+
+
+@pytest.mark.parametrize("previous", [False, True])
+def test_importing_the_evaluator_writes_no_bytecode_into_the_mod(
+    mod: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, previous: bool
+) -> None:
+    monkeypatch.setattr(sys, "dont_write_bytecode", previous)
+    _offset_tree(mod, "offset = { x = 5 y = 0 trigger = { always = yes } }")
+
+    x, _result = _ofs_x(mod, tmp_path)
+
+    assert x == 5
+    assert not list((mod / "tools").rglob("__pycache__"))
+    assert sys.dont_write_bytecode is previous
+
+
+def test_a_scalar_offset_is_ignored(scenario_mod: Path, tmp_path: Path) -> None:
+    _offset_tree(scenario_mod, "offset = yes offset = { x = 5 y = 0 trigger = { tag = OFS } }")
+
+    x, result = _ofs_x(scenario_mod, tmp_path)
+
+    assert x == 5 and result["offsets"]["applied"] == 1
+
+
+def _icon_tree(mod: Path, icon: str) -> None:
+    (mod / "common" / "national_focus" / "ico.txt").write_text(
+        f"""focus_tree = {{
+    id = ico_tree
+    # A long comment before the gate: stripping it shifts every later offset.
+    focus = {{ id = ICO_a x = 0 y = 0 # another comment with {{ braces }}
+        {icon} }}
+}}
+""",
+        encoding="utf-8",
+    )
+
+
+def _icons(mod: Path, tmp_path: Path, **kwargs) -> dict:
+    return _render(mod, tmp_path / "cache", tag="ICO", format="html", **kwargs)["icons"]
+
+
+def test_conditional_icons_follow_the_scenario(scenario_mod: Path, tmp_path: Path) -> None:
+    _icon_tree(
+        scenario_mod,
+        "icon = { GFX_rnd_icon = { has_completed_focus = ICO_done } GFX_rnd_missing = yes }",
+    )
+
+    shown = _icons(scenario_mod, tmp_path, completed=["ICO_done"])
+    fallback = _icons(scenario_mod, tmp_path)
+
+    assert shown["resolved"] == 1 and shown["missing"] == 0
+    assert fallback["resolved"] == 0
+    assert fallback["missing_sample"] == ["GFX_rnd_missing"]
+
+
+@pytest.mark.parametrize(
+    ("icon", "kwargs", "shown"),
+    [
+        # A comment inside the gate is not part of it.
+        (
+            "icon = { GFX_rnd_icon = { # always = no\n has_completed_focus = ICO_done }\n"
+            "GFX_rnd_missing = yes }",
+            {"completed": ["ICO_done"]},
+            "GFX_rnd_icon",
+        ),
+        # A gate the evaluator cannot decide is not taken.
+        (
+            "icon = { GFX_rnd_missing = { has_country_flag = ico_flag } GFX_rnd_icon = yes }",
+            {},
+            "GFX_rnd_icon",
+        ),
+        # When no gate holds, the first icon is drawn.
+        (
+            "icon = { GFX_rnd_missing = { has_completed_focus = ICO_never } "
+            "GFX_rnd_icon = { has_completed_focus = ICO_never } }",
+            {},
+            "GFX_rnd_missing",
+        ),
+        # The old trigger/value form.
+        (
+            "icon = { trigger = { has_focus_tree = other_tree } value = GFX_rnd_missing }\n"
+            "icon = { trigger = { has_focus_tree = ico_tree } value = GFX_rnd_icon }",
+            {},
+            "GFX_rnd_icon",
+        ),
+    ],
+)
+def test_the_icon_shown_is_the_first_whose_gate_holds(
+    scenario_mod: Path, tmp_path: Path, icon: str, kwargs: dict, shown: str
+) -> None:
+    _icon_tree(scenario_mod, icon)
+
+    icons = _icons(scenario_mod, tmp_path, **kwargs)
+
+    if shown == "GFX_rnd_icon":
+        assert icons["resolved"] == 1 and icons["missing"] == 0
+    else:
+        assert icons["missing_sample"] == [shown]
+
+
+def test_a_shared_focus_icon_is_decided_in_its_own_file(scenario_mod: Path, tmp_path: Path) -> None:
+    (scenario_mod / "common" / "national_focus" / "shr_shared.txt").write_text(
+        """# Comments here move the shared focus away from where it would sit in rnd.txt.
+# Another line.
+shared_focus = {
+    id = SHR_root
+    x = 10
+    y = 0
+    icon = { GFX_rnd_missing = { has_completed_focus = SHR_never }
+        GFX_rnd_icon = { has_completed_focus = SHR_done } }
+}
+""",
+        encoding="utf-8",
+    )
+
+    result = _render(
+        scenario_mod,
+        tmp_path / "cache",
+        tag="RND",
+        format="html",
+        focus_ids=["SHR_root"],
+        margin=0,
+        completed=["SHR_done"],
+    )
+
+    assert result["ok"] is True
+    assert result["icons"]["resolved"] == 1 and result["icons"]["missing"] == 0
 
 
 def test_a_file_with_two_trees_needs_tree(mod: Path, tmp_path: Path) -> None:
@@ -596,3 +1051,23 @@ def test_the_hint_names_only_files_that_exist(mod: Path, tmp_path: Path) -> None
 
     assert "html" not in png["hint"]
     assert "png" not in page["hint"]
+
+
+@pytest.mark.integration
+def test_real_mod_offsets_come_from_the_mod_evaluator(real_mod_root: Path, tmp_path: Path) -> None:
+    cache = tmp_path / "cache"
+    result = render_focus_tree(
+        real_mod_root,
+        cache,
+        FocusIndex(real_mod_root, cache),
+        GfxIndex(real_mod_root, cache),
+        LocalisationIndex(real_mod_root, cache),
+        tree="georgia_focus",
+        focus_ids=["USoE001"],
+        margin=0,
+        format="html",
+    )
+
+    assert result["ok"] is True
+    assert result["offsets"]["evaluator"] == EVALUATOR
+    assert result["offsets"]["applied"] >= 1

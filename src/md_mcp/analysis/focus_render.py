@@ -3,7 +3,9 @@
 Geometry follows MD-VSCode-Utility-Tool's focus preview: 96x130 px grid slots,
 prerequisite lines that leave the parent's centre, turn half a row toward the
 child and run into it, dashed lines for OR groups, and red lines between mutually
-exclusive focuses. Offsets apply when their trigger holds for the chosen country.
+exclusive focuses. Offsets and conditional icons are decided by the mod's own
+scenario evaluator, `tools/analysis/focus_overlap_report.py`, for the tree being
+drawn and the chosen country, completed focuses, and date (see `focus_scenario`).
 
 Output files go to `<cache_dir>/renders/`, never into the mod. PNG output and
 icons need Pillow (the `render` extra); without it only HTML with placeholder
@@ -27,24 +29,38 @@ from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from fnmatch import fnmatchcase
+from functools import lru_cache, partial
 from pathlib import Path
-from typing import Any, Iterable, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional
 
 from ..paradox import ParseError, parse_string
 from ..paradox.nodes import Node, node_line, symbol_or_str
+from ..paradox.schema import focus_icon_choices
 from ..util.git import GitError, run_git
 from ..util.line_numbers import line_starts
 from ..util.pathing import contained, roots_for
 from ..util.response import coerce_int, enforce_budget, paginate
-from .focus_layout import (
-    _available_shared_files,
-    _coordinate,
-    _layout_file,
-    _relpath,
-    _resolve_positions,
+from .focus_scenario import (
+    COUNTRY_RE,
+    EVALUATOR,
+    ScenarioEvaluator,
+    check_completed,
+    check_country,
+    check_date,
+)
+from .focus_tree import (
+    SupportsFilesForTag,
     assemble_tree_instances,
+    available_shared_files,
+    coordinate,
+    layout_file,
+    resolve_positions,
+    scope_relpath,
 )
 from .scope import iter_scope_files
+
+if TYPE_CHECKING:
+    from ..indexes import GfxIndex, LocalisationIndex
 
 SLOT_W = 96
 SLOT_H = 130
@@ -53,6 +69,12 @@ ICON_LIFT = 18
 LABEL_TOP = 85
 LINE_HEIGHT = 15
 FONT_SIZE = 12
+# Three lines fill the slot below the icon. A label gets the room up to its row
+# neighbours, but no more than the spare column a whole-tree view keeps.
+LABEL_LINES = 3
+LABEL_GAP = 8
+LABEL_MAX_W = 3 * SLOT_W - LABEL_GAP
+READABLE_SCALE = 0.75
 HEADER_H = 28
 PLACEHOLDER = 70
 MAX_SIDE = 8192
@@ -73,24 +95,16 @@ HIGHLIGHT = "#ffcc33"
 FORMATS = ("png", "html", "both")
 LABELS = ("both", "name", "id", "none")
 _REF_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./~^@{}-]*")
-_COUNTRY_RE = re.compile(r"[A-Za-z0-9]{2,4}")
 _LOC_CODES = re.compile(r"§[A-Za-z!]")
 _SHARED_BLOCK = r"^[[:space:]]*(shared_focus|joint_focus)[[:space:]]*=[[:space:]]*\{"
 # Uncompressed 32-bit DDS with these channel masks is BGRA; Pillow decodes it per pixel in Python.
 _BGRA_MASKS = (0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000)
 _PNG_START = b"\x89PNG\r\n\x1a\n"
 _PNG_END = b"IEND\xaeB`\x82"
-
-
-class _FocusFiles(Protocol):
-    # Protocol method declaration: `...` is the abstract body, not a stub.
-    # pi-lens-ignore: no-ellipsis-body
-    def files_for_tag(self, tag: str) -> list[str]: ...
-
-
-class _Resolver(Protocol):
-    # pi-lens-ignore: no-ellipsis-body
-    def resolve(self, key: str) -> Optional[dict]: ...
+# Pillow's built-in font has ASCII glyphs only, so labels use a system font when one is found.
+_FONT_FILES = ("Arial.ttf", "arial.ttf", "DejaVuSans.ttf", "LiberationSans-Regular.ttf")
+_FONT_STACK = "Arial,'Liberation Sans','DejaVu Sans',system-ui,sans-serif"
+_CHUNK = re.compile(r"[^_./-]*[_./-]+|[^_./-]+")
 
 
 @dataclass
@@ -105,19 +119,22 @@ class _Item:
     highlighted: bool
     prerequisites: list[list[str]] = field(default_factory=list)
     mutually_exclusive: list[str] = field(default_factory=list)
+    lines: list[str] = field(default_factory=list)
 
 
 def render_focus_tree(
     mod_root: Path,
     cache_dir: Path,
-    focus_index: Optional[_FocusFiles] = None,
-    gfx_index: Optional[_Resolver] = None,
-    loc_index: Optional[_Resolver] = None,
+    focus_index: Optional[SupportsFilesForTag] = None,
+    gfx_index: Optional[GfxIndex] = None,
+    loc_index: Optional[LocalisationIndex] = None,
     *,
     tag: Optional[str] = None,
     file: Optional[str] = None,
     tree: Optional[str] = None,
     country: Optional[str] = None,
+    completed: Optional[list] = None,
+    date: Optional[str] = None,
     focus_ids: Optional[list] = None,
     region: Optional[list] = None,
     margin: int | float | str | None = 2,
@@ -138,6 +155,8 @@ def render_focus_tree(
             file,
             tree,
             country,
+            completed,
+            date,
             focus_ids,
             region,
             margin,
@@ -160,7 +179,7 @@ def render_focus_tree(
 
     errors: list[dict] = []
     if file:
-        candidates = [_relpath(file, mod_root, vanilla_path, submod_root)]
+        candidates = [scope_relpath(file, mod_root, vanilla_path, submod_root)]
     elif tag:
         if focus_index is None:
             return {"ok": False, "error": "tag= scope requires the focus index."}
@@ -187,7 +206,7 @@ def render_focus_tree(
             },
             heavy_keys=("parse_errors",),
         )
-    layout_files = [_layout_file(relpath, root, text) for relpath, root, text in sources]
+    layout_files = [layout_file(relpath, root, text) for relpath, root, text in sources]
     if any(t["shared_refs"] for source in layout_files for t in source["trees"]):
         loaded = set(candidates)
         extra = [
@@ -199,8 +218,8 @@ def render_focus_tree(
         ]
         more = _load(extra, mod_root, vanilla_path, submod_root, ref, errors)
         sources.extend(more)
-        layout_files.extend(_layout_file(relpath, root, text) for relpath, root, text in more)
-    render_data, tree_tags = _render_data(sources)
+        layout_files.extend(layout_file(relpath, root, text) for relpath, root, text in more)
+    focus_data, tree_tags = _render_data(sources)
 
     instances = assemble_tree_instances(layout_files)
     chosen, choices, why = _choose(instances, set(candidates), tag, tree)
@@ -237,20 +256,30 @@ def render_focus_tree(
         tags = tree_tags.get((tree_file, tree_line), [])
         if len(tags) == 1:
             country_value, country_source = tags[0], "tree"
-        elif tag and _COUNTRY_RE.fullmatch(tag) and len(tag) == 3:
+        elif tag and COUNTRY_RE.fullmatch(tag) and len(tag) == 3:
             country_value, country_source = tag.upper(), "tag"
 
+    evaluator = ScenarioEvaluator(
+        mod_root,
+        tree=tree_id,
+        country=country_value,
+        completed=args["completed"],
+        date=args["date"],
+    )
+    texts = {relpath: text for relpath, _root, text in sources}
     applied: list[dict] = []
     unevaluated: list[dict] = []
     by_id: dict[str, list[dict]] = defaultdict(list)
     for focus in chosen["focuses"]:
         copy = dict(focus)
-        extra_data = render_data.get((focus["file"], focus["line"], focus["id"]), {})
-        for dx, dy, trigger in extra_data.get("offsets", ()):
-            # Like the preview, an offset without a trigger never applies.
-            if trigger is None:
-                continue
-            decided = _trigger(trigger, country_value, tree_id)
+        parsed = focus_data.get((focus["file"], focus["line"], focus["id"]), {})
+        for dx, dy, trigger in parsed.get("offsets", ()):
+            # Upstream reads a missing trigger as an empty one, which holds.
+            decided = (
+                evaluator.decide("")
+                if trigger is None
+                else evaluator.decide_block(texts.get(focus["file"], ""), trigger)
+            )
             if decided and copy["x"] is not None and copy["y"] is not None:
                 copy["x"] = copy["x"] + dx
                 copy["y"] = copy["y"] + dy
@@ -258,10 +287,12 @@ def render_focus_tree(
             elif decided is None:
                 unevaluated.append({"focus": focus["id"], "x": float(dx), "y": float(dy)})
         by_id[focus["id"]].append(copy)
-    positions, failures = _resolve_positions(by_id)
+    positions, failures = resolve_positions(by_id)
 
     all_ids = set(by_id)
     warnings: list[str] = []
+    if evaluator.error:
+        warnings.append(f"offsets and conditional icons were not evaluated: {evaluator.error}")
     hidden = _expand(args["hide_branches"], all_ids, warnings, "hide_branches")
     hidden = _hide_descendants(hidden, by_id)
     highlighted = _expand(args["highlight"], all_ids, warnings, "highlight")
@@ -326,7 +357,8 @@ def render_focus_tree(
     items: list[_Item] = []
     for focus_id, (x, y) in sorted(visible.items(), key=lambda kv: (kv[1][1], kv[1][0], kv[0])):
         definition = by_id[focus_id][0]
-        extra_data = render_data.get((definition["file"], definition["line"], focus_id), {})
+        parsed = focus_data.get((definition["file"], definition["line"], focus_id), {})
+        decide_icon = partial(evaluator.decide_block, texts.get(definition["file"], ""))
         items.append(
             _Item(
                 id=focus_id,
@@ -334,13 +366,17 @@ def render_focus_tree(
                 y=y,
                 file=definition["file"],
                 line=definition["line"],
-                icon=_pick_icon(extra_data.get("icons", ()), country_value, tree_id),
+                icon=_pick_icon(parsed.get("icons", ()), decide_icon),
                 labels=_labels(focus_id, args["labels"], loc_index),
                 highlighted=focus_id in highlighted,
                 prerequisites=definition["prerequisites"],
                 mutually_exclusive=definition["mutually_exclusive"],
             )
         )
+    measure = _measure(pil)
+    room = _label_room(visible)
+    for item in items:
+        item.lines = _label_lines(item.labels, room[item.id], measure)
     by_item = {item.id: item for item in items}
     in_view = [item for item in items if min_x <= item.x <= max_x and min_y <= item.y <= max_y]
     if not in_view:
@@ -369,6 +405,11 @@ def render_focus_tree(
         warnings.append(
             f"scale {requested:g} lowered to {factor:g} to keep the PNG within "
             f"{MAX_SIDE} px a side and {MAX_PIXELS} pixels"
+        )
+    if args["format"] in ("png", "both") and args["labels"] != "none" and factor < READABLE_SCALE:
+        warnings.append(
+            f"PNG labels are too small to read at scale {factor:g}; crop with focus_ids or "
+            "region, or open the html page"
         )
 
     header = (
@@ -425,6 +466,7 @@ def render_focus_tree(
         "tree": {"id": tree_id, "file": tree_file, "line": tree_line},
         "country": country_value,
         "country_source": country_source,
+        "scenario": {"completed": len(args["completed"]), "date": args["date"]},
         "source": ref or "working tree",
         "outputs": outputs,
         "bytes": sizes,
@@ -439,6 +481,7 @@ def render_focus_tree(
         },
         "icons": icons.summary(),
         "offsets": {
+            "evaluator": EVALUATOR if evaluator.error is None else None,
             "applied": len(applied),
             "unevaluated": len(unevaluated),
             "unevaluated_sample": unevaluated[:5],
@@ -462,7 +505,7 @@ def _shared_roots_for_tag(
     mod_root: Path,
     vanilla_path: Optional[Path],
     submod_root: Optional[Path],
-    focus_index: Optional[_FocusFiles],
+    focus_index: Optional[SupportsFilesForTag],
     ref: Optional[str],
 ) -> list[str]:
     """Shared focuses without prerequisites whose id starts with `tag`."""
@@ -477,7 +520,7 @@ def _shared_roots_for_tag(
             ref,
             errors,
         )
-        for focus in _layout_file(relpath, root, text)["shared"]
+        for focus in layout_file(relpath, root, text)["shared"]
         if not focus["prerequisites"] and focus["id"].upper().startswith(tag.upper())
     ]
 
@@ -486,13 +529,13 @@ def _shared_files(
     mod_root: Path,
     vanilla_path: Optional[Path],
     submod_root: Optional[Path],
-    focus_index: Optional[_FocusFiles],
+    focus_index: Optional[SupportsFilesForTag],
     ref: Optional[str],
     errors: list[dict],
 ) -> list[str]:
-    """Files that define shared or joint focuses, found at `ref` when one is given."""
+    """Files that may define shared or joint focuses, found at `ref` when one is given."""
     if ref is None:
-        return _available_shared_files(mod_root, vanilla_path, submod_root, focus_index)
+        return available_shared_files(mod_root, vanilla_path, submod_root, focus_index)
     try:
         raw = run_git(
             ["grep", "-l", "-z", "-E", _SHARED_BLOCK, ref, "--", "common/national_focus"],
@@ -561,6 +604,8 @@ def _validate(
     file,
     tree,
     country,
+    completed,
+    date,
     focus_ids,
     region,
     margin,
@@ -579,8 +624,9 @@ def _validate(
             not isinstance(value, str) or not value.strip() or len(value) > MAX_NAME
         ):
             raise ValueError(f"{name} must be a non-empty string of at most {MAX_NAME} characters")
-    if country is not None and (not isinstance(country, str) or not _COUNTRY_RE.fullmatch(country)):
-        raise ValueError("country must be a 2-4 character country tag")
+    country = None if country is None else check_country(country)
+    date = check_date(date)
+    completed = check_completed(completed)
     if format not in FORMATS:
         raise ValueError(f"format must be one of {', '.join(FORMATS)}")
     if labels not in LABELS:
@@ -629,7 +675,9 @@ def _validate(
         "tag": tag,
         "file": file,
         "tree": tree,
-        "country": country.upper() if country else None,
+        "country": country,
+        "completed": completed,
+        "date": date,
         "region": box,
         "margin": margin_value,
         "labels": labels,
@@ -762,7 +810,7 @@ def _country_tags(node: Optional[Node]) -> Iterable[str]:
         name = (child.name or "").lower()
         if name in ("tag", "original_tag"):
             value = symbol_or_str(child)
-            if value and _COUNTRY_RE.fullmatch(value):
+            if value and COUNTRY_RE.fullmatch(value):
                 yield value.upper()
         elif isinstance(child.value, list):
             yield from _country_tags(child)
@@ -772,94 +820,31 @@ def _record(data: dict, relpath: str, node: Node, starts: list[int]) -> None:
     focus_id = symbol_or_str(node.get("id"))
     if not focus_id:
         return
-    offsets = []
-    for block in node.get_all("offset"):
-        dx = _coordinate(block.get("x")) or Decimal(0)
-        dy = _coordinate(block.get("y")) or Decimal(0)
-        offsets.append((dx, dy, block.get("trigger")))
+    offsets = [
+        (
+            coordinate(block.get("x")) or Decimal(0),
+            coordinate(block.get("y")) or Decimal(0),
+            block.get("trigger"),
+        )
+        for block in node.get_all("offset")
+        if isinstance(block.value, list)
+    ]
     data[(relpath, node_line(node, starts), focus_id)] = {
         "offsets": offsets,
-        "icons": _icon_choices(node),
+        "icons": focus_icon_choices(node),
     }
 
 
-def _icon_choices(node: Node) -> list[tuple[str, Optional[Node]]]:
-    """Icon names with the trigger block that gates each one (None when unconditional)."""
-    choices: list[tuple[str, Optional[Node]]] = []
-    for icon in node.get_all("icon"):
-        simple = symbol_or_str(icon)
-        if simple:
-            choices.append((simple, None))
-            continue
-        value = icon.get("value")
-        if value is not None:
-            name = symbol_or_str(value)
-            if name:
-                choices.append((name, icon.get("trigger")))
-            continue
-        for child in icon.children():
-            if not child.name:
-                continue
-            if isinstance(child.value, list):
-                choices.append((child.name, child))
-            elif (symbol_or_str(child) or "").lower() == "yes":
-                choices.append((child.name, None))
-    return choices
-
-
 def _pick_icon(
-    choices: Iterable[tuple[str, Optional[Node]]], country: Optional[str], tree_id: str
+    choices: Iterable[tuple[str, Optional[Node]]],
+    decide: Callable[[Node], Optional[bool]],
 ) -> Optional[str]:
+    """The first icon whose gate holds, else the first listed (the game would show none)."""
     choices = list(choices)
-    for name, trigger in choices:
-        if trigger is None or _trigger(trigger, country, tree_id):
+    for name, gate in choices:
+        if gate is None or decide(gate) is True:
             return name
     return choices[0][0] if choices else None
-
-
-def _trigger(node: Node, country: Optional[str], tree_id: str) -> Optional[bool]:
-    """AND over the block's children; None when a condition cannot be decided statically."""
-    return _all(node.children(), country, tree_id)
-
-
-def _all(nodes: list[Node], country: Optional[str], tree_id: str) -> Optional[bool]:
-    results = [_condition(n, country, tree_id) for n in nodes]
-    if False in results:
-        return False
-    if None in results:
-        return None
-    return True
-
-
-def _any(nodes: list[Node], country: Optional[str], tree_id: str) -> Optional[bool]:
-    results = [_condition(n, country, tree_id) for n in nodes]
-    if True in results:
-        return True
-    if None in results:
-        return None
-    return False
-
-
-def _condition(node: Node, country: Optional[str], tree_id: str) -> Optional[bool]:
-    name = (node.name or "").lower()
-    value = symbol_or_str(node)
-    if name in ("tag", "original_tag"):
-        if country is None or value is None:
-            return None
-        return value.upper() == country
-    if name == "has_focus_tree":
-        return None if value is None else value == tree_id
-    if name == "always":
-        return {"yes": True, "no": False}.get((value or "").lower())
-    if name == "and":
-        return _all(node.children(), country, tree_id)
-    if name == "or":
-        return _any(node.children(), country, tree_id)
-    if name == "not":
-        # NOT holds when none of its children do.
-        found = _any(node.children(), country, tree_id)
-        return None if found is None else not found
-    return None
 
 
 def _choose(
@@ -925,7 +910,7 @@ def _hide_descendants(hidden: set[str], by_id: dict[str, list[dict]]) -> set[str
     return hidden
 
 
-def _labels(focus_id: str, mode: str, loc_index: Optional[_Resolver]) -> list[str]:
+def _labels(focus_id: str, mode: str, loc_index: Optional[LocalisationIndex]) -> list[str]:
     if mode == "none":
         return []
     if mode == "id":
@@ -938,6 +923,77 @@ def _labels(focus_id: str, mode: str, loc_index: Optional[_Resolver]) -> list[st
     if mode == "name":
         return [name or focus_id]
     return [focus_id, name] if name and name != focus_id else [focus_id]
+
+
+def _label_room(positions: dict[str, tuple[float, float]]) -> dict[str, float]:
+    """Pixels each focus's label may take: up to the nearest focus either side in its row."""
+    rows: dict[float, list[tuple[float, str]]] = defaultdict(list)
+    for focus_id, (x, y) in positions.items():
+        rows[y].append((x, focus_id))
+    room: dict[str, float] = {}
+    for row in rows.values():
+        row.sort()
+        for index, (x, focus_id) in enumerate(row):
+            gaps = [abs(x - row[i][0]) for i in (index - 1, index + 1) if 0 <= i < len(row)]
+            width = min(gaps) * SLOT_W - LABEL_GAP if gaps else LABEL_MAX_W
+            room[focus_id] = max(SLOT_W - LABEL_GAP, min(LABEL_MAX_W, width))
+    return room
+
+
+def _label_lines(labels: list[str], width: float, measure: Callable[[str], float]) -> list[str]:
+    """Wrap a focus's labels into at most LABEL_LINES lines, cutting the overflow with "..."."""
+    wrapped = [_wrap(text, width, measure) for text in labels]
+    if len(wrapped) != 2:
+        return [line for text in wrapped for line in _cut(text, LABEL_LINES, width, measure)]
+    focus_id, name = wrapped
+    # The id is what a reader looks up, so it keeps up to two lines; the name gets the rest.
+    id_lines = min(len(focus_id), LABEL_LINES - 1)
+    name_lines = min(len(name), LABEL_LINES - id_lines)
+    id_lines = min(len(focus_id), LABEL_LINES - name_lines)
+    return _cut(focus_id, id_lines, width, measure) + _cut(name, name_lines, width, measure)
+
+
+def _wrap(text: str, width: float, measure: Callable[[str], float]) -> list[str]:
+    """Break at spaces, then after `_`, `.`, `/` or `-`, then anywhere."""
+    lines: list[str] = []
+    line = ""
+    for word in text.split():
+        for index, chunk in enumerate(_CHUNK.findall(word)):
+            candidate = line + (" " if index == 0 and line else "") + chunk
+            if not line or measure(candidate) <= width:
+                line = candidate
+            else:
+                lines.append(line)
+                line = chunk
+            while len(line) > 1 and measure(line) > width:
+                cut = len(line) - 1
+                while cut > 1 and measure(line[:cut]) > width:
+                    cut -= 1
+                lines.append(line[:cut])
+                line = line[cut:]
+    if line:
+        lines.append(line)
+    return lines
+
+
+def _cut(lines: list[str], limit: int, width: float, measure: Callable[[str], float]) -> list[str]:
+    if len(lines) <= limit:
+        return lines
+    if limit <= 0:
+        return []
+    last = lines[limit - 1]
+    while last and measure(last + "...") > width:
+        last = last[:-1]
+    return [*lines[: limit - 1], last + "..."]
+
+
+def _measure(pil: Any) -> Callable[[str], float]:
+    """Width of a label line in unscaled pixels, measured with the PNG's font."""
+    font = None if pil is None else _font(pil[2], FONT_SIZE)
+    length = getattr(font, "getlength", None)
+    if length is None:
+        return lambda text: len(text) * 6.5
+    return lru_cache(maxsize=None)(length)
 
 
 def _stem(tree_id: str, country: Optional[str], ref: Optional[str], args: dict) -> str:
@@ -1009,7 +1065,7 @@ class _IconLoader:
 
     def __init__(
         self,
-        gfx_index: Optional[_Resolver],
+        gfx_index: Optional[GfxIndex],
         mod_root: Path,
         vanilla_path: Optional[Path],
         submod_root: Optional[Path],
@@ -1178,7 +1234,7 @@ def _render_png(
     for item in scene.items:
         left, top = scene.origin(item)
         centre_x = px(left + SLOT_W / 2)
-        for index, text in enumerate(item.labels):
+        for index, text in enumerate(item.lines):
             label_y = px(top + LABEL_TOP + index * LINE_HEIGHT)
             text_width = draw.textlength(text, font=font)
             draw.text((centre_x - text_width / 2, label_y), text, fill=TEXT, font=font)
@@ -1192,10 +1248,23 @@ def _render_png(
 
 
 def _font(font_module: Any, size: int) -> Any:
+    path = _font_path(font_module)
+    if path is not None:
+        with suppress(OSError, ValueError):
+            return font_module.truetype(path, size)
     try:
         return font_module.load_default(size=size)
     except TypeError:
         return font_module.load_default()
+
+
+@lru_cache(maxsize=None)
+def _font_path(font_module: Any) -> Optional[str]:
+    """The first system font in _FONT_FILES that Pillow can find, looked up once."""
+    for name in _FONT_FILES:
+        with suppress(OSError, ValueError):
+            return font_module.truetype(name, FONT_SIZE).path
+    return None
 
 
 def _line(
@@ -1254,10 +1323,14 @@ def _render_html(scene: _Scene, header: str, icons: _IconLoader) -> str:
             icon_html = f'<div class="i {css}"></div>'
         else:
             icon_html = '<div class="m"></div>'
+        names = [text for text in item.labels if text != item.id]
         title = html.escape(
-            f"{item.id} ({_num(item.x)}, {_num(item.y)})\n{item.file}:{item.line}", quote=True
+            "\n".join(
+                [f"{item.id} ({_num(item.x)}, {_num(item.y)})", *names, f"{item.file}:{item.line}"]
+            ),
+            quote=True,
         )
-        label = "<br>".join(html.escape(text) for text in item.labels)
+        label = "<br>".join(html.escape(text) for text in item.lines)
         classes = "f hl" if item.highlighted else "f"
         parts.append(
             f'<div class="{classes}" style="left:{left:g}px;top:{top:g}px" title="{title}">'
@@ -1268,7 +1341,7 @@ def _render_html(scene: _Scene, header: str, icons: _IconLoader) -> str:
     base_css = "\n".join(
         [
             f"body{{margin:0;background:{BACKGROUND};color:{TEXT};"
-            f"font:{FONT_SIZE}px/{LINE_HEIGHT}px system-ui,-apple-system,sans-serif}}",
+            f"font:{FONT_SIZE}px/{LINE_HEIGHT}px {_FONT_STACK}}}",
             f".hdr{{position:sticky;top:0;left:0;z-index:10;height:{HEADER_H}px;"
             f"line-height:{HEADER_H}px;padding:0 8px;background:#2d2d2d;white-space:nowrap}}",
             f".tree{{position:relative;width:{width:g}px;height:{height:g}px;overflow:hidden}}",

@@ -164,9 +164,9 @@ TOOL_SIGNATURES = {
     "check_refs": "tag=None, files=None, kinds=None, limit=200, offset=0, counts_only=False",
     "focus_layout": "tag=None, file=None, include_positions=False, limit=300, offset=0",
     "render_focus_tree": (
-        "tree=None, file=None, tag=None, country=None, focus_ids=None, region=None, margin=2, "
-        "hide_branches=None, highlight=None, labels='both', format='png', scale=None, ref=None, "
-        "limit=20"
+        "tree=None, file=None, tag=None, country=None, completed=None, date=None, focus_ids=None, "
+        "region=None, margin=2, hide_branches=None, highlight=None, labels='both', format='png', "
+        "scale=None, ref=None, limit=20"
     ),
     "focus_overlap_scenarios": (
         "file, tag, completed=None, date=None, include_positions=False, limit=50, offset=0"

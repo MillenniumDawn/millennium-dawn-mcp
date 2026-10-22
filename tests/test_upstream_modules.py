@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -94,6 +95,41 @@ def test_reset_removes_path_entries_and_owned_modules(tmp_path):
 
     assert str(root.resolve() / "tools") not in sys.path
     assert not set(_NAMES) & set(sys.modules)
+
+
+def test_a_reset_waits_for_another_owners_import(tmp_path, monkeypatch):
+    """Two loaders own one bare name; a reset must not pop it from under an import."""
+    started, release = threading.Event(), threading.Event()
+    monkeypatch.setattr(sys, "md_test_gate", (started, release), raising=False)
+    monkeypatch.delitem(sys.modules, "md_test_slow", raising=False)
+    root = tmp_path / "mod"
+    (root / "tools" / "sub").mkdir(parents=True)
+    (root / "tools" / "md_test_slow.py").write_text(
+        "import sys\n\nstarted, release = sys.md_test_gate\nstarted.set()\nrelease.wait(5)\n",
+        encoding="utf-8",
+    )
+    importer = UpstreamModules("sub", ("md_test_slow",))
+    other = UpstreamModules("sub", ("md_test_slow",))
+    outcome: list[object] = []
+
+    def load() -> None:
+        try:
+            outcome.append(importer.load(root, ["md_test_slow"])["md_test_slow"])
+        except Exception as exc:
+            outcome.append(exc)
+
+    loading = threading.Thread(target=load)
+    loading.start()
+    assert started.wait(5)
+    resetting = threading.Thread(target=other.reset)
+    resetting.start()
+    resetting.join(0.2)
+    release.set()
+    loading.join(5)
+    resetting.join(5)
+    importer.reset()
+
+    assert len(outcome) == 1 and not isinstance(outcome[0], Exception), outcome
 
 
 def test_fix_lint_and_standardize_share_one_mod_root(tmp_path):

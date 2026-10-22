@@ -277,13 +277,13 @@ def test_file_scope_without_imports_does_not_initialize_or_scan_index(tmp_path, 
 
     module = importlib.import_module("md_mcp.analysis.focus_layout")
     parsed_files = []
-    parse_layout = module._layout_file
+    parse_layout = module.layout_file
 
     def count_layout_files(relpath, root, source):
         parsed_files.append(relpath)
         return parse_layout(relpath, root, source)
 
-    monkeypatch.setattr(module, "_layout_file", count_layout_files)
+    monkeypatch.setattr(module, "layout_file", count_layout_files)
     out = focus_layout(tmp_path, _IndexMustStayCold(), file=requested)
 
     assert parsed_files == [requested]
@@ -329,13 +329,13 @@ def test_index_metadata_limits_import_parsing_to_shared_files(tmp_path, monkeypa
 
     module = importlib.import_module("md_mcp.analysis.focus_layout")
     parsed_files = []
-    parse_layout = module._layout_file
+    parse_layout = module.layout_file
 
     def count_layout_files(relpath, root, source):
         parsed_files.append(relpath)
         return parse_layout(relpath, root, source)
 
-    monkeypatch.setattr(module, "_layout_file", count_layout_files)
+    monkeypatch.setattr(module, "layout_file", count_layout_files)
     out = focus_layout(tmp_path, _IndexedFiles(), file=requested, include_positions=True)
 
     assert set(parsed_files) == {requested, shared}

@@ -159,13 +159,13 @@ def _fake_api(monkeypatch, root: Path):
             utility = types.ModuleType("shared_utils")
             cast(Any, utility).strip_comments = lambda text: text
             cast(Any, utility).blank_quoted_strings = lambda text: text
-            sys.modules["shared_utils"] = utility
+            monkeypatch.setitem(sys.modules, "shared_utils", utility)
             return utility
         if name == "_md_mcp_upstream_focus_overlap_report":
             utility = types.ModuleType("shared_utils")
             cast(Any, utility).strip_comments = lambda text: text
             cast(Any, utility).blank_quoted_strings = lambda text: text
-            sys.modules["shared_utils"] = utility
+            monkeypatch.setitem(sys.modules, "shared_utils", utility)
             return module
         raise AssertionError(name)
 
@@ -426,6 +426,7 @@ def test_wrapper_validates_scenario_and_forwards_explicit_scope(monkeypatch, fak
         completed=cast(list[str], [1]),
     )
     assert not bad_tag["ok"] and not bad_complete["ok"]
+    assert bad_tag["error"] == "tag must be a 2-4 character country tag"
     good = upstream_analysis.focus_overlap_scenarios_tool(
         fake_mod_root,
         "common/national_focus/test.txt",
@@ -445,6 +446,26 @@ def test_wrapper_validates_scenario_and_forwards_explicit_scope(monkeypatch, fak
     assert payload["date"] == "1936.1.1"
     assert payload["limit"] == 100 and payload["offset"] == 2
     assert timeout > 0
+
+
+@pytest.mark.parametrize(
+    ("date", "message"),
+    [
+        ("2006.13.1", "date must be a valid calendar date in YYYY.M.D form"),
+        ("June 1936", "date must be a YYYY.M.D string"),
+    ],
+)
+def test_wrapper_rejects_bad_dates_before_the_shim(monkeypatch, fake_mod_root, date, message):
+    monkeypatch.setattr(
+        upstream_analysis, "_run_shim", lambda *args, **kwargs: pytest.fail("shim called")
+    )
+
+    result = upstream_analysis.focus_overlap_scenarios_tool(
+        fake_mod_root, "common/national_focus/test.txt", "TST", date=date
+    )
+
+    assert result["ok"] is False
+    assert message in result["error"]
 
 
 def test_wrapper_accepts_only_explicit_file_from_configured_submod(

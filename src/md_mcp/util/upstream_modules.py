@@ -10,9 +10,15 @@ from __future__ import annotations
 
 import importlib
 import sys
+import threading
 from pathlib import Path
 from types import ModuleType
 from typing import Iterable, Optional
+
+# Every instance shares `sys.path` and bare names such as `shared_utils`. One
+# lock for all of them, so a reset cannot pop a module another thread is still
+# importing (that import then fails with KeyError).
+_LOCK = threading.RLock()
 
 
 class UpstreamModules:
@@ -30,27 +36,29 @@ class UpstreamModules:
     def load(self, mod_root: Path, names: Iterable[str]) -> dict[str, ModuleType]:
         """Import `names` for `mod_root` and return every module loaded for it so far."""
         root = mod_root.resolve()
-        if root != self._root:
-            self.reset()
-            self._dirs = [str(root / "tools"), str(root / "tools" / self._subdir)]
-            for directory in self._dirs:
-                if directory in sys.path:
-                    sys.path.remove(directory)
-                sys.path.insert(0, directory)
-            self._root = root
+        with _LOCK:
+            if root != self._root:
+                self.reset()
+                self._dirs = [str(root / "tools"), str(root / "tools" / self._subdir)]
+                for directory in self._dirs:
+                    if directory in sys.path:
+                        sys.path.remove(directory)
+                    sys.path.insert(0, directory)
+                self._root = root
 
-        for name in names:
-            if name not in self._loaded:
-                self._loaded[name] = importlib.import_module(name)
-        return self._loaded
+            for name in names:
+                if name not in self._loaded:
+                    self._loaded[name] = importlib.import_module(name)
+            return self._loaded
 
     def reset(self) -> None:
         """Forget the current root, so its path entries cannot resolve another root's imports."""
-        for directory in self._dirs:
-            while directory in sys.path:
-                sys.path.remove(directory)
-        for name in self._owned:
-            sys.modules.pop(name, None)
-        self._root = None
-        self._dirs = []
-        self._loaded = {}
+        with _LOCK:
+            for directory in self._dirs:
+                while directory in sys.path:
+                    sys.path.remove(directory)
+            for name in self._owned:
+                sys.modules.pop(name, None)
+            self._root = None
+            self._dirs = []
+            self._loaded = {}

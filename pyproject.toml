@@ -25,6 +25,10 @@ dev = [
   "pyyaml>=6.0",
   "types-PyYAML",
   "pre-commit>=4.0",
+  "Pillow>=10.1",
+]
+render = [
+  "Pillow>=10.1",
 ]
 
 [project.scripts]

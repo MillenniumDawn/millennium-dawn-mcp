@@ -660,6 +660,10 @@ def _focus_overlap_scenarios(mod_root: Path, payload: dict) -> dict:
                 elif isinstance(id_node.value, (str, int, float)):
                     expected_focus_ids.add(str(id_node.value))
         text = shared_utils.blank_quoted_strings(shared_utils.strip_comments(raw_text))
+        # Helpers that decide has_focus_tree read the tree from the file, as their CLI does.
+        file_focus_tree = getattr(module, "file_focus_tree", None)
+        if callable(file_focus_tree):
+            scenario.focus_tree = file_focus_tree(text)
         focuses = module.parse_focus_file(text)
         if not isinstance(focuses, dict):
             return {

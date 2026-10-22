@@ -20,6 +20,9 @@
 
 ### Changed
 
+- `focus_overlap_scenarios` answers `has_focus_tree` with the file's own `focus_tree` id when the
+  mod's helper can decide it, matching the helper's CLI, so offsets gated on the tree are applied.
+  `scenario.focus_tree` reports the tree. Older helpers leave those tests unknown, as before.
 - `generate_gfx_merge` finds blocks with compiled patterns in place of four character loops. The
   merged text and the report are unchanged. On `interface/goals.gfx` (1.2 MB) the call drops from
   339 ms to 216 ms, and the block scan inside it from 165 ms to 47 ms.

@@ -37,6 +37,9 @@
 
 ### Changed
 
+- `focus_overlap_scenarios` answers `has_focus_tree` with the file's own `focus_tree` id when the
+  mod's helper can decide it, matching the helper's CLI, so offsets gated on the tree are applied.
+  `scenario.focus_tree` reports the tree. Older helpers leave those tests unknown, as before.
 - Focus tree assembly moved out of `focus_layout` into `analysis/focus_tree.py`
   (`assemble_tree_instances`, `layout_file`, `resolve_positions`, `available_shared_files`,
   `scope_relpath`, `coordinate`, `SupportsFilesForTag`), shared by `focus_layout` and

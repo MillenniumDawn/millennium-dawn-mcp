@@ -861,6 +861,10 @@ definition of a duplicate focus id, and unresolved relative chains produce
 partial coordinates. Reports label that uncertainty and include
 total/returned/truncated counts. Missing or unsupported upstream
 helpers, invalid paths, and invalid scenarios return `{ok: false, error}`.
+When the helper can decide `has_focus_tree`, the country's tree is the file's
+own `focus_tree` id, as in the helper's CLI, and `scenario.focus_tree` reports
+it. A file with no tree or several, or an older helper, leaves those tests
+unknown.
 The file is read-only and checked for balanced Paradox syntax before the
 upstream scan. The MCP parser's focus ids are compared with the helper's parsed
 ids; compact or otherwise unrecognized definitions are refused instead of

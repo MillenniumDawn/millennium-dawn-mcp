@@ -548,29 +548,6 @@ def test_standardize_text_exception_surfaces(tmp_path: Path):
     assert "upstream exploded" in result["error"]
 
 
-def test_clip_txt_binary_search_trims_txt_to_fit():
-    junk = "y" * 99_000
-    out = standardize_tools._clip_txt(
-        {"ok": True, "kind": "focus", "changed": False, "junk": junk},
-        "x" * 2_000,
-    )
-
-    assert out["txt_truncated"] is True
-    assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
-    assert len(out["txt"]) < 2_000
-
-
-def test_clip_txt_returns_bounded_fallback_when_nothing_fits():
-    junk = "y" * 99_900
-    out = standardize_tools._clip_txt(
-        {"ok": True, "kind": "focus", "changed": False, "junk": junk},
-        "x" * 2_000,
-    )
-
-    assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
-    assert "exceeded byte budget" in out["error"]
-
-
 # ---------------------------------------------------------------------------
 # Localisation (issue #136) — unit tests on the stand-in localisation core.
 # ---------------------------------------------------------------------------

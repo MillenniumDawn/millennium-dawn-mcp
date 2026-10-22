@@ -6,7 +6,6 @@ import asyncio
 import importlib
 import json
 import math
-import shutil
 import sys
 import time
 from datetime import timedelta
@@ -15,7 +14,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from mcp import ClientSession, StdioServerParameters
+from mcp import ClientSession
 from mcp.client.stdio import stdio_client
 from mcp.types import TextContent
 
@@ -24,6 +23,7 @@ from md_mcp.analysis.scope import iter_scope_files
 from md_mcp.config import load as load_settings
 from md_mcp.indexes import FocusIndex
 from md_mcp.util.response import BUDGET_BYTES
+from tests.support.stdio import server_parameters
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
 
@@ -787,22 +787,12 @@ def test_focus_layout_live_stdio_and_brazil_matches_upstream_helper(
     brazil_file = "common/national_focus/05_brazil.txt"
     no_import_file = "common/national_focus/05_afghanistan.txt"
     cache_dir = tmp_path / "mcp-cache"
-    command = shutil.which("md-mcp")
-    assert command is not None
     source_root = SOURCE_ROOT
     module_spec = find_spec("md_mcp.analysis.focus_layout")
     assert module_spec is not None and module_spec.origin is not None
     module_source = Path(module_spec.origin).resolve()
     assert module_source == (source_root / "md_mcp" / "analysis" / "focus_layout.py").resolve()
-    parameters = StdioServerParameters(
-        command=command,
-        args=["serve", "--mod-root", str(real_mod_root)],
-        env={
-            "MD_MCP_CACHE_DIR": str(cache_dir),
-            "MD_MCP_SERIAL_PARSE": "1",
-            "PYTHONPATH": str(source_root),
-        },
-    )
+    parameters = server_parameters(real_mod_root, cache_dir)
 
     async def probe_stdio():
         async with (

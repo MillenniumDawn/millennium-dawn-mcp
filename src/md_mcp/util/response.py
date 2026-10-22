@@ -145,6 +145,37 @@ def fit_prefix(
     return build(low)
 
 
+def bounded_text(result: dict, txt: str, *, heavy_keys: Sequence[str] = ("txt",)) -> dict:
+    """Fit `txt` to the JSON output budget and report any content clipping."""
+    note = "txt clipped to fit the response budget; do NOT write clipped content back"
+    if result.get("note"):
+        note = f"{result['note']}; {note}"
+    txt, total, returned, truncated = clip_utf8(txt, MAX_TEXT_BYTES)
+    result.update(
+        {
+            "txt": txt,
+            "txt_bytes": total,
+            "txt_returned_bytes": returned,
+            "txt_truncated": truncated,
+        }
+    )
+    if truncated:
+        result["note"] = note
+
+    # Escaping can inflate txt past the budget; keep the longest prefix that fits.
+    def shrunk(chars: int) -> dict:
+        prefix = txt[:chars]
+        return {
+            **result,
+            "txt": prefix,
+            "txt_returned_bytes": len(prefix.encode("utf-8")),
+            "txt_truncated": True,
+            "note": note,
+        }
+
+    return enforce_budget(fit_prefix(result, len(txt), shrunk), heavy_keys=heavy_keys)
+
+
 def _jsize(obj: Any) -> int:
     """UTF-8 byte length of `obj`'s JSON encoding. Raises on unserializable input."""
     return len(json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8"))

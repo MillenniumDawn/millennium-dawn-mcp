@@ -475,6 +475,33 @@ def test_truncation_clips_txt_and_warns(tmp_path):
     assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("\t" * 60_000, id="tabs"),
+        pytest.param("\x01" * 20_000, id="control-characters"),
+        pytest.param('\\"' * 30_000, id="quotes-and-backslashes"),
+        pytest.param("é" * 60_000, id="utf8-boundary"),
+    ],
+)
+def test_fixed_text_keeps_a_prefix_when_json_expands(tmp_path, body):
+    out = fix_lint_tool(tmp_path, fixer="line_endings", content=body + "\r\n")
+    fixed = body + "\n"
+
+    assert out["ok"] is True
+    assert out["changed"] is True
+    assert out["fixes"] == 1
+    assert out["summary"] == {"crlf_to_lf": 1}
+    assert out["txt_truncated"] is True
+    assert 0 < len(out["txt"]) < len(fixed)
+    assert fixed.startswith(out["txt"])
+    assert out["txt_bytes"] == len(fixed.encode("utf-8"))
+    assert out["txt_returned_bytes"] == len(out["txt"].encode("utf-8"))
+    assert "txt_dropped" not in out
+    assert "do NOT write clipped content back" in out["note"]
+    assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+
+
 def test_oversized_unchanged_content_is_budget_safe(tmp_path):
     _plant_upstream(tmp_path)
     out = fix_lint_tool(tmp_path, fixer="styling", content="a" * 120_000 + "\n")

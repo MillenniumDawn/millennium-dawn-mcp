@@ -170,6 +170,97 @@ def test_find_focuses_reports_index_records_missing_after_reparse(
     ]
 
 
+@pytest.mark.parametrize(
+    ("filters", "line", "kind"),
+    [
+        ({"has_prereq": "DUP_first"}, 2, "focus_tree"),
+        ({"mutex_with": "DUP_first_mutex"}, 2, "focus_tree"),
+        ({"has_prereq": "DUP_second", "mutex_with": "DUP_second_mutex"}, 7, "focus_tree"),
+        ({"has_prereq": "DUP_shared"}, 13, "shared_focus"),
+        ({"has_prereq": "DUP_shared", "kind": "focus_tree"}, None, None),
+    ],
+)
+def test_find_focuses_filters_duplicate_ids_by_location(
+    fake_mod_root, cache_dir, filters, line, kind
+):
+    relpath = "common/national_focus/duplicates.txt"
+    (fake_mod_root / relpath).write_text(
+        "focus_tree = {\n"
+        "    focus = {\n"
+        "        id = DUP_same\n"
+        "        prerequisite = { focus = DUP_first }\n"
+        "        mutually_exclusive = { focus = DUP_first_mutex }\n"
+        "    }\n"
+        "    focus = {\n"
+        "        id = DUP_same\n"
+        "        prerequisite = { focus = DUP_second }\n"
+        "        mutually_exclusive = { focus = DUP_second_mutex }\n"
+        "    }\n"
+        "}\n"
+        "shared_focus = {\n"
+        "    id = DUP_same\n"
+        "    prerequisite = { focus = DUP_shared }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    out = analysis_tools.find_focuses_tool(
+        in_process_settings(fake_mod_root, cache_dir),
+        FocusIndex(fake_mod_root, cache_dir),
+        tag="DUP",
+        **filters,
+    )
+
+    assert out["partial"] is False
+    assert out["matches"] == (
+        [{"id": "DUP_same", "file": relpath, "line": line, "kind": kind}] if line else []
+    )
+    assert out["total"] == len(out["matches"])
+
+
+def test_find_focuses_reports_same_line_duplicate_ambiguity(fake_mod_root, cache_dir):
+    relpath = "common/national_focus/duplicates.txt"
+    (fake_mod_root / relpath).write_text(
+        "focus_tree = { focus = { id = DUP_same prerequisite = { focus = DUP_root } } "
+        "focus = { id = DUP_same prerequisite = { focus = DUP_root } } }\n",
+        encoding="utf-8",
+    )
+
+    out = analysis_tools.find_focuses_tool(
+        in_process_settings(fake_mod_root, cache_dir),
+        FocusIndex(fake_mod_root, cache_dir),
+        tag="DUP",
+        has_prereq="DUP_root",
+    )
+
+    assert out["matches"] == []
+    assert out["partial"] is True
+    assert out["skipped_records"] == 2
+    assert out["skipped_files"] == 0
+    assert out["partial_errors_total"] == 2
+    assert all("ambiguous" in error["error"] for error in out["partial_errors"])
+
+
+def test_find_focuses_reports_moved_indexed_line(fake_mod_root, cache_dir, monkeypatch):
+    source = fake_mod_root / "common/national_focus/stale.txt"
+    text = _focus_text("DUP_moved")
+    source.write_text(text, encoding="utf-8")
+    index = FocusIndex(fake_mod_root, cache_dir)
+    index.ensure_fresh()
+    source.write_text("\n" + text, encoding="utf-8")
+    monkeypatch.setattr(index._stale_check, "should_check", lambda: False)
+
+    out = analysis_tools.find_focuses_tool(
+        in_process_settings(fake_mod_root, cache_dir), index, tag="DUP", has_prereq="TST_root"
+    )
+
+    assert out["matches"] == []
+    assert out["partial"] is True
+    assert out["skipped_records"] == 1
+    assert out["partial_errors_total"] == 1
+    assert "stale" in out["partial_errors"][0]["error"]
+
+
 def test_find_focuses_bounds_partial_errors(fake_mod_root, cache_dir, monkeypatch):
     focus_dir = fake_mod_root / "common" / "national_focus"
     for name in ("broken_a.txt", "broken_b.txt"):

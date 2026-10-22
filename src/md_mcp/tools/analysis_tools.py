@@ -8,6 +8,7 @@ from ..analysis.scope import iter_scope_files
 from ..config import Settings
 from ..indexes import FocusIndex
 from ..paradox.schema import extract_focus_records
+from ..util.index_anchor import IndexAnchorError, select_indexed_anchor
 from ..util.response import coerce_int, enforce_budget, paginate
 
 _MAX_PARTIAL_ERRORS = 20
@@ -173,7 +174,9 @@ def _filter_deep(
     ):
         relpath = parsed.relpath
         group = by_file[relpath]
-        details = {r["id"]: r for r in extract_focus_records(parsed.root, source=parsed.text)}
+        details: dict[str, list[tuple[Optional[int], dict]]] = {}
+        for record in extract_focus_records(parsed.root, source=parsed.text):
+            details.setdefault(record["id"], []).append((record["line"], record))
         missing_ids = [c["id"] for c in group if c["id"] not in details]
         if missing_ids:
             skipped_records += len(missing_ids)
@@ -188,8 +191,17 @@ def _filter_deep(
             )
 
         for c in group:
-            detail = details.get(c["id"])
-            if detail is None:
+            if c["id"] not in details:
+                continue
+            try:
+                detail = select_indexed_anchor(
+                    details[c["id"]], line=c.get("line"), kind="Focus", ident=c["id"]
+                )
+            except IndexAnchorError as exc:
+                skipped_records += 1
+                errors.append(
+                    {"file": relpath, "id": c["id"], "line": c.get("line"), "error": exc.args[0]}
+                )
                 continue
             if has_prereq:
                 flat_prereqs = {p for group_ in detail["prerequisites"] for p in group_}

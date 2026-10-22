@@ -3,22 +3,20 @@
 import asyncio
 import json
 import os
-import shutil
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from mcp import ClientSession, StdioServerParameters
+from mcp import ClientSession
 from mcp.client.stdio import stdio_client
 
 from md_mcp.analysis.issue_delta import _compute_toolshash
+from tests.support.stdio import server_parameters
 
 pytestmark = pytest.mark.integration
 
 
 async def _probe_delta(mod_root: Path, tmp_path: Path) -> None:
-    command = shutil.which("md-mcp")
-    assert command is not None
     fixture = tmp_path / "mod"
     fixture.mkdir()
     (fixture / "descriptor.mod").write_text('name = "Delta test"\n', encoding="utf-8")
@@ -27,11 +25,7 @@ async def _probe_delta(mod_root: Path, tmp_path: Path) -> None:
     events = fixture / "events"
     events.mkdir()
     (events / "known.txt").write_text("country_event = { unbalanced = [ }\n", encoding="utf-8")
-    params = StdioServerParameters(
-        command=command,
-        args=["serve", "--mod-root", str(fixture)],
-        env={"MD_MCP_CACHE_DIR": str(tmp_path / "cache")},
-    )
+    params = server_parameters(fixture, tmp_path / "cache")
     async with (
         stdio_client(params) as (read, write),
         ClientSession(read, write, read_timeout_seconds=timedelta(seconds=180)) as session,

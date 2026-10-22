@@ -8,6 +8,8 @@ import pytest
 
 from md_mcp.util.response import (
     BUDGET_BYTES,
+    MAX_TEXT_BYTES,
+    bounded_text,
     clip_utf8,
     coerce_int,
     enforce_budget,
@@ -166,3 +168,76 @@ def test_fit_prefix_returns_the_empty_prefix_when_nothing_fits():
 )
 def test_clip_utf8_cuts_on_a_character_boundary(text, max_bytes, expected):
     assert clip_utf8(text, max_bytes) == expected
+
+
+def test_bounded_text_binary_search_trims_txt_to_fit():
+    junk = "y" * 99_000
+    out = bounded_text(
+        {"ok": True, "kind": "focus", "changed": False, "junk": junk},
+        "x" * 2_000,
+    )
+
+    assert out["txt_truncated"] is True
+    assert _byte_size(out) <= BUDGET_BYTES
+    assert len(out["txt"]) < 2_000
+
+
+def test_bounded_text_returns_bounded_fallback_when_nothing_fits():
+    junk = "y" * 99_900
+    out = bounded_text(
+        {"ok": True, "kind": "focus", "changed": False, "junk": junk},
+        "x" * 2_000,
+    )
+
+    assert _byte_size(out) <= BUDGET_BYTES
+    assert "exceeded byte budget" in out["error"]
+
+
+@pytest.mark.parametrize("text", ["", "small é\n", "x" * MAX_TEXT_BYTES])
+def test_bounded_text_preserves_complete_text_and_existing_note(text):
+    out = bounded_text({"ok": True, "note": "Keep the BOM", "warnings": ["review"]}, text)
+
+    assert out == {
+        "ok": True,
+        "note": "Keep the BOM",
+        "warnings": ["review"],
+        "txt": text,
+        "txt_bytes": len(text.encode("utf-8")),
+        "txt_returned_bytes": len(text.encode("utf-8")),
+        "txt_truncated": False,
+    }
+
+
+def test_bounded_text_keeps_the_longest_json_prefix_and_existing_diagnostics():
+    text = "é\x01" * 20_000
+    out = bounded_text({"ok": True, "note": "Keep the BOM", "warnings": ["review"]}, text)
+
+    assert 0 < len(out["txt"]) < len(text)
+    assert text.startswith(out["txt"])
+    assert out["txt_truncated"] is True
+    assert out["txt_bytes"] == len(text.encode("utf-8"))
+    assert out["txt_returned_bytes"] == len(out["txt"].encode("utf-8"))
+    assert out["warnings"] == ["review"]
+    assert out["note"].startswith("Keep the BOM; ")
+    assert "do NOT write clipped content back" in out["note"]
+    assert _byte_size(out) <= BUDGET_BYTES
+    longer = text[: len(out["txt"]) + 1]
+    assert (
+        _byte_size({**out, "txt": longer, "txt_returned_bytes": len(longer.encode("utf-8"))})
+        > BUDGET_BYTES
+    )
+
+
+def test_bounded_text_dropped_payload_does_not_claim_returned_bytes():
+    out = bounded_text(
+        {"ok": True, "warnings": ["x" * BUDGET_BYTES]},
+        "text",
+        heavy_keys=("txt", "warnings"),
+    )
+
+    assert out["ok"] is True
+    assert "txt" not in out
+    assert out["txt_returned_bytes"] == 0
+    assert out["txt_truncated"] is True
+    assert out["warnings_dropped"] == 1
+    assert _byte_size(out) <= BUDGET_BYTES

@@ -31,7 +31,7 @@ from typing import Optional
 
 from ..util.encoding import UTF8_BOM
 from ..util.pathing import PathAccessError, roots_for, validate_user_path
-from ..util.response import MAX_TEXT_BYTES, clip_utf8, enforce_budget
+from ..util.response import bounded_text, enforce_budget
 from ..util.upstream_modules import UpstreamModules
 from ..validators.attribution import normalize_path
 
@@ -366,7 +366,7 @@ def _finish(
     result["changed"] = fixed != original
     if not result["changed"]:
         return enforce_budget(result, heavy_keys=("txt", "warnings"))
-    return _emit_txt(result, fixed)
+    return bounded_text(result, fixed, heavy_keys=("txt", "warnings"))
 
 
 def _finish_line_endings(result: dict, raw: bytes) -> dict:
@@ -392,7 +392,7 @@ def _finish_line_endings(result: dict, raw: bytes) -> dict:
                 f"tools/linting/fix_line_endings.py manually."
             ),
         }
-    return _emit_txt(result, text)
+    return bounded_text(result, text, heavy_keys=("txt", "warnings"))
 
 
 def _fix_log_ids(
@@ -437,22 +437,4 @@ def _fix_log_ids(
 
     count = len(mismatches)
     result.update({"changed": True, "fixes": count, "summary": {f"{kind}_log_ids": count}})
-    return _emit_txt(result, "".join(lines))
-
-
-def _emit_txt(result: dict, txt: str) -> dict:
-    txt, total, returned, truncated = clip_utf8(txt, MAX_TEXT_BYTES)
-    result.update(
-        {
-            "txt": txt,
-            "txt_bytes": total,
-            "txt_returned_bytes": returned,
-            "txt_truncated": truncated,
-        }
-    )
-    if truncated:
-        result["note"] = (
-            "txt clipped to fit the response budget; do NOT write clipped "
-            "content back — edit the file directly instead"
-        )
-    return enforce_budget(result, heavy_keys=("txt", "warnings"))
+    return bounded_text(result, "".join(lines), heavy_keys=("txt", "warnings"))

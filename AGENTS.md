@@ -15,7 +15,7 @@ live under [`docs/`](./docs/).
 `Millennium-Dawn/tools/` validators and ports the `MD-VSCode-Utility-Tool`
 paradox-script parser. It exposes:
 
-- **52 tools** (resolvers, parsers, finders, validation, generators,
+- **53 tools** (resolvers, parsers, finders, validation, generators,
   analysis — full inventory in [`docs/tools.md`](./docs/tools.md))
 - **6 resources** under the `md://` URI scheme (`md://focus/{id}` etc.)
 
@@ -52,7 +52,10 @@ src/md_mcp/
 ├── generators/          Pure-string generators (focus/event/decision/idea/gfx/loc)
 ├── analysis/            High-level queries
 │   ├── focus_graph.py   Prereq/mutex DAG with tiered detail
+│   ├── focus_tree.py    Shared tree assembly and static positions
+│   ├── focus_scenario.py Shared scenario checks; the mod's trigger evaluator
 │   ├── focus_layout.py  relative_position_id geometry, collisions
+│   ├── focus_render.py  PNG/HTML focus tree renders
 │   ├── refs.py          Find-all-references over scan dirs
 │   ├── ref_audit.py     Scoped cross-reference audit (check_refs)
 │   ├── manifest.py      Per-country file/ID inventory
@@ -109,7 +112,9 @@ generators or tools.**
 Rationale: direct writes bypass the agent's normal file-state tracking and
 hide diffs from the user. The `.md-mcp-cache/` write paths in
 `indexes/base.py` are the only legitimate writes, and they go into a cache
-directory the user can blow away safely.
+directory the user can blow away safely. `render_focus_tree` also writes its
+PNG/HTML output and decoded icons under `<cache_dir>/renders/`, inside that same
+cache.
 
 ### 3. Don't touch `Hearts of Iron IV/` (the vanilla install)
 

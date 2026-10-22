@@ -4,6 +4,23 @@
 
 ### Added
 
+- `render_focus_tree` draws one assembled focus tree the way the VSCode focus preview does
+  (96x130 slots, prerequisite lines that turn half a row from the parent toward the child,
+  dashed OR groups, red mutually exclusive links) and writes a PNG and/or a self-contained HTML
+  page under `<cache_dir>/renders/`, returning the paths and their sizes. Writes are atomic and
+  the PNG stays within 8192 px a side and 40 M pixels. Choose the tree with `tree`, `file`, or
+  `tag`. `country`, `completed`, and `date` set the scenario, and the mod's own evaluator
+  (`tools/analysis/focus_overlap_report.py`, as used by `focus_overlap_scenarios`) decides which
+  `offset` blocks apply and which conditional icon shows, with `has_focus_tree` decided against
+  the tree being drawn. Undecidable offset triggers are reported as unevaluated; an undecidable
+  icon gate is passed over. `country` defaults to the tree's own country. `focus_ids` globs or
+  `region` crop the view, `hide_branches` hides a branch and every focus that only it unlocks,
+  `highlight` outlines focuses, and `ref` renders a git revision for before/after comparisons. A
+  tag or file holding only shared focuses gets the trees that import them. Labels wrap into the
+  room beside each focus (three lines at most, cut with `...`) rather than running into their
+  neighbours, and PNG labels use a system font with accented letters. PNG output and icons need
+  Pillow, the new `render` extra (also in `dev`); uncompressed BGRA `.dds` icons are decoded
+  directly, about four times faster than Pillow's own decoder.
 - `check_refs(kinds=["duplicate_icons"])` reports focus icon ids reused within a file, with
   focus ids and file:line sites, pagination, and counts-only support. It runs only when named.
 - `loc_langs` setting (`MD_MCP_LOC_LANGS`, config.toml `loc_langs`; comma-separated ISO codes or
@@ -20,6 +37,20 @@
 
 ### Changed
 
+- `focus_overlap_scenarios` answers `has_focus_tree` with the file's own `focus_tree` id when the
+  mod's helper can decide it, matching the helper's CLI, so offsets gated on the tree are applied.
+  `scenario.focus_tree` reports the tree. Older helpers leave those tests unknown, as before.
+- Focus tree assembly moved out of `focus_layout` into `analysis/focus_tree.py`
+  (`assemble_tree_instances`, `layout_file`, `resolve_positions`, `available_shared_files`,
+  `scope_relpath`, `coordinate`, `SupportsFilesForTag`), shared by `focus_layout` and
+  `render_focus_tree`. `focus_layout`'s output is unchanged.
+- `analysis/focus_scenario.py` holds the scenario checks (`check_country`, `check_completed`,
+  `check_date`) and `ScenarioEvaluator`, which wraps the mod's
+  `tools/analysis/focus_overlap_report.py`. `focus_overlap_scenarios` uses the same checks, so it
+  now refuses an impossible calendar date before starting the helper, with the same message.
+- `paradox/schema.py` gains `focus_icon_choices`, which reads all three focus icon forms, and
+  `focus_prerequisites` and `focus_mutually_exclusive`, which focus records and layout records
+  now share.
 - `generate_gfx_merge` finds blocks with compiled patterns in place of four character loops. The
   merged text and the report are unchanged. On `interface/goals.gfx` (1.2 MB) the call drops from
   339 ms to 216 ms, and the block scan inside it from 165 ms to 47 ms.
@@ -79,6 +110,11 @@
 
 ### Fixed
 
+- Focus records read every `mutually_exclusive` block of a focus. `resolve_focus`,
+  `find_focuses(mutex_with=...)` and `focus_graph` saw only the first block.
+- Every in-process import of the mod's `tools/` scripts now shares one lock. A tool's first
+  import of `shared_utils` could fail with `KeyError` when another tool reset the same module at
+  that moment (for example `fix_lint` while `validate` maintained its cache).
 - A hex value such as `color = 0xffffffff` parses as one integer. It read as `0` with a stray
   `xffffffff` entry after it, because the hex branch of the number token came last and accepted
   decimal digits only. Ported from `hoiparser.ts`. On the real mod this changes 66 values in

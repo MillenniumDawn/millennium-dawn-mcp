@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
+from typing import Optional
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "upstream"
 
 ISSUE_CLASS = """
 class _Issue:
@@ -151,6 +155,23 @@ def plant_report_lib(mod_root: Path) -> None:
     (lib_dir / "models.py").write_text(_MODELS_SOURCE, encoding="utf-8")
     (lib_dir / "baseline.py").write_text(_BASELINE_SOURCE, encoding="utf-8")
     (lib_dir / "dedupe.py").write_text(_DEDUPE_SOURCE, encoding="utf-8")
+
+
+def plant_focus_scenario(mod_root: Path, real_mod_root: Optional[Path] = None) -> None:
+    """Put the mod's scenario evaluator under `mod_root/tools`.
+
+    The small stand-ins in `tests/fixtures/upstream` by default, or the real
+    scripts copied from `real_mod_root`, to check the stand-ins against them.
+    """
+    if real_mod_root is None:
+        report = FIXTURES / "focus_overlap_report.py"
+        shared = FIXTURES / "focus_shared_utils.py"
+    else:
+        report = real_mod_root / "tools" / "analysis" / "focus_overlap_report.py"
+        shared = real_mod_root / "tools" / "shared_utils.py"
+    (mod_root / "tools" / "analysis").mkdir(parents=True, exist_ok=True)
+    shutil.copy(report, mod_root / "tools" / "analysis" / "focus_overlap_report.py")
+    shutil.copy(shared, mod_root / "tools" / "shared_utils.py")
 
 
 def make_script(root: Path, rel: str, body: str) -> Path:

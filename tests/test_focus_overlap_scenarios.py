@@ -159,13 +159,13 @@ def _fake_api(monkeypatch, root: Path):
             utility = types.ModuleType("shared_utils")
             cast(Any, utility).strip_comments = lambda text: text
             cast(Any, utility).blank_quoted_strings = lambda text: text
-            sys.modules["shared_utils"] = utility
+            monkeypatch.setitem(sys.modules, "shared_utils", utility)
             return utility
         if name == "_md_mcp_upstream_focus_overlap_report":
             utility = types.ModuleType("shared_utils")
             cast(Any, utility).strip_comments = lambda text: text
             cast(Any, utility).blank_quoted_strings = lambda text: text
-            sys.modules["shared_utils"] = utility
+            monkeypatch.setitem(sys.modules, "shared_utils", utility)
             return module
         raise AssertionError(name)
 
@@ -217,6 +217,40 @@ def test_shim_evaluates_explicit_scenario_and_reports_uncertainty(monkeypatch, t
     assert result["evaluation"]["exact_engine_evaluation"] is False
     assert result["diagnostics_returned"] == 1
     assert result["diagnostics_truncated"] is True
+
+
+def test_shim_gives_the_file_tree_to_helpers_that_read_it(monkeypatch, tmp_path):
+    root = tmp_path / "mod"
+    focus_file = root / "common/national_focus/test.txt"
+    focus_file.parent.mkdir(parents=True)
+    focus_file.write_text(
+        "focus_tree = {\n id = test_focus\n focus = { id = A x = 0 y = 0 }\n}\n",
+        encoding="utf-8",
+    )
+    module = _fake_api(monkeypatch, root)
+    module.file_focus_tree = lambda text: "test_focus" if "id = test_focus" in text else None
+    resolve_positions = module.resolve_positions
+    trees = []
+
+    def recording_resolve_positions(focuses, scenario):
+        trees.append(scenario.focus_tree)
+        return resolve_positions(focuses, scenario)
+
+    module.resolve_positions = recording_resolve_positions
+
+    result = upstream_analysis_shim._focus_overlap_scenarios(
+        root,
+        {
+            "file": str(focus_file),
+            "allowed_roots": [str(root)],
+            "tag": "TST",
+            "completed": [],
+            "include_positions": False,
+        },
+    )
+
+    assert result["ok"] is True, result
+    assert trees == ["test_focus"]
 
 
 def test_shim_refuses_invalid_scope_and_bad_pagination_before_parser(monkeypatch, tmp_path):
@@ -392,6 +426,7 @@ def test_wrapper_validates_scenario_and_forwards_explicit_scope(monkeypatch, fak
         completed=cast(list[str], [1]),
     )
     assert not bad_tag["ok"] and not bad_complete["ok"]
+    assert bad_tag["error"] == "tag must be a 2-4 character country tag"
     good = upstream_analysis.focus_overlap_scenarios_tool(
         fake_mod_root,
         "common/national_focus/test.txt",
@@ -411,6 +446,26 @@ def test_wrapper_validates_scenario_and_forwards_explicit_scope(monkeypatch, fak
     assert payload["date"] == "1936.1.1"
     assert payload["limit"] == 100 and payload["offset"] == 2
     assert timeout > 0
+
+
+@pytest.mark.parametrize(
+    ("date", "message"),
+    [
+        ("2006.13.1", "date must be a valid calendar date in YYYY.M.D form"),
+        ("June 1936", "date must be a YYYY.M.D string"),
+    ],
+)
+def test_wrapper_rejects_bad_dates_before_the_shim(monkeypatch, fake_mod_root, date, message):
+    monkeypatch.setattr(
+        upstream_analysis, "_run_shim", lambda *args, **kwargs: pytest.fail("shim called")
+    )
+
+    result = upstream_analysis.focus_overlap_scenarios_tool(
+        fake_mod_root, "common/national_focus/test.txt", "TST", date=date
+    )
+
+    assert result["ok"] is False
+    assert message in result["error"]
 
 
 def test_wrapper_accepts_only_explicit_file_from_configured_submod(
@@ -674,6 +729,44 @@ def test_real_poland_report_matches_upstream_helper(real_mod_root: Path, tmp_pat
     assert result["positions"] == expected["map"][:50]
     assert result["scenario"] == expected["scenario"]
     assert (focus_path.stat().st_mtime_ns, focus_path.stat().st_size) == before
+
+
+@pytest.mark.integration
+def test_real_upstream_helper_applies_offsets_for_the_file_tree(
+    real_mod_root: Path, tmp_path: Path
+):
+    upstream_script = real_mod_root / "tools/analysis/focus_overlap_report.py"
+    if "def file_focus_tree(" not in upstream_script.read_text(encoding="utf-8"):
+        pytest.skip("this checkout's helper does not decide has_focus_tree")
+    mod_root = tmp_path / "mod"
+    script_dir = mod_root / "tools/analysis"
+    script_dir.mkdir(parents=True)
+    shutil.copyfile(upstream_script, script_dir / upstream_script.name)
+    shutil.copyfile(real_mod_root / "tools/shared_utils.py", mod_root / "tools/shared_utils.py")
+    (mod_root / "focus.txt").write_text(
+        "focus_tree = {\n"
+        "\tid = test_focus\n"
+        "\tfocus = {\n"
+        "\t\tid = A\n"
+        "\t\tx = 4\n"
+        "\t\ty = 0\n"
+        "\t\toffset = { x = 9 trigger = { has_focus_tree = test_focus } }\n"
+        "\t}\n"
+        "\tfocus = {\n"
+        "\t\tid = B\n"
+        "\t\tx = 13\n"
+        "\t\ty = 0\n"
+        "\t}\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    result = upstream_analysis.focus_overlap_scenarios_tool(mod_root, "focus.txt", "TST")
+
+    assert result["ok"] is True, result
+    assert result["scenario"]["focus_tree"] == "test_focus"
+    assert result["unknown_condition_total"] == 0
+    assert [focus["id"] for focus in result["collision_groups"][0]["focuses"]] == ["A", "B"]
 
 
 @pytest.mark.integration

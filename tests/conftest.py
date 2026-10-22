@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -108,6 +109,23 @@ def _serial_parse(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
     """
     if request.node.get_closest_marker("integration") is None:
         monkeypatch.setenv("MD_MCP_SERIAL_PARSE", "1")
+
+
+@pytest.fixture
+def fresh_scenario_imports():
+    """Forget the mod scenario evaluator's imports after a test.
+
+    `focus_scenario` imports the mod's `shared_utils` and `focus_overlap_report` by
+    bare name. A test that plants them in a temporary root would otherwise leave
+    those copies, and the path entry the real script adds for itself, to the next
+    bare import of the same names.
+    """
+    from md_mcp.analysis import focus_scenario
+
+    saved_path = sys.path.copy()
+    yield
+    focus_scenario._UPSTREAM.reset()
+    sys.path[:] = saved_path
 
 
 @pytest.fixture(autouse=True)

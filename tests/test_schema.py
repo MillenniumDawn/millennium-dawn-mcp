@@ -14,6 +14,9 @@ from md_mcp.paradox.schema import (
     extract_focus_records,
     extract_idea_records,
     extract_sprite_records,
+    focus_icon_choices,
+    focus_mutually_exclusive,
+    focus_prerequisites,
     is_focus_file_content,
     to_json_with_lines,
 )
@@ -406,3 +409,40 @@ def test_slot_keyword_beside_an_idea_is_not_an_idea():
     assert "TST_acme" in recs
     assert recs["TST_acme"]["category"] == "tank_manufacturer"
     assert "designer" not in recs
+
+
+def test_extract_focus_records_reads_every_mutually_exclusive_block():
+    root = parse_string(
+        "focus_tree = { focus = { id = A mutually_exclusive = { focus = B } "
+        "mutually_exclusive = { focus = C } } }"
+    )
+
+    (record,) = extract_focus_records(root)
+
+    assert record["mutually_exclusive"] == ["B", "C"]
+
+
+def test_focus_links_keep_or_groups_and_drop_empty_blocks():
+    focus = parse_string(
+        "focus = { id = A prerequisite = { focus = P1 focus = P2 } prerequisite = { focus = P3 } "
+        "prerequisite = { } mutually_exclusive = { focus = B } mutually_exclusive = { } }"
+    ).children()[0]
+
+    assert focus_prerequisites(focus) == [["P1", "P2"], ["P3"]]
+    assert focus_mutually_exclusive(focus) == ["B"]
+
+
+def test_focus_icon_choices_cover_the_three_icon_forms():
+    focus = parse_string(
+        "focus = { icon = GFX_plain "
+        "icon = { trigger = { tag = AAA } value = GFX_old } "
+        "icon = { GFX_new = { tag = BBB } GFX_fallback = yes } }"
+    ).children()[0]
+
+    choices = focus_icon_choices(focus)
+
+    assert [name for name, _gate in choices] == ["GFX_plain", "GFX_old", "GFX_new", "GFX_fallback"]
+    assert choices[0][1] is None and choices[3][1] is None
+    old_gate, new_gate = choices[1][1], choices[2][1]
+    assert old_gate is not None and old_gate.name == "trigger"
+    assert new_gate is not None and new_gate.name == "GFX_new"

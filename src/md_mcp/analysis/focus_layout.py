@@ -1,78 +1,33 @@
 """Focus tree geometry — tree-scoped absolute positions and collisions.
 
-The resolver follows the static assembly and iterative position rules used by
-Millennium Dawn's focus geometry validator, while keeping this tool's compact
+Assembly and positions come from `focus_tree`, which follows the static
+assembly and iterative position rules used by Millennium Dawn's focus geometry
+validator. This tool adds collisions and spacing warnings, with a compact
 projection and pagination contract.
 """
 
 from __future__ import annotations
 
-import math
 from collections import defaultdict, deque
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
-from typing import Any, Optional, Protocol
+from typing import Optional
 
-from ..paradox.nodes import Node, SymbolNode, node_line, symbol_or_str
-from ..util.line_numbers import line_starts
-from ..util.pathing import contained, roots_for
 from ..util.response import coerce_int, enforce_budget, paginate
+from .focus_tree import (
+    SupportsFilesForTag,
+    assemble_tree_instances,
+    available_shared_files,
+    layout_file,
+    resolve_positions,
+    scope_relpath,
+)
 from .scope import iter_scope_files
-
-
-class _SupportsFilesForTag(Protocol):
-    """The only required slice of FocusIndex for tag-scoped layouts."""
-
-    # Protocol method declaration — `...` is the abstract body, not a stub.
-    # pi-lens-ignore: no-ellipsis-body
-    def files_for_tag(self, tag: str) -> list[str]: ...
-
-
-def _available_shared_files(
-    mod_root: Path,
-    vanilla_path: Path | None,
-    submod_root: Path | None,
-    focus_index: Optional[_SupportsFilesForTag],
-) -> list[str]:
-    if focus_index is not None:
-        list_files = getattr(focus_index, "list_files", None)
-        records_for_file = getattr(focus_index, "records_for_file", None)
-        if list_files is not None and records_for_file is not None:
-            return [
-                relpath
-                for relpath in list_files()
-                if any(
-                    record.get("kind") in {"shared_focus", "joint_focus"}
-                    for record in records_for_file(relpath)
-                )
-            ]
-
-    files: list[str] = []
-    seen: set[str] = set()
-    for root in roots_for(mod_root, vanilla_path, submod_root):
-        directory = root / "common" / "national_focus"
-        if not directory.is_dir():
-            continue
-        for path in sorted(directory.rglob("*.txt")):
-            relpath = path.relative_to(root).as_posix()
-            if relpath not in seen and path.is_file():
-                seen.add(relpath)
-                files.append(relpath)
-    return files
-
-
-def _relpath(file: str, mod_root: Path, vanilla_path: Path | None, submod_root: Path | None) -> str:
-    # Shared files are matched by relpath, so `./x` or an absolute path would parse twice.
-    for root in roots_for(mod_root, vanilla_path, submod_root):
-        path = contained(root, file)
-        if path is not None and path.is_file():
-            return path.relative_to(root.resolve()).as_posix()
-    return file
 
 
 def focus_layout(
     mod_root: Path,
-    focus_index: Optional[_SupportsFilesForTag] = None,
+    focus_index: Optional[SupportsFilesForTag] = None,
     *,
     tag: Optional[str] = None,
     file: Optional[str] = None,
@@ -92,7 +47,7 @@ def focus_layout(
         return {"ok": False, "error": str(exc)}
 
     if file:
-        file = _relpath(file, mod_root, vanilla_path, submod_root)
+        file = scope_relpath(file, mod_root, vanilla_path, submod_root)
         candidate_files = [file]
         scope_desc = {"file": file}
         prefix = None
@@ -110,10 +65,10 @@ def focus_layout(
     for parsed in iter_scope_files(
         parse_files, mod_root, vanilla_path, parse_errors, submod_root=submod_root
     ):
-        files.append(_layout_file(parsed.relpath, parsed.root, parsed.text))
+        files.append(layout_file(parsed.relpath, parsed.root, parsed.text))
 
     if any(tree["shared_refs"] for source in files for tree in source["trees"]):
-        shared_files = _available_shared_files(mod_root, vanilla_path, submod_root, focus_index)
+        shared_files = available_shared_files(mod_root, vanilla_path, submod_root, focus_index)
         parsed_paths = set(parse_files)
         additional_shared_files = [
             relpath for relpath in shared_files if relpath not in parsed_paths
@@ -126,54 +81,9 @@ def focus_layout(
             parse_errors,
             submod_root=submod_root,
         ):
-            files.append(_layout_file(parsed.relpath, parsed.root, parsed.text))
+            files.append(layout_file(parsed.relpath, parsed.root, parsed.text))
 
-    shared: dict[str, list[dict]] = defaultdict(list)
-    for source in files:
-        for focus in source["shared"]:
-            shared[focus["id"]].append(focus)
-    shared_dependencies = {
-        name: {
-            parent
-            for focus in definitions
-            for group in focus["prerequisites"]
-            for parent in group
-            if parent in shared
-        }
-        for name, definitions in shared.items()
-    }
-    shared_dependents: dict[str, set[str]] = defaultdict(set)
-    for name, parents in shared_dependencies.items():
-        for parent in parents:
-            shared_dependents[parent].add(name)
-
-    instances: list[dict] = []
-    for source in files:
-        for tree in source["trees"]:
-            imported = set(tree["shared_refs"]) & shared.keys()
-            pending = deque(sorted(imported))
-            remaining: dict[str, set[str]] = {}
-            while pending:
-                name = pending.popleft()
-                for child in sorted(shared_dependents.get(name, ())):
-                    if child in imported:
-                        continue
-                    remaining.setdefault(child, shared_dependencies[child] - imported)
-                    remaining[child].discard(name)
-                    if not remaining[child]:
-                        imported.add(child)
-                        pending.append(child)
-            focuses = [*tree["focuses"]]
-            for name in sorted(imported):
-                focuses.extend(shared.get(name, ()))
-            instances.append(
-                {
-                    "key": (source["filepath"], tree["id"], tree["line"]),
-                    "tree": tree,
-                    "focuses": focuses,
-                    "missing_shared": sorted(set(tree["shared_refs"]) - shared.keys()),
-                }
-            )
+    instances = assemble_tree_instances(files)
 
     scope_instances = [
         instance
@@ -204,7 +114,7 @@ def focus_layout(
         for focus in focuses:
             by_id[focus["id"]].append(focus)
         hidden = _hidden_focus_ids(focuses)
-        positions, failures = _resolve_positions(by_id)
+        positions, failures = resolve_positions(by_id)
         reported_ids = {focus["id"] for focus in instance["reported"]}
         relevant_ids = _relative_ancestors(reported_ids, by_id)
         for focus_id, definitions in sorted(by_id.items()):
@@ -394,150 +304,6 @@ def focus_layout(
             "duplicate_definitions",
         ),
     )
-
-
-def _layout_file(filepath: str, root: Node, source: str) -> dict:
-    starts = line_starts(source)
-    trees = []
-    shared = []
-    for node in root.children():
-        if node.name == "focus_tree":
-            tree_id = symbol_or_str(node.get("id")) or f"tree at line {node_line(node, starts)}"
-            tree: dict[str, Any] = {
-                "id": tree_id,
-                "line": node_line(node, starts),
-                "focuses": [],
-                "shared_refs": [],
-            }
-            for child in node.children():
-                if child.name == "focus":
-                    record = _focus_layout_record(child, filepath, starts)
-                    if record:
-                        tree["focuses"].append(record)
-                elif child.name == "shared_focus":
-                    ref = symbol_or_str(child)
-                    if ref:
-                        tree["shared_refs"].append(ref)
-            trees.append(tree)
-        elif node.name in ("shared_focus", "joint_focus"):
-            record = _focus_layout_record(node, filepath, starts)
-            if record:
-                shared.append(record)
-    return {"filepath": filepath, "trees": trees, "shared": shared}
-
-
-def _focus_layout_record(node: Node, filepath: str, starts: list[int]) -> dict | None:
-    focus_id = symbol_or_str(node.get("id"))
-    if not focus_id:
-        return None
-    x = _coordinate(node.get("x"))
-    y = _coordinate(node.get("y"))
-    prerequisites = []
-    for block in node.get_all("prerequisite"):
-        group = [
-            value
-            for child in block.children()
-            if child.name == "focus" and (value := symbol_or_str(child))
-        ]
-        if group:
-            prerequisites.append(group)
-    mutex = []
-    mutex_node = node.get("mutually_exclusive")
-    if mutex_node:
-        mutex = [
-            value
-            for child in mutex_node.children()
-            if child.name == "focus" and (value := symbol_or_str(child))
-        ]
-    dynamic = node.get("offset") is not None
-    return {
-        "id": focus_id,
-        "file": filepath,
-        "line": node_line(node, starts),
-        "x": x,
-        "y": y,
-        "relative": symbol_or_str(node.get("relative_position_id")),
-        "allow_branch": node.get("allow_branch") is not None,
-        "offset": dynamic,
-        "prerequisites": prerequisites,
-        "mutually_exclusive": mutex,
-    }
-
-
-def _coordinate(node: Node | None) -> Decimal | None:
-    # Decimal like upstream, so 0.1 + 0.2 lands on 0.3. Output must still fit a float.
-    value = None if node is None else node.value
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        text = repr(value)
-    elif isinstance(value, SymbolNode):
-        text = value.name
-    elif isinstance(value, str):
-        text = value
-    else:
-        return None
-    try:
-        result = Decimal(text)
-    except InvalidOperation:
-        return None
-    return result if result.is_finite() and math.isfinite(float(result)) else None
-
-
-def _resolve_positions(
-    index: dict[str, list[dict]],
-) -> tuple[dict[str, tuple[Decimal, Decimal, bool] | None], dict]:
-    """Iterative port of the upstream geometry resolver; handles arbitrarily long chains."""
-    positions: dict[str, tuple[Decimal, Decimal, bool] | None] = {}
-    failures: dict[tuple[str, str], tuple[dict, str]] = {}
-    for start in sorted(index):
-        path: list[str] = []
-        active: set[str] = set()
-        current = start
-        while current not in positions:
-            if current in active:
-                cycle = path[path.index(current) :]
-                root = min(cycle)
-                failures[("cycle", root)] = (index[root][0], "cyclic_relative")
-                positions[current] = None
-                break
-            if current not in index:
-                origin = index[path[-1]][0]
-                failures[("missing", current)] = (origin, "missing_relative")
-                positions[current] = None
-                break
-            definitions = index[current]
-            focus = definitions[0]
-            if len(definitions) != 1:
-                failures[("ambiguous", current)] = (focus, "duplicate_definition")
-                positions[current] = None
-                break
-            if focus["x"] is None or focus["y"] is None:
-                failures[("coordinates", current)] = (focus, "missing_xy")
-                positions[current] = None
-                break
-            path.append(current)
-            active.add(current)
-            if not focus["relative"]:
-                positions[current] = (focus["x"], focus["y"], focus["offset"])
-                break
-            current = focus["relative"]
-        for name in reversed(path):
-            if name in positions:
-                continue
-            focus = index[name][0]
-            anchor = positions[focus["relative"]]
-            if anchor is None:
-                positions[name] = None
-                continue
-            x = anchor[0] + focus["x"]
-            y = anchor[1] + focus["y"]
-            if not math.isfinite(float(x)) or not math.isfinite(float(y)):
-                positions[name] = None
-                failures[("coordinates", name)] = (focus, "nonfinite_xy")
-            else:
-                positions[name] = (x, y, anchor[2] or focus["offset"])
-    return positions, failures
 
 
 def _relative_ancestors(focus_ids: set[str], by_id: dict[str, list[dict]]) -> set[str]:

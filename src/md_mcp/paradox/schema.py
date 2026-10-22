@@ -122,22 +122,6 @@ def _focus_record(node: Node, kind: str, starts: list[int] | None) -> dict | Non
     if not fid:
         return None
 
-    prereqs: list[list[str]] = []
-    for p in node.get_all("prerequisite"):
-        group: list[str] = []
-        for child in p.children():
-            if child.name == "focus" and (ref := symbol_or_str(child)):
-                group.append(ref)
-        if group:
-            prereqs.append(group)
-
-    mutex_node = node.get("mutually_exclusive")
-    mutex: list[str] = []
-    if mutex_node:
-        for child in mutex_node.children():
-            if child.name == "focus" and (ref := symbol_or_str(child)):
-                mutex.append(ref)
-
     return {
         "id": fid,
         "kind": kind,
@@ -146,11 +130,64 @@ def _focus_record(node: Node, kind: str, starts: list[int] | None) -> dict | Non
         "y": _scalar(node.get("y")),
         "cost": _scalar(node.get("cost")),
         "icon": _scalar(node.get("icon")),
-        "prerequisites": prereqs,
-        "mutually_exclusive": mutex,
+        "prerequisites": focus_prerequisites(node),
+        "mutually_exclusive": focus_mutually_exclusive(node),
         "relative_position_id": _scalar(node.get("relative_position_id")),
         "ai_will_do": _ai_will_do_summary(node),
     }
+
+
+def focus_prerequisites(node: Node) -> list[list[str]]:
+    """Prerequisite groups of a focus; each `prerequisite` block is one OR group."""
+    groups: list[list[str]] = []
+    for block in node.get_all("prerequisite"):
+        group = [
+            ref
+            for child in block.children()
+            if child.name == "focus" and (ref := symbol_or_str(child))
+        ]
+        if group:
+            groups.append(group)
+    return groups
+
+
+def focus_mutually_exclusive(node: Node) -> list[str]:
+    """Every focus named in any of the focus's `mutually_exclusive` blocks."""
+    return [
+        ref
+        for block in node.get_all("mutually_exclusive")
+        for child in block.children()
+        if child.name == "focus" and (ref := symbol_or_str(child))
+    ]
+
+
+def focus_icon_choices(node: Node) -> list[tuple[str, Node | None]]:
+    """Icon sprite names of a focus with the block that gates each (None when unconditional).
+
+    Covers the three forms the game reads: `icon = GFX_x`, the old
+    `icon = { trigger = { ... } value = GFX_x }`, and the 1.19 form
+    `icon = { GFX_x = { <triggers> } GFX_y = yes }`. The first whose triggers
+    hold is the one shown.
+    """
+    choices: list[tuple[str, Node | None]] = []
+    for icon in node.get_all("icon"):
+        simple = symbol_or_str(icon)
+        if simple:
+            choices.append((simple, None))
+            continue
+        value = icon.get("value")
+        if value is not None:
+            if name := symbol_or_str(value):
+                choices.append((name, icon.get("trigger")))
+            continue
+        for child in icon.children():
+            if not child.name:
+                continue
+            if isinstance(child.value, list):
+                choices.append((child.name, child))
+            elif (symbol_or_str(child) or "").lower() == "yes":
+                choices.append((child.name, None))
+    return choices
 
 
 def _ai_will_do_summary(node: Node) -> dict | None:

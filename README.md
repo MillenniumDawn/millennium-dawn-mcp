@@ -26,7 +26,15 @@ pip install -e .
 ```
 
 Requires Python 3.10+. The wrapped validators are stdlib-only; no extra deps
-needed. For working on the server itself, install the dev extras instead:
+needed. `render_focus_tree` needs Pillow for PNG output and focus icons; without
+it the tool still writes HTML with placeholder icons:
+
+```bash
+pip install -e '.[render]'
+```
+
+For working on the server itself, install the dev extras instead (they include
+Pillow):
 
 ```bash
 pip install -e '.[dev]'

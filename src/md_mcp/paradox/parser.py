@@ -148,20 +148,7 @@ def _parse_block_content(tokens: Tokenizer, close_blocks_at_eof: bool = False) -
         if peek.type == "eof" or peek.value == "}":
             return nodes
         if peek.type == "operator" and peek.value == "{":
-            nodes.append(_parse_anonymous_block(tokens, close_blocks_at_eof))
+            value, value_end = _parse_node_value(tokens, close_blocks_at_eof)
+            nodes.append(Node(name=None, operator=None, value=value, value_end_token=value_end))
             continue
         nodes.append(_parse_node(tokens, close_blocks_at_eof))
-
-
-def _parse_anonymous_block(tokens: Tokenizer, close_blocks_at_eof: bool) -> Node:
-    """Parse a bare `{ ... }` list entry as an anonymous Node (deliberate divergence
-    from `hoiparser.ts`. Faithful AST: name/operator stay None, `value_end_token` is the
-    closing `}` (or the eof token under `close_blocks_at_eof`). See docs/parser.md."""
-    tokens.next()  # the opening {
-    value = _parse_block_content(tokens, close_blocks_at_eof)
-    if close_blocks_at_eof and tokens.peek().type == "eof":
-        return Node(name=None, operator=None, value=value, value_end_token=tokens.peek())
-    right = tokens.next()
-    if right.value != "}":
-        tokens.throw("Expect a '}'", prev=True)
-    return Node(name=None, operator=None, value=value, value_end_token=right)

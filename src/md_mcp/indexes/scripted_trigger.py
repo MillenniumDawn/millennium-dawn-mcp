@@ -9,7 +9,9 @@ from .definitions import parse_scripted_trigger_file
 class ScriptedTriggerIndex(GenericTxtIndex):
     """Index top-level scripted trigger blocks."""
 
-    cache_version = 2
+    # v3: parser acceptance widened (+ numbers, acute symbols, anonymous blocks,
+    # vanilla EOF recovery); cached parse errors rebuild.
+    cache_version = 3
     cache_name = "scripted_trigger"
     subdir = "common/scripted_triggers"
     parser_fn = staticmethod(parse_scripted_trigger_file)

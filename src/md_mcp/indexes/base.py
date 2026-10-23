@@ -379,12 +379,13 @@ def plan_rebuild(
 
 
 def parse_files(
-    parser_fn: Callable[[str, str], Any],
+    parser_fn: Callable[[str, str, bool], Any],
     roots: list[Path],
     relpaths: list[str],
     *,
     missing: Any = None,
     chunksize: int = 4,
+    vanilla_root: Optional[Path] = None,
 ) -> list[Any]:
     """Resolve each relpath to an absolute path and run `parser_fn` over the batch.
 
@@ -392,16 +393,26 @@ def parse_files(
     (warm-path edits — pool overhead would dominate), or (b) `MD_MCP_SERIAL_PARSE=1`
     is set, which `md-mcp serve` does because forking under stdio deadlocks.
 
+    `parser_fn` is called as `(abs_path, relpath, close_blocks_at_eof)`; the flag is
+    True only for files under `vanilla_root`, the game's reference install that ships
+    unclosed blocks (see docs/parser.md). Mod files keep strict diagnostics.
+
     Results stay aligned with `relpaths`. On the serial path, a file that resolves
     under no root yields `missing`; pooled parsers retain their existing handling.
     """
-    jobs: list[tuple[str, str]] = []
+    jobs: list[tuple[str, str, bool]] = []
     for rp in relpaths:
         base = resolve_root(roots, rp)
-        jobs.append((str(base / rp), rp) if base is not None else ("", rp))
+        if base is None:
+            jobs.append(("", rp, False))
+        else:
+            jobs.append((str(base / rp), rp, vanilla_root is not None and base == vanilla_root))
 
     if os.environ.get("MD_MCP_SERIAL_PARSE") == "1" or len(jobs) < 4:
-        return [parser_fn(abs_path, rp) if abs_path else missing for abs_path, rp in jobs]
+        return [
+            parser_fn(abs_path, rp, close_blocks) if abs_path else missing
+            for abs_path, rp, close_blocks in jobs
+        ]
 
     # Use fork on macOS/Linux where it's available — vastly cheaper startup than
     # spawn, which re-imports the package per worker (multi-second on cold start).
@@ -565,9 +576,9 @@ class GenericTxtIndex:
 
     # ---------- subclass hooks ----------
 
-    # Set by subclasses to a *module-level* function (picklable). It returns records,
-    # None, or an object exposing `records` and an optional `error`.
-    parser_fn: Optional[Callable[[str, str], Any]] = None
+    # Set by subclasses to a *module-level* function (picklable); called as
+    # `(abs_path, relpath, close_blocks_at_eof)` — see parse_files.
+    parser_fn: Optional[Callable[[str, str, bool], Any]] = None
 
     # ---------- internals ----------
 
@@ -927,6 +938,7 @@ class GenericTxtIndex:
             relpaths,
             missing=self.missing_result,
             chunksize=self.parse_chunksize,
+            vanilla_root=self.vanilla_path,
         )
 
 
@@ -954,18 +966,18 @@ def _default_workers() -> int:
     return max(2, min(8, n - 1))
 
 
-def _parser_dispatch(args: tuple[Callable, str, str]) -> Any:
+def _parser_dispatch(args: tuple[Callable, str, str, bool]) -> Any:
     """Top-level helper so the process pool can pickle the call site.
 
-    `args` is `(parser_fn, abs_path, relpath)`. We can't pass a bound method through
-    ProcessPoolExecutor (it pickles by name and bound methods can capture state).
-    Return type follows the dispatched parser fn (list-of-records or single dict).
+    `args` is `(parser_fn, abs_path, relpath, close_blocks_at_eof)`. We can't pass a
+    bound method through ProcessPoolExecutor (it pickles by name and bound methods can
+    capture state). Return type follows the dispatched parser fn.
     """
-    fn, abs_path, relpath = args
+    fn, abs_path, relpath, close_blocks_at_eof = args
     if not abs_path:
         return None
     try:
-        return fn(abs_path, relpath)
+        return fn(abs_path, relpath, close_blocks_at_eof)
     except Exception:
         # Swallow per-file failures so one bad file doesn't kill the rebuild;
         # the parser fn itself logs warnings before returning None.

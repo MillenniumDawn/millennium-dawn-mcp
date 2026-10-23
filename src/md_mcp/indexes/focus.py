@@ -7,7 +7,7 @@ parsed record is fetched on-demand to keep cache size manageable.
 Cold path parses in a ProcessPoolExecutor so the parser can use all cores; warm
 path remains in-process (single-stat refresh + dict diff).
 
-Cache layout (JSON, under <cache_dir>/v3/focus.data.json):
+Cache layout (JSON, under <cache_dir>/v4/focus.data.json):
     {
         "files": {
             "<relative_path>": [
@@ -30,12 +30,14 @@ from .base import FILE_NOT_FOUND, GenericTxtIndex, ParseResult
 
 logger = logging.getLogger(__name__)
 
-FOCUS_CACHE_VERSION = 3
+FOCUS_CACHE_VERSION = 4
 FOCUS_SUBDIR = "common/national_focus"
 
 
-def _parse_focus_file(abs_path: str, relpath: str) -> ParseResult:
-    """Module-level parser fn so ProcessPoolExecutor can pickle/dispatch it."""
+def _parse_focus_file(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> ParseResult:
+    """Vanilla-root files get parser EOF recovery; mod files stay strict."""
     try:
         text = read_text(abs_path)
     except OSError as exc:
@@ -44,7 +46,9 @@ def _parse_focus_file(abs_path: str, relpath: str) -> ParseResult:
     if not is_focus_file_content(text):
         return ParseResult([])
     try:
-        root = parse_string(text, error_prefix=f"In file {relpath}:\n")
+        root = parse_string(
+            text, error_prefix=f"In file {relpath}:\n", close_blocks_at_eof=close_blocks_at_eof
+        )
         records = extract_focus_records(root, source=text)
     except Exception as exc:
         logger.warning("focus index: parse failed for %s: %s", abs_path, exc)
@@ -56,6 +60,7 @@ class FocusIndex(GenericTxtIndex):
     """Focus ID index with parse-error reporting and tag-based file lookup."""
 
     cache_version = FOCUS_CACHE_VERSION
+
     cache_name = "focus"
     subdir = FOCUS_SUBDIR
     parser_fn = staticmethod(_parse_focus_file)

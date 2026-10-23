@@ -7,13 +7,21 @@ from pathlib import Path
 
 import pytest
 
-from md_mcp.indexes import FocusIndex, GenericTxtIndex, IdeaIndex, LocalisationIndex
+from md_mcp.indexes import (
+    FocusIndex,
+    GenericTxtIndex,
+    IdeaIndex,
+    LocalisationIndex,
+    ScriptedEffectIndex,
+    ScriptedTriggerIndex,
+)
 from md_mcp.indexes.base import (
     FileSig,
     IndexCache,
     _parser_dispatch,
     collect_files,
     file_signature,
+    parse_files,
     resolve_root,
     signatures_for,
 )
@@ -39,7 +47,9 @@ _DUP_TWO_KEYS = (
 )
 
 
-def _parse_tuple_index_file(abs_path: str, relpath: str) -> list[dict]:
+def _parse_tuple_index_file(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> list[dict]:
     return [{"lang": "en", "key": Path(abs_path).read_text(encoding="utf-8").strip()}]
 
 
@@ -138,8 +148,9 @@ def test_focus_index_warm_path_is_noop(fake_mod_root, cache_dir):
 def test_focus_index_cache_persisted(fake_mod_root, cache_dir):
     fi = FocusIndex(fake_mod_root, cache_dir)
     fi.ensure_fresh()
-    assert (cache_dir / "v3" / "focus.manifest.json").exists()
-    assert (cache_dir / "v3" / "focus.data.json").exists()
+    # FOCUS_CACHE_VERSION bumped to v4 with the issue-300 parser widening.
+    assert (cache_dir / "v4" / "focus.manifest.json").exists()
+    assert (cache_dir / "v4" / "focus.data.json").exists()
 
     # Second instance reads cache + ensures freshness; no exception, matching ids.
     fi2 = FocusIndex(fake_mod_root, cache_dir)
@@ -195,8 +206,8 @@ def test_focus_index_rebuilds_on_shape_corrupt_manifest(fake_mod_root, cache_dir
     ids = sorted(fi.list_keys())
     assert ids
 
-    manifest = cache_dir / "v3" / "focus.manifest.json"
-    data = cache_dir / "v3" / "focus.data.json"
+    manifest = cache_dir / "v4" / "focus.manifest.json"
+    data = cache_dir / "v4" / "focus.data.json"
     manifest.write_text(
         '{"common/national_focus/test.txt": {"mtime_ns": 1, "size": 2}}',
         encoding="utf-8",
@@ -335,6 +346,45 @@ def test_loc_index_handles_legacy_version_suffix(fake_mod_root, cache_dir):
     r = li.resolve("TST_versioned")
     assert r is not None
     assert r["value"] == "value with legacy version suffix"
+
+
+@pytest.mark.parametrize(
+    ("index_cls", "cache_name", "relpath", "expected_key"),
+    [
+        (
+            ScriptedEffectIndex,
+            "scripted_effect",
+            "common/scripted_effects/test_effects.txt",
+            "TST_test_effect",
+        ),
+        (
+            ScriptedTriggerIndex,
+            "scripted_trigger",
+            "common/scripted_triggers/test_triggers.txt",
+            "TST_test_trigger",
+        ),
+    ],
+)
+def test_scripted_index_version_bump_rebuilds_cached_parse_errors(
+    fake_mod_root, cache_dir, index_cls, cache_name, relpath, expected_key
+):
+    """Issue #300 follow-up: the scripted indexes bumped cache_version 2 -> 3 with the
+    parser widening. A v2 cache holding a recorded parse error must be ignored
+    wholesale and rebuilt from disk (persisted errors are trusted at version, so a
+    bump is the invalidation)."""
+    f = fake_mod_root / relpath
+    sig = file_signature(f)
+    assert sig is not None
+    old = IndexCache(cache_dir, cache_name, 2)
+    old.save_manifest({relpath: sig})
+    old.save_data({"files": {relpath: []}, "parse_errors": {relpath: "parse failed: stale v2"}})
+
+    index = index_cls(fake_mod_root, cache_dir)
+    index.ensure_fresh()
+
+    assert index.list_keys() == [expected_key]
+    assert index.parse_errors() == []
+    assert (cache_dir / "v3" / f"{cache_name}.data.json").exists()
 
 
 def test_loc_index_parallel_build(fake_mod_root, cache_dir, monkeypatch):
@@ -615,21 +665,23 @@ def test_resolve_root_returns_the_first_root_holding_the_file(tmp_path):
     assert resolve_root([first, second], "missing.txt") is None
 
 
-def _echo(abs_path: str, relpath: str) -> list[str]:
+def _echo(abs_path: str, relpath: str, close_blocks_at_eof: bool = False) -> list[str]:
     return [abs_path, relpath]
 
 
-def _explode(abs_path: str, relpath: str) -> list[str]:
+def _explode(abs_path: str, relpath: str, close_blocks_at_eof: bool = False) -> list[str]:
     raise RuntimeError("boom")
 
 
 def test_parser_dispatch_skips_an_unresolved_path_and_swallows_a_failing_parser():
-    assert _parser_dispatch((_echo, "/abs/a.txt", "a.txt")) == ["/abs/a.txt", "a.txt"]
-    assert _parser_dispatch((_echo, "", "a.txt")) is None
-    assert _parser_dispatch((_explode, "/abs/a.txt", "a.txt")) is None
+    assert _parser_dispatch((_echo, "/abs/a.txt", "a.txt", False)) == ["/abs/a.txt", "a.txt"]
+    assert _parser_dispatch((_echo, "", "a.txt", False)) is None
+    assert _parser_dispatch((_explode, "/abs/a.txt", "a.txt", False)) is None
 
 
-def _parse_with_a_keyless_record(abs_path: str, relpath: str) -> list[dict]:
+def _parse_with_a_keyless_record(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> list[dict]:
     return [{"note": "no id"}, {"id": "TST_keyed"}]
 
 
@@ -655,6 +707,39 @@ def test_record_without_the_primary_key_is_kept_out_of_the_key_map(tmp_path, cac
     index = _KeylessIndex(_one_file_mod(tmp_path), cache_dir, include_vanilla=False)
 
     assert index.list_keys() == ["TST_keyed"]
+
+
+def test_parse_files_routes_the_vanilla_root_flag_per_file(tmp_path):
+    """`parser_fn` receives `close_blocks_at_eof=True` for files that live under the
+    vanilla reference install (the parser_fn protocol, issue #300); mod-side files
+    keep strict parsing, and duplicates resolve to the mod first."""
+    mod = _one_file_mod(tmp_path)
+    vanilla = tmp_path / "Vanilla"
+    (vanilla / "common" / "first").mkdir(parents=True)
+    (vanilla / "common" / "first" / "v.txt").write_text("x", encoding="utf-8")
+    seen: dict[str, bool] = {}
+
+    def capture(abs_path: str, relpath: str, close_blocks_at_eof: bool) -> list[dict]:
+        seen[relpath] = close_blocks_at_eof
+        return [{"id": relpath}]
+
+    roots = [mod, vanilla]
+    parsed = parse_files(
+        capture,
+        roots,
+        [
+            "common/first/a.txt",  # in both: resolves to mod (first root wins)
+            "common/first/v.txt",  # vanilla only
+            "common/first/gone.txt",  # nowhere
+        ],
+        missing=None,
+        vanilla_root=vanilla,
+    )
+
+    assert seen == {"common/first/a.txt": False, "common/first/v.txt": True}
+    assert parsed[0] == [{"id": "common/first/a.txt"}]
+    assert parsed[1] == [{"id": "common/first/v.txt"}]
+    assert parsed[2] is None
 
 
 def test_index_without_a_parser_fn_says_so(tmp_path, cache_dir):

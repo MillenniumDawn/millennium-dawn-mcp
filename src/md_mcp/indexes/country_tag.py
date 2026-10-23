@@ -9,7 +9,9 @@ from .definitions import parse_country_tag_file
 class CountryTagIndex(GenericTxtIndex):
     """Index country tags and their country-history paths."""
 
-    cache_version = 1
+    # v2: parser accepts leading-+ numbers, acute-initial symbols and anonymous
+    # blocks, and vanilla files parse with EOF recovery — cached records rebuild.
+    cache_version = 2
     cache_name = "country_tag"
     subdir = "common/country_tags"
     parser_fn = staticmethod(parse_country_tag_file)

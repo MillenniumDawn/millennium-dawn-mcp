@@ -22,6 +22,9 @@ from .nodes import Token
 # start with `<int>.`), not as `539` followed by an invalid `.productivity_state_var`
 # token.
 #
+# Deliberate divergences from `hoiparser.ts`: leading-`+` decimals, acute-initial
+# symbols, unsigned hex. Details and vanilla examples in docs/parser.md.
+#
 _TOKEN_TYPES: list[tuple[str, str]] = [
     ("comment", r"#.*(?:[\r\n]|$)"),
     ("operator", r">=|<=|!=|[={}<>;,]"),
@@ -29,11 +32,12 @@ _TOKEN_TYPES: list[tuple[str, str]] = [
     # starts an escape, so an unterminated string fails in linear time. Plain runs
     # sit outside the group so the regex keeps state per escape, not per character.
     ("string", r'"[^"\\]*(?:\\[\s\S][^"\\]*)*"'),
-    ("symbol", r"(?:\d+\.)?[a-zA-Z_@\[\]][\w:\._@\[\]\-\?\^\/ -ɏ|]*"),
+    ("symbol", r"(?:\d+\.)?[a-zA-Z_@\[\]\u00B4][\w:\._@\[\]\-\?\^\/\u00A0-\u024F|]*"),
     ("date", r"\d+(?:\.\d+){2,}"),
-    ("unitnumber", r"(?:-?\d*\.\d+|-?\d+)(?:%%?)"),
+    ("unitnumber", r"(?:[+-]?\d*\.\d+|[+-]?\d+)(?:%%?)"),
     # Hex first: behind the others, the `0` of `0xffffffff` was the whole number.
-    ("number", r"0x[0-9a-fA-F]+|-?\d*\.\d+|-?\d+\.?"),
+    # Hex keeps no sign — only decimal literals carry one in vanilla files.
+    ("number", r"0x[0-9a-fA-F]+|[+-]?\d*\.\d+|[+-]?\d+\.?"),
     ("eof", r"$"),
 ]
 

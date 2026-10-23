@@ -298,6 +298,122 @@ def test_character_parser_reads_only_blocks_inside_characters(tmp_path):
     assert _ids(parse_character_file, tmp_path, "TST.txt", text) == ["TST_one"]
 
 
+# Vanilla-recovery fixtures (issue #300): the engine loads files with an unclosed
+# final block; vanilla-root indexing passes close_blocks_at_eof=True, mod indexing
+# stays strict. Texts are minimal stand-ins for the real vanilla files.
+_IDEAS_UNCLOSED = (
+    "ideas = {\n"
+    "\tcountry = {\n"
+    "\t\tSOV_damaged_economy = {\n"
+    "\t\t\tallowed = { always = yes }\n"
+    "\t\t\tcost = 1\n"
+    "\t\t}\n"
+    "\t\tSOV_nationalize = {\n"
+    "\t\t\tallowed = { always = yes }\n"
+    "\t\t\tcancel = { always = no }\n"
+    "\t\t}\n"
+    "\t}\n"
+)
+
+
+def test_vanilla_idea_file_missing_final_block_recovers_records(tmp_path):
+    unclosed = tmp_path / "unclosed.txt"
+    unclosed.write_text(_IDEAS_UNCLOSED, encoding="utf-8")
+
+    parsed = _parse_idea_file(str(unclosed), "unclosed.txt", True)
+
+    assert parsed.records is not None and parsed.error is None
+    assert [r["id"] for r in parsed.records] == ["SOV_damaged_economy", "SOV_nationalize"]
+    assert all(r["category"] == "country" for r in parsed.records)
+
+    strict = _parse_idea_file(str(unclosed), "unclosed.txt", False)
+    assert strict.records is None
+    assert strict.error is not None and strict.error.startswith("parse failed:")
+
+
+@pytest.mark.parametrize("close", [True, False])
+def test_vanilla_event_file_leading_plus_and_acute_symbol_index(tmp_path, close):
+    """`amount = +0.10` (ETH.txt) and `base = ´45` (WUW_Germany.txt) are global
+    lexer-widening fixes: the event file indexes in both modes, unlike the
+    unclosed-block recovery which is vanilla-only."""
+    text = (
+        "add_namespace = testns\n"
+        "country_event = {\n"
+        "\tid = testns.1\n"
+        "\timmediate = {\n"
+        "\t\tconsumer_goods_factor = +0.10\n"
+        "\t\tai_chance = { base = ´45 }\n"
+        "\t\tbare = {\n"
+        "\t\t\t{ icon = gfx }\n"
+        "\t\t}\n"
+        "\t}\n"
+        "}\n"
+    )
+    event = tmp_path / "events.txt"
+    event.write_text(text, encoding="utf-8")
+
+    parsed = _parse_event_file(str(event), "events.txt", close)
+    assert parsed.records is not None, parsed.error
+    assert [r["namespace"] for r in parsed.records] == ["testns"]
+    assert parsed.records[0]["id"] == "testns.1"
+
+
+@pytest.mark.parametrize("close", [True, False])
+def test_vanilla_decision_file_leading_plus_decimal_indexes(tmp_path, close):
+    """Mirrors vanilla common/decisions/ETH.txt: `consumer_goods_factor = +0.10`
+    inside a decision's modifier must not stop the file from indexing."""
+    text = (
+        "TST_category = {\n"
+        "\tTST_decision = {\n"
+        "\t\tmodifier = {\n"
+        "\t\t\tconsumer_goods_factor = +0.10\n"
+        "\t\t}\n"
+        "\t}\n"
+        "}\n"
+    )
+    decision = tmp_path / "decisions.txt"
+    decision.write_text(text, encoding="utf-8")
+
+    parsed = _parse_decision_file(str(decision), "decisions.txt", close)
+    assert parsed.records is not None, parsed.error
+    assert parsed.records[0]["id"] == "TST_decision"
+    assert parsed.records[0]["category"] == "TST_category"
+
+
+def test_vanilla_gfx_file_missing_final_block_recovers_sprites(tmp_path):
+    """interface/powerbalanceview.gfx never closes `spriteTypes`; the scanner
+    rejects unbalanced braces and the AST fallback with EOF recovery indexes it.
+    Mod GFX files keep the strict failure (they track real bugs)."""
+    text = (
+        "spriteTypes = {\n"
+        "\tspriteType = {\n"
+        '\t\tname = "GFX_bop_glow_effect"\n'
+        '\t\ttexturefile = "gfx/interface/bop/glow.dds"\n'
+        "\t}\n"
+    )
+    gfx = tmp_path / "powerbalanceview.gfx"
+    gfx.write_text(text, encoding="utf-8")
+
+    parsed = _parse_gfx_file(str(gfx), "powerbalanceview.gfx", True)
+    assert parsed.records is not None and parsed.error is None
+    assert [r["name"] for r in parsed.records] == ["GFX_bop_glow_effect"]
+
+    strict = _parse_gfx_file(str(gfx), "powerbalanceview.gfx", False)
+    assert strict.records is None
+    assert strict.error is not None and strict.error.startswith("parse failed:")
+
+
+def test_definition_parse_root_recovers_vanilla_unclosed_block(tmp_path):
+    broken = tmp_path / "broken.txt"
+    broken.write_text('TST = {\n\tcountry_file = "countries/T.txt"\n', encoding="utf-8")
+
+    recovered = _parse_root(str(broken), "broken.txt", close_blocks_at_eof=True)
+    assert not isinstance(recovered, ParseResult)
+    strict = _parse_root(str(broken), "broken.txt")
+    assert isinstance(strict, ParseResult)
+    assert strict.error is not None and strict.error.startswith("parse failed:")
+
+
 @pytest.mark.parametrize("parse", [parse_scripted_effect_file, parse_scripted_trigger_file])
 def test_scripted_parser_reads_bare_and_wrapped_definitions(tmp_path, parse):
     text = "scripted_effects = { TST_wrapped = { } note = 1 }\nTST_bare = { }\nflag = yes\n"

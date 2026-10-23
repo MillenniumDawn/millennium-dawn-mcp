@@ -12,7 +12,7 @@ from ..paradox.ast_cache import parse_cached
 from ..paradox.schema import find_event_nodes, node_line, symbol_or_str
 from ..util.index_anchor import select_indexed_anchor
 from ..util.line_numbers import line_starts
-from ..util.pathing import resolve_scope_file
+from ..util.pathing import is_under_vanilla, resolve_scope_file
 from ..util.response import coerce_int, enforce_budget, paginate
 from .loc import generate_loc_stub
 
@@ -67,7 +67,11 @@ def generate_missing_loc_tool(
             failures.append(f"event:{ident}: source file unavailable")
             continue
         try:
-            _source, root = parse_cached(Path(source_path))
+            source = Path(source_path)
+            _source, root = parse_cached(
+                source,
+                close_blocks_at_eof=is_under_vanilla(source, settings.vanilla_path),
+            )
             nodes = find_event_nodes(root, ident)
             node = select_indexed_anchor(
                 [(node_line(candidate, line_starts(_source)), candidate) for candidate in nodes],

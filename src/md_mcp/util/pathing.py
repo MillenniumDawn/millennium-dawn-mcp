@@ -75,6 +75,16 @@ def roots_for(
     return roots
 
 
+def is_under_vanilla(abs_path: Path, vanilla_path: Path | None) -> bool:
+    """True when `abs_path` sits inside the read-only vanilla reference tree.
+
+    Vanilla files keep loading under the engine even when malformed in ways the
+    strict parser rejects (unclosed final block, a leading `+` number), so callers
+    use this to opt them into the parser's EOF recovery instead of failing reads.
+    """
+    return vanilla_path is not None and abs_path.is_relative_to(vanilla_path)
+
+
 def resolve_scope_file(
     relpath: str,
     mod_root: Path,

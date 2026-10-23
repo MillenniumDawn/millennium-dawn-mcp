@@ -9,7 +9,9 @@ from .definitions import parse_character_file, parse_trait_file
 class CharacterIndex(GenericTxtIndex):
     """Index character definitions from ``common/characters``."""
 
-    cache_version = 1
+    # v2: parser accepts leading-+ numbers, acute-initial symbols and anonymous
+    # blocks, and vanilla files parse with EOF recovery — cached records rebuild.
+    cache_version = 2
     cache_name = "character"
     subdir = "common/characters"
     parser_fn = staticmethod(parse_character_file)
@@ -20,7 +22,9 @@ class CharacterIndex(GenericTxtIndex):
 class TraitIndex(GenericTxtIndex):
     """Index country and unit leader traits."""
 
-    cache_version = 1
+    # v2: parser accepts leading-+ numbers, acute-initial symbols and anonymous
+    # blocks, and vanilla files parse with EOF recovery — cached records rebuild.
+    cache_version = 2
     cache_name = "trait"
     subdirs = ("common/country_leader", "common/unit_leader")
     parser_fn = staticmethod(parse_trait_file)

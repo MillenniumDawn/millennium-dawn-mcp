@@ -19,7 +19,35 @@ def test_parse_string_returns_the_ast():
 def test_parse_string_reports_the_error_position():
     out = parse_string_tool("a = 1\nb = {{{")
     assert out["ok"] is False
-    assert "at (2, 6)" in out["error"]
+    # Was (2, 6): anonymous-block acceptance (issue #300) consumes the bare `{`
+    # entries, so the precise failure lands at the innermost opener (see docs).
+    assert "at (2, 8)" in out["error"]
+
+
+def test_parse_file_recovers_vanilla_while_identical_mod_file_stays_strict(tmp_path):
+    """Issue #300 follow-up: `parse_file` on a vanilla-root file uses parser EOF
+    recovery (unclosed final block), while the same malformed content reached
+    through the mod root keeps the strict error. `parse_string` stays strict."""
+    vanilla = tmp_path / "Vanilla"
+    mod = tmp_path / "Mod"
+    (vanilla / "common" / "ideas").mkdir(parents=True)
+    (mod / "common" / "ideas").mkdir(parents=True)
+    unclosed = "ideas = {\n\tcountry = {\n\t\tSOV_idea = { allowed = { always = yes } }\n\t}\n"
+    (vanilla / "common" / "ideas" / "SOV.txt").write_text(unclosed, encoding="utf-8")
+    (mod / "common" / "ideas" / "SOV_extra.txt").write_text(unclosed, encoding="utf-8")
+
+    vanilla_out = parse_file_tool("common/ideas/SOV.txt", mod, vanilla)
+    assert vanilla_out["ok"] is True
+    ideas = vanilla_out["root"]["value"]["children"][0]
+    assert ideas["name"] == "ideas"
+
+    mod_out = parse_file_tool("common/ideas/SOV_extra.txt", mod, vanilla)
+    assert mod_out["ok"] is False
+    assert "Expect a '}'" in mod_out["error"]
+
+    snippet = parse_string_tool(unclosed)
+    assert snippet["ok"] is False
+    assert "Expect a '}'" in snippet["error"]
 
 
 def test_parse_file_refuses_oversized(tmp_path):

@@ -18,7 +18,10 @@ def test_iter_scope_files_yields_parsed_files_and_records_the_rest(tmp_path):
     assert [(p.relpath, p.text) for p in parsed] == [("ok.txt", "a = 1\n")]
     assert parsed[0].root.children()[0].name == "a"
     assert [e["file"] for e in errors] == ["bad.txt", "gone.txt"]
-    assert errors[0]["error"].startswith("Expect name to be symbol, string or number at (1, 6)")
+    # Was 'Expect name to be symbol, string or number at (1, 6)': anonymous-block
+    # acceptance (issue #300) consumes the bare `{` entries, so the precise failure
+    # becomes the innermost unterminated opener (see docs/parser.md).
+    assert errors[0]["error"].startswith("Expect a '}' at (1, 8)")
     assert errors[1]["error"] == "not found"
     assert failed == {"bad.txt", "gone.txt"}
 

@@ -133,9 +133,14 @@ def normalise_loc_langs(
     return tuple(result)
 
 
-def _parse_loc_worker(abs_path: str, relpath: str) -> Optional[list[dict]]:
-    """Top-level worker for ProcessPoolExecutor (reads file then dispatches the parse)."""
+def _parse_loc_worker(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> Optional[list[dict]]:
+    """Worker for ProcessPoolExecutor. The flag follows the parser_fn protocol but is
+    unused: localisation is YAML-shaped, parsed line-by-line, never by the parser."""
     try:
+        # abs_path is constrained to the configured content roots.
+        # pi-lens-ignore: python-path-traversal
         text = read_text(abs_path)
     except OSError as e:
         logger.warning("loc index: cannot read %s: %s", abs_path, e)

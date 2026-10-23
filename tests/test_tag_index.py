@@ -8,7 +8,7 @@ from md_mcp.analysis.manifest import _ids_for_tag, _indexed_country_records
 from md_mcp.indexes.base import GenericTxtIndex
 
 
-def _parse_ids(abs_path: str, _relpath: str) -> list[dict]:
+def _parse_ids(abs_path: str, _relpath: str, close_blocks_at_eof: bool = False) -> list[dict]:
     return [
         {"id": line.strip()}
         for line in Path(abs_path).read_text(encoding="utf-8").splitlines()

@@ -64,10 +64,10 @@ From `lexer.py`:
 | `comment` | `#.*(?:[\r\n]|$)` | `# this is a comment` |
 | `operator` | `>=`, `<=`, `!=` first, then `[={}<>;,]` | `=`, `{`, `}`, `>=` |
 | `string` | `"[^"\\]*(?:\\[\s\S][^"\\]*)*"` | `"localised key"` |
-| `symbol` | `(?:\d+\.)?[a-zA-Z_@\[\]][\w:\._@\[\]\-\?\^\/ -ɏ\|]*` | `ISR_idf`, `[VAR]`, `5.cycle_var` |
+| `symbol` | `(?:\d+\.)?[a-zA-Z_@\[\]\u00B4][\w:\._@\[\]\-\?\^\/\u00A0-\u024F\|]*` | `ISR_idf`, `[VAR]`, `5.cycle_var`, `´45` |
 | `date` | `\d+(?:\.\d+){2,}` | `1936.1.1`, `2030.1.1.12` |
-| `unitnumber` | `(?:-?\d*\.\d+|-?\d+)(?:%%?)` | `5%`, `42%%` |
-| `number` | `0x[0-9a-fA-F]+|-?\d*\.\d+|-?\d+\.?` | `42`, `-3.5`, `1.`, `2030.1`, `0xffffffff` |
+| `unitnumber` | `(?:[+-]?\d*\.\d+|[+-]?\d+)(?:%%?)` | `5%`, `42%%`, `-3%`, `+2%` |
+| `number` | `0x[0-9a-fA-F]+|[+-]?\d*\.\d+|[+-]?\d+\.?` | `42`, `-3.5`, `+0.10`, `1.`, `2030.1`, `0xffffffff` |
 | `eof` | `$` | (end of stream) |
 <!-- markdownlint-enable MD060 -->
 
@@ -77,6 +77,9 @@ so `539.productivity_state_var` is one symbol. Dates are retained as `SymbolNode
 converted to floats. The integer number branch accepts a trailing dot (`0.`); the
 fraction branch precedes it so `2030.1` remains a decimal. The hex branch precedes
 both, so `color = 0xffffffff` is one integer and not `0` with a stray `xffffffff`.
+Decimal numbers and unitnumbers accept a leading `+` (a deliberate divergence from
+`hoiparser.ts`, below); hex stays unsigned and the date branch stays unsigned, so
+`1936.1.1` and `0xff` keep their precedence over a signed decimal.
 
 The string pattern differs from `hoiparser.ts`, whose `[^"]` fallback also
 accepts backslashes and backtracks exponentially on an unterminated string with
@@ -114,10 +117,54 @@ parseValue  := { parseBlockContent('}') }
               [ '@' SYMBOL ]?                              (value attachment)
 ```
 
+With `parse_string(..., close_blocks_at_eof=True)` — mirroring the upstream TS
+`ParseOptions.closeBlocksAtEof` (default false there and here) — a block still open at
+EOF closes there instead of failing the parse; its `value_end_token` is the eof token,
+so source-extent slicing still reaches the end of the text. The index layer enables
+this flag **only for files under the vanilla root** (see `util.pathing.is_under_vanilla`
+and `indexes.base.parse_files`): the game loads vanilla files this way, while mod files
+keep the strict parse errors the agent sees (and which `track_parse_errors` indexes)
+instead of silently recovering a broken mod block.
+
 The parser keeps two tokens in the resulting `Node` (`name_token` and
 `value_end_token`) so downstream consumers can slice the original source by
 offset. `resources.py` uses them to preserve comments and whitespace when
 returning raw blocks via `md://`.
+
+## Deliberate divergences from `hoiparser.ts`
+
+The port is otherwise token-for-token; these divergences exist because vanilla ships
+content the upstream TS parser rejects while the game itself loads the files
+(all diagnosed against `MD-VSCode-Utility-Tool/src/hoiformat/hoiparser.ts`, which
+offers only the `closeBlocksAtEof` option of these):
+
+1. **Leading `+` decimal numbers / unitnumbers.** Vanilla files such as
+   `common/decisions/ETH.txt` write `consumer_goods_factor = +0.10`. The engine reads
+   them; TS's `-?`-only number rejects them and kills the whole file. Hex stays
+   unsigned and dates stay unsigned, so hex (`0xff`), date (`1936.1.1`) and percent
+   (`+5%`) precedence is unchanged.
+2. **Symbols may start with U+00B4 ACUTE.** Vanilla `events/WUW_Germany.txt` writes
+   `base = ´45`. The character already sits inside the symbol continuation range
+   `\u00A0-\u024F` that both parsers accept after the first character; only this one
+   character was added to the start class. No general widening of non-ASCII symbol
+   starts — other Unicode punctuation continues to fail lexing as before.
+3. **Anonymous `{ ... }` block entries.** Vanilla `events/TAOG_Siam.txt` has a bare
+   `{ icon = ... model = ... }` list element inside a named block. TS rejects it; the
+   engine tolerates it. The parser now builds a faithful anonymous Node (`name` and
+   `operator` stay None, `value` is the block's children, `value_end_token` is the
+   closing brace), so raw-text slicing behaves like a named block's. Extractors
+   (`schema.py`) and `Node.get` skip nameless nodes, and the error position for
+   *malformed* `{{{`-style garbage moves one brace deeper (`Expect a '}'` at the eof
+   position instead of `Expect name...` at the second brace) — the diagnostic stays
+   precise, which is what the position tests pin.
+4. **`close_blocks_at_eof` recovery option.** Mirrors the TS `ParseOptions` flag
+   (added upstream with the same default-false semantics). Used only for vanilla-root
+   files during indexing/resolution; mod files keep strict diagnostics.
+
+These changes widen acceptance; nothing about malformed input outside these four
+shapes fails later or more quietly than before. Index persist caches were version-
+bumped (idea/gfx/focus/event/decision/definitions-based to force a rebuild) exactly
+because previously-failing files now parse and must not be served stale errors.
 
 ## BOM handling
 

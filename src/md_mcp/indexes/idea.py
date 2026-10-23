@@ -12,7 +12,8 @@ from .base import FILE_NOT_FOUND, GenericTxtIndex, ParseResult
 logger = logging.getLogger(__name__)
 
 
-def _parse_idea_file(abs_path: str, relpath: str) -> ParseResult:
+def _parse_idea_file(abs_path: str, relpath: str, close_blocks_at_eof: bool = False) -> ParseResult:
+    """Vanilla-root files get parser EOF recovery; mod files stay strict."""
     try:
         text = read_text(abs_path)
     except OSError as e:
@@ -21,7 +22,9 @@ def _parse_idea_file(abs_path: str, relpath: str) -> ParseResult:
     if "ideas" not in text:
         return ParseResult([])
     try:
-        root = parse_string(text, error_prefix=f"In file {relpath}:\n")
+        root = parse_string(
+            text, error_prefix=f"In file {relpath}:\n", close_blocks_at_eof=close_blocks_at_eof
+        )
         return ParseResult(extract_idea_records(root, source=text))
     except Exception as e:
         logger.warning("idea index: parse failed for %s: %s", relpath, e)
@@ -29,7 +32,9 @@ def _parse_idea_file(abs_path: str, relpath: str) -> ParseResult:
 
 
 class IdeaIndex(GenericTxtIndex):
-    cache_version = 2
+    # v3: parser acceptance widened (+ numbers, acute symbols, anonymous blocks,
+    # vanilla EOF recovery); cached parse errors rebuild.
+    cache_version = 3
     cache_name = "idea"
     subdir = "common/ideas"
     parser_fn = staticmethod(_parse_idea_file)

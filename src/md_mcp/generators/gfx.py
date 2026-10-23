@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Callable, Iterator, Optional, Sequence
+from typing import Callable, Iterator, NamedTuple, Optional, Sequence
 
 from ..util.encoding import read_text
 from ..util.pathing import PathAccessError, validate_user_path
@@ -24,20 +24,39 @@ from ..util.response import enforce_budget, paginate
 IMAGE_EXTENSIONS = {".dds", ".png", ".tga"}
 SPRITETYPES_HEADER = "spriteTypes = {\n"
 
-# A comment or a quoted string. Each scanner pattern tries these first, so its own
-# group only matches outside both. A backslash in a string takes the next character
-# with it, and a string or last-line comment that never closes runs to the end.
-# Keep the closing quote optional: then the string branch cannot fail, so the
-# nested repeat never backtracks.
-_SKIP = r'#[^\n]*|"(?:\\[\s\S]?|[^"\\]+)*"?'
-_BRACE_RE = re.compile(_SKIP + r"|([{}])")
-_SPRITETYPE_RE = re.compile(_SKIP + r"|(?<!\w)([sS]priteType\s*=\s*\{)")
-_NAME_RE = re.compile(_SKIP + r'|(?<!\w)name\s*=\s*"([^"]+)"')
-_TEXTUREFILE_RE = re.compile(_SKIP + r'|(?<!\w)texture[fF]ile\s*=\s*"([^"]+)"')
+
+# Each scanner matches one anchored code pattern; the jump pattern finds the next
+# place code can start and also matches the `#` and `"` that open a comment or
+# string, so code never hides behind comment or string content. A backslash in a
+# string takes the next character with it, and an unclosed string or last-line
+# comment runs to the end. String bodies are consumed by _string_end with find
+# hops, never a repeated regex: sre retains match state per repeat iteration, so
+# megabyte escape-dense strings would otherwise peak near a gigabyte.
+class _Scanner(NamedTuple):
+    """An anchored code pattern plus the leftmost-scan pattern that finds it."""
+
+    code: re.Pattern[str]
+    jump: re.Pattern[str]
+
+
+_BRACE_SCANNER = _Scanner(re.compile(r"([{}])"), re.compile(r'[#{}"]'))
+_SPRITETYPE_SCANNER = _Scanner(
+    re.compile(r"(?<!\w)([sS]priteType\s*=\s*\{)"), re.compile(r'[#"]|[sS]prite')
+)
+_NAME_SCANNER = _Scanner(
+    re.compile(r'(?<!\w)name\s*=\s*"([^"]+)"'), re.compile(r'[#"]|(?<!\w)name')
+)
+_TEXTUREFILE_SCANNER = _Scanner(
+    re.compile(r'(?<!\w)texture[fF]ile\s*=\s*"([^"]+)"'),
+    re.compile(r'[#"]|(?<!\w)texture[fF]ile'),
+)
 # Real mod files also use lowercase spritetypes.
-_SPRITE_TYPES_RE = re.compile(_SKIP + r"|(?<!\w)(spriteTypes\s*=\s*\{)", re.IGNORECASE)
-# Closing quote is captured. A missing group means the scanners ended inside a string.
-_UNCLOSED_STRING_RE = re.compile(r'#[^\n]*|"(?:\\[\s\S]?|[^"\\]+)*(")?')
+_SPRITE_TYPES_SCANNER = _Scanner(
+    re.compile(r"(?<!\w)(spriteTypes\s*=\s*\{)", re.IGNORECASE),
+    re.compile(r'[#"]|(?<!\w)spriteTypes', re.IGNORECASE),
+)
+# Where a comment or string can open; both scanners and _gfx_error hop on it.
+_SKIP_OPENERS = re.compile(r'[#"]')
 _HIDDEN_BLOCK_RE = re.compile(r"(?<!\w)spriteTypes?\s*=\s*\{", re.IGNORECASE)
 _NO_SPRITE_TYPES_ROOT = "gfx_file has no spriteTypes block"
 _UNTERMINATED_STRING = "gfx_file has an unterminated string at line {}"
@@ -373,18 +392,54 @@ def _resolve_under_mod(mod_root: Path, rel: str, *, label: str) -> Path:
         raise ValueError(f"{label} escapes mod root: {rel}") from None
 
 
+def _string_end(text: str, start: int, stop: int) -> tuple[int, bool]:
+    r"""Consume the string opening at `start`; return (end, closed). The quote
+    closes iff the backslash run before it is even (a backslash takes the next
+    character, including newline and quote)."""
+    i = start + 1
+    while True:
+        quote = text.find('"', i, stop)
+        if quote == -1:
+            return stop, False
+        run_end = quote - 1
+        while run_end >= start and text[run_end] == "\\":
+            run_end -= 1
+        if (quote - 1 - run_end) % 2 == 1:
+            i = quote + 1  # odd backslash run: the quote is escaped
+        else:
+            return quote + 1, True
+
+
 def _code_matches(
-    pattern: re.Pattern[str], text: str, start: int = 0, end: Optional[int] = None
+    scanner: _Scanner, text: str, start: int = 0, end: Optional[int] = None
 ) -> Iterator[re.Match[str]]:
-    """Yield the matches of a scanner pattern that fall outside comments and strings."""
+    """Yield the scanner's code matches that fall outside comments and strings."""
     stop = len(text) if end is None else end
-    return (m for m in pattern.finditer(text, start, stop) if m.lastindex)
+    i = start
+    while i < stop:
+        landing = scanner.jump.search(text, i, stop)
+        if landing is None:
+            return
+        pos = landing.start()
+        opener = text[pos]
+        if opener == "#":
+            newline = text.find("\n", pos, stop)
+            i = stop if newline == -1 else newline + 1
+        elif opener == '"':
+            i, _ = _string_end(text, pos, stop)
+        else:
+            match = scanner.code.match(text, pos, stop)
+            if match is None:
+                i = pos + 1
+            else:
+                yield match
+                i = match.end()
 
 
 def _match_brace(text: str, open_idx: int) -> int:
     """Return the brace that closes the one at `open_idx`, or -1."""
     depth = 0
-    for m in _code_matches(_BRACE_RE, text, open_idx):
+    for m in _code_matches(_BRACE_SCANNER, text, open_idx):
         depth += 1 if m.group(1) == "{" else -1
         if depth == 0:
             return m.start()
@@ -393,18 +448,18 @@ def _match_brace(text: str, open_idx: int) -> int:
 
 def _parse_named_blocks(text: str):
     """Yield `(name, texturefile, start, end)` for every closed spriteType block."""
-    for m in _code_matches(_SPRITETYPE_RE, text):
+    for m in _code_matches(_SPRITETYPE_SCANNER, text):
         close = _match_brace(text, m.end() - 1)
         if close == -1:
             continue
-        name = next(_code_matches(_NAME_RE, text, m.end(), close), None)
-        texture = next(_code_matches(_TEXTUREFILE_RE, text, m.end(), close), None)
+        name = next(_code_matches(_NAME_SCANNER, text, m.end(), close), None)
+        texture = next(_code_matches(_TEXTUREFILE_SCANNER, text, m.end(), close), None)
         yield name and name.group(1), texture and texture.group(1), m.start(), close + 1
 
 
 def _sprite_types_close(text: str) -> int:
     """Return the closing brace of the outer spriteTypes block, or -1."""
-    root = next(_code_matches(_SPRITE_TYPES_RE, text), None)
+    root = next(_code_matches(_SPRITE_TYPES_SCANNER, text), None)
     return -1 if root is None else _match_brace(text, root.end() - 1)
 
 
@@ -427,17 +482,27 @@ def _gfx_error(text: str) -> Optional[str]:
     crossing: Optional[int] = None
     hider: Optional[int] = None
     tail: Optional[int] = None
-    for match in _UNCLOSED_STRING_RE.finditer(text):
-        start, end = match.span()
-        if text[start] != '"':
+    length = len(text)
+    i = 0
+    while i < length:
+        landing = _SKIP_OPENERS.search(text, i)
+        if landing is None:
+            break
+        pos = landing.start()
+        if text[pos] == "#":
+            newline = text.find("\n", pos)
+            i = length if newline == -1 else newline + 1
             continue
-        if match.group(1) is None:
-            tail = start
-        elif text.find("\n", start, end) != -1:
+        end, closed = _string_end(text, pos, length)
+        if not closed:
+            tail = pos
+            break  # the string consumed the rest; no later string can exist
+        if text.find("\n", pos, end) != -1:
             if crossing is None:
-                crossing = start
-            if hider is None and _HIDDEN_BLOCK_RE.search(text, start, end):
-                hider = start
+                crossing = pos
+            if hider is None and _HIDDEN_BLOCK_RE.search(text, pos, end):
+                hider = pos
+        i = end
     if tail is not None:
         return _UNTERMINATED_STRING.format(_line_at(text, tail if crossing is None else crossing))
     if hider is not None:

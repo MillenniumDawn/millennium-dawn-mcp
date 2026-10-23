@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 
 import pytest
@@ -843,6 +844,117 @@ def test_merge_refuses_a_ten_megabyte_open_string():
     original = "spriteTypes = {\n" + _A + '}\nnote = "' + "a" * 10_000_000
 
     with pytest.raises(ValueError, match=r"^gfx_file has an unterminated string at line 7$"):
+        gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds"}, _render)
+
+
+def test_merge_refuses_a_megabyte_escape_dense_open_string():
+    original = "spriteTypes = {\n" + _A + '}\nnote = "' + "\\a" * 500_000
+
+    with pytest.raises(ValueError, match=r"^gfx_file has an unterminated string at line 7$"):
+        gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds"}, _render)
+
+
+_DENSE = "\\a" * 500_000
+
+
+def test_merge_scans_flat_memory_through_dense_strings():
+    """No per-iteration regex state: traced peak stays a few times the input."""
+    import tracemalloc
+
+    open_doc = "spriteTypes = {\n" + _A + '}\nnote = "' + _DENSE
+    closed_doc = (
+        "spriteTypes = {\n"
+        + _render("GFX_a", "gfx/a.dds")
+        + '\ttexturefile = "'
+        + _DENSE
+        + '"\n}\n'
+    )
+
+    for doc in (open_doc, closed_doc):
+        tracemalloc.start()
+        with contextlib.suppress(ValueError):
+            gfx_mod.merge_gfx_text(doc, {"GFX_a": "gfx/a.dds"}, _render)
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        assert peak < 8 * len(doc), (peak, len(doc))
+
+
+@pytest.mark.parametrize(
+    ("note", "merges"),
+    [
+        pytest.param('"\\a\\"', False, id="escaped-quote-keeps-string-open"),
+        pytest.param('"\\a\\\\"', True, id="double-backslash-closes"),
+        pytest.param('"\\a\\\\\\"', False, id="triple-backslash-keeps-open"),
+        pytest.param('"\\a\\\\\\\\"', True, id="quadruple-backslash-closes"),
+        pytest.param('"\\a", "\\a\\" "\\a"', False, id="pairing-flips-with-escaped-quote"),
+    ],
+)
+def test_merge_dense_backslash_parity_before_quotes(note, merges):
+    """Backslash parity rules inside dense strings match the old pairing."""
+    original = "spriteTypes = {\n" + _A + "}\nnote = " + note
+
+    if merges:
+        out = gfx_mod.merge_gfx_text(original, {"GFX_b": "gfx/b.dds"}, _render)
+        assert out["new"] == ["GFX_b"]
+    else:
+        with pytest.raises(ValueError, match=r"^gfx_file has an unterminated string at line 7$"):
+            gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds"}, _render)
+
+
+def test_merge_parses_all_patterns_around_a_dense_closed_value():
+    """Name/texturefile/brace/append scans all resume correctly after dense strings."""
+    dense_value = ("\\a\n" * 500)[:-1]
+    original = (
+        "spriteTypes = {\n"
+        + _render("GFX_a", "gfx/a.dds")
+        + '\tspriteType = {\n\t\tname = "GFX_b"\n\t\ttexturefile = "'
+        + dense_value
+        + '"\n\t}\n'
+        + '# trailing quote in comment: "\n'
+        + "}\n"
+    )
+    entries = {"GFX_a": "gfx/new.dds", "GFX_c": "gfx/c.dds"}
+
+    out = gfx_mod.merge_gfx_text(original, entries, _render)
+
+    assert out["changed"] == [("GFX_a", "gfx/a.dds")]
+    assert out["new"] == ["GFX_c"]
+    assert [name for name, _tex, _start, _end in gfx_mod._parse_named_blocks(original)] == [
+        "GFX_a",
+        "GFX_b",
+    ]
+    assert out["orphaned"] == ["GFX_b"]
+    assert out["txt"].count("spriteType = {") == 3
+    again = gfx_mod.merge_gfx_text(out["txt"], entries, _render)
+    assert again["txt"] == out["txt"]
+    assert again["would_write"] is False
+
+
+def test_merge_keeps_valid_dense_multiline_strings_and_comments_unchanged():
+    original = (
+        '# comment with a stray quote: "\n'
+        "spriteTypes = {\n"
+        + _render("GFX_a", "gfx/a.dds")
+        + '\tnote = "'
+        + "\\a\n\\a" * 1000
+        + '"\n'
+        + '\tpath = "ends with escaped backslash\\\\"\n'
+        + "}\n"
+    )
+
+    out = gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds"}, _render)
+
+    assert out["txt"] == original
+    assert out["would_write"] is False
+
+
+def test_merge_stray_dense_quotes_still_hide_a_block():
+    original = "spriteTypes = {\n" '\tnote = "\n' + "\\a\n" * 1000 + _A + '\tother = "\n}\n'
+
+    with pytest.raises(
+        ValueError,
+        match=r"^gfx_file has a multi-line string that hides a sprite block at line 2$",
+    ):
         gfx_mod.merge_gfx_text(original, {"GFX_a": "gfx/a.dds"}, _render)
 
 

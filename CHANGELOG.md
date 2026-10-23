@@ -110,6 +110,12 @@
 
 ### Fixed
 
+- Vanilla files the engine loads but the strict parser rejected (leading-`+` numbers,
+  acute-initial symbols, bare `{ ... }` list entries, unterminated final block) now parse:
+  the first three token/AST-wide, EOF recovery for vanilla-only files (mod files stay
+  strict). Vanilla idea/event/decision/gfx/definition files that the game reads index
+  fully (e.g. `common/ideas/SOV.txt`, `interface/powerbalanceview.gfx`); `parse_file` on a
+  vanilla path recovers too. Index caches for the affected kinds were version-bumped.
 - Focus records read every `mutually_exclusive` block of a focus. `resolve_focus`,
   `find_focuses(mutex_with=...)` and `focus_graph` saw only the first block.
 - Every in-process import of the mod's `tools/` scripts now shares one lock. A tool's first

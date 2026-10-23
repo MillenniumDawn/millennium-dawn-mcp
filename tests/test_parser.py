@@ -163,7 +163,11 @@ def test_comment_is_skipped():
 
 
 def test_parse_error_mentions_exact_line_and_column():
-    with pytest.raises(ParseError, match=r"at \(2, 6\)"):
+    # Position moved from (2, 6) with anonymous-block acceptance (issue #300): the
+    # inner bare `{` entries are consumed, so the failure surfaces at the unmatched
+    # innermost opener's eof instead of the second brace. Still precise; see
+    # docs/parser.md "Deliberate divergences".
+    with pytest.raises(ParseError, match=r"at \(2, 8\)"):
         parse_string("a = 1\nb = {{{")
 
 
@@ -182,6 +186,144 @@ def test_parse_error_uses_previous_position_for_invalid_name():
 def test_parse_error_names_what_was_expected(src, message):
     with pytest.raises(ParseError, match=re.escape(message)):
         parse_string(src)
+
+
+def test_leading_plus_number_parses_and_keeps_exact_span():
+    """Vanilla common/decisions/ETH.txt writes `consumer_goods_factor = +0.10`
+    (issue #300): the engine loads it, the pre-fix `-?`-only number did not."""
+    root = parse_string("consumer_goods_factor = +0.10")
+    [node] = root.children()
+    assert node.value == 0.1
+    assert isinstance(node.value, float)
+
+    tok = _tokens("x = +0.10")[2]
+    assert (tok.type, tok.value) == ("number", "+0.10")
+    assert (tok.start, tok.end) == (4, 9), "number token must cover the sign"
+    assert parse_string("x = +42").children()[0].value == 42
+    assert isinstance(parse_string("x = +42").children()[0].value, int)
+
+
+@pytest.mark.parametrize(
+    ("src", "expected"),
+    [
+        ("color = 0xff", 255),
+        ("threat = 5%", SymbolNode("5%")),
+        ("threat = -5%", SymbolNode("-5%")),
+        ("threat = +5%", SymbolNode("+5%")),
+        ("date = 1936.1.1", SymbolNode("1936.1.1")),
+        ("x = -3.5", -3.5),
+    ],
+)
+def test_plus_numbers_keep_date_hex_percent_precedence(src, expected):
+    """Adding the `+` branch must not reorder hex/date/unitnumber before number."""
+    root = parse_string(src)
+    [node] = root.children()
+    assert node.value == expected, f"{src} must still lex as one {type(expected).__name__}"
+
+
+def test_acute_prefixed_symbol_is_one_token_with_exact_span():
+    """Vanilla events/WUW_Germany.txt writes `base = ´45` (issue #300). U+00B4 was
+    already accepted as a symbol continuation; the engine loads the file, so the
+    narrow fix is to accept it as the first character as well."""
+    root = parse_string("ai_chance = { base = ´45 }")
+    [chance] = root.children()
+    [base] = chance.children()
+    assert base.value == SymbolNode("´45")
+
+    tok = _tokens("base = ´45")[2]
+    assert (tok.type, tok.value) == ("symbol", "´45")
+    assert (tok.start, tok.end) == (7, 10), "symbol token must cover the acute mark"
+
+
+def test_anonymous_block_entry_is_faithful_with_source_extent():
+    """Vanilla events/TAOG_Siam.txt has a bare `{ ... }` list element inside
+    `optional_assets` (issue #300): the engine tolerates it; the AST now keeps it
+    as a nameless Node whose value_end_token terminates at the closing brace."""
+    src = 'optional_assets = {\n\t{\n\t\ticon = "GFX_x"\n\t}\n}'
+    root = parse_string(src)
+    [assets] = root.children()
+    [anon] = assets.children()
+    assert anon.name is None
+    assert anon.operator is None
+    assert [child.name for child in anon.children()] == ["icon"]
+
+    starts = line_starts(src)
+    assert anon.value_end_token is not None
+    assert anon.value_end_token.value == "}"
+    # The extent reaches the block's own closing brace, like a named block's.
+    end = anon.value_end_token.end
+    assert src[end - 1] == "}"
+    assert pos_to_line(anon.value_end_token.start, starts) == 4
+    # The enclosing named block still closes at the final brace.
+    assert assets.value_end_token is not None
+    assert src[assets.value_end_token.end - 1] == "}"
+
+
+def test_anonymous_block_at_root_level():
+    root = parse_string("{ a = 1 }\n{ b = 2 }")
+    [first, second] = root.children()
+    assert first.name is None and second.name is None
+    assert [c.name for c in first.children()] == ["a"]
+    assert [c.name for c in second.children()] == ["b"]
+
+
+def test_unclosed_final_block_is_strict_by_default():
+    src = "a = {\n\tb = 1"
+    with pytest.raises(ParseError, match="Expect a '}'"):
+        parse_string(src)
+
+
+def test_close_blocks_at_eof_recovers_an_unterminated_block():
+    """The TS `closeBlocksAtEof` option, used for vanilla indexing only: vanilla
+    ships files such as common/ideas/SOV.txt that never close their last block
+    (issue #300). value_end_token is the eof token so slicing still reaches EOF."""
+    src = "a = {\n\tb = 1"
+    root = parse_string(src, close_blocks_at_eof=True)
+    [a] = root.children()
+    [b] = a.children()
+    assert b.value == 1
+    assert a.value_end_token is not None
+    assert a.value_end_token.type == "eof"
+    assert a.value_end_token.start == len(src)
+
+
+def test_close_blocks_at_eof_recovers_unclosed_anonymous_blocks():
+    root = parse_string("a = { { b = 1 }", close_blocks_at_eof=True)
+    [a] = root.children()
+    [anon] = a.children()
+    # The anonymous block HAS its closing brace; only `a`'s block reaches EOF open.
+    assert anon.name is None
+    assert [c.name for c in anon.children()] == ["b"]
+    assert anon.value_end_token is not None and anon.value_end_token.value == "}"
+    assert a.value_end_token is not None and a.value_end_token.type == "eof"
+
+
+def test_close_blocks_at_eof_keeps_mid_file_malformation_strict():
+    """Recovery only closes a block still open at EOF; an inner error still fails
+    with the same diagnostics as the strict mode."""
+    with pytest.raises(ParseError, match=r"Expect string, number, symbol, or \{"):
+        parse_string("a = { b = 1 }\nc = { d = }", close_blocks_at_eof=True)
+    with pytest.raises(ParseError, match="File content can't be completely parsed"):
+        parse_string("a = 1 }\n", close_blocks_at_eof=True)
+
+
+def test_recovery_mode_documented_semantics_for_garbage_openers():
+    """Under recovery, `a = {{{` closes every open block at EOF instead of failing
+    (the vanilla-index trade accepted in docs/parser.md: recovery never hides a
+    *strict*-mode diagnostic for mod files, which never use this mode)."""
+    root = parse_string("a = {{{", close_blocks_at_eof=True)
+    [a] = root.children()
+    assert [c.name for c in a.children()] == [None]
+    with pytest.raises(ParseError):
+        parse_string("a = {{{")
+
+
+def test_leading_plus_in_name_position_lexes_as_number():
+    # Numbers were always allowed as names; `+` is now a number start like `-`.
+    root = parse_string("+42 = 1")
+    [node] = root.children()
+    assert node.name == "+42"
+    assert node.value == 1
 
 
 def test_separators_after_bare_keywords_and_values_are_skipped():

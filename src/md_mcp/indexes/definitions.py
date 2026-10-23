@@ -28,22 +28,35 @@ def _record(node: Node, relpath: str, starts: list[int], *, kind: str, **extra: 
     return record
 
 
-def _parse_root(abs_path: str, relpath: str) -> tuple[Node, str] | ParseResult:
+def _parse_root(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> tuple[Node, str] | ParseResult:
     """The parsed `(root, text)`, or the failed result for an unreadable or unparsable file."""
     try:
+        # abs_path is constrained to the configured content roots.
+        # pi-lens-ignore: python-path-traversal
         text = read_text(abs_path)
     except OSError as exc:
         logger.warning("definition index: cannot read %s: %s", abs_path, exc)
         return ParseResult.failed("read", exc)
     try:
-        return parse_string(text, error_prefix=f"In file {relpath}:\n"), text
+        return (
+            parse_string(
+                text,
+                error_prefix=f"In file {relpath}:\n",
+                close_blocks_at_eof=close_blocks_at_eof,
+            ),
+            text,
+        )
     except Exception as exc:
         logger.warning("definition index: parse failed for %s: %s", relpath, exc)
         return ParseResult.failed("parse", exc)
 
 
-def parse_country_tag_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
-    parsed = _parse_root(abs_path, relpath)
+def parse_country_tag_file(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> Optional[list[dict]]:
+    parsed = _parse_root(abs_path, relpath, close_blocks_at_eof)
     if isinstance(parsed, ParseResult):
         return None
     root, text = parsed
@@ -87,8 +100,10 @@ def _wrapped_records(
     return records
 
 
-def parse_character_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
-    parsed = _parse_root(abs_path, relpath)
+def parse_character_file(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> Optional[list[dict]]:
+    parsed = _parse_root(abs_path, relpath, close_blocks_at_eof)
     if isinstance(parsed, ParseResult):
         return None
     root, text = parsed
@@ -104,16 +119,20 @@ def parse_character_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
     return records
 
 
-def parse_trait_file(abs_path: str, relpath: str) -> Optional[list[dict]]:
-    parsed = _parse_root(abs_path, relpath)
+def parse_trait_file(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> Optional[list[dict]]:
+    parsed = _parse_root(abs_path, relpath, close_blocks_at_eof)
     if isinstance(parsed, ParseResult):
         return None
     root, text = parsed
     return _wrapped_records(root, relpath, line_starts(text), wrapper="leader_traits", kind="trait")
 
 
-def _parse_scripted_file(abs_path: str, relpath: str, *, kind: str) -> ParseResult:
-    parsed = _parse_root(abs_path, relpath)
+def _parse_scripted_file(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool, *, kind: str
+) -> ParseResult:
+    parsed = _parse_root(abs_path, relpath, close_blocks_at_eof)
     if isinstance(parsed, ParseResult):
         return parsed
     root, text = parsed
@@ -131,9 +150,13 @@ def _parse_scripted_file(abs_path: str, relpath: str, *, kind: str) -> ParseResu
     return ParseResult(records)
 
 
-def parse_scripted_effect_file(abs_path: str, relpath: str) -> ParseResult:
-    return _parse_scripted_file(abs_path, relpath, kind="scripted_effect")
+def parse_scripted_effect_file(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> ParseResult:
+    return _parse_scripted_file(abs_path, relpath, close_blocks_at_eof, kind="scripted_effect")
 
 
-def parse_scripted_trigger_file(abs_path: str, relpath: str) -> ParseResult:
-    return _parse_scripted_file(abs_path, relpath, kind="scripted_trigger")
+def parse_scripted_trigger_file(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> ParseResult:
+    return _parse_scripted_file(abs_path, relpath, close_blocks_at_eof, kind="scripted_trigger")

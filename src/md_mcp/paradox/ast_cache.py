@@ -12,9 +12,12 @@ stale entry ages out of the LRU.
 Rules for callers:
 
 * The returned `Node` tree and text are **shared**. Treat them as read-only.
-* `error_prefix` only decorates `ParseError` messages. It is not part of the key;
-  the root is stored under whatever prefix the first caller used. Failed parses are
-  never cached, so every failure re-raises with the caller's own prefix.
+* The cache key is `(path, mtime, size, close_blocks_at_eof)`: `error_prefix` only
+decorates `ParseError` messages and is not part of the key, but the parse-mode flag is,
+so a strict and a recovered parse of one path never reuse each other's entry (the
+per-path bookkeeping keeps only the latest entry; the flag identity still prevents
+cross-mode reuse). The root is stored under whatever prefix the first caller used.
+Failed parses are never cached, so every failure re-raises with the caller's own prefix.
 * The cache holds at most `MD_MCP_AST_CACHE_SIZE` files (default 32) and at most
   `MD_MCP_AST_CACHE_BYTES` of source text (default 8 MB, measured in characters).
   An AST is roughly 23x its source size (`05_usa.txt`: 1.5 MB of text, ~29 MB of
@@ -33,14 +36,14 @@ from pathlib import Path
 
 from ..util.encoding import read_text
 from .nodes import Node
-from .parser import parse_string
+from .parser import parse_string as parse_string  # explicit re-export (tests monkeypatch it)
 
 DEFAULT_CACHE_SIZE = 32
 DEFAULT_CACHE_BYTES = 8_000_000
 _ENV_SIZE = "MD_MCP_AST_CACHE_SIZE"
 _ENV_BYTES = "MD_MCP_AST_CACHE_BYTES"
 
-_Key = tuple[str, int, int]
+_Key = tuple[str, int, int, bool]
 
 _lock = threading.Lock()
 _cache: "OrderedDict[_Key, tuple[str, Node]]" = OrderedDict()
@@ -70,9 +73,13 @@ def max_bytes() -> int:
     return _env_int(_ENV_BYTES, DEFAULT_CACHE_BYTES)
 
 
-def parse_cached(abs_path: Path, *, error_prefix: str = "") -> tuple[str, Node]:
+def parse_cached(
+    abs_path: Path, *, error_prefix: str = "", close_blocks_at_eof: bool = False
+) -> tuple[str, Node]:
     """Return `(text, root)` for `abs_path`, parsing only when the file changed.
 
+    `close_blocks_at_eof` opts into parser EOF recovery (for vanilla files; it is part
+    of the cache identity, so a strict and a recovered parse of one path coexist).
     A stat failure raises the `OSError` as an uncached plain read would. Parse errors
     propagate and are not cached.
     """
@@ -82,9 +89,11 @@ def parse_cached(abs_path: Path, *, error_prefix: str = "") -> tuple[str, Node]:
     except OSError:
         # Plain read: raises the same OSError the caller would have seen before.
         text = read_text(path)
-        return text, parse_string(text, error_prefix=error_prefix)
+        return text, parse_string(
+            text, error_prefix=error_prefix, close_blocks_at_eof=close_blocks_at_eof
+        )
 
-    key: _Key = (str(path), st.st_mtime_ns, st.st_size)
+    key: _Key = (str(path), st.st_mtime_ns, st.st_size, close_blocks_at_eof)
     with _lock:
         hit = _cache.get(key)
         if hit is not None:
@@ -94,7 +103,7 @@ def parse_cached(abs_path: Path, *, error_prefix: str = "") -> tuple[str, Node]:
     # Parse outside the lock: it takes ~1 s on the biggest files and must not block
     # readers of other entries. Two racing misses may both parse.
     text = read_text(path)
-    root = parse_string(text, error_prefix=error_prefix)
+    root = parse_string(text, error_prefix=error_prefix, close_blocks_at_eof=close_blocks_at_eof)
 
     global _total_chars
     limit = max_entries()
@@ -106,7 +115,7 @@ def parse_cached(abs_path: Path, *, error_prefix: str = "") -> tuple[str, Node]:
                 current = os.stat(path)
             except OSError:
                 return text, root
-            if (current.st_mtime_ns, current.st_size) != key[1:]:
+            if (current.st_mtime_ns, current.st_size) != key[1:3]:
                 return text, root
             stale_key = _by_path.get(key[0])
             if stale_key is not None:

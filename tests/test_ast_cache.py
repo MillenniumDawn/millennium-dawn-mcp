@@ -21,9 +21,9 @@ def parse_counter(monkeypatch):
     calls = {"n": 0}
     real = parser_mod.parse_string
 
-    def counting(text, error_prefix=""):
+    def counting(text, error_prefix="", **kwargs):
         calls["n"] += 1
-        return real(text, error_prefix=error_prefix)
+        return real(text, error_prefix=error_prefix, **kwargs)
 
     monkeypatch.setattr(ast_cache, "parse_string", counting)
     return calls
@@ -167,8 +167,31 @@ def test_parse_error_not_cached(tmp_path, parse_counter):
 def test_error_prefix_applies_to_errors_only(tmp_path):
     f = _write(tmp_path / "bad.txt", "focus_tree = { focus = { id = x ")
 
-    with pytest.raises(ParseError, match="In file bad.txt:"):
+    with pytest.raises(ParseError, match=r"In file bad\.txt:"):
         ast_cache.parse_cached(f, error_prefix="In file bad.txt:\n")
+
+
+def test_close_blocks_mode_is_part_of_the_cache_identity(tmp_path, parse_counter):
+    """One path parsed strictly and with EOF recovery must hold two distinct
+    entries: a failed strict parse must not serve the recovered root and vice
+    versa (issue #300 — vanilla files recover, mod files stay strict)."""
+    f = _write(tmp_path / "unclosed.txt", "a = {\n\tb = 1")
+
+    with pytest.raises(ParseError):
+        ast_cache.parse_cached(f)
+    text, root = ast_cache.parse_cached(f, close_blocks_at_eof=True)
+    assert [c.name for c in root.children()] == ["a"]
+    assert text == "a = {\n\tb = 1"
+
+    # The strict entry is still stored as failed: it re-parses, the recovered
+    # entry is served from the cache.
+    assert parse_counter["n"] == 2
+    with pytest.raises(ParseError):
+        ast_cache.parse_cached(f)
+    assert parse_counter["n"] == 3
+    _again_text, again_root = ast_cache.parse_cached(f, close_blocks_at_eof=True)
+    assert again_root is root
+    assert parse_counter["n"] == 3
 
 
 def test_missing_file_raises_oserror(tmp_path):

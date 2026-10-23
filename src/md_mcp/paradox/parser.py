@@ -6,6 +6,10 @@ the TS source one-to-one: a recursive-descent over `parseBlockContent` / `parseN
 
 Public entry point:
     * `parse_string(text)` — parse a snippet to a root Node whose `value` is the list of children
+      `parse_string(text, close_blocks_at_eof=True)` mirrors the TS `closeBlocksAtEof`
+      ParseOptions flag: blocks left open at EOF close there instead of failing the parse
+      (the game reads vanilla files this way — see docs/parser.md). Default False keeps
+      malformed-input diagnostics strict; the indexes enable it only for vanilla files.
 """
 
 from __future__ import annotations
@@ -26,14 +30,14 @@ _STRING_ESC_DQUOTE = re.compile(r'\\"')
 _STRING_ESC_BSLASH = re.compile(r"\\\\")
 
 
-def parse_string(text: str, error_prefix: str = "") -> Node:
+def parse_string(text: str, error_prefix: str = "", *, close_blocks_at_eof: bool = False) -> Node:
     """Parse a snippet of paradox script. Returns the file-root node.
 
     The root node has name=None, operator=None, and value=list[Node] holding top-level entries.
     """
     try:
         tokens = Tokenizer(text, error_prefix)
-        value = _parse_block_content(tokens)
+        value = _parse_block_content(tokens, close_blocks_at_eof)
         if tokens.peek().type != "eof":
             tokens.throw("File content can't be completely parsed")
         return Node(name=None, operator=None, value=value)
@@ -49,7 +53,7 @@ def _unescape_string(quoted: str) -> str:
     return inner
 
 
-def _parse_node(tokens: Tokenizer) -> Node:
+def _parse_node(tokens: Tokenizer, close_blocks_at_eof: bool = False) -> Node:
     name = tokens.next()
     if name.type not in ("string", "symbol", "number", "date"):
         tokens.throw("Expect name to be symbol, string or number", prev=True)
@@ -69,13 +73,13 @@ def _parse_node(tokens: Tokenizer) -> Node:
     # An implicit `name { ... }` block reads as `name = { ... }`.
     operator = "=" if next_token.value == "{" else tokens.next().value
 
-    value, value_end = _parse_node_value(tokens)
+    value, value_end = _parse_node_value(tokens, close_blocks_at_eof)
 
     # Handle `value @attachment` — a symbol followed by another block becomes attachment + block.
     value_attachment: SymbolNode | None = None
     if isinstance(value, SymbolNode) and tokens.peek().value == "{":
         value_attachment = value
-        value, value_end = _parse_node_value(tokens)
+        value, value_end = _parse_node_value(tokens, close_blocks_at_eof)
 
     # Skip trailing separators.
     tail = tokens.peek()
@@ -94,9 +98,10 @@ def _parse_node(tokens: Tokenizer) -> Node:
 
 
 def _parse_node_value(
-    tokens: Tokenizer,
+    tokens: Tokenizer, close_blocks_at_eof: bool = False
 ) -> tuple[str | int | float | SymbolNode | list | None, Token]:
-    """Parse one value. Returns it with its last token (the `}` of a block)."""
+    """Parse one value. Returns it with its last token (the `}` of a block, or the
+    eof token when `close_blocks_at_eof` closed an unterminated block there)."""
     next_token = tokens.next()
     t = next_token.type
     if t == "string":
@@ -122,7 +127,12 @@ def _parse_node_value(
         return SymbolNode(name=next_token.value), next_token
 
     if t == "operator" and next_token.value == "{":
-        children = _parse_block_content(tokens)
+        children = _parse_block_content(tokens, close_blocks_at_eof)
+        if close_blocks_at_eof and tokens.peek().type == "eof":
+            # The same recovery the TS parser guards: a block still open at EOF closes
+            # there instead of failing the parse. value_end_token stays a real token
+            # (the eof token) so source-extent slicing keeps working.
+            return children, tokens.peek()
         right = tokens.next()
         if right.value != "}":
             tokens.throw("Expect a '}'", prev=True)
@@ -131,10 +141,27 @@ def _parse_node_value(
     tokens.throw("Expect string, number, symbol, or {", prev=True)
 
 
-def _parse_block_content(tokens: Tokenizer) -> list[Node]:
+def _parse_block_content(tokens: Tokenizer, close_blocks_at_eof: bool = False) -> list[Node]:
     nodes: list[Node] = []
     while True:
         peek = tokens.peek()
         if peek.type == "eof" or peek.value == "}":
             return nodes
-        nodes.append(_parse_node(tokens))
+        if peek.type == "operator" and peek.value == "{":
+            nodes.append(_parse_anonymous_block(tokens, close_blocks_at_eof))
+            continue
+        nodes.append(_parse_node(tokens, close_blocks_at_eof))
+
+
+def _parse_anonymous_block(tokens: Tokenizer, close_blocks_at_eof: bool) -> Node:
+    """Parse a bare `{ ... }` list entry as an anonymous Node (deliberate divergence
+    from `hoiparser.ts`. Faithful AST: name/operator stay None, `value_end_token` is the
+    closing `}` (or the eof token under `close_blocks_at_eof`). See docs/parser.md."""
+    tokens.next()  # the opening {
+    value = _parse_block_content(tokens, close_blocks_at_eof)
+    if close_blocks_at_eof and tokens.peek().type == "eof":
+        return Node(name=None, operator=None, value=value, value_end_token=tokens.peek())
+    right = tokens.next()
+    if right.value != "}":
+        tokens.throw("Expect a '}'", prev=True)
+    return Node(name=None, operator=None, value=value, value_end_token=right)

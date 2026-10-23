@@ -3,6 +3,7 @@
 Every scoped analysis (layout, ref audit, deep focus filters) walks mod-relative
 paths that may not exist or may not parse, and each has to keep going and report
 the failure per file rather than abort the batch. This is that loop, once.
+Files under the vanilla root parse with parser EOF recovery; mod files stay strict.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from typing import Iterable, Iterator, Optional
 
 from ..paradox.ast_cache import parse_cached
 from ..paradox.nodes import Node
-from ..util.pathing import resolve_scope_file
+from ..util.pathing import is_under_vanilla, resolve_scope_file
 
 _MAX_ERROR_CHARS = 200
 
@@ -44,7 +45,9 @@ def iter_scope_files(
         try:
             # abs_path is constrained to the configured content roots.
             # pi-lens-ignore: python-path-traversal
-            text, root = parse_cached(abs_path)
+            text, root = parse_cached(
+                abs_path, close_blocks_at_eof=is_under_vanilla(abs_path, vanilla_path)
+            )
         except Exception as exc:
             _record_error(errors, failed_files, relpath, str(exc)[:_MAX_ERROR_CHARS])
             continue

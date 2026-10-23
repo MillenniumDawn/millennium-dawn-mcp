@@ -20,7 +20,7 @@ from ..paradox import parse_string as _parse_string_impl
 from ..paradox.schema import to_json_with_lines
 from ..util.encoding import read_text
 from ..util.line_numbers import line_starts, pos_to_line
-from ..util.pathing import PathAccessError, roots_for, validate_user_path
+from ..util.pathing import PathAccessError, is_under_vanilla, roots_for, validate_user_path
 from ..util.response import enforce_budget
 
 _DEFAULT_MAX_BYTES = 500_000
@@ -71,9 +71,15 @@ def parse_file_tool(
             "size": size,
         }
 
+    # Vanilla files parse with EOF recovery; mod files stay strict.
+    # pi-lens-ignore: python-path-traversal
     text = read_text(resolved)
     try:
-        root = _parse_string_impl(text, error_prefix=f"In file {resolved}:\n")
+        root = _parse_string_impl(
+            text,
+            error_prefix=f"In file {resolved}:\n",
+            close_blocks_at_eof=is_under_vanilla(resolved, vanilla_path),
+        )
     except Exception as e:
         return {"ok": False, "error": str(e), "path": str(resolved)}
 

@@ -27,7 +27,7 @@ from ..indexes import (
 from ..paradox.ast_cache import parse_cached
 from ..paradox.schema import extract_focus_records
 from ..util.index_anchor import IndexAnchorError, select_indexed_anchor
-from ..util.pathing import resolve_scope_file
+from ..util.pathing import is_under_vanilla, resolve_scope_file
 from ..util.response import enforce_budget, summarize_index_errors
 
 
@@ -68,7 +68,11 @@ def resolve_focus_tool(focus_id: str, settings: Settings, focus_index: FocusInde
     try:
         # abs_path is constrained to the configured content roots.
         # pi-lens-ignore: python-path-traversal
-        text, root = parse_cached(abs_path, error_prefix=f"In file {cached['file']}:\n")
+        text, root = parse_cached(
+            abs_path,
+            error_prefix=f"In file {cached['file']}:\n",
+            close_blocks_at_eof=is_under_vanilla(abs_path, settings.vanilla_path),
+        )
         records = extract_focus_records(root, source=text)
     except Exception as e:
         return {**indexed, "warning": f"Could not parse file for detail extraction: {e}"}

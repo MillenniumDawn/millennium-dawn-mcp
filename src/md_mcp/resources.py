@@ -31,7 +31,7 @@ from .paradox.schema import (
 )
 from .util.index_anchor import select_indexed_anchor
 from .util.line_numbers import line_starts, pos_to_line
-from .util.pathing import resolve_scope_file
+from .util.pathing import is_under_vanilla, resolve_scope_file
 
 
 def focus_resource(focus_id: str, settings: Settings, focus_index: FocusIndex) -> str:
@@ -49,7 +49,11 @@ def focus_resource(focus_id: str, settings: Settings, focus_index: FocusIndex) -
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {cached['file']}")
 
-    text, root = parse_cached(abs_path)
+    # Vanilla files parse with EOF recovery; mod files stay strict.
+    # pi-lens-ignore: python-path-traversal
+    text, root = parse_cached(
+        abs_path, close_blocks_at_eof=is_under_vanilla(abs_path, settings.vanilla_path)
+    )
     return _extract_focus_block(text, focus_id, root, line=cached.get("line"))
 
 
@@ -101,7 +105,11 @@ def _definition_resource(
     )
     if abs_path is None:
         raise FileNotFoundError(f"Indexed file missing on disk: {rec['file']}")
-    text, root = parse_cached(abs_path)
+    # Vanilla files parse with EOF recovery; mod files stay strict.
+    # pi-lens-ignore: python-path-traversal
+    text, root = parse_cached(
+        abs_path, close_blocks_at_eof=is_under_vanilla(abs_path, settings.vanilla_path)
+    )
     node = _anchor(find_nodes(root, ident), text, rec.get("line"), kind=kind, ident=ident)
     return _slice_node(text, node)
 

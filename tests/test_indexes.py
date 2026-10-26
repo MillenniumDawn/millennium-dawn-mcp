@@ -387,6 +387,47 @@ def test_scripted_index_version_bump_rebuilds_cached_parse_errors(
     assert (cache_dir / "v3" / f"{cache_name}.data.json").exists()
 
 
+def test_idea_index_version_bump_rebuilds_misclassified_block_only_ideas(fake_mod_root, cache_dir):
+    """A stale pre-fix idea cache holding the misclassified idea is rebuilt from disk."""
+    relpath = "common/ideas/blocked_ideas.txt"
+    f = fake_mod_root / relpath
+    f.write_text(
+        "ideas = {\n"
+        "\thidden_ideas = {\n"
+        "\t\tTST_monitor = { allowed_civil_war = { always = yes } }\n"
+        "\t}\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    sig = file_signature(f)
+    assert sig is not None
+    # Seed a v3 cache exactly as the pre-fix extractor would have written it.
+    old = IndexCache(cache_dir, "idea", 3)
+    old.save_manifest({relpath: sig})
+    old.save_data(
+        {
+            "files": {
+                relpath: [
+                    {
+                        "id": "allowed_civil_war",
+                        "category": "hidden_ideas",
+                        "slot": "TST_monitor",
+                        "line": None,
+                    }
+                ]
+            },
+            "parse_errors": {},
+        }
+    )
+
+    index = IdeaIndex(fake_mod_root, cache_dir, include_vanilla=False)
+    index.ensure_fresh()
+
+    assert index.resolve("TST_monitor") is not None
+    assert "allowed_civil_war" not in index.list_keys()
+    assert (cache_dir / "v4" / "idea.data.json").exists()
+
+
 def test_loc_index_parallel_build(fake_mod_root, cache_dir, monkeypatch):
     monkeypatch.delenv("MD_MCP_SERIAL_PARSE", raising=False)
     loc_dir = fake_mod_root / "localisation" / "english"
@@ -599,6 +640,38 @@ def test_loc_index_against_real_mod(real_mod_root, cache_dir):
     li = LocalisationIndex(real_mod_root, cache_dir)
     li.ensure_fresh()
     assert "TT_IF_THEY_ACCEPT" in li.list_keys("en")
+
+
+@pytest.mark.integration
+def test_idea_index_reads_block_only_lifecycle_ideas(real_mod_root, cache_dir):
+    """Real block-only ideas (EUU_monitor, ITA_wasted_foreign_funds) are indexed; temp cache."""
+    idx = IdeaIndex(real_mod_root, cache_dir, include_vanilla=False)
+    idx.ensure_fresh()
+
+    real_cases = {
+        "EUU_monitor": "common/ideas/EU_ideas.txt",
+        "ITA_wasted_foreign_funds": "common/ideas/Italian.txt",
+    }
+    from md_mcp.paradox import parse_string
+    from md_mcp.paradox.nodes import node_line
+    from md_mcp.paradox.schema import find_idea_nodes
+    from md_mcp.util.encoding import read_text
+    from md_mcp.util.line_numbers import line_starts
+
+    for idea_id, relpath in real_cases.items():
+        rec = idx.resolve(idea_id)
+        assert rec is not None, idea_id
+        assert rec["file"] == relpath
+        text = read_text(str(real_mod_root / relpath))
+        # find_idea_nodes must anchor to a node whose line matches the record.
+        node = find_idea_nodes(parse_string(text), idea_id)[0]
+        assert node.name == idea_id
+        assert node_line(node, line_starts(text)) == rec["line"]
+
+    # The lifecycle property names must not surface as idea IDs.
+    keys = idx.list_keys()
+    for prop in ("allowed_civil_war", "on_add", "on_remove"):
+        assert prop not in keys
 
 
 def test_manifest_missing_returns_none(tmp_path):

@@ -87,8 +87,9 @@ a long run of them. Here a backslash always takes the next character with it.
 An odd run of backslashes before a quote escapes that quote, and an even run
 leaves it as the terminator. Well-formed strings match as before. The one change
 is `"C:\dir\"` with no later quote: the TS pattern backtracks and closes the
-string there, and this one reports it as unterminated. The GFX scanner reads
-quotes the same way, except that its escape does not cross a newline.
+string there, and this one reports it as unterminated. The GFX scanner reads quotes
+the same way: its escape consumer also pairs a backslash with exactly the next
+character, including a newline.
 
 The pattern is written as plain runs separated by escapes, not as one
 alternation repeated per character. Both spellings match the same strings. The

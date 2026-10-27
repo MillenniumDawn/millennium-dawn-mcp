@@ -89,6 +89,81 @@ def test_tick_audit_matches_upstream_cli_report_within_timeout(real_mod_root, tm
 
 
 @pytest.mark.integration
+def test_tick_audit_list_rows_and_tree_match_upstream_report(real_mod_root, tmp_path):
+    report_path = tmp_path / "tick_report.json"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(real_mod_root / "tools" / "analysis" / "tick_audit.py"),
+            "--json",
+            str(report_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=upstream_analysis._TICK_TIMEOUT,
+    )
+    assert f"Wrote {report_path}" in completed.stdout
+    cli = json.loads(report_path.read_text(encoding="utf-8"))
+
+    hooks = upstream_analysis.tick_audit_tool(real_mod_root, list="hooks", limit=5)
+    assert hooks["ok"] is True
+    assert hooks.get("size_truncated") is not True
+    assert hooks["list"] == "hooks" and hooks["total"] == len(cli["hooks"])
+    assert hooks["returned"] == min(5, len(cli["hooks"]))
+    for row in hooks["rows"]:
+        match = [
+            h
+            for h in cli["hooks"]
+            if (h["file"], str(h["line"])) == (row["file"], str(row["line"]))
+            and h["cadence"] == row["cadence"]
+            and h["scope"] == row["scope"]
+        ]
+        assert match, row
+
+    events = upstream_analysis.tick_audit_tool(real_mod_root, list="events", limit=5)
+    assert events["ok"] is True
+    assert events.get("size_truncated") is not True
+    assert events["total"] == len(cli["event_fires"])
+    assert events["returned"] == min(5, len(cli["event_fires"]))
+    for row in events["rows"]:
+        record = cli["event_fires"][row["id"]]
+        assert row["def_location"] == record["def"]
+        assert row["cadences"] == sorted({f["cadence"] for f in record["fired_by"]})
+        assert row["scopes"] == sorted({f["scope"] for f in record["fired_by"]})
+
+    decisions = upstream_analysis.tick_audit_tool(real_mod_root, list="decisions", limit=5)
+    assert decisions["ok"] is True
+    assert decisions.get("size_truncated") is not True
+    assert decisions["total"] == len(cli["timed_decisions"])
+    assert decisions["returned"] == min(5, len(cli["timed_decisions"]))
+    expected_rows = [
+        {
+            "name": decision["name"],
+            "timer_field": decision["timer_field"],
+            "timer_value": decision["timer_value"],
+            "bucket": decision["bucket"],
+            "recurring": decision["recurring"],
+            "file": decision["file"],
+            "line": decision["line"],
+        }
+        for decision in cli["timed_decisions"]
+    ]
+    for row in decisions["rows"]:
+        assert row in expected_rows
+
+    tree = upstream_analysis.tick_audit_tool(real_mod_root, tree=True, node_limit=50)
+    assert tree["ok"] is True
+    assert tree["tree"]["kind"] == "root"
+    assert tree["node_limit"] == 50
+    assert tree["node_count"] > 0
+    assert isinstance(tree["tree_truncated"], bool)
+
+    rejected = upstream_analysis.tick_audit_tool(real_mod_root, list="hooks", cadence="hourly")
+    assert rejected["ok"] is False and "cadence" in rejected["error"]
+
+
+@pytest.mark.integration
 def test_estimate_gdp_matches_upstream_cli_fields(real_mod_root):
     completed = subprocess.run(
         [sys.executable, str(real_mod_root / "tools" / "analysis" / "estimate_gdp.py"), _TAG],

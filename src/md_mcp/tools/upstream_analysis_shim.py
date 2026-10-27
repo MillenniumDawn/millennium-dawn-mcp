@@ -22,21 +22,201 @@ def _load_module(path: Path, name: str):
     return module
 
 
+_TICK_LISTS = ("hooks", "events", "decisions")
+_TICK_ROW_FIELDS = (
+    "name",
+    "timer_field",
+    "timer_value",
+    "bucket",
+    "recurring",
+    "file",
+    "line",
+)
+
+
+def _tick_tag_ok(scope: Any, tag: Any) -> bool:
+    # Mirrors render_list's tag_ok: the focused tag always retains global hooks.
+    return tag is None or scope in (tag, "GLOBAL")
+
+
+def _tick_cadence_ok(cadence: Any, cadence_filter: Any) -> bool:
+    return cadence_filter is None or cadence == cadence_filter
+
+
+def _tick_list_rows(report: dict, mode: str, cadence_filter: Any, tag: Any) -> list[dict]:
+    """Structured rows shaped like render_list's sections, from the report it reads."""
+    rows: list[dict] = []
+    if mode == "hooks":
+        for hook in sorted(
+            report["hooks"], key=lambda item: (-item["work_units"], item["cadence"], item["scope"])
+        ):
+            if not _tick_cadence_ok(hook["cadence"], cadence_filter):
+                continue
+            if not _tick_tag_ok(hook["scope"], tag):
+                continue
+            rows.append(
+                {
+                    "file": hook["file"],
+                    "line": hook["line"],
+                    "cadence": hook["cadence"],
+                    "scope": hook["scope"],
+                }
+            )
+    elif mode == "events":
+        for event_id, record in sorted(report["event_fires"].items()):
+            fired_by = [
+                fire
+                for fire in record["fired_by"]
+                if _tick_cadence_ok(fire["cadence"], cadence_filter)
+                and _tick_tag_ok(fire["scope"], tag)
+            ]
+            if not fired_by:
+                continue
+            rows.append(
+                {
+                    "id": event_id,
+                    "cadences": sorted({fire["cadence"] for fire in fired_by}),
+                    "scopes": sorted({fire["scope"] for fire in fired_by}),
+                    "def_location": record["def"],
+                }
+            )
+    else:  # decisions
+        for decision in sorted(
+            report["timed_decisions"], key=lambda item: (item["bucket"], item["name"])
+        ):
+            if not _tick_cadence_ok(decision["bucket"], cadence_filter):
+                continue
+            rows.append({field: decision[field] for field in _TICK_ROW_FIELDS})
+    return rows
+
+
+def _tick_tree_stats(tree: dict) -> tuple[int, bool]:
+    """Count call-tree nodes and whether any subtree hit the upstream node budget."""
+    count = 0
+    truncated = False
+    stack = [tree]
+    while stack:
+        node = stack.pop()
+        count += 1
+        if node.get("truncated"):
+            truncated = True
+        children = node.get("children")
+        if isinstance(children, list):
+            stack.extend(children)
+    return count, truncated
+
+
+def _prune_tick_tree(node: dict, limit: int) -> tuple[dict, int, bool]:
+    """Keep the first `limit` nodes. Upstream's node budget resets per hook."""
+    kept = 0
+    dropped = False
+
+    def take(item: dict) -> dict | None:
+        nonlocal kept, dropped
+        if kept >= limit:
+            dropped = True
+            return None
+        kept += 1
+        copied = dict(item)
+        children = item.get("children")
+        if not isinstance(children, list):
+            return copied
+        kept_children = []
+        for child in children:
+            pruned = take(child)
+            if pruned is None:
+                break
+            kept_children.append(pruned)
+        if len(kept_children) != len(children):
+            dropped = True
+            copied["truncated"] = True
+        copied["children"] = kept_children
+        return copied
+
+    pruned = take(node)
+    if pruned is None:
+        return (
+            {
+                "name": node.get("name"),
+                "kind": node.get("kind"),
+                "children": [],
+                "truncated": True,
+            },
+            0,
+            True,
+        )
+    return pruned, kept, dropped
+
+
+def _attach_tick_tree(module: Any, result: dict, requested: bool, node_limit: int) -> dict:
+    if not requested:
+        return result
+    built = module.build_call_tree(
+        module.index_scripted_effects(),
+        module.index_events(),
+        module.index_effect_locations(),
+        max_nodes=node_limit,
+    )
+    tree, node_count, pruned_away = _prune_tick_tree(built, node_limit)
+    _, flagged = _tick_tree_stats(tree)
+    result["tree"] = tree
+    result["node_limit"] = node_limit
+    result["node_count"] = node_count
+    result["tree_truncated"] = pruned_away or flagged
+    return result
+
+
 def _tick_audit(mod_root: Path, payload: dict) -> dict:
     script = mod_root / "tools" / "analysis" / "tick_audit.py"
-    module = _load_module(script, "_md_mcp_upstream_tick_audit")
-    tag = payload.get("tag")
-    report = module.build_report(tag_filter=tag)
-    hooks = report.get("focus_hooks", []) if tag else report.get("hooks", [])
-    total = len(hooks)
+    list_mode = payload.get("list")
+    if list_mode is not None and not (isinstance(list_mode, str) and list_mode in _TICK_LISTS):
+        return {"ok": False, "error": f"list must be one of: {', '.join(_TICK_LISTS)}"}
+    tree_requested = payload.get("tree", False)
+    if not isinstance(tree_requested, bool):
+        return {"ok": False, "error": "tree must be a boolean"}
     try:
+        node_limit = max(1, int(payload.get("node_limit", 100)))
         limit = max(0, int(payload.get("limit", 20)))
         offset = max(0, int(payload.get("offset", 0)))
     except (TypeError, ValueError, OverflowError) as exc:
         return {"ok": False, "error": f"Invalid pagination values: {exc}"}
+    module = _load_module(script, "_md_mcp_upstream_tick_audit")
+    cadence_filter = payload.get("cadence")
+    if cadence_filter is not None and cadence_filter not in module.CADENCES:
+        return {
+            "ok": False,
+            "error": f"cadence must be one of: {', '.join(module.CADENCES)}",
+        }
+    tag = payload.get("tag")
+    report = module.build_report(tag_filter=tag)
+    hooks = report.get("focus_hooks", []) if tag else report.get("hooks", [])
+    if cadence_filter is not None:
+        hooks = [hook for hook in hooks if hook.get("cadence") == cadence_filter]
+    total = len(hooks)
     selected = hooks[offset : offset + limit]
+    if list_mode is not None:
+        rows = _tick_list_rows(report, list_mode, cadence_filter, tag)
+        result = {
+            "ok": True,
+            "tag": tag,
+            "list": list_mode,
+            "cadence": cadence_filter,
+            "totals": report["totals"],
+            "total": len(rows),
+            "returned": len(rows[offset : offset + limit]),
+            "truncated": offset + limit < len(rows),
+            "rows": rows[offset : offset + limit],
+        }
+        return _attach_tick_tree(module, result, tree_requested, node_limit)
+    cadence_items = report["cadences"].items()
+    if cadence_filter is not None:
+        cadence_items = (
+            ((cadence_filter, report["cadences"][cadence_filter]),)
+            if cadence_filter in report["cadences"]
+            else ()
+        )
     cadence_summary = {}
-    for cadence, data in report["cadences"].items():
+    for cadence, data in cadence_items:
         cadence_summary[cadence] = {
             "global_hooks": data["global_hooks"],
             "per_country_hooks": data["per_country_hooks"],
@@ -47,7 +227,7 @@ def _tick_audit(mod_root: Path, payload: dict) -> dict:
             "timed_decisions": len(data["timed_decisions"]),
             "event_loops": len(data["event_loops"]),
         }
-    return {
+    result = {
         "ok": True,
         "tag": tag,
         "totals": report["totals"],
@@ -73,6 +253,9 @@ def _tick_audit(mod_root: Path, payload: dict) -> dict:
             for hook in selected
         ],
     }
+    if cadence_filter is not None:
+        result["cadence"] = cadence_filter
+    return _attach_tick_tree(module, result, tree_requested, node_limit)
 
 
 def _tick_spot_check(mod_root: Path, payload: dict) -> dict:
@@ -124,11 +307,11 @@ def _tick_spot_check(mod_root: Path, payload: dict) -> dict:
                     destination.write_bytes((scan_root / relpath).read_bytes())
                     safe_files.append(relpath)
             if original_root is not None:
-                module.REPO_ROOT = str(selected_root)
+                module.__dict__["REPO_ROOT"] = str(selected_root)
             report = scanner(sorted(safe_files), scope=payload.get("scope"))
     finally:
         if original_root is not None:
-            module.REPO_ROOT = original_root
+            module.__dict__["REPO_ROOT"] = original_root
     findings = report.get("findings", [])
     diagnostics = report.get("diagnostics", [])
     total_findings = len(findings)

@@ -891,7 +891,7 @@ ID delta is reported for that file. Deleted focus, event, decision, and idea fil
 read at `base`, and every ID they defined is reported as `removed_ids`.
 Invalid bases and Git failures return `{ok: false, error, error_msg?}`.
 
-### `tick_audit(tag?, limit?, offset?) -> dict`
+### `tick_audit(tag?, list?, cadence?, tree?, node_limit?, limit?, offset?) -> dict`
 
 Run upstream `tools/analysis/tick_audit.py` in an isolated subprocess. The
 summary reports indexed counts, per-cadence totals, timed-decision/event-loop
@@ -901,6 +901,25 @@ Returns `{ok, tag, totals, cadences, timed_decisions, event_loops, event_fires,
 total, returned, truncated, hooks}`. Each hook sample includes file/line,
 work-unit counts, and counts of referenced effects/events. Subprocess failures
 and timeouts return `{ok: false, error}`.
+
+`list=hooks|events|decisions` replaces the hook sample with structured rows
+derived from the same upstream report the CLI renders (never colored CLI
+text), paginated by the existing `limit`/`offset` and returned as
+`{ok, tag, list, cadence, totals, total, returned, truncated, rows}`. Hook rows
+are `{file, line, cadence, scope}`; event rows are
+`{id, cadences, scopes, def_location}`; decision rows are
+`{name, timer_field, timer_value, bucket, recurring, file, line}`. `cadence`
+filters list rows and, when `list` is omitted, the summary hook sample and
+cadence map. It uses the upstream `CADENCES` (daily, weekly, monthly); any
+other value is rejected with `{ok: false, error}`, as is any `list` outside
+`hooks|events|decisions`. The unfiltered summary shape is unchanged when
+`cadence` is omitted.
+
+`tree=true` additionally runs upstream `build_call_tree` and adds
+`{tree, node_limit, node_count, tree_truncated}` to the summary or list
+response. `node_limit=100` caps the returned tree. Upstream resets its own
+node budget on every hook, so the response is pruned to that cap. The tree
+is never built unless `tree` is true.
 
 ### `tick_spot_check(files, scope?, limit?, offset?) -> dict`
 

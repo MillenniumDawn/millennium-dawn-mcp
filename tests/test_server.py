@@ -147,7 +147,9 @@ TOOL_SIGNATURES = {
         "focus_ids=None, event_ids=None, lang='en', limit=200, offset=0, bom_prefix=False"
     ),
     "standardize": "content=None, path=None, content_type=None",
-    "tick_audit": "tag=None, limit=20, offset=0",
+    "tick_audit": (
+        "tag=None, list=None, cadence=None, tree=False, node_limit=100, limit=20, offset=0"
+    ),
     "tick_spot_check": "files, scope=None, limit=100, offset=0",
     "estimate_gdp": "tag",
     "event_load": "tag='USA', window=45, threshold=3, limit=20, offset=0",
@@ -200,7 +202,15 @@ def test_tool_signatures(shared_server):
             {"tag": "TST", "limit": 7, "offset": 2},
             "tick_audit_tool",
             (),
-            {"tag": "TST", "limit": 7, "offset": 2},
+            {
+                "tag": "TST",
+                "list": None,
+                "cadence": None,
+                "tree": False,
+                "node_limit": 100,
+                "limit": 7,
+                "offset": 2,
+            },
         ),
         ("estimate_gdp", {"tag": "TST"}, "estimate_gdp_tool", ("TST",), {}),
         (

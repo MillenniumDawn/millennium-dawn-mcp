@@ -20,6 +20,11 @@ def _write_tick_script(root: Path) -> None:
         """
 print("upstream import noise")
 
+from pathlib import Path
+
+CADENCES = ("daily", "weekly", "monthly")
+
+
 def _hook(scope, line):
     return {
         "cadence": "daily", "scope": scope, "file": "common/on_actions/test.txt",
@@ -27,6 +32,47 @@ def _hook(scope, line):
         "reached_effects": ["fx", "fy"], "events_direct": ["evt.1"],
         "events_random": [],
     }
+
+
+def _decision(name, bucket, line, recurring=True):
+    return {
+        "name": name, "timer_field": "days", "timer_value": "14", "days": 14,
+        "bucket": bucket, "recurring": recurring, "file": "common/decisions/test.txt",
+        "line": line,
+    }
+
+
+def index_scripted_effects():
+    return {"fx": "x = 1"}
+
+
+def index_events():
+    return {"evt.1": {"file": "events/test_events.txt", "line": 10, "type": "country_event"}}
+
+
+def index_effect_locations():
+    return {"fx": "common/scripted_effects/test.txt:5"}
+
+
+def build_call_tree(effects, events, loc, max_depth=22, max_nodes=9000):
+    assert effects == {"fx": "x = 1"}
+    Path(__file__).with_name("tree_built").write_text("built", encoding="utf-8")
+    leaf = {"name": "fx", "kind": "effect", "file": loc["fx"], "ops": 1,
+            "total": 1, "children": []}
+    if max_nodes < 9000:
+        leaf["truncated"] = True
+    return {
+        "name": "Millennium Dawn - recurring ticks", "kind": "root", "ops": 0,
+        "total": 2, "children": [
+            {"name": "on_daily", "kind": "cadence", "ops": 0, "total": 2,
+             "children": [
+                 {"name": "on_daily", "kind": "hook",
+                  "file": "common/on_actions/test.txt:1", "ops": 2, "total": 2,
+                  "children": [leaf]},
+             ]},
+        ],
+    }
+
 
 def build_report(tag_filter=None):
     hooks = [_hook("GLOBAL", 1), _hook("USA", 2), _hook("CAN", 3)]
@@ -41,8 +87,28 @@ def build_report(tag_filter=None):
     }
     return {
         "totals": {"scripted_effects_indexed": 2, "events_indexed": 1},
-        "cadences": cadence, "timed_decisions": [], "event_loops": [],
-        "event_fires": {"evt.1": {}}, "hooks": hooks, "focus_hooks": selected,
+        "cadences": cadence,
+        "timed_decisions": [
+            _decision("decision_a", "daily", 20, recurring=False),
+            _decision("decision_b", "weekly", 10),
+            _decision("decision_c", "monthly", 30),
+        ],
+        "event_loops": [],
+        "event_fires": {
+            "evt.1": {
+                "def": "events/test_events.txt:10",
+                "type": "country_event",
+                "fired_by": [
+                    {"cadence": "daily", "scope": "GLOBAL",
+                     "hook": "common/on_actions/test.txt:1", "kind": "direct"},
+                    {"cadence": "daily", "scope": "USA",
+                     "hook": "common/on_actions/test.txt:2", "kind": "direct"},
+                    {"cadence": "daily", "scope": "CAN",
+                     "hook": "common/on_actions/test.txt:3", "kind": "direct"},
+                ],
+            }
+        },
+        "hooks": hooks, "focus_hooks": selected,
     }
 """,
         encoding="utf-8",
@@ -298,11 +364,104 @@ def test_shim_failure_is_a_shaped_error(monkeypatch, tmp_path, outcome, error):
     assert error in result["error"]
 
 
-def test_tick_audit_rejects_non_integer_pagination(tmp_path):
-    result = upstream_analysis.tick_audit_tool(tmp_path, limit=cast(Any, "lots"))
+def test_tick_audit_rejects_unknown_list_and_non_boolean_tree(monkeypatch, tmp_path):
+    def unexpected(*args, **kwargs):
+        raise AssertionError("shim must not run for invalid list/tree")
 
-    assert result["ok"] is False
-    assert "limit must be an integer" in result["error"]
+    monkeypatch.setattr(upstream_analysis, "_run_shim", unexpected)
+
+    listed = upstream_analysis.tick_audit_tool(tmp_path, list="loops")
+    treed = upstream_analysis.tick_audit_tool(tmp_path, tree=cast(Any, "yes"))
+
+    assert listed["ok"] is False and "list" in listed["error"]
+    assert treed["ok"] is False and "tree" in treed["error"]
+
+
+def test_tick_audit_forwards_list_cadence_tree_and_node_limit(monkeypatch, tmp_path):
+    captured: dict[str, Any] = {}
+
+    def fake_run(mod_root, operation, payload, *, timeout):
+        captured.update(operation=operation, payload=payload, timeout=timeout)
+        return {"ok": True, "total": 1, "returned": 1, "truncated": False, "hooks": []}
+
+    monkeypatch.setattr(upstream_analysis, "_run_shim", fake_run)
+
+    result = upstream_analysis.tick_audit_tool(
+        tmp_path,
+        tag="usa",
+        list="hooks",
+        cadence="weekly",
+        tree=True,
+        node_limit=50,
+        limit=3,
+        offset=1,
+    )
+
+    assert captured == {
+        "operation": "tick_audit",
+        "payload": {
+            "tag": "USA",
+            "limit": 3,
+            "offset": 1,
+            "list": "hooks",
+            "cadence": "weekly",
+            "tree": True,
+            "node_limit": 50,
+        },
+        "timeout": upstream_analysis._TICK_TIMEOUT,
+    }
+    assert result["ok"] is True
+
+
+def test_tick_audit_budget_drops_tree_before_lists(monkeypatch, tmp_path):
+    def oversized(*args, **kwargs):
+        return {
+            "ok": True,
+            "total": 1,
+            "returned": 1,
+            "truncated": False,
+            "hooks": [
+                {
+                    "cadence": "daily",
+                    "scope": "USA",
+                    "file": "f",
+                    "line": 1,
+                    "work_units": 1,
+                    "direct_effect_calls": 1,
+                    "reached_effects": 1,
+                    "events_direct": 1,
+                    "events_random": 0,
+                }
+            ],
+            "tree": {"children": "界" * 80_000},
+        }
+
+    monkeypatch.setattr(upstream_analysis, "_run_shim", oversized)
+
+    result = upstream_analysis.tick_audit_tool(tmp_path, tree=True)
+
+    assert "tree_dropped" in result
+    assert "hooks_dropped" not in result
+
+
+def test_tick_audit_rows_dropped_resets_pagination_metadata(monkeypatch, tmp_path):
+    def oversized_rows(*args, **kwargs):
+        return {
+            "ok": True,
+            "total": 5,
+            "returned": 5,
+            "truncated": False,
+            "list": "hooks",
+            "rows": ["界" * 40_000],
+        }
+
+    monkeypatch.setattr(upstream_analysis, "_run_shim", oversized_rows)
+
+    result = upstream_analysis.tick_audit_tool(tmp_path, list="hooks")
+
+    assert result["rows_dropped"] == 1
+    assert result["returned"] == 0
+    assert result["truncated"] is True
 
 
 def test_tick_spot_check_rejects_bad_pagination_before_subprocess(tmp_path, monkeypatch):
@@ -537,6 +696,14 @@ def test_shim_tick_audit_runs_in_process(tmp_path):
     untagged = shim.run("tick_audit", tmp_path, {"limit": 2, "offset": 0})
     assert untagged["total"] == 3
     assert untagged["cadences"]["daily"]["countries_with_own_hook"] == 2
+    assert "cadence" not in untagged
+
+    weekly = shim.run("tick_audit", tmp_path, {"cadence": "weekly"})
+    assert weekly["ok"] is True
+    assert weekly["cadence"] == "weekly"
+    assert weekly["hooks"] == []
+    assert weekly["total"] == 0
+    assert weekly["cadences"] == {}
 
 
 def test_shim_tick_audit_rejects_bad_pagination(tmp_path):
@@ -547,6 +714,119 @@ def test_shim_tick_audit_rejects_bad_pagination(tmp_path):
 
     assert result["ok"] is False
     assert "Invalid pagination values" in result["error"]
+
+
+def test_shim_tick_audit_rejects_unknown_list_and_cadence(tmp_path):
+    shim = _load_shim()
+    _write_tick_script(tmp_path)
+
+    listed = shim.run("tick_audit", tmp_path, {"list": "loops"})
+    caded = shim.run("tick_audit", tmp_path, {"list": "hooks", "cadence": "hourly"})
+
+    assert listed["ok"] is False and "list" in listed["error"]
+    assert caded["ok"] is False
+    assert caded["error"] == "cadence must be one of: daily, weekly, monthly"
+
+
+def test_shim_tick_audit_list_hooks_pages_rows_in_report_order(tmp_path):
+    shim = _load_shim()
+    _write_tick_script(tmp_path)
+
+    result = shim.run("tick_audit", tmp_path, {"list": "hooks", "limit": 2, "offset": 1})
+
+    assert result["ok"] is True
+    assert result["list"] == "hooks"
+    assert result["total"] == 3
+    assert result["returned"] == 2
+    assert result["truncated"] is False
+    # render_list orders hooks by (-work_units, cadence, scope): CAN, GLOBAL, USA.
+    assert result["rows"] == [
+        {"file": "common/on_actions/test.txt", "line": 1, "cadence": "daily", "scope": "GLOBAL"},
+        {"file": "common/on_actions/test.txt", "line": 2, "cadence": "daily", "scope": "USA"},
+    ]
+
+
+def test_shim_tick_audit_list_events_filters_cadence_and_tag(tmp_path):
+    shim = _load_shim()
+    _write_tick_script(tmp_path)
+
+    untagged = shim.run("tick_audit", tmp_path, {"list": "events"})
+    tagged = shim.run("tick_audit", tmp_path, {"list": "events", "tag": "USA"})
+
+    assert untagged["rows"] == [
+        {
+            "id": "evt.1",
+            "cadences": ["daily"],
+            "scopes": ["CAN", "GLOBAL", "USA"],
+            "def_location": "events/test_events.txt:10",
+        }
+    ]
+    # Mirrors render_list's tag_ok: the focused tag keeps only its own and global hooks.
+    assert tagged["rows"] == [
+        {
+            "id": "evt.1",
+            "cadences": ["daily"],
+            "scopes": ["GLOBAL", "USA"],
+            "def_location": "events/test_events.txt:10",
+        }
+    ]
+
+
+def test_shim_tick_audit_list_decisions_filter_cadence(tmp_path):
+    shim = _load_shim()
+    _write_tick_script(tmp_path)
+
+    all_rows = shim.run("tick_audit", tmp_path, {"list": "decisions"})
+    daily = shim.run("tick_audit", tmp_path, {"list": "decisions", "cadence": "daily"})
+
+    # render_list sorts by (bucket, name) alphabetically, so monthly before weekly.
+    assert [row["name"] for row in all_rows["rows"]] == [
+        "decision_a",
+        "decision_c",
+        "decision_b",
+    ]
+    assert set(all_rows["rows"][0]) == {
+        "name",
+        "timer_field",
+        "timer_value",
+        "bucket",
+        "recurring",
+        "file",
+        "line",
+    }
+    assert daily["rows"] == [
+        {
+            "name": "decision_a",
+            "timer_field": "days",
+            "timer_value": "14",
+            "bucket": "daily",
+            "recurring": False,
+            "file": "common/decisions/test.txt",
+            "line": 20,
+        }
+    ]
+
+
+def test_shim_tick_audit_builds_tree_only_when_requested(tmp_path):
+    shim = _load_shim()
+    _write_tick_script(tmp_path)
+
+    default = shim.run("tick_audit", tmp_path, {})
+    assert "tree" not in default
+    assert not (tmp_path / "tools" / "analysis" / "tree_built").exists()
+
+    tree = shim.run("tick_audit", tmp_path, {"tree": True})
+    listed = shim.run("tick_audit", tmp_path, {"list": "hooks", "tree": True, "node_limit": 2})
+    assert tree["tree"]["name"] == "Millennium Dawn - recurring ticks"
+    assert listed["rows"] and listed["tree"]["name"] == tree["tree"]["name"]
+    assert tree["tree"]["children"][0]["children"][0]["children"][0]["truncated"] is True
+    assert tree["tree_truncated"] is True
+    assert tree["node_limit"] == 100
+    assert tree["node_count"] == 4
+
+    unbounded = shim.run("tick_audit", tmp_path, {"tree": True, "node_limit": 9000})
+    assert unbounded["tree_truncated"] is False
+    assert unbounded["node_count"] == 4
 
 
 def test_shim_spot_check_pages_findings_and_diagnostics_directly(tmp_path):

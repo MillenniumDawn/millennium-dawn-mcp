@@ -34,6 +34,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
@@ -241,13 +242,19 @@ class ValidatorRunner:
 
         _maintain_validator_cache(self.mod_root)
 
+        started = time.perf_counter()
         if self.mode == "in_process":
-            return self._run_inprocess(
+            result = self._run_inprocess(
                 info, staged_only=staged_only, files=files, post_filter=post_filter, args=args
             )
-        return self._run_isolated(
-            info, staged_only=staged_only, files=files, post_filter=post_filter, args=args
-        )
+        else:
+            result = self._run_isolated(
+                info, staged_only=staged_only, files=files, post_filter=post_filter, args=args
+            )
+        # Every attempted run is timed, failures included; the unknown-validator
+        # early return above never attempts a run and carries no timing.
+        result["elapsed_s"] = round(time.perf_counter() - started, 3)
+        return result
 
     # ------------------------------------------------------------------
     # in-process mode

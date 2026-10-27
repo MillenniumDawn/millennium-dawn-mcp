@@ -573,7 +573,12 @@ def run_validators_for_lint(
             check_entries.append({"name": label, "ok": False, "error": str(e)})
             continue
         if not result.get("ok"):
-            check_entries.append({"name": label, "ok": False, "error": result.get("error")})
+            failed = {"name": label, "ok": False, "error": result.get("error")}
+            # Fake runners in tests return results without timing; copy only
+            # when the real runner attached it.
+            if "elapsed_s" in result:
+                failed["elapsed_s"] = result["elapsed_s"]
+            check_entries.append(failed)
             continue
 
         raw = list(result.get("issues", []) or [])
@@ -595,6 +600,8 @@ def run_validators_for_lint(
             on_scope = raw
 
         entry = {"name": label, "ok": True, "total": len(on_scope)}
+        if "elapsed_s" in result:
+            entry["elapsed_s"] = result["elapsed_s"]
         if suppressed:
             entry["suppressed_mod_wide"] = suppressed
             entry["suppression_source"] = SUPPRESSION_SOURCE

@@ -185,6 +185,7 @@ def validate_tool(
                 # reach back into the runner's own result.
                 "counts": dict(result.get("counts", {})),
                 "error": result.get("error"),
+                **({"elapsed_s": result["elapsed_s"]} if "elapsed_s" in result else {}),
                 **({"unattributed": result["unattributed"]} if result.get("unattributed") else {}),
                 **(
                     {

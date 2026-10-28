@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import subprocess
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
-from typing import Any, cast
+from types import SimpleNamespace
 
 import pytest
 
 from md_mcp.tools import content_transforms as transforms
+from md_mcp.tools.standardize_tools import standardize_tool
 
 
 @pytest.mark.integration
@@ -120,7 +121,7 @@ def test_technology_logging_remove_captures_upstream_stdout(real_mod_root: Path)
 
 
 @pytest.mark.integration
-def test_event_logging_matches_text_mode_newline_and_bom_behavior(real_mod_root: Path):
+def test_event_logging_preserves_bom_and_crlf_like_upstream(real_mod_root: Path):
     content = (
         "\ufeffcountry_event = {\r\n id = TST.1\r\n immediate = {\r\n"
         "  add_political_power = 1\r\n }\r\n}\r\n"
@@ -135,9 +136,93 @@ def test_event_logging_matches_text_mode_newline_and_bom_behavior(real_mod_root:
     )
     assert result["ok"] is True
     assert result["changed"] is True
-    assert "\r" not in result["txt"]
-    assert not result["txt"].startswith("\ufeff")
+    assert result["txt"].startswith("\ufeff")
+    assert "\r\n" in result["txt"]
+    assert "\r" not in result["txt"].replace("\r\n", "")
     assert 'log = "[GetDateText]' in result["txt"]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("content_type", ["focus", "event", "idea", "decision", "technology"])
+@pytest.mark.parametrize("action", ["add", "remove"])
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("bom", [False, True])
+def test_logging_matches_upstream_written_bytes(
+    real_mod_root: Path,
+    tmp_path: Path,
+    content_type: str,
+    action: str,
+    newline: str,
+    bom: bool,
+):
+    log_line = 'log = "[GetDateText]: [Root.GetName]: test"'
+    effect = {
+        "focus": (
+            "focus_tree = {\n focus = {\n id = TST_focus\n",
+            " completion_reward",
+            " }\n}\n",
+        ),
+        "event": ("country_event = {\n id = TST.1\n", " immediate", "}\n"),
+        "idea": (
+            "ideas = {\n country = {\n TST_idea = {\n",
+            " on_add",
+            " }\n }\n}\n",
+        ),
+        "decision": (
+            "TST_category = {\n TST_decision = {\n",
+            " complete_effect",
+            " }\n}\n",
+        ),
+        "technology": (
+            "technologies = {\n TST_tech = {\n",
+            " on_research_complete",
+            " }\n}\n",
+        ),
+    }
+    head, effect_key, tail = effect[content_type]
+    body_line = f"\t{log_line}" if action == "remove" else "\tadd_political_power = 1"
+    script = f"{head}{effect_key} = {{\n{body_line}\n }}\n{tail}"
+    script += "# pad this text beyond upstream's minimum file size\n"
+    script = (("\ufeff" if bom else "") + "# initial comment\n" + script).replace("\n", newline)
+
+    upstream = transforms._load(real_mod_root, "logging_tool")
+    relative = {
+        "focus": "common/national_focus/test.txt",
+        "event": "events/test.txt",
+        "idea": "common/ideas/test.txt",
+        "decision": "common/decisions/test.txt",
+        "technology": "common/technologies/test.txt",
+    }[content_type]
+    source = tmp_path / relative
+    source.parent.mkdir(parents=True)
+    source.write_bytes(script.encode("utf-8"))
+    entrypoint = getattr(
+        upstream, f"{content_type if content_type != 'technology' else 'tech'}_{action}"
+    )
+    with contextlib.redirect_stdout(io.StringIO()):
+        entrypoint(str(tmp_path))
+    expected = source.read_bytes()
+
+    result = transforms.transform_tool(
+        real_mod_root,
+        content=script,
+        transform="logging_tool",
+        action=action,
+        content_type=content_type,
+    )
+    assert result["ok"] is True
+    assert result["txt"].encode("utf-8") == expected
+
+
+@pytest.mark.integration
+def test_missing_fixture_standardizer_cannot_fall_through_to_real_mod(
+    real_mod_root: Path, tmp_path: Path
+):
+    transforms._load(real_mod_root, "logging_tool")
+    (tmp_path / "tools" / "standardization").mkdir(parents=True)
+    result = standardize_tool(tmp_path, content="focus\n", content_type="focus")
+    assert result["ok"] is False
+    assert "standardize_api" in result["error"]
 
 
 @pytest.mark.integration
@@ -263,7 +348,37 @@ def test_ai_path_transform_calls_upstream_helpers(tmp_path: Path, monkeypatch):
         tag="TST",
     )
     assert result["txt"] == "updated\n"
-    assert result["summary"] == {"notes": ["TST: applied"], "updated_focuses": 2}
+    assert result["summary"] == {
+        "target_focuses": 2,
+        "notes_count": 1,
+        "notes_sample": ["TST: applied"],
+        "notes_truncated": False,
+    }
+
+
+def test_ai_path_summary_bounds_large_upstream_notes(tmp_path: Path, monkeypatch):
+    note = "focus: " + "x" * 1000
+    upstream = SimpleNamespace(
+        parse_mapping=lambda _value: SimpleNamespace(
+            assignments={str(i): None for i in range(100)}
+        ),
+        apply=lambda lines, _parsed, _tag: (lines, [note] * 100),
+    )
+    monkeypatch.setattr(transforms, "_load", lambda _root, _name: upstream)
+    result = transforms.transform_tool(
+        tmp_path,
+        content="source\n",
+        transform="apply_ai_path_weights",
+        mapping="unused",
+        tag="TST",
+    )
+    assert result["txt"] == "source\n"
+    assert result["txt_truncated"] is False
+    assert result["summary"]["target_focuses"] == 100
+    assert result["summary"]["notes_count"] == 100
+    assert result["summary"]["notes_truncated"] is True
+    assert len(result["summary"]["notes_sample"]) == 20
+    assert all(len(sample) == 240 for sample in result["summary"]["notes_sample"])
 
 
 def test_idea_gate_transform_uses_upstream_category_helper(tmp_path: Path, monkeypatch):
@@ -320,63 +435,81 @@ def test_logging_transform_dispatches_arguments(tmp_path: Path, monkeypatch):
     }
 
 
-def test_logging_virtual_io_never_writes_files(tmp_path: Path, monkeypatch):
-    upstream = ModuleType("logging_tool_fixture")
+@pytest.mark.parametrize("content_type", ["focus", "event", "idea", "decision", "technology"])
+@pytest.mark.parametrize("action", ["add", "remove"])
+def test_logging_virtual_io_never_writes_files(
+    tmp_path: Path, monkeypatch, content_type: str, action: str
+):
+    source_bytes = b"content"
+    writes = []
+    shared = SimpleNamespace()
 
-    def add(_root):
-        ((filename, path),) = list(
-            upstream._iter_directory_paths(_root, "common", "national_focus")
+    class VirtualPath:
+        def __init__(self, path):
+            self.path = str(path)
+
+        def exists(self):
+            return self.path == f"<md-mcp-content:{content_type}>"
+
+        def read_bytes(self):
+            return source_bytes
+
+    def atomic_write_text(path, text, encoding="utf-8", **_kwargs):
+        virtual = shared.Path(path)
+        shared._reject_symlink_path(virtual)
+        if virtual.exists():
+            virtual.read_bytes()
+        shared.atomic_write_bytes(path, text.encode(encoding))
+
+    shared.Path = Path
+    shared._reject_symlink_path = lambda _path: None
+    shared.atomic_write_bytes = lambda path, data: writes.append((path, data))
+    shared.atomic_write_text = atomic_write_text
+    upstream = SimpleNamespace()
+
+    class Output(io.StringIO):
+        def __init__(self, path, encoding):
+            super().__init__()
+            self.path = path
+            self.encoding_name = encoding or "utf-8"
+
+        def close(self):
+            if not self.closed:
+                shared.atomic_write_text(self.path, self.getvalue(), self.encoding_name)
+            super().close()
+
+    def upstream_open(path, mode="r", *args, **kwargs):
+        if "w" in mode:
+            return Output(path, kwargs.get("encoding"))
+        return io.TextIOWrapper(
+            io.BytesIO(source_bytes), encoding=kwargs.get("encoding", "utf-8"), newline=None
         )
-        lines = upstream._read_lines_or_warn(path, filename)
-        with upstream._open_output_or_raise(path, filename) as output:
-            output.writelines(lines)
-        return 1
 
-    def remove_focus(_root):
-        ((filename, path),) = list(
-            upstream._iter_directory_paths(_root, "common", "national_focus")
-        )
-        lines = upstream._read_lines_if_large_enough(path)
-        with upstream._open_output(path) as output:
-            output.writelines(lines)
-        return 1
-
-    def remove_idea(_root):
-        ((filename, path),) = list(upstream._iter_directory_paths(_root, "common", "ideas"))
+    def entrypoint(root):
+        ((_filename, path),) = list(upstream._iter_directory_paths(root, "virtual"))
         with upstream.open(path, "r", encoding="utf-8") as source:
-            lines = source.readlines()
-        with upstream._open_output_or_raise(path, filename) as output:
-            output.writelines(lines)
+            content = source.read()
+        with upstream.open(path, "w", encoding="utf-8", newline="") as target:
+            target.write(content + " transformed")
         return 1
 
-    fake_module = cast(Any, upstream)
-    fake_module.focus_add = add
-    fake_module.focus_remove = remove_focus
-    for entity in ("event", "idea", "decision", "tech"):
-        setattr(upstream, f"{entity}_add", add)
-        setattr(upstream, f"{entity}_remove", add)
-    fake_module.idea_remove = remove_idea
-    monkeypatch.setattr(transforms, "_load", lambda _root, _name: upstream)
+    upstream.open = upstream_open
+    for kind in ("focus", "event", "idea", "decision", "tech"):
+        setattr(upstream, f"{kind}_add", entrypoint)
+        setattr(upstream, f"{kind}_remove", entrypoint)
+    monkeypatch.setattr(
+        transforms,
+        "_load",
+        lambda _root, name: upstream if name == "logging_tool" else shared,
+    )
 
     def forbidden(*_args, **_kwargs):
         raise AssertionError("logging transform attempted a filesystem write")
 
     monkeypatch.setattr(Path, "write_text", forbidden)
-    content = "focus = {\n id = TST_a\n}\n#" + ("x" * 120) + "\n"
-    output, count = transforms._logging_transform_virtual(tmp_path, content, "add", "focus")
-    assert output == content
+    output, count = transforms._logging_transform_virtual(
+        tmp_path, source_bytes.decode("utf-8"), action, content_type
+    )
+    assert output == "content transformed"
     assert count == 1
-    removed, remove_count = transforms._logging_transform_virtual(
-        tmp_path, content, "remove", "focus"
-    )
-    assert removed == content
-    assert remove_count == 1
-    idea_removed, idea_count = transforms._logging_transform_virtual(
-        tmp_path, content, "remove", "idea"
-    )
-    assert idea_removed == content
-    assert idea_count == 1
-    with pytest.raises(ValueError, match="action must"):
-        transforms._logging_transform_virtual(tmp_path, content, "bad", "focus")
-    with pytest.raises(ValueError, match="content_type must"):
-        transforms._logging_transform_virtual(tmp_path, content, "add", "bad")
+    assert writes == []

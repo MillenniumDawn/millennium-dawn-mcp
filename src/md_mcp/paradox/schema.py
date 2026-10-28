@@ -440,6 +440,9 @@ _IDEA_PROPERTIES = frozenset(
         "targeted_modifier",
         "cancel",
         "level",
+        "allowed_civil_war",
+        "on_add",
+        "on_remove",
     }
 )
 

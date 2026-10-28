@@ -32,9 +32,8 @@ def _parse_idea_file(abs_path: str, relpath: str, close_blocks_at_eof: bool = Fa
 
 
 class IdeaIndex(GenericTxtIndex):
-    # v3: parser acceptance widened (+ numbers, acute symbols, anonymous blocks,
-    # vanilla EOF recovery); cached parse errors rebuild.
-    cache_version = 3
+    # v4: ideas holding only allowed_civil_war/on_add/on_remove now recognized; caches rebuild.
+    cache_version = 4
     cache_name = "idea"
     subdir = "common/ideas"
     parser_fn = staticmethod(_parse_idea_file)

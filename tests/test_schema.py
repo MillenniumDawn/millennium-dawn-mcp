@@ -14,12 +14,14 @@ from md_mcp.paradox.schema import (
     extract_focus_records,
     extract_idea_records,
     extract_sprite_records,
+    find_idea_nodes,
     focus_icon_choices,
     focus_mutually_exclusive,
     focus_prerequisites,
     is_focus_file_content,
     to_json_with_lines,
 )
+from md_mcp.util.line_numbers import line_starts, pos_to_line
 
 SAMPLE = """
 focus_tree = {
@@ -409,6 +411,90 @@ def test_slot_keyword_beside_an_idea_is_not_an_idea():
     assert "TST_acme" in recs
     assert recs["TST_acme"]["category"] == "tank_manufacturer"
     assert "designer" not in recs
+
+
+@pytest.mark.parametrize("prop", ["allowed_civil_war", "on_add", "on_remove"])
+def test_idea_holding_only_lifecycle_property_is_indexed(prop: str):
+    recs = _ideas(
+        f"ideas = {{ hidden_ideas = {{ TST_idea = {{ {prop} = {{ always = yes }} }} }} }}"
+    )
+
+    assert list(recs) == ["TST_idea"]
+    assert recs["TST_idea"] == {
+        "id": "TST_idea",
+        "category": "hidden_ideas",
+        "slot": None,
+        "line": None,
+    }
+
+
+def test_lifecycle_only_idea_sits_beside_empty_ideas_and_slots():
+    recs = _ideas(
+        """ideas = {
+            hidden_ideas = {
+                TST_monitor = { allowed_civil_war = { always = yes } }
+                TST_empty = {}
+            }
+            country = {
+                TST_slot_wrapper = {
+                    law = yes
+                    TST_inner = { picture = x }
+                }
+            }
+        }"""
+    )
+
+    assert recs == {
+        "TST_monitor": {
+            "id": "TST_monitor",
+            "category": "hidden_ideas",
+            "slot": None,
+            "line": None,
+        },
+        "TST_empty": {
+            "id": "TST_empty",
+            "category": "hidden_ideas",
+            "slot": None,
+            "line": None,
+        },
+        "TST_inner": {
+            "id": "TST_inner",
+            "category": "country",
+            "slot": "TST_slot_wrapper",
+            "line": None,
+        },
+    }
+    # Neither the lifecycle property nor the slot keyword became idea IDs.
+    assert "allowed_civil_war" not in recs
+    assert "law" not in recs
+
+
+def test_find_idea_nodes_matches_every_extracted_idea_record():
+    script = """ideas = {
+\thidden_ideas = {
+\t\tTST_monitor = {
+\t\t\ton_add = { add_stability = 0.05 }
+\t\t}
+\t}
+\tcountry = {
+\t\tlaw = yes
+\t\tTST_plain = {
+\t\t\tpicture = generic_foo
+\t\t}
+\t}
+}
+"""
+    root = parse_string(script)
+    records = extract_idea_records(root, source=script)
+    starts = line_starts(script)
+
+    assert {r["id"] for r in records} == {"TST_monitor", "TST_plain"}
+    for record in records:
+        nodes = find_idea_nodes(root, record["id"])
+        assert len(nodes) == 1
+        assert nodes[0].name == record["id"]
+        assert nodes[0].name_token is not None
+        assert pos_to_line(nodes[0].name_token.start, starts) == record["line"]
 
 
 def test_extract_focus_records_reads_every_mutually_exclusive_block():

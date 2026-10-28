@@ -104,6 +104,23 @@ Look up a scripted effect definition. Returns `{id, file, line}`.
 
 Look up a scripted trigger definition. Returns `{id, file, line}`.
 
+Additional content resolvers locate on-actions, technologies, dynamic modifiers,
+modifier definitions, and country-history files. Their matching `find_*` tools
+accept `query`, `limit`, and `offset`. Unit history has `find_oobs` and
+`find_division_templates`; template IDs use `<OOB filename>:<template name>` so
+same-named templates from different files remain distinct. `resolve_on_action`
+also returns bounded `sources` because on-action blocks add together across
+files instead of replacing one another.
+
+`check_refs(kinds=[...])` can audit technology checks/grants, dynamic modifiers,
+OOB names, and division-template names. Include on-action and history files in
+`files=` to audit the event, technology, tag, and other supported references
+inside them. Template checks confirm that a matching template exists without
+guessing which OOB owns a reused name. On-action hooks have no incoming script
+call syntax to audit; modifier-key validation remains the responsibility of
+`validate`'s `validate_modifiers` validator. Explicit `files=` scopes are capped
+at 200 files; results use the standard output budget and pagination.
+
 ### `list_country_content(tag: str, include?: list[str], limit_per_category?: int) -> dict`
 
 Per-country manifest. **Default returns counts + 5-item samples only.** Pass

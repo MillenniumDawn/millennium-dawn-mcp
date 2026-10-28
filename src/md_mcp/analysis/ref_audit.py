@@ -76,6 +76,11 @@ _DOTTED_SCOPE_PREFIXES = cast(tuple[str, ...], AUDIT_NODE_SETS["dotted_scope_pre
 _CHARACTER_NODES = cast(frozenset[str], AUDIT_NODE_SETS["character"])
 _TRAIT_NODES = cast(frozenset[str], AUDIT_NODE_SETS["trait"])
 _FOCUS_DEF_NODES = cast(frozenset[str], AUDIT_NODE_SETS["focus_definitions"])
+_TECHNOLOGY_NODES = cast(frozenset[str], AUDIT_NODE_SETS["technology"])
+_TECHNOLOGY_CONTROL_KEYS = cast(frozenset[str], AUDIT_NODE_SETS["technology_control_keys"])
+_DYNAMIC_MODIFIER_NODES = cast(frozenset[str], AUDIT_NODE_SETS["dynamic_modifier"])
+_OOB_NODES = cast(frozenset[str], AUDIT_NODE_SETS["oob"])
+_DIVISION_TEMPLATE_NODES = cast(frozenset[str], AUDIT_NODE_SETS["division_template"])
 
 
 def check_refs(
@@ -236,14 +241,26 @@ def check_refs(
             return lambda ref: index is not None and index.resolve(ref, lang) is not None
         return lambda ref: index is not None and index.resolve(ref) is not None
 
+    def _field_index_resolver(index: Any, field: str) -> Callable[[str], bool]:
+        return lambda ref: index is not None and any(
+            record.get(field) == ref
+            for relpath in index.list_files()
+            for record in index.records_for_file(relpath)
+        )
+
     resolver_index_attrs = {
         item.name: item.index_attribute
         for item in CONTENT_TYPES
         if item.audit_resolver and item.index_attribute is not None
     }
+    content_types_by_name = {item.name: item for item in CONTENT_TYPES}
     for kind, attr in resolver_index_attrs.items():
         index = index_by_attribute[attr]
-        resolvers[kind] = _index_resolver(index, localisation=kind == "loc")
+        resolver_field = content_types_by_name[kind].audit_resolver_field
+        if resolver_field:
+            resolvers[kind] = _field_index_resolver(index, resolver_field)
+        else:
+            resolvers[kind] = _index_resolver(index, localisation=kind == "loc")
     resolvers["sprite"] = lambda ref: (
         gfx_index.resolve(ref) is not None
         or gfx_index.resolve(f"GFX_{ref}") is not None
@@ -416,6 +433,10 @@ def _walk(
             ("country_tag", _COUNTRY_TAG_NODES),
             ("character", _CHARACTER_NODES),
             ("trait", _TRAIT_NODES),
+            ("technology", _TECHNOLOGY_NODES),
+            ("dynamic_modifier", _DYNAMIC_MODIFIER_NODES),
+            ("oob", _OOB_NODES),
+            ("division_template", _DIVISION_TEMPLATE_NODES),
         ):
             if kind in kinds and name in names:
                 ref = _symbol_or_str(child)
@@ -424,8 +445,20 @@ def _walk(
                         ref = _symbol_or_str(_child_get(child, "tag")) or _symbol_or_str(
                             _child_get(child, "original_tag")
                         )
-                    else:
+                    elif kind in {"country_tag", "character", "trait"}:
                         ref = _symbol_or_str(_child_get(child, kind))
+                    elif kind == "dynamic_modifier":
+                        ref = _symbol_or_str(_child_get(child, "modifier"))
+                    elif kind == "technology":
+                        refs.extend(
+                            _ref(kind, item.name, name, relpath, item, starts, ctx)
+                            for item in child.children()
+                            if item.name and item.name not in _TECHNOLOGY_CONTROL_KEYS
+                        )
+                    elif kind == "oob":
+                        ref = _symbol_or_str(_child_get(child, "oob"))
+                    elif kind == "division_template":
+                        ref = _symbol_or_str(_child_get(child, "name"))
                 if ref and (kind != "country_tag" or not _is_scope_reference(ref)):
                     refs.append(_ref(kind, ref, name, relpath, child, starts, ctx))
 

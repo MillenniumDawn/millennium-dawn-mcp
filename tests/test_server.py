@@ -91,6 +91,13 @@ TOOL_SIGNATURES = {
     "resolve_trait": "trait_id",
     "resolve_scripted_effect": "effect_id",
     "resolve_scripted_trigger": "trigger_id",
+    "resolve_on_action": "on_action_id",
+    "resolve_technology": "technology_id",
+    "resolve_dynamic_modifier": "modifier_id",
+    "resolve_modifier_definition": "modifier_id",
+    "resolve_country_history": "tag",
+    "resolve_division_template": "template_id",
+    "resolve_oob": "oob_id",
     "parse_file": "path, max_bytes=500000, top_level_only=False",
     "parse_string": "text",
     "find_focuses": "tag=None, has_prereq=None, mutex_with=None, kind=None, limit=200, offset=0",
@@ -99,6 +106,13 @@ TOOL_SIGNATURES = {
     "find_traits": "query=None, limit=200, offset=0",
     "find_scripted_effects": "query=None, limit=200, offset=0",
     "find_scripted_triggers": "query=None, limit=200, offset=0",
+    "find_on_actions": "query=None, limit=200, offset=0",
+    "find_technologies": "query=None, limit=200, offset=0",
+    "find_dynamic_modifiers": "query=None, limit=200, offset=0",
+    "find_modifier_definitions": "query=None, limit=200, offset=0",
+    "find_country_histories": "query=None, limit=200, offset=0",
+    "find_division_templates": "query=None, limit=200, offset=0",
+    "find_oobs": "query=None, limit=200, offset=0",
     "lookup_docs": "kind, key=None, limit=100, offset=0, content_offset=None, content_limit=None",
     "find_references": "kind, target, limit=100, offset=0, snippet_chars=120, files_only=False",
     "list_country_content": "tag, include=None, limit_per_category=100",
@@ -320,6 +334,31 @@ TOOL_CALLS: dict[str, tuple[dict, dict]] = {
         {"trigger_id": "TST_test_trigger"},
         {"ok": True, "kind": "scripted_trigger"},
     ),
+    "resolve_on_action": (
+        {"on_action_id": "missing"},
+        {"ok": False, "error": "On-action not found"},
+    ),
+    "resolve_technology": (
+        {"technology_id": "missing"},
+        {"ok": False, "error": "Technology not found"},
+    ),
+    "resolve_dynamic_modifier": (
+        {"modifier_id": "missing"},
+        {"ok": False, "error": "Dynamic modifier not found"},
+    ),
+    "resolve_modifier_definition": (
+        {"modifier_id": "missing"},
+        {"ok": False, "error": "Modifier definition not found"},
+    ),
+    "resolve_country_history": (
+        {"tag": "ZZZ"},
+        {"ok": False, "error": "Country history not found"},
+    ),
+    "resolve_division_template": (
+        {"template_id": "missing"},
+        {"ok": False, "error": "Division template not found"},
+    ),
+    "resolve_oob": ({"oob_id": "missing"}, {"ok": False, "error": "OOB not found"}),
     "parse_file": (
         {"path": "common/national_focus/test.txt", "top_level_only": True},
         {
@@ -328,6 +367,13 @@ TOOL_CALLS: dict[str, tuple[dict, dict]] = {
         },
     ),
     "parse_string": ({"text": "a = 1"}, {"ok": True}),
+    "find_on_actions": ({}, {"ok": True}),
+    "find_technologies": ({}, {"ok": True}),
+    "find_dynamic_modifiers": ({}, {"ok": True}),
+    "find_modifier_definitions": ({}, {"ok": True}),
+    "find_country_histories": ({}, {"ok": True}),
+    "find_division_templates": ({}, {"ok": True}),
+    "find_oobs": ({}, {"ok": True}),
     # Numeric strings must pass the protocol's argument validation.
     "find_focuses": (
         {"has_prereq": "TST_root", "limit": "1", "offset": 1},

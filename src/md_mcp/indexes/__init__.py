@@ -1,5 +1,14 @@
 from .base import GenericTxtIndex, IndexCache, file_signature
 from .character import CharacterIndex, TraitIndex
+from .content import (
+    CountryHistoryIndex,
+    DivisionTemplateIndex,
+    DynamicModifierIndex,
+    ModifierDefinitionIndex,
+    OnActionIndex,
+    OobIndex,
+    TechnologyIndex,
+)
 from .country_tag import CountryTagIndex
 from .decision import DecisionIndex
 from .event import EventIndex
@@ -12,8 +21,11 @@ from .scripted_trigger import ScriptedTriggerIndex
 
 __all__ = [
     "CharacterIndex",
+    "CountryHistoryIndex",
     "CountryTagIndex",
     "DecisionIndex",
+    "DivisionTemplateIndex",
+    "DynamicModifierIndex",
     "EventIndex",
     "FocusIndex",
     "GenericTxtIndex",
@@ -21,8 +33,12 @@ __all__ = [
     "IdeaIndex",
     "IndexCache",
     "LocalisationIndex",
+    "ModifierDefinitionIndex",
+    "OnActionIndex",
+    "OobIndex",
     "ScriptedEffectIndex",
     "ScriptedTriggerIndex",
+    "TechnologyIndex",
     "TraitIndex",
     "file_signature",
 ]

@@ -240,6 +240,41 @@ def _resolve_definition(index: GenericTxtIndex, target: str, *, label: str) -> d
     }
 
 
+def resolve_content_tool(
+    target: str, index: GenericTxtIndex, *, label: str, expected_kind: Optional[str] = None
+) -> dict:
+    """Resolve a named content definition to its source location."""
+    result = _resolve_definition(index, target, label=label)
+    record = index.resolve(target)
+    if record is not None and expected_kind and record.get("kind") != expected_kind:
+        return _miss(index, {"ok": False, "id": target, "error": f"{label} not found"})
+    if record is not None and "name" in record:
+        result["name"] = record["name"]
+    return result
+
+
+def resolve_on_action_content_tool(target: str, index: GenericTxtIndex) -> dict:
+    """Resolve an engine hook and include its additive definitions across files."""
+    result = resolve_content_tool(target, index, label="On-action", expected_kind="on_action")
+    if not result.get("ok"):
+        return result
+    files = set(index.duplicates().get(target, ()))
+    files.add(result["file"])
+    sources = sorted(
+        (
+            {"file": record["file"], "line": record["line"]}
+            for relpath in files
+            for record in index.records_for_file(relpath)
+            if record.get("id") == target and record.get("kind") == "on_action"
+        ),
+        key=lambda record: (record["file"], record["line"]),
+    )
+    result["sources"] = sources[:100]
+    result["sources_total"] = len(sources)
+    result["sources_truncated"] = len(sources) > 100
+    return enforce_budget(result, heavy_keys=("sources",))
+
+
 def resolve_country_tag_tool(tag: str, country_tag_index: CountryTagIndex) -> dict:
     """Get a country tag's country-history path and source location."""
     return _resolve_definition(country_tag_index, tag, label="Country tag")

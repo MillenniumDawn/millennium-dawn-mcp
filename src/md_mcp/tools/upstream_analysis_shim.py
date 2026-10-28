@@ -1196,7 +1196,20 @@ def _rename_focus_ids(mod_root: Path, payload: dict) -> dict:
             return {"ok": False, "error": "loc_file is outside the mod scan roots"}
         owned.append((loc_path, loc_owner, "loc"))
     for path, owner, kind in owned:
-        entries[path.relative_to(roots[owner]).as_posix()] = (path, owner, kind)
+        rel = path.relative_to(roots[owner]).as_posix()
+        # Do not rename a base definition hidden by the overlay.
+        for prior_root in roots[:owner]:
+            if os.path.lexists(prior_root / rel):
+                field = "focus_file" if kind == "focus" else "loc_file"
+                return {
+                    "ok": False,
+                    "error": (
+                        f"{field} {path} is shadowed at {rel} by a higher-priority content "
+                        "root; select the shadowing overlay copy explicitly so the plan "
+                        "cannot leave dangling references"
+                    ),
+                }
+        entries[rel] = (path, owner, kind)
 
     counting = _CountingMapping(mapping)
 

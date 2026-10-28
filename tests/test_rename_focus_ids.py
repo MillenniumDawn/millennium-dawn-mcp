@@ -360,6 +360,103 @@ def test_user_paths_resolve_submod_overlay_first(tmp_path: Path, inproc_shim: No
     )
 
 
+def test_absolute_base_focus_shadowed_by_overlay_is_refused(
+    tmp_path: Path, inproc_shim: None
+) -> None:
+    base = make_mod_root(tmp_path / "base")
+    submod = tmp_path / "submod"
+    _plant_script(base, STANDIN_SCRIPT)
+    (base / FOCUS_REL).parent.mkdir(parents=True, exist_ok=True)
+    (base / FOCUS_REL).write_text(
+        "tree = {\n\tfocus = {\n\t\tid = OLD_a\n\t}\n}\n", encoding="utf-8"
+    )
+    (submod / FOCUS_REL).parent.mkdir(parents=True, exist_ok=True)
+    (submod / FOCUS_REL).write_text(
+        "tree = {\n\tfocus = {\n\t\tid = OLD_a\n\t}\n}\n", encoding="utf-8"
+    )
+    (submod / "events").mkdir(parents=True, exist_ok=True)
+    (submod / "events" / "refs.txt").write_text(
+        "complete_national_focus = OLD_a\n", encoding="utf-8"
+    )
+
+    plan = rename_focus_ids_tool(base, str(base / FOCUS_REL), "TST", submod_root=submod)
+
+    assert plan["ok"] is False
+    assert "focus_file" in plan["error"]
+    assert "shadowed" in plan["error"]
+
+    preview = rename_focus_ids_tool(
+        base, str(base / FOCUS_REL), "TST", submod_root=submod, path=str(base / FOCUS_REL)
+    )
+
+    assert preview["ok"] is False
+    assert "focus_file" in preview["error"]
+    assert "shadowed" in preview["error"]
+
+
+@pytest.mark.parametrize(
+    "shadow_kind",
+    ["file", "directory", "dangling link", "link outside"],
+)
+def test_absolute_base_localisation_shadowed_by_overlay_is_refused(
+    tmp_path: Path, shadow_kind: str, inproc_shim: None
+) -> None:
+    base = make_mod_root(tmp_path / "base")
+    submod = tmp_path / "submod"
+    _plant_script(base, STANDIN_SCRIPT)
+    (base / FOCUS_REL).parent.mkdir(parents=True, exist_ok=True)
+    (base / FOCUS_REL).write_text(
+        "tree = {\n\tfocus = {\n\t\tid = OLD_a\n\t}\n}\n", encoding="utf-8"
+    )
+    (base / LOC_REL).parent.mkdir(parents=True, exist_ok=True)
+    (base / LOC_REL).write_text('l_english:\n OLD_a: "One"\n', encoding="utf-8")
+    (submod / LOC_REL).parent.mkdir(parents=True, exist_ok=True)
+    shadow = submod / LOC_REL
+    if shadow_kind == "file":
+        # An active real overlay localisation file shadows the selected base
+        # copy even though `.yml` never joins the scanned set.
+        shadow.write_text('l_english:\n OLD_a: "Overlay One"\n', encoding="utf-8")
+    elif shadow_kind == "directory":
+        shadow.mkdir()
+    elif shadow_kind == "dangling link":
+        shadow.symlink_to(tmp_path / "absent_l_english.yml")
+    else:
+        outside = tmp_path / "outside_l_english.yml"
+        outside.write_text('l_english:\n OLD_a: "Outside"\n', encoding="utf-8")
+        shadow.symlink_to(outside)
+
+    plan = rename_focus_ids_tool(
+        base, FOCUS_REL, "TST", submod_root=submod, loc_file=str(base / LOC_REL)
+    )
+
+    assert plan["ok"] is False
+    assert "loc_file" in plan["error"]
+    assert "shadowed" in plan["error"]
+
+
+def test_unshadowed_absolute_base_source_is_allowed(tmp_path: Path, inproc_shim: None) -> None:
+    base = make_mod_root(tmp_path / "base")
+    submod = tmp_path / "submod"
+    submod.mkdir()
+    _plant_script(base, STANDIN_SCRIPT)
+    (base / FOCUS_REL).parent.mkdir(parents=True, exist_ok=True)
+    (base / FOCUS_REL).write_text(
+        "tree = {\n\tfocus = {\n\t\tid = OLD_a\n\t}\n}\n", encoding="utf-8"
+    )
+    (base / "events").mkdir(parents=True, exist_ok=True)
+    (base / "events" / "refs.txt").write_text("complete_national_focus = OLD_a\n", encoding="utf-8")
+
+    plan = rename_focus_ids_tool(base, str(base / FOCUS_REL), "TST", submod_root=submod)
+
+    assert plan["ok"] is True
+    assert plan["focus_file"] == FOCUS_REL
+    assert plan["focus_changed"] is True
+    assert {entry["path"] for entry in plan["files"]} == {
+        FOCUS_REL,
+        "events/refs.txt",
+    }
+
+
 def test_scan_rejects_links_outside_the_scan_roots(
     unit_mod: Path, tmp_path: Path, inproc_shim: None
 ) -> None:

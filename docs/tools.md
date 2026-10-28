@@ -1037,7 +1037,11 @@ at the same relative path; vanilla is never read. Scanned files must resolve
 inside their root; links pointing outside the scan roots are refused
 without being read, links inside are treated as their resolved files, and
 a link whose target leaves the four scan trees or loses its supported
-extension is refused without being read.
+extension is refused without being read. A selected `focus_file` or
+`loc_file` that a higher-priority content root shadows at the same relative
+path, even by a file outside the scan set, a dangling link, or a directory,
+is refused without a plan or preview; select the shadowing overlay copy
+instead.
 Unchanged files stay out of the
 plan, matching the upstream write list. Empty mappings and duplicate
 normalized IDs return the upstream error text. With `loc_file=` (a `.yml`

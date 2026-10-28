@@ -100,7 +100,8 @@ def test_content_definition_refs_resolve_with_explicit_kinds(fake_mod_root, cach
     )
     (root / "history/countries").mkdir(parents=True, exist_ok=True)
     (root / "history/countries/TST.txt").write_text(
-        'set_technology = { known_tech = 1 }\noob = "TST_2000"', encoding="utf-8"
+        'set_technology = { known_tech = 1 popup = no }\noob = "TST_2000"',
+        encoding="utf-8",
     )
     scope = root / "common/national_focus/refs.txt"
     scope.write_text(

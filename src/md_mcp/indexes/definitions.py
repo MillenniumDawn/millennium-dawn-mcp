@@ -268,6 +268,10 @@ def parse_unit_history_file(
                         name=name,
                     )
                 )
-        elif node.name in {"units", "air_wings"} and isinstance(node.value, list):
-            records.append(_record(node, relpath, starts, kind="oob", id=stem))
+    anchor = root.children()[0] if root.children() else None
+    records.append(
+        _record(anchor, relpath, starts, kind="oob", id=stem)
+        if anchor is not None
+        else {"id": stem, "kind": "oob", "file": relpath, "line": 1}
+    )
     return ParseResult(records)

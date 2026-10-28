@@ -349,10 +349,10 @@ async def _stdio_calls(
         await session.initialize()
         answers = []
         good = await session.call_tool("check_attribution_labels", {"content": "Author: Codex"})
-        assert not good.isError
+        assert not good.is_error
         answers.append(str(good.model_dump()))
         large = await session.call_tool("check_attribution_labels", {"content": "x" * 150_000})
-        assert not large.isError
+        assert not large.is_error
         answers.append(str(large.model_dump()))
         if include_dense:
             dense_content = "Author: Codex\n" * 64_000
@@ -360,7 +360,7 @@ async def _stdio_calls(
                 "check_attribution_labels",
                 {"content": dense_content, "limit": 2, "offset": 0},
             )
-            assert not dense.isError and dense.content and hasattr(dense.content[0], "text")
+            assert not dense.is_error and dense.content and hasattr(dense.content[0], "text")
             answers.append(dense.content[0].text)
         return answers
 

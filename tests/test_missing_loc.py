@@ -46,6 +46,112 @@ def test_generate_missing_loc_omits_existing_keys_and_returns_complete_text(
     assert "TestnsNews.42.t:" in result["txt"]
 
 
+def test_file_route_skips_target_keys_and_derives_header_and_bom(fake_mod_root, cache_dir):
+    source = fake_mod_root / "common" / "national_focus" / "file_route.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(
+        "focus_tree = { id = TST_file_route country = { factor = 0 } "
+        "focus = { id = TST_file_route_new x = 0 y = 0 } }\n",
+        encoding="utf-8",
+    )
+    target = fake_mod_root / "localisation" / "english" / "file_route_l_english.yml"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text('\ufeffl_english:\n TST_file_route_new: "Already here"\n', encoding="utf-8")
+
+    result = _tool(fake_mod_root, cache_dir)(
+        file="common/national_focus/file_route.txt",
+        target_file="localisation/english/file_route_l_english.yml",
+    )
+    assert result["ok"] is True
+    assert result["target_exists"] is True
+    assert result["bom_prefix"] is False
+    assert result["txt"].startswith("l_english:") is False
+    assert " TST_file_route_new:" not in result["txt"]
+    assert "TST_file_route_new_desc" in result["txt"]
+    assert (
+        target.read_text(encoding="utf-8-sig")
+        == 'l_english:\n TST_file_route_new: "Already here"\n'
+    )
+
+    new_result = _tool(fake_mod_root, cache_dir)(file="common/national_focus/file_route.txt")
+    assert new_result["bom_prefix"] is True
+    assert new_result["txt"].startswith("\ufeffl_english:")
+
+
+@pytest.mark.parametrize(
+    ("relative", "text", "expected"),
+    [
+        (
+            "common/ideas/route_ideas.txt",
+            "ideas = { political = { TST_new_idea = { picture = generic_idea } } }",
+            "TST_new_idea_desc",
+        ),
+        (
+            "common/decisions/route_decisions.txt",
+            "route_category = { TST_new_decision = { cost = 10 } }",
+            "TST_new_decision_desc",
+        ),
+        (
+            "common/decisions/categories/route_categories.txt",
+            "route_category = { icon = GFX_decision }",
+            "route_category_desc",
+        ),
+    ],
+)
+def test_file_route_supports_idea_decision_and_category_keys(
+    fake_mod_root, cache_dir, relative, text, expected
+):
+    source = fake_mod_root / relative
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(text, encoding="utf-8")
+    result = _tool(fake_mod_root, cache_dir)(file=relative)
+    assert result["ok"] is True
+    assert expected in result["txt"]
+
+
+def test_file_route_rejects_invalid_target_path(fake_mod_root, cache_dir):
+    source = fake_mod_root / "events" / "route_event.txt"
+    source.write_text(
+        "add_namespace = TST\ncountry_event = { id = TST.1 title = TST.1.t desc = TST.1.d }",
+        encoding="utf-8",
+    )
+    result = _tool(fake_mod_root, cache_dir)(
+        file="events/route_event.txt", target_file="../outside_l_english.yml"
+    )
+    assert result["ok"] is False
+
+
+def test_file_route_marks_non_scalar_event_and_offset_results_partial(fake_mod_root, cache_dir):
+    source = fake_mod_root / "events" / "partial_route.txt"
+    source.write_text(
+        "add_namespace = TST\ncountry_event = { id = TST.2 "
+        "title = { trigger = { has_war = yes } } desc = TST.2.d "
+        "option = { name = { text = TST.2.a } } }",
+        encoding="utf-8",
+    )
+    result = _tool(fake_mod_root, cache_dir)(file="events/partial_route.txt", offset=1)
+    assert result["complete"] is False
+    assert result["partial"] is True
+    assert any("no scalar or text key" in item for item in result["failures"])
+
+
+def test_file_route_skips_scripted_localisation_calls(fake_mod_root, cache_dir):
+    source = fake_mod_root / "events" / "scripted_loc_route.txt"
+    source.write_text(
+        "add_namespace = TST\n"
+        "country_event = { id = TST.3 "
+        'title = { trigger = { has_war = yes } text = "[GetTitle]" } '
+        'desc = TST.3.d option = { name = "[GetOption]" } }',
+        encoding="utf-8",
+    )
+    result = _tool(fake_mod_root, cache_dir)(file="events/scripted_loc_route.txt")
+    assert result["ok"] is True
+    assert result["complete"] is True
+    assert "[GetTitle]" not in result["txt"]
+    assert "[GetOption]" not in result["txt"]
+    assert "TST.3.d" in result["txt"]
+
+
 def test_generate_missing_loc_marks_paged_and_unresolved_results_partial(fake_mod_root, cache_dir):
     tool = _tool(fake_mod_root, cache_dir)
 

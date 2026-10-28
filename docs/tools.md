@@ -1160,7 +1160,7 @@ block is not detected.
 Returns `{ok, txt, new, changed, orphaned, deduped, conflicts, scan_duplicates,
 would_write, exists, scanned, ...}` plus a `*_total` per list.
 
-### `generate_missing_loc(focus_ids?, event_ids?, lang?, limit?, offset?, bom_prefix?) -> dict`
+### `generate_missing_loc(focus_ids?, event_ids?, lang?, limit?, offset?, bom_prefix?, file?, target_file?) -> dict`
 
 Generate an English YAML stub for missing localisation keys associated with
 selected focus and event ids. Existing keys are excluded. Event titles,
@@ -1171,6 +1171,13 @@ Unsupported structured keys are reported as partial output. It returns text only
 mod files. `complete` is true only when every requested id resolved, all keys
 fit the requested page, and the text was not clipped; otherwise `partial` is
 true with unresolved, read-failure, or truncation details.
+
+The additive `file=` route scans supported focus, event, idea, decision, or
+decision-category source files. `target_file=` optionally names a localisation
+file; keys already present there are skipped, existing targets produce an
+append-ready body without a header or BOM, and a missing/new target produces a
+new-file header and BOM. Paths are resolved inside configured mod roots. This
+route is read-only and returns bounded text for explicit review and writing.
 
 ### `generate_loc_stub(keys: [{key, value}], lang?, include_header?, bom_prefix?) -> dict`
 

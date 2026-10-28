@@ -144,7 +144,8 @@ TOOL_SIGNATURES = {
     ),
     "generate_loc_stub": "keys, lang='l_english', include_header=True, bom_prefix=False",
     "generate_missing_loc": (
-        "focus_ids=None, event_ids=None, lang='en', limit=200, offset=0, bom_prefix=False"
+        "focus_ids=None, event_ids=None, lang='en', limit=200, offset=0, "
+        "bom_prefix=False, file=None, target_file=None"
     ),
     "standardize": "content=None, path=None, content_type=None",
     "rename_focus_ids": "focus_file, tag, loc_file=None, path=None, limit=50, offset=0",

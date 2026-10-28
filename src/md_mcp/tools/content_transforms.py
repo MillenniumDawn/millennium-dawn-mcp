@@ -8,7 +8,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any, cast
 
 from ..util.process import run_in_group
@@ -28,13 +28,6 @@ _MODULES = (
     "ai_path_report",
 )
 _UPSTREAM = UpstreamModules("standardization", _MODULES)
-
-
-class _CapturedOutput(io.StringIO):
-    """A context-managed upstream output buffer that remains readable afterward."""
-
-    def close(self) -> None:
-        self.flush()
 
 
 def _load(mod_root: Path, module: str) -> ModuleType:
@@ -59,7 +52,14 @@ def transform_tool(
             parsed = module.parse_mapping(mapping)
             lines, notes = module.apply(content.splitlines(keepends=True), parsed, tag)
             output = "".join(lines)
-            summary = {"notes": notes, "updated_focuses": len(parsed.assignments)}
+            note_sample = notes[:20]
+            summary = {
+                "target_focuses": len(parsed.assignments),
+                "notes_count": len(notes),
+                "notes_sample": [note[:240] for note in note_sample],
+                "notes_truncated": len(notes) > len(note_sample)
+                or any(len(note) > 240 for note in note_sample),
+            }
         elif transform == "strip_idea_allowed_gates":
             module = _load(mod_root, "strip_idea_allowed_gates")
             shared = _load(mod_root, "shared_utils")
@@ -157,6 +157,7 @@ def _logging_child_main() -> int:
 def _logging_transform_virtual(mod_root: Path, content: str, action: str, content_type: str):
     """Call the upstream file entrypoint with virtual reads and captured writes."""
     module = cast(Any, _load(mod_root, "logging_tool"))
+    shared = cast(Any, _load(mod_root, "shared_utils"))
     entrypoints = {
         "focus": (module.focus_add, module.focus_remove, "common/national_focus/test.txt"),
         "event": (module.event_add, module.event_remove, "events/test.txt"),
@@ -175,64 +176,66 @@ def _logging_transform_virtual(mod_root: Path, content: str, action: str, conten
     add, remove, relative_path = entrypoints[content_type]
     filename = Path(relative_path).name
     virtual_path = f"<md-mcp-content:{content_type}>"
-    source_text = content.removeprefix("\ufeff") if content_type == "event" else content
-    source_text = source_text.replace("\r\n", "\n").replace("\r", "\n")
-    lines = source_text.splitlines(keepends=True)
-    size = len(content.encode("utf-8"))
-    captured: list[io.StringIO] = []
+    source_bytes = content.encode("utf-8")
+    size = len(source_bytes)
+    written: list[bytes] = []
+    original_open = module.open
 
-    def output(*_args, **_kwargs):
-        stream = _CapturedOutput(newline="")
-        captured.append(stream)
-        return stream
+    class VirtualPath:
+        def __init__(self, path):
+            self.path = str(path)
 
-    def read_lines(_path, _filename, *, min_size=100, **_kwargs):
-        return lines if size >= min_size else None
+        def exists(self):
+            return self.path == virtual_path
 
-    def read_large(_path, *, min_size=100):
-        return lines if size >= min_size else None
+        def read_bytes(self):
+            if self.path != virtual_path:
+                raise OSError(f"unexpected logging_tool path: {self.path}")
+            return source_bytes
+
+    def capture_atomic_write(path, data):
+        if str(path) != virtual_path:
+            raise OSError(f"unexpected logging_tool output path: {path}")
+        written.append(data)
 
     def virtual_open(path, mode="r", *args, **kwargs):
         if path != virtual_path:
             raise OSError(f"unexpected logging_tool path: {path}")
-        return output() if "w" in mode else io.StringIO(source_text)
+        if "w" in mode:
+            return original_open(path, mode, *args, **kwargs)
+        encoding = kwargs.get("encoding", "utf-8") or "utf-8"
+        return io.TextIOWrapper(io.BytesIO(source_bytes), encoding=encoding, newline=None)
 
-    previous = {
-        name: getattr(module, name, None)
-        for name in (
-            "_iter_directory_paths",
-            "_read_lines_or_warn",
-            "_read_lines_if_large_enough",
-            "_open_output",
-            "_open_output_or_raise",
-            "open",
-            "os",
-            "print",
-        )
+    previous_logger = {
+        name: getattr(module, name, None) for name in ("_iter_directory_paths", "open", "os")
     }
-    present = {name: hasattr(module, name) for name in previous}
+    present_logger = {name: hasattr(module, name) for name in previous_logger}
+    previous_shared = {
+        name: getattr(shared, name, None)
+        for name in ("Path", "_reject_symlink_path", "atomic_write_bytes")
+    }
     try:
         replacements = {
             "_iter_directory_paths": lambda _root, *_parts: iter([(filename, virtual_path)]),
-            "_read_lines_or_warn": read_lines,
-            "_read_lines_if_large_enough": read_large,
-            "_open_output": output,
-            "_open_output_or_raise": output,
             "open": virtual_open,
-            "os": type(
-                "VirtualOS",
-                (),
-                {"path": type("VirtualPath", (), {"getsize": staticmethod(lambda _path: size)})},
-            )(),
-            "print": lambda *_args, **_kwargs: None,
+            "os": SimpleNamespace(path=SimpleNamespace(getsize=lambda _path: size)),
         }
         for name, replacement in replacements.items():
             setattr(module, name, replacement)
+        shared_replacements = {
+            "Path": VirtualPath,
+            "_reject_symlink_path": lambda _path: None,
+            "atomic_write_bytes": capture_atomic_write,
+        }
+        for name, replacement in shared_replacements.items():
+            setattr(shared, name, replacement)
         changed = (add if action == "add" else remove)("<virtual-mod-root>")
     finally:
-        for name, value in previous.items():
-            if present[name]:
+        for name, value in previous_logger.items():
+            if present_logger[name]:
                 setattr(module, name, value)
             else:
                 delattr(module, name)
-    return (captured[-1].getvalue() if captured else content), changed
+        for name, value in previous_shared.items():
+            setattr(shared, name, value)
+    return (written[-1].decode("utf-8") if written else content), changed

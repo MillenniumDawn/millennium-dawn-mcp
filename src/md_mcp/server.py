@@ -25,6 +25,7 @@ from .analysis.ref_audit import check_refs
 from .analysis.refs import find_references
 from .analysis.vanilla_manifest import load_sprite_manifest
 from .config import Settings, load
+from .content_registry import INDEX_TYPES
 from .generators import (
     generate_decision,
     generate_event,
@@ -94,6 +95,19 @@ from .validators import ValidatorRunner
 
 logger = logging.getLogger("md_mcp")
 _IndexT = TypeVar("_IndexT", bound=GenericTxtIndex)
+_INDEX_CLASSES: dict[str, type[GenericTxtIndex]] = {
+    "FocusIndex": FocusIndex,
+    "LocalisationIndex": LocalisationIndex,
+    "GfxIndex": GfxIndex,
+    "EventIndex": EventIndex,
+    "DecisionIndex": DecisionIndex,
+    "IdeaIndex": IdeaIndex,
+    "CountryTagIndex": CountryTagIndex,
+    "CharacterIndex": CharacterIndex,
+    "TraitIndex": TraitIndex,
+    "ScriptedEffectIndex": ScriptedEffectIndex,
+    "ScriptedTriggerIndex": ScriptedTriggerIndex,
+}
 
 
 class _NamedPartial(partial):
@@ -138,17 +152,22 @@ def build_server(settings: Settings):
     def _index(cls: type[_IndexT]) -> _IndexT:
         return _make_index(cls, settings)
 
-    focus_index = _index(FocusIndex)
-    loc_index = _index(LocalisationIndex)
-    gfx_index = _index(GfxIndex)
-    event_index = _index(EventIndex)
-    decision_index = _index(DecisionIndex)
-    idea_index = _index(IdeaIndex)
-    country_tag_index = _index(CountryTagIndex)
-    character_index = _index(CharacterIndex)
-    trait_index = _index(TraitIndex)
-    scripted_effect_index = _index(ScriptedEffectIndex)
-    scripted_trigger_index = _index(ScriptedTriggerIndex)
+    indexes: dict[str, Any] = {
+        item.index_attribute: _index(_INDEX_CLASSES[item.index_name])
+        for item in INDEX_TYPES
+        if item.index_attribute is not None and item.index_name is not None
+    }
+    focus_index = indexes["focus_index"]
+    loc_index = indexes["loc_index"]
+    gfx_index = indexes["gfx_index"]
+    event_index = indexes["event_index"]
+    decision_index = indexes["decision_index"]
+    idea_index = indexes["idea_index"]
+    country_tag_index = indexes["country_tag_index"]
+    character_index = indexes["character_index"]
+    trait_index = indexes["trait_index"]
+    scripted_effect_index = indexes["scripted_effect_index"]
+    scripted_trigger_index = indexes["scripted_trigger_index"]
     validator_runner = ValidatorRunner(
         settings.mod_root,
         mode=settings.validator_mode,
@@ -879,19 +898,9 @@ def main() -> None:  # pragma: no cover — entry point
         sys.exit(0)
 
     if args.cmd == "build-index":
-        for cls in (
-            FocusIndex,
-            LocalisationIndex,
-            GfxIndex,
-            EventIndex,
-            DecisionIndex,
-            IdeaIndex,
-            CountryTagIndex,
-            CharacterIndex,
-            TraitIndex,
-            ScriptedEffectIndex,
-            ScriptedTriggerIndex,
-        ):
+        for content_type in INDEX_TYPES:
+            assert content_type.index_name is not None
+            cls = _INDEX_CLASSES[content_type.index_name]
             idx = _make_index(cls, settings)
             idx.ensure_fresh()
             if isinstance(idx, LocalisationIndex):

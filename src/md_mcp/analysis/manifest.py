@@ -26,6 +26,7 @@ import re
 from pathlib import Path
 from typing import Optional, Sequence
 
+from ..content_registry import MANIFEST_CATEGORIES
 from ..indexes import (
     CharacterIndex,
     CountryTagIndex,
@@ -42,27 +43,7 @@ from ..indexes.localisation import has_lang_suffix
 from ..util.pathing import roots_for
 from ..util.response import enforce_budget
 
-_ALL_CATEGORIES = (
-    "focuses",
-    "events",
-    "event_files",
-    "decisions",
-    "ideas",
-    "loc_files",
-    "mio_files",
-    "history_files",
-    "oob_files",
-    "namelist_files",
-    "country_tags",
-    "characters",
-    "character_files",
-    "traits",
-    "trait_files",
-    "scripted_effects",
-    "scripted_effect_files",
-    "scripted_triggers",
-    "scripted_trigger_files",
-)
+_ALL_CATEGORIES = MANIFEST_CATEGORIES
 
 
 def list_country_content(

@@ -13,21 +13,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from ..content_registry import ENCODING_TEXT_DIRS, ENCODING_YML_DIRS
 from ..util.encoding import UTF8_BOM
 from ..util.pathing import roots_for
 from ..util.response import coerce_int, enforce_budget, paginate
 
 # Subdirectories to walk. Other paths (resources/, .claude/, tools/) are excluded
 # because they're not subject to the engine's encoding rules.
-_TXT_DIRS = [
-    "common",
-    "events",
-    "history",
-    "interface",
-]
-_YML_DIRS = [
-    "localisation",
-]
+_TXT_DIRS = ENCODING_TEXT_DIRS
+_YML_DIRS = ENCODING_YML_DIRS
 
 
 def check_encoding(

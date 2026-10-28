@@ -8,6 +8,7 @@ import os
 import re
 import sys
 import tempfile
+from collections import UserDict
 from pathlib import Path
 from typing import Any
 
@@ -964,9 +965,365 @@ def _focus_overlap_scenarios(mod_root: Path, payload: dict) -> dict:
     }
 
 
+RENAME_SCAN_TREES = ("common", "events", "history", "interface")
+RENAME_SCAN_SUFFIXES = frozenset({".txt", ".gui", ".gfx", ".mod"})
+
+
+class _CountingMapping(UserDict[str, str]):
+    """Records which occurrences of mapped IDs upstream `_replace_ids` actually changes.
+
+    Only lookups whose value differs from the key count: upstream also stores
+    already-canonical IDs in the mapping, and replacing them changes nothing.
+    """
+
+    def __init__(self, mapping: dict[str, str]) -> None:
+        super().__init__(mapping)
+        self.changed = 0
+
+    def __getitem__(self, key: str) -> str:
+        value = super().__getitem__(key)
+        if value != key:
+            self.changed += 1
+        return value
+
+
+def _rename_scan_roots(payload: dict) -> list[tuple[Path, str]] | dict:
+    """Resolved scan roots with their labels, or an error envelope."""
+    raw = payload.get("allowed_roots")
+    if not isinstance(raw, list) or not raw or any(not isinstance(value, str) for value in raw):
+        return {"ok": False, "error": "no mod scan roots were provided"}
+    pairs: list[tuple[Path, str]] = []
+    for value in raw:
+        try:
+            root = Path(value).resolve(strict=True)
+        except (OSError, RuntimeError, ValueError):
+            return {"ok": False, "error": f"scan root does not exist: {value}"}
+        if not root.is_dir():
+            return {"ok": False, "error": f"scan root is not a directory: {value}"}
+        pairs.append((root, "root"))
+    labels = payload.get("root_labels")
+    if isinstance(labels, list) and len(labels) == len(pairs):
+        pairs = [(root, str(label)) for (root, _), label in zip(pairs, labels, strict=False)]
+    return pairs
+
+
+def _resolve_rename_input(
+    value: object, pairs: list[tuple[Path, str]], suffixes: frozenset[str] | set[str], field: str
+) -> tuple[Path | None, dict | None]:
+    """Re-check a resolved tool-layer path against the scan roots, or produce an error."""
+    if not isinstance(value, str):
+        return None, {"ok": False, "error": f"{field} must be a mod file path"}
+    try:
+        resolved = Path(value).resolve(strict=True)
+    except (OSError, RuntimeError, ValueError) as exc:
+        return None, {"ok": False, "error": f"{field} does not resolve to an existing file: {exc}"}
+    try:
+        inside = any(resolved.is_relative_to(root) for root, _ in pairs)
+    except ValueError:
+        inside = False
+    if not inside:
+        return None, {"ok": False, "error": f"{field} is outside the mod scan roots"}
+    if not resolved.is_file() or resolved.suffix not in suffixes:
+        allowed = ", ".join(sorted(suffixes))
+        return None, {
+            "ok": False,
+            "error": (
+                f"{field} must be an existing regular file with one of these extensions: {allowed}"
+            ),
+        }
+    return resolved, None
+
+
+def _rename_focus_ids(mod_root: Path, payload: dict) -> dict:
+    """Plan (or preview) upstream focus-ID renames in memory; never writes files.
+
+    Loads the mod's pure `extract_focus_ids`/`_replace_ids` helpers only. The
+    upstream `rename_focus_ids` entry point writes files and is never called.
+    """
+    script = mod_root / "tools" / "standardization" / "rename_focus_ids.py"
+    if not script.is_file():
+        return {
+            "ok": False,
+            "unsupported": True,
+            "error": f"This Millennium-Dawn checkout has no focus ID rename helper ({script}).",
+        }
+    # Imports would otherwise leave __pycache__ files in the review-only mod checkout.
+    sys.dont_write_bytecode = True
+    try:
+        module = _load_module(script, "_md_mcp_upstream_rename_focus_ids")
+    except Exception as exc:
+        return {
+            "ok": False,
+            "unsupported": True,
+            "error": f"Could not load upstream focus ID rename APIs: {exc}",
+        }
+    missing = [
+        name
+        for name in ("extract_focus_ids", "_replace_ids")
+        if not callable(getattr(module, name, None))
+    ]
+    if missing:
+        return {
+            "ok": False,
+            "unsupported": True,
+            "error": f"Upstream focus ID rename API is missing: {', '.join(missing)}",
+        }
+
+    pairs_result = _rename_scan_roots(payload)
+    if isinstance(pairs_result, dict):
+        return pairs_result
+    pairs = pairs_result
+
+    suffixes = set(RENAME_SCAN_SUFFIXES) | {".yml"}
+    focus_path, error = _resolve_rename_input(
+        payload.get("focus_file"), pairs, {".txt"}, "focus_file"
+    )
+    if error:
+        return error
+    assert focus_path is not None
+    loc_path: Path | None = None
+    if payload.get("loc_file") is not None:
+        loc_path, error = _resolve_rename_input(
+            payload.get("loc_file"), pairs, {".yml"}, "loc_file"
+        )
+        if error:
+            return error
+    text_path: Path | None = None
+    if payload.get("path") is not None:
+        text_path, error = _resolve_rename_input(payload.get("path"), pairs, suffixes, "path")
+        if error:
+            return error
+
+    tag = payload.get("tag")
+    if not isinstance(tag, str) or not re.fullmatch(r"[A-Za-z0-9]{2,4}", tag):
+        return {"ok": False, "error": "tag must be a 2-4 character country tag"}
+    tag = tag.upper()
+    try:
+        limit = max(0, int(payload.get("limit", 50)))
+        offset = max(0, int(payload.get("offset", 0)))
+    except (TypeError, ValueError, OverflowError) as exc:
+        return {"ok": False, "error": f"Invalid pagination values: {exc}"}
+
+    # Upstream reads .txt files as plain UTF-8 (any BOM stays in the text) and
+    # localisation with utf-8-sig; newline= keeps CRLF bytes through the rewrite.
+    try:
+        focus_text = focus_path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError as exc:
+        return {"ok": False, "error": f"focus file is not valid UTF-8: {exc}"}
+    try:
+        mapping = module.extract_focus_ids(focus_text, tag)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    if not mapping:
+        return {"ok": False, "error": f"No focus IDs found in {focus_path.name}"}
+
+    roots = [root for root, _ in pairs]
+    labels = [label for _, label in pairs]
+
+    def owner_index(path: Path) -> int | None:
+        for index, root in enumerate(roots):
+            try:
+                if path.is_relative_to(root):
+                    return index
+            except ValueError:
+                continue
+        return None
+
+    # Effective file set across all roots; submod files shadow base-mod files at
+    # the same relative path, and the focus/localisation files shadow their own
+    # relative paths so the mapping source is the file that gets rewritten.
+    entries: dict[str, tuple[Path, int, str]] = {}
+    for index, root in enumerate(roots):
+        for base_name in RENAME_SCAN_TREES:
+            base = root / base_name
+            if not base.is_dir():
+                continue
+            # Resolve the scan base itself before enumerating: a symlinked base
+            # directory must never expand into files outside this root.
+            try:
+                base_resolved = base.resolve(strict=False)
+            except (OSError, RuntimeError, ValueError):
+                base_resolved = None
+            if base_resolved is None or not base_resolved.is_relative_to(root):
+                return {
+                    "ok": False,
+                    "error": (
+                        f"{base_name}/ links outside the mod scan roots; "
+                        "the rename plan refuses to read it"
+                    ),
+                }
+            for candidate in base.rglob("*"):
+                if candidate.suffix not in RENAME_SCAN_SUFFIXES:
+                    continue
+                # rglob and is_file follow links, so resolve before deciding: a
+                # scanned entry may only be read when it still lives in this root
+                # and lands in one of the four scan trees as a supported file.
+                try:
+                    resolved = candidate.resolve(strict=False)
+                except (OSError, RuntimeError, ValueError):
+                    resolved = None
+                if resolved is None or not resolved.is_relative_to(root):
+                    return {
+                        "ok": False,
+                        "error": (
+                            f"{candidate.relative_to(root).as_posix()} links outside the mod "
+                            "scan roots; the rename plan refuses to read it"
+                        ),
+                    }
+                if not resolved.is_file():
+                    continue
+                rel = resolved.relative_to(root).as_posix()
+                if rel.split("/", 1)[0] not in RENAME_SCAN_TREES or (
+                    resolved.suffix not in RENAME_SCAN_SUFFIXES
+                ):
+                    return {
+                        "ok": False,
+                        "error": (
+                            f"{candidate.relative_to(root).as_posix()} resolves to {rel}, which "
+                            "is not a .txt/.gui/.gfx/.mod file under common/, events/, history/, "
+                            "or interface/"
+                        ),
+                    }
+                entries.setdefault(rel, (resolved, index, "script"))
+    focus_owner = owner_index(focus_path)
+    if focus_owner is None:
+        return {"ok": False, "error": "focus_file is outside the mod scan roots"}
+    owned: list[tuple[Path, int, str]] = [(focus_path, focus_owner, "focus")]
+    loc_owner: int | None = None
+    if loc_path is not None:
+        loc_owner = owner_index(loc_path)
+        if loc_owner is None:
+            return {"ok": False, "error": "loc_file is outside the mod scan roots"}
+        owned.append((loc_path, loc_owner, "loc"))
+    for path, owner, kind in owned:
+        rel = path.relative_to(roots[owner]).as_posix()
+        # Do not rename a base definition hidden by the overlay.
+        for prior_root in roots[:owner]:
+            if os.path.lexists(prior_root / rel):
+                field = "focus_file" if kind == "focus" else "loc_file"
+                return {
+                    "ok": False,
+                    "error": (
+                        f"{field} {path} is shadowed at {rel} by a higher-priority content "
+                        "root; select the shadowing overlay copy explicitly so the plan "
+                        "cannot leave dangling references"
+                    ),
+                }
+        entries[rel] = (path, owner, kind)
+
+    counting = _CountingMapping(mapping)
+
+    def read_entry(entry: tuple[Path, int, str]) -> tuple[bytes, str] | dict:
+        path, _index, kind = entry
+        raw = path.read_bytes()
+        encoding = "utf-8-sig" if kind == "loc" else "utf-8"
+        try:
+            return raw, raw.decode(encoding)
+        except UnicodeDecodeError as exc:
+            return {"ok": False, "error": f"{path.name} is not valid {encoding} text: {exc}"}
+
+    def transform(kind: str, text: str) -> str:
+        if kind == "loc":
+            return module._replace_ids(text, counting, localization=True)
+        return "".join(
+            module._replace_ids(line, counting, focus_file=kind == "focus")
+            for line in text.splitlines(keepends=True)
+        )
+
+    ordered = sorted(entries.items(), key=lambda item: (item[1][1], item[0]))
+
+    if text_path is not None:
+        entry = next((item for item in ordered if item[1][0] == text_path), None)
+        if entry is None:
+            return {
+                "ok": False,
+                "error": (
+                    "path is not part of the rename plan (it must be the focus or localisation "
+                    "file, or a .txt/.gui/.gfx/.mod file under common/, events/, history/, or "
+                    "interface/)"
+                ),
+            }
+        path, index, kind = entry[1]
+        read = read_entry(entry[1])
+        if isinstance(read, dict):
+            return read
+        raw, text = read
+        output = transform(kind, text)
+        text_changed = output != text
+        had_bom = raw.startswith(b"\xef\xbb\xbf")
+        notes: list[str] = []
+        if kind == "loc":
+            if had_bom:
+                notes.append("the input has a UTF-8 BOM and the returned txt does not")
+            if text_changed:
+                notes.append(
+                    "upstream writes changed localisation back with a UTF-8 BOM; "
+                    "write the file back with one"
+                )
+        elif had_bom:
+            notes.append("the returned txt retains the file's UTF-8 BOM character")
+        preview: dict = {
+            "ok": True,
+            "tag": tag,
+            "path": path.relative_to(roots[index]).as_posix(),
+            "root": labels[index],
+            "kind": kind,
+            "changed": text_changed,
+            "mapping_count": len(mapping),
+            "text": output,
+        }
+        if had_bom:
+            preview["had_bom"] = True
+        if notes:
+            preview["note"] = "; ".join(dict.fromkeys(notes))
+        return preview
+
+    changed: list[dict] = []
+    focus_changed = False
+    loc_changed = False
+    for rel, item in ordered:
+        read = read_entry(item)
+        if isinstance(read, dict):
+            return read
+        _raw, text = read
+        output = transform(item[2], text)
+        if output == text:
+            counting.changed = 0
+            continue
+        changed.append({"path": rel, "root": labels[item[1]], "replacements": counting.changed})
+        counting.changed = 0
+        focus_changed = focus_changed or item[2] == "focus"
+        loc_changed = loc_changed or item[2] == "loc"
+
+    total = len(changed)
+    page = changed[offset : offset + limit]
+    result = {
+        "ok": True,
+        "tag": tag,
+        "focus_file": focus_path.relative_to(roots[focus_owner]).as_posix(),
+        "focus_changed": focus_changed,
+        "mapping": dict(mapping),
+        "mapping_count": len(mapping),
+        "changed_total": total,
+        "limit": limit,
+        "offset": offset,
+        "total": total,
+        "returned": len(page),
+        "truncated": offset + limit < total,
+        "files": page,
+    }
+    if loc_path is not None:
+        assert loc_owner is not None
+        result["loc_file"] = loc_path.relative_to(roots[loc_owner]).as_posix()
+        result["loc_changed"] = loc_changed
+    return result
+
+
 def run(operation: str, mod_root: Path, payload: dict) -> dict:
     if operation == "tick_audit":
         return _tick_audit(mod_root, payload)
+    if operation == "rename_focus_ids":
+        return _rename_focus_ids(mod_root, payload)
     if operation == "tick_spot_check":
         return _tick_spot_check(mod_root, payload)
     if operation == "estimate_gdp":

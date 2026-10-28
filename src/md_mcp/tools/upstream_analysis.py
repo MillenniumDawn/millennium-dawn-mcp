@@ -7,10 +7,12 @@ from pathlib import Path
 from typing import Optional
 
 from ..analysis.focus_scenario import check_completed, check_country, check_date
+from ..util.pathing import PathAccessError, roots_for, validate_user_path
 from ..util.process import run_in_group
-from ..util.response import coerce_int, enforce_budget
+from ..util.response import bounded_text, coerce_int, enforce_budget
 
 _FOCUS_OVERLAP_TIMEOUT = 120
+_RENAME_FOCUS_TIMEOUT = 300
 _SHIM = Path(__file__).with_name("upstream_analysis_shim.py")
 _TICK_TIMEOUT = 120
 _GDP_TIMEOUT = 120
@@ -347,6 +349,80 @@ def focus_overlap_scenarios_tool(
             return shaped
         shaped = enforce_budget(shaped, heavy_keys=heavy_keys)
     return enforce_budget(shaped, heavy_keys=heavy_keys)
+
+
+def rename_focus_ids_tool(
+    mod_root: Path,
+    focus_file: str,
+    tag: str,
+    *,
+    submod_root: Optional[Path] = None,
+    loc_file: Optional[str] = None,
+    path: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    """Build a read-only focus-ID rename plan, or one planned file's new text."""
+
+    def error(message: str) -> dict:
+        return enforce_budget({"ok": False, "error": message}, heavy_keys=("mapping", "files"))
+
+    try:
+        limit = coerce_int(limit, name="limit", default=50)
+        offset = coerce_int(offset, name="offset", default=0)
+    except ValueError as exc:
+        return error(str(exc))
+    try:
+        tag = check_country(tag, "tag")
+    except ValueError as exc:
+        return error(str(exc))
+    if not isinstance(focus_file, str) or not focus_file.strip():
+        return error("focus_file must name one mod .txt focus file")
+    roots = roots_for(mod_root, None, submod_root)
+    try:
+        focus_path = validate_user_path(focus_file, roots, extensions={".txt"}, require_file=True)
+    except (PathAccessError, TypeError, OSError, RuntimeError, ValueError) as exc:
+        return error(str(exc))
+    loc_path: Optional[Path] = None
+    if loc_file is not None:
+        try:
+            loc_path = validate_user_path(loc_file, roots, extensions={".yml"}, require_file=True)
+        except (PathAccessError, TypeError, OSError, RuntimeError, ValueError) as exc:
+            return error(str(exc))
+    text_path: Optional[Path] = None
+    if path is not None:
+        try:
+            text_path = validate_user_path(
+                path, roots, extensions={".txt", ".gui", ".gfx", ".mod", ".yml"}, require_file=True
+            )
+        except (PathAccessError, TypeError, OSError, RuntimeError, ValueError) as exc:
+            return error(str(exc))
+    labels = ["submod"] if submod_root is not None else []
+    labels.append("mod")
+    result = _run_shim(
+        mod_root,
+        "rename_focus_ids",
+        {
+            "focus_file": str(focus_path),
+            "loc_file": str(loc_path) if loc_path is not None else None,
+            "path": str(text_path) if text_path is not None else None,
+            "tag": tag,
+            "allowed_roots": [str(root) for root in roots],
+            "root_labels": labels,
+            "limit": limit,
+            "offset": offset,
+        },
+        timeout=_RENAME_FOCUS_TIMEOUT,
+    )
+    if not result.get("ok"):
+        return enforce_budget(result, heavy_keys=("mapping", "files"))
+    if "text" in result:
+        return bounded_text(result, result.pop("text"))
+    bounded = enforce_budget(result, heavy_keys=("mapping", "files"))
+    if bounded.get("files_dropped") is not None:
+        bounded["returned"] = 0
+        bounded["truncated"] = bool(bounded.get("total"))
+    return enforce_budget(bounded, heavy_keys=())
 
 
 def _focus_source_path(

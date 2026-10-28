@@ -4,6 +4,10 @@
 
 ### Added
 
+- `rename_focus_ids(focus_file, tag, loc_file?, path?, limit?, offset?)` plans a read-only
+  focus-ID rename (old-to-new mapping plus per-file replacement counts) from the pure helpers
+  of the mod's `tools/standardization/rename_focus_ids.py`, run in an isolated, never-writing
+  subprocess; `path=` returns one planned file's full new text with BOM/CRLF bytes intact.
 - `render_focus_tree` draws one assembled focus tree the way the VSCode focus preview does
   (96x130 slots, prerequisite lines that turn half a row from the parent toward the child,
   dashed OR groups, red mutually exclusive links) and writes a PNG and/or a self-contained HTML

@@ -84,6 +84,7 @@ from .tools.upstream_analysis import (
     event_load_tool,
     focus_overlap_scenarios_tool,
     game_log_summary_tool,
+    rename_focus_ids_tool,
     tick_audit_tool,
     tick_spot_check_tool,
 )
@@ -577,6 +578,28 @@ def build_server(settings: Settings):
             completed=completed,
             date=date,
             include_positions=include_positions,
+            limit=limit,
+            offset=offset,
+        )
+
+    @mcp.tool(name="rename_focus_ids")
+    async def _rename_focus_ids(
+        focus_file: str,
+        tag: str,
+        loc_file: Optional[str] = None,
+        path: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict:
+        """Plan a read-only focus-ID rename (mapping + per-file replacement counts); path= returns one planned file's new text."""
+        return await blocking_tools.run(
+            rename_focus_ids_tool,
+            settings.mod_root,
+            focus_file,
+            tag,
+            submod_root=settings.submod_root,
+            loc_file=loc_file,
+            path=path,
             limit=limit,
             offset=offset,
         )

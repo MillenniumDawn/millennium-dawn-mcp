@@ -147,6 +147,7 @@ TOOL_SIGNATURES = {
         "focus_ids=None, event_ids=None, lang='en', limit=200, offset=0, bom_prefix=False"
     ),
     "standardize": "content=None, path=None, content_type=None",
+    "rename_focus_ids": "focus_file, tag, loc_file=None, path=None, limit=50, offset=0",
     "tick_audit": (
         "tag=None, list=None, cadence=None, tree=False, node_limit=100, limit=20, offset=0"
     ),
@@ -455,6 +456,10 @@ TOOL_CALLS: dict[str, tuple[dict, dict]] = {
         {"content": "focus = { id = TST_new }\n", "content_type": "focus"},
         {"ok": False},
     ),
+    "rename_focus_ids": (
+        {"focus_file": "common/national_focus/test.txt", "tag": "TST"},
+        {"ok": False},
+    ),
     "tick_audit": ({}, {"ok": False}),
     "tick_spot_check": ({"files": ["events/test.txt"]}, {"ok": False}),
     "estimate_gdp": ({"tag": "TST"}, {"ok": False}),
@@ -530,6 +535,7 @@ def test_resource_round_trips(shared_server, uri, fragment):
     ("name", "missing"),
     [
         ("standardize", "standardization"),
+        ("rename_focus_ids", "rename_focus_ids.py"),
         ("tick_audit", "tick_audit.py"),
         ("tick_spot_check", "tick_audit.py"),
         ("estimate_gdp", "estimate_gdp.py"),

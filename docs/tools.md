@@ -1018,6 +1018,40 @@ Localisation results add `categories` and, for input with a BOM, `had_bom`.
 See [`standardize-localisation.md`](./standardize-localisation.md) for the
 category scan, its limits, and the BOM contract.
 
+### `rename_focus_ids(focus_file, tag, loc_file?, path?, limit?, offset?) -> dict`
+
+Read-only plan for renaming a country's focus IDs with the pure helpers of
+upstream `tools/standardization/rename_focus_ids.py` (run in an isolated
+subprocess with a 300 s timeout; the script's file-writing entry point is
+never called). `focus_file` is a mod-relative focus `.txt` (or a path inside
+a configured submod overlay) and `tag` is the 2-4 character country tag.
+
+Plan mode returns `{ok, tag, focus_file, focus_changed, loc_file,
+loc_changed, mapping, mapping_count, changed_total, limit, offset, total,
+returned, truncated, files}`, where `files` pages every changed file as
+`{path, root, replacements}` (`root` is `mod` or `submod`; `replacements`
+counts the ID occurrences the rename actually changes). The scan covers
+`common/`, `events/`, `history/`, and `interface/` for `.txt/.gui/.gfx/.mod`
+files across the mod and submod roots, with submod files shadowing base files
+at the same relative path; vanilla is never read. Scanned files must resolve
+inside their root; links pointing outside the scan roots are refused
+without being read, links inside are treated as their resolved files, and
+a link whose target leaves the four scan trees or loses its supported
+extension is refused without being read.
+Unchanged files stay out of the
+plan, matching the upstream write list. Empty mappings and duplicate
+normalized IDs return the upstream error text. With `loc_file=` (a `.yml`
+path) localisation keys join the plan; a mapping bigger than the response
+budget is dropped first, leaving `mapping_dropped` and `mapping_count`.
+
+`path=` fetches one planned file's full new text instead of the page list:
+`{ok, tag, path, root, kind, changed, txt, txt_bytes, txt_returned_bytes,
+txt_truncated}`. Script text keeps the file's own bytes (any UTF-8 BOM
+character and CRLF endings survive); localisation text is returned BOM-free,
+`had_bom` reports the input's BOM, and every changed localisation notes that
+upstream writes the file back with a UTF-8 BOM; add one if the input lacked
+it. `txt_truncated=true` means the returned text must not be written back.
+
 ### `generate_focus(id, tag, x?, y?, ...) -> dict`
 
 Scaffold a `focus = { ... }` block. Optional fields: `x`, `y`, `cost`, `icon`,

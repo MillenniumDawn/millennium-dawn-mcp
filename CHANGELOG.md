@@ -2,12 +2,14 @@
 
 ## Unreleased
 
+## 1.1.0 - 2026-10-28
+
 ### Added
 
-- `rename_focus_ids(focus_file, tag, loc_file?, path?, limit?, offset?)` plans a read-only
-  focus-ID rename (old-to-new mapping plus per-file replacement counts) from the pure helpers
-  of the mod's `tools/standardization/rename_focus_ids.py`, run in an isolated, never-writing
-  subprocess; `path=` returns one planned file's full new text with BOM/CRLF bytes intact.
+- `rename_focus_ids` returns a read-only rename plan and bounded per-file previews, with
+  newline preservation and localisation BOM guidance. Sources hidden by a submod are refused.
+- `tick_audit` adds paginated hook, event, and decision lists, cadence filters, and bounded
+  call trees.
 - `render_focus_tree` draws one assembled focus tree the way the VSCode focus preview does
   (96x130 slots, prerequisite lines that turn half a row from the parent toward the child,
   dashed OR groups, red mutually exclusive links) and writes a PNG and/or a self-contained HTML
@@ -41,6 +43,8 @@
 
 ### Changed
 
+- `validate` and validator-backed `lint` results include per-validator `elapsed_s` timings.
+  Concurrent run-all remains unchanged pending the measurement tracked in #173.
 - `focus_overlap_scenarios` answers `has_focus_tree` with the file's own `focus_tree` id when the
   mod's helper can decide it, matching the helper's CLI, so offsets gated on the tree are applied.
   `scenario.focus_tree` reports the tree. Older helpers leave those tests unknown, as before.
@@ -114,6 +118,10 @@
 
 ### Fixed
 
+- Index ideas containing only `allowed_civil_war`, `on_add`, or `on_remove`, and rebuild older
+  idea caches.
+- Match the AST cache benchmark callback to the parser signature without changing behavior.
+- Correct the documented newline escape behavior of the GFX merge scanner.
 - Vanilla files the engine loads but the strict parser rejected (leading-`+` numbers,
   acute-initial symbols, bare `{ ... }` list entries, unterminated final block) now parse:
   the first three token/AST-wide, EOF recovery for vanilla-only files (mod files stay

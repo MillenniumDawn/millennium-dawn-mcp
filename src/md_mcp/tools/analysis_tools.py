@@ -134,7 +134,7 @@ def find_indexed_tool(
         if "country_file" in rec:
             match["country_file"] = rec["country_file"]
         matches.append(match)
-    return enforce_budget(
+    result = enforce_budget(
         {
             "ok": True,
             "query": query,
@@ -145,6 +145,10 @@ def find_indexed_tool(
         },
         heavy_keys=("matches",),
     )
+    if result.get("matches_dropped") is not None:
+        result["returned"] = 0
+        result["truncated"] = True
+    return result
 
 
 def _filter_deep(

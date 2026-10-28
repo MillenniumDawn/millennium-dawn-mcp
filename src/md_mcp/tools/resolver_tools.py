@@ -271,8 +271,13 @@ def resolve_on_action_content_tool(target: str, index: GenericTxtIndex) -> dict:
     )
     result["sources"] = sources[:100]
     result["sources_total"] = len(sources)
+    result["sources_returned"] = min(len(sources), 100)
     result["sources_truncated"] = len(sources) > 100
-    return enforce_budget(result, heavy_keys=("sources",))
+    result = enforce_budget(result, heavy_keys=("sources",))
+    if result.get("sources_dropped") is not None:
+        result["sources_returned"] = 0
+        result["sources_truncated"] = True
+    return result
 
 
 def resolve_country_tag_tool(tag: str, country_tag_index: CountryTagIndex) -> dict:

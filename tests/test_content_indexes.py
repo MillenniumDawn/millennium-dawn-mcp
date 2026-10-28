@@ -72,6 +72,12 @@ def test_history_indexes_keep_country_and_template_identity(tmp_path):
         ("oob", "TST_2000"),
     ]
 
+    templates_only = tmp_path / "TST_templates_only.txt"
+    templates_only.write_text('division_template = { name = "Reserve" }', encoding="utf-8")
+    result = parse_unit_history_file(str(templates_only), "history/units/TST_templates_only.txt")
+    assert result.records is not None
+    assert {record["kind"] for record in result.records} == {"division_template", "oob"}
+
 
 def test_on_action_resolver_returns_all_additive_hook_sources(tmp_path):
     root = tmp_path / "mod"

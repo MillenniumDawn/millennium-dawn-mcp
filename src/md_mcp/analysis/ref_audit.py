@@ -41,6 +41,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
+from ..content_registry import CONTENT_TYPES
 from ..indexes import (
     CharacterIndex,
     CountryTagIndex,
@@ -60,18 +61,23 @@ from ..util.response import enforce_budget, summarize_index_errors
 from .refs import KIND_ALIASES
 from .scope import iter_scope_files
 
-_DEFAULT_KINDS: tuple = (
-    "focus",
-    "event",
-    "idea",
-    "sprite",
-    "loc",
-    "decision",
-    "country_tag",
-    "character",
-    "trait",
-    "scripted_effect",
-    "scripted_trigger",
+_DEFAULT_KINDS: tuple = tuple(
+    item.name
+    for item in CONTENT_TYPES
+    if item.name
+    in {
+        "focus",
+        "event",
+        "idea",
+        "sprite",
+        "loc",
+        "decision",
+        "country_tag",
+        "character",
+        "trait",
+        "scripted_effect",
+        "scripted_trigger",
+    }
 )
 # Reused icons are common (163 groups in 05_usa.txt), so this one is opt-in.
 _ALL_KINDS: tuple = (*_DEFAULT_KINDS, "duplicate_icons")

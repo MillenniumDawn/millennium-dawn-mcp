@@ -16,6 +16,7 @@ import re
 from pathlib import Path
 from typing import Literal, Optional
 
+from ..content_registry import REFERENCE_KIND_ALIASES
 from ..paradox.schema import EVENT_KINDS
 from ..util.line_numbers import line_and_column, line_starts
 from ..util.pathing import roots_for
@@ -195,11 +196,7 @@ _PATTERNS = {
     "scripted_trigger": _named_definition_pattern,
 }
 
-KIND_ALIASES = {
-    "tag": "country_tag",
-    "scripted_effects": "scripted_effect",
-    "scripted_triggers": "scripted_trigger",
-}
+KIND_ALIASES = REFERENCE_KIND_ALIASES
 
 
 # Directories to scan per reference kind. Keep the set small to minimise false positives.

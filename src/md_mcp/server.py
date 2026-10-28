@@ -473,12 +473,24 @@ def build_server(settings: Settings):
     @mcp.tool(name="tick_audit")
     async def _tick_audit(
         tag: Optional[str] = None,
+        list: Optional[str] = None,
+        cadence: Optional[str] = None,
+        tree: bool = False,
+        node_limit: int = 100,
         limit: int = 20,
         offset: int = 0,
     ) -> dict:
-        """Summarize recurring tick work. tag filters hooks; limit/offset page hook samples."""
+        """Summarize recurring tick work; list=hooks|events|decisions rows; tree= adds the call tree."""
         return await blocking_tools.run(
-            tick_audit_tool, settings.mod_root, tag=tag, limit=limit, offset=offset
+            tick_audit_tool,
+            settings.mod_root,
+            tag=tag,
+            list=list,
+            cadence=cadence,
+            tree=tree,
+            node_limit=node_limit,
+            limit=limit,
+            offset=offset,
         )
 
     @mcp.tool(name="tick_spot_check")

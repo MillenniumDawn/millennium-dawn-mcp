@@ -48,27 +48,55 @@ def _run_shim(mod_root: Path, operation: str, payload: dict, *, timeout: int) ->
     return result
 
 
+_TICK_LISTS = ("hooks", "events", "decisions")
+
+
 def tick_audit_tool(
     mod_root: Path,
     *,
     tag: Optional[str] = None,
+    list: Optional[str] = None,
+    cadence: Optional[str] = None,
+    tree: bool = False,
+    node_limit: int = 100,
     limit: int = 20,
     offset: int = 0,
 ) -> dict:
-    """Summarize recurring tick work; tag filters hooks and limit/offset page hook samples."""
+    """Summarize recurring tick work; list= returns rows; tree= adds the call tree."""
     try:
         limit = coerce_int(limit, name="limit", default=20)
         offset = coerce_int(offset, name="offset", default=0)
+        node_limit = coerce_int(node_limit, name="node_limit", default=100)
     except ValueError as exc:
         return enforce_budget({"ok": False, "error": str(exc)}, heavy_keys=("hooks",))
+    if list is not None and list not in _TICK_LISTS:
+        return enforce_budget(
+            {"ok": False, "error": f"list must be one of: {', '.join(_TICK_LISTS)}"},
+            heavy_keys=("hooks",),
+        )
+    if not isinstance(tree, bool):
+        return enforce_budget(
+            {"ok": False, "error": "tree must be a boolean"}, heavy_keys=("hooks",)
+        )
     result = _run_shim(
         mod_root,
         "tick_audit",
-        {"tag": tag.upper() if tag else None, "limit": limit, "offset": offset},
+        {
+            "tag": tag.upper() if tag else None,
+            "limit": limit,
+            "offset": offset,
+            "list": list,
+            "cadence": cadence,
+            "tree": tree,
+            "node_limit": node_limit,
+        },
         timeout=_TICK_TIMEOUT,
     )
-    bounded = enforce_budget(result, heavy_keys=("hooks",))
+    bounded = enforce_budget(result, heavy_keys=("tree", "rows", "hooks"))
     if "hooks_dropped" in bounded and bounded["hooks_dropped"] != 0:
+        bounded["returned"] = 0
+        bounded["truncated"] = True
+    if "rows_dropped" in bounded and bounded["rows_dropped"] != 0:
         bounded["returned"] = 0
         bounded["truncated"] = True
     return enforce_budget(bounded, heavy_keys=())

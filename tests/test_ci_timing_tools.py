@@ -488,7 +488,7 @@ async def _stdio_timing_probe(mod_root: Path, cache_dir: Path, content: str) -> 
             "validation_timing_summary",
             {"content": content, "limit": 2, "offset": 0},
         )
-        assert not response.isError
+        assert not response.is_error
         if not response.content or not hasattr(response.content[0], "text"):
             raise AssertionError("timing tool returned no text payload")
         return json.loads(response.content[0].text)

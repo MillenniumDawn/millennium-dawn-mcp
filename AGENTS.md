@@ -11,7 +11,7 @@ live under [`docs/`](./docs/).
 
 ## What this repo is (and isn't)
 
-`millennium-dawn-mcp` is a **Python FastMCP server** that wraps the existing
+`millennium-dawn-mcp` is a **Python MCP server** built with the SDK's `MCPServer` API that wraps the existing
 `Millennium-Dawn/tools/` validators and ports the `MD-VSCode-Utility-Tool`
 paradox-script parser. It exposes:
 
@@ -33,7 +33,7 @@ It is a **sibling** of `Millennium-Dawn/`, `MD-VSCode-Utility-Tool/`, and
 
 ```
 src/md_mcp/
-├── server.py            FastMCP instance + tool/resource registration + CLI
+├── server.py            MCPServer instance + tool/resource registration + CLI
 ├── config.py            Settings dataclass; mod-root / vanilla / cache discovery
 ├── resources.py         md:// resource handlers (raw text streaming)
 ├── paradox/             Ported HOI4 parser

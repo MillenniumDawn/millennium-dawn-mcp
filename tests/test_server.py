@@ -1,6 +1,6 @@
 """MCP protocol round-trip tests.
 
-Builds the server with FastMCP's in-process API and calls every tool and
+Builds the server with MCPServer's in-process API and calls every tool and
 resource through it. Tool logic is tested directly in each tool's own module.
 This file covers what only the server adds: registration, the parameters
 agents see, argument forwarding, server-owned state, and the worker pool.
@@ -9,7 +9,6 @@ agents see, argument forwarding, server-owned state, and the worker pool.
 from __future__ import annotations
 
 import asyncio
-import json
 import threading
 import time
 from typing import Any, cast
@@ -19,13 +18,14 @@ import pytest
 from md_mcp import server as server_module
 from md_mcp.config import Settings
 from md_mcp.server import build_server
+from tests.support.mcp_protocol import tool_payload
 from tests.support.mod import in_process_settings
 
 
 def _call(server, name: str, arguments: dict) -> dict:
-    """Call a tool through FastMCP and decode its JSON payload."""
+    """Call a tool through MCPServer and decode its structured payload."""
     result = asyncio.run(server.call_tool(name, arguments))
-    return json.loads(result[0].text)
+    return tool_payload(result)
 
 
 @pytest.fixture
@@ -181,7 +181,7 @@ TOOL_SIGNATURES = {
 
 
 def _signature(tool) -> str:
-    schema = tool.inputSchema
+    schema = tool.input_schema
     required = set(schema.get("required", ()))
     return ", ".join(
         name if name in required else f"{name}={prop.get('default')!r}"
@@ -261,12 +261,12 @@ def test_analysis_wrappers_offload_and_forward_arguments(
                 server.call_tool("calculate_days", {"year": 2000, "month": 1, "day": 1}),
                 timeout=2,
             )
-            assert json.loads(fast[0].text) == {"ok": True, "days": 0}
+            assert tool_payload(fast) == {"ok": True, "days": 0}
             assert not slow.done()
         finally:
             release.set()
         result = await slow
-        assert json.loads(result[0].text) == {"ok": True, "tool": tool_name}
+        assert tool_payload(result) == {"ok": True, "tool": tool_name}
 
     asyncio.run(exercise())
     assert forwarded["mod_root"] is not None
@@ -626,7 +626,7 @@ def test_generate_gfx_merge_reads_the_mod_textures_and_gfx_file(server, fake_mod
 
 
 def test_fix_lint_runs_the_mod_fixers(fake_mod_root, cache_dir, server_factory):
-    """fix_lint through FastMCP with upstream stand-ins planted in the mod root."""
+    """fix_lint through MCPServer with upstream stand-ins planted in the mod root."""
     linting = fake_mod_root / "tools" / "linting"
     linting.mkdir(parents=True, exist_ok=True)
     (fake_mod_root / "tools" / "shared_utils.py").write_text(
@@ -681,7 +681,7 @@ def test_lint_and_validate_serialize_shared_runner(server, monkeypatch):
 
     results = asyncio.run(call_both())
 
-    assert all(result and result[0].type == "text" for result in results)
+    assert all(result and result.content[0].type == "text" for result in results)
     assert peak_active == 1
 
 
@@ -884,12 +884,12 @@ def test_focus_overlap_runs_off_loop_and_forwards_scenario(server, monkeypatch):
                 server.call_tool("calculate_days", {"year": 2000, "month": 1, "day": 1}),
                 timeout=2,
             )
-            assert json.loads(fast[0].text) == {"ok": True, "days": 0}
+            assert tool_payload(fast) == {"ok": True, "days": 0}
             assert not slow.done()
         finally:
             release.set()
         result = await slow
-        assert json.loads(result[0].text) == {
+        assert tool_payload(result) == {
             "ok": True,
             "file": "common/national_focus/test.txt",
             "tag": "TST",

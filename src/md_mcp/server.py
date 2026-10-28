@@ -103,7 +103,7 @@ class _NamedPartial(partial):
 def _bind_tool(
     function: Callable[..., dict], *args: object, **kwargs: object
 ) -> Callable[..., dict]:
-    """Bind server-owned state while retaining the name FastMCP needs for its argument model."""
+    """Bind server-owned state while retaining its name for MCP schema generation."""
     bound = _NamedPartial(function, *args, **kwargs)
     bound.__name__ = function.__name__
     return bound
@@ -118,19 +118,19 @@ def _make_index(cls: type[_IndexT], settings: Settings) -> _IndexT:
 
 
 def build_server(settings: Settings):
-    """Construct the FastMCP server with all tools and resources registered.
+    """Construct the MCP server with all tools and resources registered.
 
-    Returns the FastMCP instance.
+    Returns the MCPServer instance.
     """
     try:
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server.mcpserver import MCPServer
     except ImportError as e:  # pragma: no cover
         raise SystemExit(
             "The `mcp` package is not installed. Run `pip install -e .` from the "
             "millennium-dawn-mcp directory."
         ) from e
 
-    mcp = FastMCP("md-mcp")
+    mcp = MCPServer("md-mcp")
     blocking_tools = BoundedOffloader()
     # Embedders and tests close this pool before any subsequent fork.
     cast(Any, mcp)._md_blocking_tools = blocking_tools

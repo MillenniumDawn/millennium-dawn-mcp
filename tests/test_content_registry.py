@@ -37,7 +37,7 @@ def test_reference_registry_is_complete_and_aliases_are_canonical():
     assert all(target in canonical for target in REFERENCE_KIND_ALIASES.values())
     assert all(source not in canonical for source in REFERENCE_KIND_ALIASES)
     assert set(AUDIT_DEFAULT_KINDS) <= set(REFERENCE_PATTERNS)
-    assert set(AUDIT_RESOLVER_INDEX_ATTRS) <= set(REFERENCE_PATTERNS)
+    assert set(AUDIT_RESOLVER_INDEX_ATTRS) <= {item.name for item in CONTENT_TYPES}
 
 
 def test_registry_path_classification_preserves_analysis_kinds():

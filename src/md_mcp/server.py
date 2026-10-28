@@ -36,9 +36,7 @@ from .generators import (
     generate_loc_stub,
     generate_missing_loc_tool,
 )
-from .indexes import (
-    LocalisationIndex,
-)
+from .indexes import LocalisationIndex
 from .indexes.base import GenericTxtIndex
 from .resources import (
     decision_resource,
@@ -56,12 +54,14 @@ from .tools.lookup_docs import lookup_docs_tool
 from .tools.parser_tools import parse_file_tool, parse_string_tool
 from .tools.resolver_tools import (
     resolve_character_tool,
+    resolve_content_tool,
     resolve_country_tag_tool,
     resolve_decision_tool,
     resolve_event_tool,
     resolve_focus_tool,
     resolve_idea_tool,
     resolve_loc_tool,
+    resolve_on_action_content_tool,
     resolve_scripted_effect_tool,
     resolve_scripted_trigger_tool,
     resolve_sprite_tool,
@@ -129,11 +129,10 @@ def build_server(settings: Settings):
     def _index(cls: type[_IndexT]) -> _IndexT:
         return _make_index(cls, settings)
 
-    indexes: dict[str, Any] = {
-        item.index_attribute: _index(item.index_class)
-        for item in INDEX_TYPES
-        if item.index_attribute is not None and item.index_class is not None
-    }
+    indexes: dict[str, Any] = {}
+    for item in INDEX_TYPES:
+        if item.index_attribute and item.index_class and item.index_attribute not in indexes:
+            indexes[item.index_attribute] = _index(item.index_class)
     focus_index = indexes["focus_index"]
     loc_index = indexes["loc_index"]
     gfx_index = indexes["gfx_index"]
@@ -145,6 +144,14 @@ def build_server(settings: Settings):
     trait_index = indexes["trait_index"]
     scripted_effect_index = indexes["scripted_effect_index"]
     scripted_trigger_index = indexes["scripted_trigger_index"]
+    on_action_index = indexes["on_action_index"]
+    technology_index = indexes["technology_index"]
+    dynamic_modifier_index = indexes["dynamic_modifier_index"]
+    modifier_definition_index = indexes["modifier_definition_index"]
+    country_history_index = indexes["country_history_index"]
+    unit_history_index = indexes["unit_history_index"]
+    division_template_index = unit_history_index
+    oob_index = unit_history_index
     validator_runner = ValidatorRunner(
         settings.mod_root,
         mode=settings.validator_mode,
@@ -220,6 +227,60 @@ def build_server(settings: Settings):
         """Get a scripted trigger definition's file and line."""
         return resolve_scripted_trigger_tool(trigger_id, scripted_trigger_index)
 
+    @mcp.tool()
+    def resolve_on_action(on_action_id: str) -> dict:
+        """Get an on_action definition's source location."""
+        return resolve_on_action_content_tool(on_action_id, on_action_index)
+
+    @mcp.tool()
+    def resolve_technology(technology_id: str) -> dict:
+        """Get a technology definition's source location."""
+        return resolve_content_tool(
+            technology_id, technology_index, label="Technology", expected_kind="technology"
+        )
+
+    @mcp.tool()
+    def resolve_dynamic_modifier(modifier_id: str) -> dict:
+        """Get a dynamic modifier definition's source location."""
+        return resolve_content_tool(
+            modifier_id,
+            dynamic_modifier_index,
+            label="Dynamic modifier",
+            expected_kind="dynamic_modifier",
+        )
+
+    @mcp.tool()
+    def resolve_modifier_definition(modifier_id: str) -> dict:
+        """Get a modifier definition's source location."""
+        return resolve_content_tool(
+            modifier_id,
+            modifier_definition_index,
+            label="Modifier definition",
+            expected_kind="modifier_definition",
+        )
+
+    @mcp.tool()
+    def resolve_country_history(tag: str) -> dict:
+        """Get a country's history file and source location by tag."""
+        return resolve_content_tool(
+            tag, country_history_index, label="Country history", expected_kind="country_history"
+        )
+
+    @mcp.tool()
+    def resolve_division_template(template_id: str) -> dict:
+        """Get a qualified division template id (OOB filename:name) and source location."""
+        return resolve_content_tool(
+            template_id,
+            division_template_index,
+            label="Division template",
+            expected_kind="division_template",
+        )
+
+    @mcp.tool()
+    def resolve_oob(oob_id: str) -> dict:
+        """Get an order-of-battle file by its filename stem."""
+        return resolve_content_tool(oob_id, oob_index, label="OOB", expected_kind="oob")
+
     # ---------- parsers ----------
 
     @mcp.tool()
@@ -269,6 +330,19 @@ def build_server(settings: Settings):
         name="find_scripted_triggers",
         description="Search indexed scripted triggers by substring with paginated source details.",
     )(_bind_tool(find_indexed_tool, scripted_trigger_index, "scripted_trigger"))
+    for tool_name, index, kind in (
+        ("find_on_actions", on_action_index, "on_action"),
+        ("find_technologies", technology_index, "technology"),
+        ("find_dynamic_modifiers", dynamic_modifier_index, "dynamic_modifier"),
+        ("find_modifier_definitions", modifier_definition_index, "modifier_definition"),
+        ("find_country_histories", country_history_index, "country_history"),
+        ("find_division_templates", division_template_index, "division_template"),
+        ("find_oobs", oob_index, "oob"),
+    ):
+        mcp.tool(
+            name=tool_name,
+            description=f"Search indexed {kind.replace('_', ' ')} definitions with paginated source details.",
+        )(_bind_tool(find_indexed_tool, index, kind))
     mcp.tool(
         name="lookup_docs",
         description=(
@@ -659,7 +733,7 @@ def build_server(settings: Settings):
         offset: int = 0,
         counts_only: bool = False,
     ) -> dict:
-        """Audit indexed focus/event/idea/sprite/loc/decision/tag/character/trait/scripted refs in tag focus files or explicit files=; returns deduped unresolved refs with file:line sites. kinds=[...] subsets; kinds=["duplicate_icons"] lists focus icons reused within a file."""
+        """Audit indexed focus/event/idea/sprite/loc/decision/tag/character/trait/scripted/content refs in tag focus files or explicit files=; returns deduped unresolved refs with file:line sites. kinds=[...] selects types; history kinds are opt-in because their indexes cover large directories."""
         return check_refs(
             settings.mod_root,
             focus_index=focus_index,
@@ -877,8 +951,13 @@ def main() -> None:  # pragma: no cover — entry point
         sys.exit(0)
 
     if args.cmd == "build-index":
+        seen_index_attributes: set[str] = set()
         for content_type in INDEX_TYPES:
             assert content_type.index_class is not None
+            assert content_type.index_attribute is not None
+            if content_type.index_attribute in seen_index_attributes:
+                continue
+            seen_index_attributes.add(content_type.index_attribute)
             cls = content_type.index_class
             idx = _make_index(cls, settings)
             idx.ensure_fresh()

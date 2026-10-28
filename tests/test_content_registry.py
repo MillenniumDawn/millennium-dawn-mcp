@@ -1,15 +1,33 @@
 from md_mcp.content_registry import (
+    AUDIT_DEFAULT_KINDS,
+    AUDIT_RESOLVER_INDEX_ATTRS,
     CONTENT_BY_NAME,
+    CONTENT_TYPES,
     INDEX_TYPES,
     MANIFEST_CATEGORIES,
+    REFERENCE_EXTENSIONS,
+    REFERENCE_KIND_ALIASES,
+    REFERENCE_PATTERNS,
+    REFERENCE_SCAN_DIRS,
     classify_content_path,
 )
 
 
 def test_registry_has_unique_canonical_content_names():
-    names = [content.name for content in CONTENT_BY_NAME.values()]
+    names = [content.name for content in CONTENT_TYPES]
     assert len(names) == len(set(names))
+    assert set(names) == set(CONTENT_BY_NAME)
     assert all(item.index_name and item.index_attribute for item in INDEX_TYPES)
+
+
+def test_reference_registry_is_complete_and_aliases_are_canonical():
+    canonical = set(REFERENCE_PATTERNS)
+    assert canonical == set(REFERENCE_SCAN_DIRS)
+    assert set(REFERENCE_EXTENSIONS) <= canonical
+    assert all(target in canonical for target in REFERENCE_KIND_ALIASES.values())
+    assert all(source not in canonical for source in REFERENCE_KIND_ALIASES)
+    assert set(AUDIT_DEFAULT_KINDS) <= set(REFERENCE_PATTERNS)
+    assert set(AUDIT_RESOLVER_INDEX_ATTRS) <= set(REFERENCE_PATTERNS)
 
 
 def test_registry_path_classification_preserves_analysis_kinds():

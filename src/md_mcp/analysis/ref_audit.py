@@ -39,9 +39,15 @@ unconfirmed, since the missing definition may sit in a file the index dropped.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence, cast
 
-from ..content_registry import CONTENT_TYPES
+from ..content_registry import (
+    AUDIT_DEFAULT_KINDS,
+    AUDIT_NODE_SETS,
+    AUDIT_NOT_CHECKED,
+    AUDIT_RESOLVER_INDEX_ATTRS,
+    AUDIT_SYMBOL_REFERENCE_KINDS,
+)
 from ..indexes import (
     CharacterIndex,
     CountryTagIndex,
@@ -61,70 +67,34 @@ from ..util.response import enforce_budget, summarize_index_errors
 from .refs import KIND_ALIASES
 from .scope import iter_scope_files
 
-_DEFAULT_KINDS: tuple = tuple(
-    item.name
-    for item in CONTENT_TYPES
-    if item.name
-    in {
-        "focus",
-        "event",
-        "idea",
-        "sprite",
-        "loc",
-        "decision",
-        "country_tag",
-        "character",
-        "trait",
-        "scripted_effect",
-        "scripted_trigger",
-    }
-)
+_DEFAULT_KINDS = AUDIT_DEFAULT_KINDS
 # Reused icons are common (163 groups in 05_usa.txt), so this one is opt-in.
 _ALL_KINDS: tuple = (*_DEFAULT_KINDS, "duplicate_icons")
 _MAX_FILES = 200
 
-_EVENT_NODES = frozenset({"country_event", "news_event"})
-_FOCUS_SYMBOL_NODES = frozenset(
-    {"has_completed_focus", "complete_national_focus", "relative_position_id"}
-)
-_IDEA_BLOCK_NODES = frozenset({"add_ideas", "remove_ideas"})
-_IDEA_SYMBOL_NODES = frozenset({"add_idea", "remove_idea", "idea", "has_idea"})
-_SPRITE_NODES = frozenset({"icon", "picture"})
-_LOC_NODES = frozenset({"custom_effect_tooltip"})
-_DECISION_NODES = frozenset({"activate_decision", "unlock_decision_tooltip"})
-_COUNTRY_TAG_NODES = frozenset(
-    {
-        "original_tag",
-        "tag",
-        "change_tag",
-        "target_tag",
-        "original_tag_to_check",
-        "tag_to_check",
-    }
-)
-_SCOPE_KEYWORDS = frozenset({"ROOT", "FROM", "PREV", "THIS", "OWNER", "CONTROLLER"})
-_DOTTED_SCOPE_PREFIXES = ("var:", "event_target:")
-_CHARACTER_NODES = frozenset(
-    {
-        "character",
-        "has_character",
-        "create_character",
-        "remove_character",
-        "modify_character",
-        "set_character",
-    }
-)
-_TRAIT_NODES = frozenset({"trait", "has_trait", "add_trait", "remove_trait", "remove_leader_trait"})
-_FOCUS_DEF_NODES = frozenset({"focus", "shared_focus", "joint_focus"})
+_EVENT_NODES = cast(frozenset[str], AUDIT_NODE_SETS["event"])
+_FOCUS_SYMBOL_NODES = cast(frozenset[str], AUDIT_NODE_SETS["focus"])
+_IDEA_BLOCK_NODES = cast(frozenset[str], AUDIT_NODE_SETS["idea_block"])
+_IDEA_SYMBOL_NODES = cast(frozenset[str], AUDIT_NODE_SETS["idea_symbol"])
+_SPRITE_NODES = cast(frozenset[str], AUDIT_NODE_SETS["sprite"])
+_LOC_NODES = cast(frozenset[str], AUDIT_NODE_SETS["loc"])
+_DECISION_NODES = cast(frozenset[str], AUDIT_NODE_SETS["decision"])
+_COUNTRY_TAG_NODES = cast(frozenset[str], AUDIT_NODE_SETS["country_tag"])
+_SCOPE_KEYWORDS = cast(frozenset[str], AUDIT_NODE_SETS["scope_keywords"])
+_DOTTED_SCOPE_PREFIXES = cast(tuple[str, ...], AUDIT_NODE_SETS["dotted_scope_prefixes"])
+_CHARACTER_NODES = cast(frozenset[str], AUDIT_NODE_SETS["character"])
+_TRAIT_NODES = cast(frozenset[str], AUDIT_NODE_SETS["trait"])
+_FOCUS_DEF_NODES = cast(frozenset[str], AUDIT_NODE_SETS["focus_definitions"])
 
 # Kinds whose refs are a plain symbol under one of the listed node names. The
 # name sets are mutually disjoint, so at most one entry matches a given child.
-_SYMBOL_REF_NODES = (
-    ("focus", _FOCUS_SYMBOL_NODES),
-    ("idea", _IDEA_SYMBOL_NODES),
-    ("loc", _LOC_NODES),
-    ("decision", _DECISION_NODES),
-)
+_SYMBOL_NODE_SETS = {
+    "focus": _FOCUS_SYMBOL_NODES,
+    "idea": _IDEA_SYMBOL_NODES,
+    "loc": _LOC_NODES,
+    "decision": _DECISION_NODES,
+}
+_SYMBOL_REF_NODES = tuple((kind, _SYMBOL_NODE_SETS[kind]) for kind in AUDIT_SYMBOL_REFERENCE_KINDS)
 
 
 def check_refs(
@@ -259,34 +229,36 @@ def check_refs(
     ]
 
     vanilla_sprites_set = vanilla_sprites or frozenset()
-    resolvers: dict[str, Callable[[str], bool]] = {
-        "focus": lambda r: focus_index.resolve(r) is not None,
-        "event": lambda r: event_index.resolve(r) is not None,
-        "idea": lambda r: idea_index.resolve(r) is not None,
-        "sprite": lambda r: (
-            gfx_index.resolve(r) is not None
-            or gfx_index.resolve(f"GFX_{r}") is not None
-            or gfx_index.resolve(f"GFX_idea_{r}") is not None
-            or r in vanilla_sprites_set
-            or f"GFX_{r}" in vanilla_sprites_set
-            or f"GFX_idea_{r}" in vanilla_sprites_set
-        ),
-        "loc": lambda r: loc_index.resolve(r, lang) is not None,
-        "decision": lambda r: decision_index.resolve(r) is not None,
-        "country_tag": lambda r: (
-            country_tag_index is not None and country_tag_index.resolve(r) is not None
-        ),
-        "character": lambda r: (
-            character_index is not None and character_index.resolve(r) is not None
-        ),
-        "trait": lambda r: trait_index is not None and trait_index.resolve(r) is not None,
-        "scripted_effect": lambda r: (
-            scripted_effect_index is not None and scripted_effect_index.resolve(r) is not None
-        ),
-        "scripted_trigger": lambda r: (
-            scripted_trigger_index is not None and scripted_trigger_index.resolve(r) is not None
-        ),
+    index_by_attribute: dict[str, Any] = {
+        "focus_index": focus_index,
+        "event_index": event_index,
+        "idea_index": idea_index,
+        "loc_index": loc_index,
+        "decision_index": decision_index,
+        "country_tag_index": country_tag_index,
+        "character_index": character_index,
+        "trait_index": trait_index,
+        "scripted_effect_index": scripted_effect_index,
+        "scripted_trigger_index": scripted_trigger_index,
     }
+    resolvers: dict[str, Callable[[str], bool]] = {}
+
+    def _index_resolver(index: Any, *, localisation: bool = False) -> Callable[[str], bool]:
+        if localisation:
+            return lambda ref: index is not None and index.resolve(ref, lang) is not None
+        return lambda ref: index is not None and index.resolve(ref) is not None
+
+    for kind, attr in AUDIT_RESOLVER_INDEX_ATTRS.items():
+        index = index_by_attribute[attr]
+        resolvers[kind] = _index_resolver(index, localisation=kind == "loc")
+    resolvers["sprite"] = lambda ref: (
+        gfx_index.resolve(ref) is not None
+        or gfx_index.resolve(f"GFX_{ref}") is not None
+        or gfx_index.resolve(f"GFX_idea_{ref}") is not None
+        or ref in vanilla_sprites_set
+        or f"GFX_{ref}" in vanilla_sprites_set
+        or f"GFX_idea_{ref}" in vanilla_sprites_set
+    )
 
     checked: dict[str, set[str]] = {k: set() for k in selected}
     unresolved_by_key: dict[tuple, dict] = {}
@@ -324,12 +296,7 @@ def check_refs(
         "files_scanned": len(scope_files),
         "files_truncated": files_truncated,
         "kinds_checked": selected,
-        "not_checked": [
-            "country_flags",
-            "variables",
-            "scripted_effects",
-            "scripted_triggers",
-        ],
+        "not_checked": list(AUDIT_NOT_CHECKED),
         "vanilla_indexed": vanilla_path is not None,
         "vanilla_manifest": vanilla_sprites is not None,
         "counts": {

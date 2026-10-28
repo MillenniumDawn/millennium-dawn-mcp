@@ -108,6 +108,7 @@ def _focus_sample(folder: Path, profile_path: Path | None = None) -> dict:
 
 def _ast_sample(folder: Path) -> dict:
     from md_mcp.paradox import ast_cache
+    from md_mcp.paradox.nodes import Node
 
     old_text = (
         "focus_tree = {\n"
@@ -123,9 +124,9 @@ def _ast_sample(folder: Path) -> dict:
     errors = []
     calls = []
 
-    def blocked(text, **kwargs):
+    def blocked(text: str, error_prefix: str = "", *, close_blocks_at_eof: bool = False) -> Node:
         calls.append(len(text))
-        root = parse(text, **kwargs)
+        root = parse(text, error_prefix, close_blocks_at_eof=close_blocks_at_eof)
         if text == old_text:
             old_ready.set()
             assert release.wait(timeout=20)

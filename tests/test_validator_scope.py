@@ -284,16 +284,17 @@ def test_lint_post_filter_preserves_unattributed_issues(tmp_path):
         mod_root=root,
     )
 
-    assert entries == [
-        {
-            "name": "validator:scope_lint",
-            "ok": True,
-            "total": 1,
-            "total_mod_wide": 2,
-            "scoped": True,
-            "unattributed": 1,
-        }
-    ]
+    assert len(entries) == 1
+    assert isinstance(entries[0]["elapsed_s"], (int, float))
+    assert entries[0]["elapsed_s"] >= 0
+    assert {key: value for key, value in entries[0].items() if key != "elapsed_s"} == {
+        "name": "validator:scope_lint",
+        "ok": True,
+        "total": 1,
+        "total_mod_wide": 2,
+        "scoped": True,
+        "unattributed": 1,
+    }
     assert [issue["file"] for issue in issues] == ["events/Algeria.txt", ""]
     assert issues[-1]["scope"] == "unattributed"
 

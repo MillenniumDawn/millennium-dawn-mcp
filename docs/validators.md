@@ -177,6 +177,10 @@ when you want them:
 validate(validator="unused_textures")
 ```
 
+Concurrent run-all is not enabled. The adoption gate is a full run-all at
+least twice as fast on a 14-core host. This host has 24 cores, so that
+measurement was not run and the concurrent path was not added.
+
 ## Suppression
 
 The runner applies upstream-documented false-positive suppressions in the tail

@@ -232,16 +232,31 @@ def test_validate_all_ok_when_every_validator_ok(fake_mod_root):
     plant_validator(fake_mod_root, "good", _GOOD)
     result = validate_tool(mod_settings(fake_mod_root), ValidatorRunner(fake_mod_root))
     assert result["ok"] is True
-    assert result["validators"] == [
-        {
-            "name": "good",
-            "title": "Good",
-            "ok": True,
-            "counts": {"error": 1, "warning": 1, "info": 0},
-            "error": None,
-        }
-    ]
+    assert len(result["validators"]) == 1
+    entry = result["validators"][0]
+    assert isinstance(entry["elapsed_s"], (int, float))
+    assert entry["elapsed_s"] >= 0
+    assert {k: v for k, v in entry.items() if k != "elapsed_s"} == {
+        "name": "good",
+        "title": "Good",
+        "ok": True,
+        "counts": {"error": 1, "warning": 1, "info": 0},
+        "error": None,
+    }
     assert result["counts"] == {"error": 1, "warning": 1, "info": 0}
+
+
+def test_validate_failed_attempted_run_still_carries_elapsed_s(fake_mod_root):
+    """A run that was attempted is timed even when it fails (#173)."""
+    plant_validator(fake_mod_root, "broken", _BROKEN)
+    result = validate_tool(
+        mod_settings(fake_mod_root), ValidatorRunner(fake_mod_root), validator="broken"
+    )
+
+    assert result["ok"] is False
+    assert "SyntaxError" in result["error"]
+    assert isinstance(result["elapsed_s"], (int, float))
+    assert result["elapsed_s"] >= 0
 
 
 def test_validate_all_preserves_attribution_counts_like_named_run(fake_mod_root):

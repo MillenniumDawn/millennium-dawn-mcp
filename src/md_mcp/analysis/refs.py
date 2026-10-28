@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Optional
 
 from ..content_registry import (
     REFERENCE_EXTENSIONS,
@@ -29,24 +29,7 @@ from .text_cache import read_text
 
 logger = logging.getLogger(__name__)
 
-Kind = Literal[
-    "focus",
-    "event",
-    "decision",
-    "idea",
-    "loc",
-    "sprite",
-    "flag",
-    "variable",
-    "country_tag",
-    "tag",
-    "character",
-    "trait",
-    "scripted_effect",
-    "scripted_trigger",
-    "scripted_effects",
-    "scripted_triggers",
-]
+Kind = str
 
 
 _PATTERNS = REFERENCE_PATTERNS

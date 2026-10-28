@@ -26,7 +26,7 @@ import re
 from pathlib import Path
 from typing import Optional, Sequence
 
-from ..content_registry import MANIFEST_CATEGORIES
+from ..content_registry import CONTENT_TYPES, MANIFEST_CATEGORIES
 from ..indexes import (
     CharacterIndex,
     CountryTagIndex,
@@ -61,6 +61,7 @@ def list_country_content(
     trait_index: Optional[TraitIndex] = None,
     scripted_effect_index: Optional[ScriptedEffectIndex] = None,
     scripted_trigger_index: Optional[ScriptedTriggerIndex] = None,
+    registry_indexes: Optional[dict[str, object]] = None,
     include: Optional[Sequence[str]] = None,
     limit_per_category: int = 100,
 ) -> dict:
@@ -131,6 +132,17 @@ def list_country_content(
         "scripted_triggers": scripted_triggers,
         "scripted_trigger_files": scripted_trigger_files,
     }
+
+    registry_indexes = registry_indexes or {}
+    for content in CONTENT_TYPES:
+        if content.manifest_extractor is None or not content.index_attribute:
+            continue
+        index = registry_indexes.get(content.index_attribute)
+        extracted = _MANIFEST_EXTRACTORS[content.manifest_extractor](index, tag_upper)
+        if len(content.manifest_categories) == 2:
+            first, second = extracted
+            raw[content.manifest_categories[0]] = list(first)
+            raw[content.manifest_categories[1]] = list(second)
 
     counts = {cat: len(items) for cat, items in raw.items()}
     result: dict = {"ok": True, "tag": tag_upper, "counts": counts}
@@ -244,6 +256,9 @@ def _indexed_country_records(index, tag_upper: str) -> tuple[list[str], list[str
         ids.append(str(key))
         files.add(str(rec["file"]))
     return sorted(set(ids)), sorted(files)
+
+
+_MANIFEST_EXTRACTORS = {"indexed_country_records": _indexed_country_records}
 
 
 def _scan_files(

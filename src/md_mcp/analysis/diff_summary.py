@@ -45,6 +45,12 @@ GIT_TIMEOUT_SHOW = 15.0
 
 # Cap stderr from git subprocesses so a noisy failure doesn't bloat responses.
 GIT_ERR_MAX_BYTES = 4_000
+_DIFF_EXTRACTORS = {
+    "focus": extract_focus_records,
+    "event": extract_event_records,
+    "decision": extract_decision_records,
+    "idea": extract_idea_records,
+}
 
 # Git revisions must be non-empty and must not start with `-` (option-injection).
 # We further separate revs from options with `--end-of-options` at the call site
@@ -157,7 +163,7 @@ def diff_summary(
         if old_path and old_path != new_path:
             record["old_path"] = old_path
 
-        if with_ids and kind in ("focus", "event", "decision", "idea"):
+        if with_ids and (content := CONTENT_BY_NAME.get(kind)) and content.diff_extractor:
             id_block: dict[str, Any] = {}
             base_err: Optional[str] = None
             head_err: Optional[str] = None
@@ -341,14 +347,8 @@ def _extract_ids(text: str, kind: str) -> list[str]:
         # caller that swallows the result would otherwise conclude nothing
         # changed in this file when in fact it failed to parse.
         raise RuntimeError(f"paradox parser: {exc.__class__.__name__}: {exc}") from exc
-    extractors = {
-        "focus": extract_focus_records,
-        "event": extract_event_records,
-        "decision": extract_decision_records,
-        "idea": extract_idea_records,
-    }
-    extractor_name = CONTENT_BY_NAME.get(kind)
-    if extractor_name is None or extractor_name.diff_extractor is None:
+    content = CONTENT_BY_NAME.get(kind)
+    if content is None or content.diff_extractor is None:
         return []
-    extractor = extractors[extractor_name.diff_extractor]
+    extractor = _DIFF_EXTRACTORS[content.diff_extractor]
     return [record["id"] for record in extractor(root)]

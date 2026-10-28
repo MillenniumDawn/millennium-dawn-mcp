@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
 
 import pytest
 
 from md_mcp.analysis.refs import (
-    Kind,
     _character_pattern,
     _country_tag_pattern,
     _decision_pattern,
@@ -248,7 +246,7 @@ def test_find_loc_references_returns_definitions_and_uses(fake_mod_root):
 
 
 def test_find_references_unknown_kind(fake_mod_root):
-    r = find_references(fake_mod_root, cast(Kind, "bogus"), "x")
+    r = find_references(fake_mod_root, "bogus", "x")
     assert r["ok"] is False
     assert "kind" in r["error"]
 

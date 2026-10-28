@@ -37,17 +37,7 @@ from .generators import (
     generate_missing_loc_tool,
 )
 from .indexes import (
-    CharacterIndex,
-    CountryTagIndex,
-    DecisionIndex,
-    EventIndex,
-    FocusIndex,
-    GfxIndex,
-    IdeaIndex,
     LocalisationIndex,
-    ScriptedEffectIndex,
-    ScriptedTriggerIndex,
-    TraitIndex,
 )
 from .indexes.base import GenericTxtIndex
 from .resources import (
@@ -95,19 +85,6 @@ from .validators import ValidatorRunner
 
 logger = logging.getLogger("md_mcp")
 _IndexT = TypeVar("_IndexT", bound=GenericTxtIndex)
-_INDEX_CLASSES: dict[str, type[GenericTxtIndex]] = {
-    "FocusIndex": FocusIndex,
-    "LocalisationIndex": LocalisationIndex,
-    "GfxIndex": GfxIndex,
-    "EventIndex": EventIndex,
-    "DecisionIndex": DecisionIndex,
-    "IdeaIndex": IdeaIndex,
-    "CountryTagIndex": CountryTagIndex,
-    "CharacterIndex": CharacterIndex,
-    "TraitIndex": TraitIndex,
-    "ScriptedEffectIndex": ScriptedEffectIndex,
-    "ScriptedTriggerIndex": ScriptedTriggerIndex,
-}
 
 
 class _NamedPartial(partial):
@@ -153,9 +130,9 @@ def build_server(settings: Settings):
         return _make_index(cls, settings)
 
     indexes: dict[str, Any] = {
-        item.index_attribute: _index(_INDEX_CLASSES[item.index_name])
+        item.index_attribute: _index(item.index_class)
         for item in INDEX_TYPES
-        if item.index_attribute is not None and item.index_name is not None
+        if item.index_attribute is not None and item.index_class is not None
     }
     focus_index = indexes["focus_index"]
     loc_index = indexes["loc_index"]
@@ -313,7 +290,7 @@ def build_server(settings: Settings):
         """Find references to indexed focuses/events/ideas, tags, characters, traits, scripted definitions, loc/sprites, flags, or variables. files_only collapses to a unique file list."""
         return find_references(
             settings.mod_root,
-            kind,  # type: ignore[arg-type]
+            kind,
             target,
             vanilla_path=settings.vanilla_path,
             include_vanilla=False,
@@ -345,6 +322,7 @@ def build_server(settings: Settings):
             trait_index=trait_index,
             scripted_effect_index=scripted_effect_index,
             scripted_trigger_index=scripted_trigger_index,
+            registry_indexes=indexes,
             include=include,
             limit_per_category=limit_per_category,
         )
@@ -695,6 +673,7 @@ def build_server(settings: Settings):
             trait_index=trait_index,
             scripted_effect_index=scripted_effect_index,
             scripted_trigger_index=scripted_trigger_index,
+            registry_indexes=indexes,
             tag=tag,
             files=files,
             kinds=kinds,
@@ -899,8 +878,8 @@ def main() -> None:  # pragma: no cover — entry point
 
     if args.cmd == "build-index":
         for content_type in INDEX_TYPES:
-            assert content_type.index_name is not None
-            cls = _INDEX_CLASSES[content_type.index_name]
+            assert content_type.index_class is not None
+            cls = content_type.index_class
             idx = _make_index(cls, settings)
             idx.ensure_fresh()
             if isinstance(idx, LocalisationIndex):

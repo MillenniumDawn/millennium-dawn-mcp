@@ -46,6 +46,59 @@ def test_generate_missing_loc_omits_existing_keys_and_returns_complete_text(
     assert "TestnsNews.42.t:" in result["txt"]
 
 
+def test_file_route_validates_selector_and_language_arguments(fake_mod_root, cache_dir):
+    tool = _tool(fake_mod_root, cache_dir)
+
+    assert tool()["error"] == "Provide file=, focus_ids= or event_ids=."
+    assert tool(target_file="localisation/english/new_l_english.yml")["error"] == (
+        "target_file= requires file=."
+    )
+    assert tool(file="common/national_focus/test.txt", lang="de")["error"].endswith("(lang='en').")
+    mixed = tool(file="common/national_focus/test.txt", focus_ids=["TST_root"])
+    assert mixed["error"] == "Use file= or focus_ids=/event_ids=, not both."
+
+
+def test_file_route_reports_missing_unreadable_and_unsupported_sources(
+    fake_mod_root, cache_dir, monkeypatch
+):
+    tool = _tool(fake_mod_root, cache_dir)
+    assert tool(file="common/national_focus/missing.txt")["error"].startswith(
+        "Source file not found"
+    )
+
+    source = fake_mod_root / "common" / "national_focus" / "bad_parse.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("focus_tree = { }", encoding="utf-8")
+    monkeypatch.setattr(
+        missing_loc,
+        "parse_cached",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("fixture parse error")),
+    )
+    assert tool(file="common/national_focus/bad_parse.txt")["error"] == (
+        "Could not parse source file (ValueError)."
+    )
+    monkeypatch.undo()
+
+    unsupported = fake_mod_root / "common" / "scripted_effects" / "unsupported.txt"
+    unsupported.parent.mkdir(parents=True, exist_ok=True)
+    unsupported.write_text("effect = { add_stability = 0.1 }", encoding="utf-8")
+    assert tool(file="common/scripted_effects/unsupported.txt")["error"].startswith(
+        "Source file type is unsupported"
+    )
+
+
+def test_file_route_marks_missing_event_fields_partial(fake_mod_root, cache_dir):
+    source = fake_mod_root / "events" / "missing_fields_route.txt"
+    source.write_text(
+        "add_namespace = TST\ncountry_event = { id = TST.4 title = TST.4.t }",
+        encoding="utf-8",
+    )
+    result = _tool(fake_mod_root, cache_dir)(file="events/missing_fields_route.txt")
+    assert result["complete"] is False
+    assert result["partial"] is True
+    assert result["failures"] == ["event:TST.4: desc localisation key is missing"]
+
+
 def test_file_route_skips_target_keys_and_derives_header_and_bom(fake_mod_root, cache_dir):
     source = fake_mod_root / "common" / "national_focus" / "file_route.txt"
     source.parent.mkdir(parents=True, exist_ok=True)
@@ -76,6 +129,41 @@ def test_file_route_skips_target_keys_and_derives_header_and_bom(fake_mod_root, 
     new_result = _tool(fake_mod_root, cache_dir)(file="common/national_focus/file_route.txt")
     assert new_result["bom_prefix"] is True
     assert new_result["txt"].startswith("\ufeffl_english:")
+
+
+def test_file_route_validates_and_reads_target_paths(fake_mod_root, cache_dir):
+    source = fake_mod_root / "common" / "national_focus" / "target_path_route.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(
+        "focus_tree = { id = TST_target_route focus = { id = TST_target_route x = 0 y = 0 } }",
+        encoding="utf-8",
+    )
+    tool = _tool(fake_mod_root, cache_dir)
+
+    invalid_name = tool(file="common/national_focus/target_path_route.txt", target_file="loc.yml")
+    assert invalid_name["error"].startswith("target_file must be an English localisation path")
+
+    escapes = tool(
+        file="common/national_focus/target_path_route.txt",
+        target_file="localisation/english/../../../outside_l_english.yml",
+    )
+    assert escapes["error"] == "target_file escapes configured content roots."
+
+    new_target = tool(
+        file="common/national_focus/target_path_route.txt",
+        target_file="localisation/english/new_l_english.yml",
+    )
+    assert new_target["ok"] is True
+    assert new_target["target_exists"] is False
+    assert new_target["bom_prefix"] is True
+
+    directory_target = fake_mod_root / "localisation" / "english" / "directory_l_english.yml"
+    directory_target.mkdir(parents=True)
+    unreadable = tool(
+        file="common/national_focus/target_path_route.txt",
+        target_file="localisation/english/directory_l_english.yml",
+    )
+    assert unreadable["error"] == "Could not read target localisation file (IsADirectoryError)."
 
 
 @pytest.mark.parametrize(
@@ -150,6 +238,38 @@ def test_file_route_skips_scripted_localisation_calls(fake_mod_root, cache_dir):
     assert "[GetTitle]" not in result["txt"]
     assert "[GetOption]" not in result["txt"]
     assert "TST.3.d" in result["txt"]
+
+
+@pytest.mark.parametrize("drop_kind", ["size", "text", "keys"])
+def test_file_route_reconciles_final_budget_drops(fake_mod_root, cache_dir, monkeypatch, drop_kind):
+    source = fake_mod_root / "common" / "national_focus" / f"budget_{drop_kind}.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(
+        f"focus_tree = {{ id = TST_budget focus = {{ id = TST_{drop_kind} x = 0 y = 0 }} }}",
+        encoding="utf-8",
+    )
+    calls = 0
+
+    def simulate_budget(result, *, heavy_keys):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            return result
+        if drop_kind == "size":
+            return {**result, "size_truncated": True}
+        if drop_kind == "text":
+            return {**result, "txt_dropped": 1}
+        return {**result, "loc_yml_keys_dropped": 2}
+
+    monkeypatch.setattr(missing_loc, "enforce_budget", simulate_budget)
+    result = _tool(fake_mod_root, cache_dir)(file=f"common/national_focus/budget_{drop_kind}.txt")
+    assert result["complete"] is False
+    assert result["partial"] is True
+    if drop_kind == "text":
+        assert result["txt_truncated"] is True
+    if drop_kind == "keys":
+        assert result["returned"] == 0
+        assert result["truncated"] is True
 
 
 def test_generate_missing_loc_marks_paged_and_unresolved_results_partial(fake_mod_root, cache_dir):

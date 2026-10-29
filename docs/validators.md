@@ -177,9 +177,23 @@ when you want them:
 validate(validator="unused_textures")
 ```
 
-Concurrent run-all is not enabled. The adoption gate is a full run-all at
-least twice as fast on a 14-core host. This host has 24 cores, so that
-measurement was not run and the concurrent path was not added.
+Concurrent run-all is not enabled. `benchmarks/validator_concurrency.py` is an
+unvalidated prototype for comparing sequential and concurrent full run-all; it
+currently disables validator disk caches and its `--cpu-budget` controls logical
+CPUs, not physical cores. A production-like warm-cache comparison on 14 distinct
+physical cores, with complete result equivalence and at least 2x speedup, is
+still required before considering adoption. Example prototype invocation:
+
+```sh
+python benchmarks/validator_concurrency.py \
+  --mod-root /path/to/Millennium-Dawn \
+  --cpu-budget 14 --workers 4 --repetitions 3 \
+  --output benchmarks/results/validator-concurrency.json
+```
+
+This command is not evidence of a valid adoption measurement: cache isolation,
+physical-core affinity selection, warmup, and benchmark result reporting still
+need review.
 
 ## Suppression
 

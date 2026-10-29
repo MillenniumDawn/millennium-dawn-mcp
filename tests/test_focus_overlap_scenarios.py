@@ -62,6 +62,7 @@ def _fake_api(monkeypatch, root: Path):
     module = types.SimpleNamespace()
     module.Scenario = _Scenario
     module.parse_date = lambda text: tuple(int(part) for part in text.split("."))
+    module.parse_region = lambda text: tuple(int(part) for part in text.split(","))
 
     def iter_focus_blocks(text):
         return [
@@ -118,9 +119,14 @@ def _fake_api(monkeypatch, root: Path):
     }
 
     def build_report(focuses, positions, visible, scenario, region, adjacent, show_map):
+        def in_region(xy):
+            return region is None or (
+                region[0] <= xy[0] <= region[1] and region[2] <= xy[1] <= region[3]
+            )
+
         cells = defaultdict(list)
         for focus_id in focuses:
-            if visible[focus_id]:
+            if visible[focus_id] and in_region(positions[focus_id]):
                 cells[positions[focus_id]].append(focus_id)
         collisions = [
             {
@@ -144,11 +150,17 @@ def _fake_api(monkeypatch, root: Path):
             "visible": sum(visible.values()),
             "collisions": collisions,
         }
+        if adjacent:
+            report["adjacent"] = (
+                [{"y": 0, "left": {"id": "A"}, "right": {"id": "B"}}]
+                if in_region((0, 0)) and in_region((2, 0))
+                else []
+            )
         if show_map:
             report["map"] = [
                 {"id": focus_id, "line": focuses[focus_id].line, "x": xy[0], "y": xy[1]}
                 for focus_id, xy in positions.items()
-                if visible[focus_id]
+                if visible[focus_id] and in_region(xy)
             ]
         return report
 
@@ -217,6 +229,100 @@ def test_shim_evaluates_explicit_scenario_and_reports_uncertainty(monkeypatch, t
     assert result["evaluation"]["exact_engine_evaluation"] is False
     assert result["diagnostics_returned"] == 1
     assert result["diagnostics_truncated"] is True
+
+
+def test_shim_region_adjacent_filters_and_legacy_default_compatibility(monkeypatch, tmp_path):
+    root = tmp_path / "mod"
+    focus_file = root / "focus.txt"
+    root.mkdir()
+    focus_file.write_text(
+        "focus_tree = {\n"
+        " focus = { id = A x = 0 y = 0 }\n"
+        " focus = { id = B x = 2 y = 0 }\n"
+        " focus = { id = C x = 5 y = 0 }\n"
+        " focus = { id = MISSING x = 0 y = 0 }\n"
+        " focus = { id = CYCLE_A x = 0 y = 0 }\n"
+        " focus = { id = CYCLE_B x = 0 y = 0 }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    module = _fake_api(monkeypatch, root)
+    base = {
+        "file": str(focus_file),
+        "allowed_roots": [str(root)],
+        "tag": "TST",
+        "completed": ["A"],
+    }
+
+    default = upstream_analysis_shim._focus_overlap_scenarios(
+        root, dict(base, include_positions=True)
+    )
+    assert default["ok"] is True
+    assert default["positions_total"] == default["visible_total"] == 6
+    assert "adjacent_pairs" not in default
+
+    region_only = upstream_analysis_shim._focus_overlap_scenarios(
+        root, dict(base, region="0,0,-1,1", include_positions=True)
+    )
+    assert region_only["ok"] is True
+    assert region_only["positions_total"] == region_only["positions_returned"] == 4
+    assert {item["id"] for item in region_only["positions"]} == {
+        "A",
+        "MISSING",
+        "CYCLE_A",
+        "CYCLE_B",
+    }
+    assert "adjacent_pairs" not in region_only
+
+    adjacent_only = upstream_analysis_shim._focus_overlap_scenarios(
+        root, dict(base, adjacent=True, limit=1, offset=0)
+    )
+    assert adjacent_only["ok"] is True
+    assert adjacent_only["adjacent_pairs_total"] == 1
+    assert adjacent_only["adjacent_pairs_returned"] == 1
+    assert adjacent_only["adjacent_pairs_truncated"] is False
+
+    combined = upstream_analysis_shim._focus_overlap_scenarios(
+        root, dict(base, region="0,2,-1,1", adjacent=True, include_positions=True)
+    )
+    assert combined["ok"] is True
+    assert combined["positions_total"] == 5
+    assert combined["adjacent_pairs_total"] == 1
+
+    original_build_report = module.build_report
+
+    def many_adjacent(focuses, positions, visible, scenario, region, adjacent, show_map):
+        report = original_build_report(
+            focuses, positions, visible, scenario, region, adjacent, show_map
+        )
+        if adjacent:
+            report["adjacent"] = [{"index": index} for index in range(3)]
+        return report
+
+    module.build_report = many_adjacent
+    paged = upstream_analysis_shim._focus_overlap_scenarios(
+        root, dict(base, adjacent=True, limit=1, offset=1)
+    )
+    assert paged["adjacent_pairs_total"] == 3
+    assert paged["adjacent_pairs_returned"] == 1
+    assert paged["adjacent_pairs_truncated"] is True
+    assert paged["adjacent_pairs"] == [{"index": 1}]
+
+    inverted = upstream_analysis_shim._focus_overlap_scenarios(
+        root, dict(base, region="1,0,1,0", include_positions=True)
+    )
+    assert inverted["ok"] is True
+    assert inverted["positions_total"] == 0
+    assert inverted["positions"] == []
+
+    del module.parse_region
+    legacy_default = upstream_analysis_shim._focus_overlap_scenarios(root, base)
+    assert legacy_default["ok"] is True
+    unsupported_region = upstream_analysis_shim._focus_overlap_scenarios(
+        root, dict(base, region="0,1,0,1")
+    )
+    assert unsupported_region["ok"] is False
+    assert unsupported_region["unsupported"] is True
 
 
 def test_shim_gives_the_file_tree_to_helpers_that_read_it(monkeypatch, tmp_path):
@@ -295,6 +401,10 @@ def test_shim_refuses_invalid_scope_and_bad_pagination_before_parser(monkeypatch
         ("tag", "country tag"),
         ("completed", "list of focus ids"),
         ("positions", "boolean"),
+        ("adjacent", "boolean"),
+        ("region_type", "region must be"),
+        ("region_shape", "expected x0,x1,y0,y1"),
+        ("region_integer", "invalid literal for int()"),
         ("pagination", "pagination"),
         ("helper", "no focus overlap analysis helper"),
     ],
@@ -330,6 +440,14 @@ def test_shim_refuses_invalid_payload_before_loading_upstream(monkeypatch, tmp_p
         payload["completed"] = [1]
     elif case == "positions":
         payload["include_positions"] = "false"
+    elif case == "adjacent":
+        payload["adjacent"] = "true"
+    elif case == "region_type":
+        payload["region"] = [0, 1, 0, 1]
+    elif case == "region_shape":
+        payload["region"] = "0,1,0"
+    elif case == "region_integer":
+        payload["region"] = "x,1,0,1"
     elif case == "pagination":
         payload["limit"] = "not-an-int"
     elif case == "helper":
@@ -434,6 +552,8 @@ def test_wrapper_validates_scenario_and_forwards_explicit_scope(monkeypatch, fak
         completed=["TST_root"],
         date="1936.1.1",
         include_positions=True,
+        region="0,4,-1,1",
+        adjacent=True,
         limit=150,
         offset=2,
     )
@@ -444,6 +564,7 @@ def test_wrapper_validates_scenario_and_forwards_explicit_scope(monkeypatch, fak
     assert payload["tag"] == "TST"
     assert payload["completed"] == ["TST_root"]
     assert payload["date"] == "1936.1.1"
+    assert payload["region"] == "0,4,-1,1" and payload["adjacent"] is True
     assert payload["limit"] == 100 and payload["offset"] == 2
     assert timeout > 0
 
@@ -559,6 +680,39 @@ def test_wrapper_budget_drop_marks_page_shortened(monkeypatch, fake_mod_root):
     assert result["collision_groups_truncated"] is True
 
 
+def test_wrapper_adjacent_budget_drop_resets_pagination_metadata(monkeypatch, fake_mod_root):
+    monkeypatch.setattr(
+        upstream_analysis,
+        "_run_shim",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "adjacent_included": True,
+            "adjacent_pairs_total": 1,
+            "adjacent_pairs_returned": 1,
+            "adjacent_pairs_truncated": False,
+            "adjacent_pairs": ["x" * 100_000],
+            "collision_groups_total": 0,
+            "collision_groups_returned": 0,
+            "collision_groups_truncated": False,
+            "collision_groups": [],
+            "diagnostics_total": 0,
+            "diagnostics_returned": 0,
+            "diagnostics_truncated": False,
+            "diagnostics": [],
+        },
+    )
+
+    result = upstream_analysis.focus_overlap_scenarios_tool(
+        fake_mod_root, "common/national_focus/test.txt", "TST", adjacent=True
+    )
+
+    assert result["size_truncated"] is True
+    assert result["adjacent_pairs_dropped"] == 1
+    assert result["adjacent_pairs_returned"] == 0
+    assert result["adjacent_pairs_truncated"] is True
+    assert len(json.dumps(result, ensure_ascii=False).encode("utf-8")) <= 100_000
+
+
 def test_wrapper_bounds_oversized_validation_error_payload(fake_mod_root):
     result = upstream_analysis.focus_overlap_scenarios_tool(fake_mod_root, "x" * 100_001, "!")
 
@@ -603,9 +757,9 @@ def test_shim_returns_structured_unsupported_and_strict_read_errors(monkeypatch,
     monkeypatch.setattr(
         upstream_analysis_shim,
         "_load_module",
-        lambda path, name: types.SimpleNamespace()
-        if name.endswith("focus_overlap_report")
-        else None,
+        lambda path, name: (
+            types.SimpleNamespace() if name.endswith("focus_overlap_report") else None
+        ),
     )
     missing = upstream_analysis_shim._focus_overlap_scenarios(root, payload)
     assert missing["ok"] is False and missing["unsupported"] is True
@@ -732,6 +886,53 @@ def test_real_poland_report_matches_upstream_helper(real_mod_root: Path, tmp_pat
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("file", "tag"),
+    [
+        ("common/national_focus/05_poland.txt", "POL"),
+        ("common/national_focus/05_usa.txt", "USA"),
+    ],
+)
+def test_real_region_and_adjacent_match_upstream_cli(real_mod_root: Path, file: str, tag: str):
+    focus_path = real_mod_root / file
+    helper = real_mod_root / "tools/analysis/focus_overlap_report.py"
+    assert focus_path.is_file()
+    before = focus_path.stat().st_mtime_ns, focus_path.stat().st_size
+    for region, adjacent in (
+        (None, False),
+        ("0,10,0,10", True),
+        ("1,0,1,0", False),
+    ):
+        result = upstream_analysis.focus_overlap_scenarios_tool(
+            real_mod_root, file, tag, region=region, adjacent=adjacent, limit=100
+        )
+        assert result["ok"] is True, result
+        command = [sys.executable, str(helper), "--file", str(focus_path), "--tag", tag]
+        if region is not None:
+            command.extend(("--region", region))
+        if adjacent:
+            command.append("--adjacent")
+        command.extend(("--format", "json"))
+        direct = subprocess.run(
+            command,
+            cwd=real_mod_root,
+            env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        expected = json.loads(direct.stdout)
+        assert result["collision_groups"] == expected["collisions"][:100]
+        assert result["collision_groups_total"] == len(expected["collisions"])
+        if adjacent:
+            assert result["adjacent_pairs"] == expected["adjacent"][:100]
+            assert result["adjacent_pairs_total"] == len(expected["adjacent"])
+        else:
+            assert "adjacent_pairs" not in result
+    assert (focus_path.stat().st_mtime_ns, focus_path.stat().st_size) == before
+
+
+@pytest.mark.integration
 def test_real_upstream_helper_applies_offsets_for_the_file_tree(
     real_mod_root: Path, tmp_path: Path
 ):
@@ -784,10 +985,7 @@ def test_real_upstream_helper_refuses_quoted_focus_ids(real_mod_root: Path, tmp_
     shutil.copyfile(upstream_shared, mod_root / "tools/shared_utils.py")
     source = mod_root / "focus.txt"
     source.write_text(
-        "focus_tree = {\n"
-        ' focus = { id = "A" x = 0 y = 0 }\n'
-        ' focus = { id = "B" x = 0 y = 0 }\n'
-        "}\n",
+        'focus_tree = {\n focus = { id = "A" x = 0 y = 0 }\n focus = { id = "B" x = 0 y = 0 }\n}\n',
         encoding="utf-8",
     )
 

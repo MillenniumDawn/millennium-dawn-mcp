@@ -52,9 +52,13 @@ EXPECTED_REGISTRY = {
     "validate_ai_equipment": (("common/ai_equipment/", ".txt"),),
     "validate_agency_upgrades": (
         ("common/intelligence_agency_upgrades/", ".txt"),
-        ("common/on_actions/MD_auto_agency_on_actions.txt", ""),
-        ("common/scripted_guis/00_MD_auto_agency_scripted_gui.txt", ""),
-        ("localisation/english/MD_auto_agency_l_english.yml", ""),
+        ("common/decisions/", ".txt"),
+        ("common/factions/goals/", ".txt"),
+        ("common/national_focus/", ".txt"),
+        ("common/scripted_effects/", ".txt"),
+        ("events/", ".txt"),
+        ("history/countries/", ".txt"),
+        ("interface/", ".gfx"),
     ),
     "validate_ideas": (
         ("common/ideas/", ".txt"),

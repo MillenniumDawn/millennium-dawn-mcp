@@ -844,14 +844,17 @@ also pays for loading the localisation and gfx indexes. PNG output and icons
 need Pillow (`pip install -e '.[render]'`); without it, `format="png"` returns
 an error and HTML uses grey squares.
 
-### `focus_overlap_scenarios(file, tag, completed?, date?, include_positions?, limit?, offset?) -> dict`
+### `focus_overlap_scenarios(file, tag, completed?, date?, include_positions?, region?, adjacent?, limit?, offset?) -> dict`
 
 Read one explicit focus-tree `.txt` file from the mod or configured submod and
 evaluate its same-cell overlaps for the supplied country tag and optional
 completed-focus/date scenario. The tool never guesses a file, tag, or current
-game date. `limit`/`offset` page collision groups, optional visible positions,
-and diagnostics. Diagnostics include duplicate ids, unknown trigger results,
-and missing or cyclic relative-position chains.
+game date. `region="x0,x1,y0,y1"` restricts overlaps and any included positions
+to the inclusive coordinate bounds; `adjacent=True` also returns immediately
+neighboring visible focuses in each row within that region. `limit`/`offset` page
+collision groups, optional visible positions, adjacent pairs, and diagnostics.
+Diagnostics include duplicate ids, unknown trigger results, and missing or cyclic
+relative-position chains.
 
 This is the upstream helper's approximate tri-valued evaluation, not a full
 engine simulation: unknown offset conditions are left unapplied and unknown

@@ -180,10 +180,11 @@ validate(validator="unused_textures")
 Concurrent run-all is not enabled. `benchmarks/validator_concurrency.py` is an
 experiment for comparing sequential and concurrent full run-all. It selects one
 logical CPU per physical core from the current Linux affinity, enables validator
-disk caches, discards one full-run warmup, and compares every result field except
-elapsed time. A measured speedup of at least 2x on 14 distinct physical cores is
-required before considering adoption. Any qualifying result is a candidate only;
-production remains sequential pending a separate decision. Example invocation:
+disk caches, discards one full-run warmup, and compares every result field,
+ignoring only elapsed time and issue order. A speedup of at least 2x on 14
+physical cores is required before considering adoption. Any qualifying result
+is a candidate only; production remains sequential pending a separate decision.
+Example invocation:
 
 ```sh
 python benchmarks/validator_concurrency.py \
@@ -194,8 +195,26 @@ python benchmarks/validator_concurrency.py \
 
 The report includes host and selected core affinity, per-validator elapsed times
 and issue counts, result equivalence digest, warmup, repeated medians, and the 2x
-threshold outcome. OS filesystem caching remains uncontrolled; no measurement is
-claimed until the experiment is run against a real checkout.
+threshold outcome. OS filesystem caching remains uncontrolled.
+
+The [recorded run](../benchmarks/results/validator-concurrency.json) used benchmark
+commit `dfc1217` and mod commit `0b325f8` in a dedicated checkout. It covered all
+47 run-all validators on 14 physical cores. Sequential validators received 14
+inner workers; four concurrent validators received three inner workers each.
+
+| Pair | Sequential (s) | Concurrent (s) | Speedup |
+| --- | ---: | ---: | ---: |
+| 1 | 63.903 | 25.437 | 2.512x |
+| 2 | 64.286 | 24.349 | 2.640x |
+| 3 | 63.700 | 24.564 | 2.593x |
+
+The median paired speedup was 2.593x. Median wall times were 63.903 seconds
+sequential and 24.564 seconds concurrent. All four equivalence digests matched,
+including the discarded warmup, and all per-validator timings were present.
+
+This clears the experiment's 2x threshold. It is not a measured MCP server
+speedup, and production validation remains sequential pending a maintainer
+decision.
 
 ## Suppression
 

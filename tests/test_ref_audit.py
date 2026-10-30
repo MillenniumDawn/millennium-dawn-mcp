@@ -14,6 +14,8 @@ from md_mcp.indexes import (
     CharacterIndex,
     CountryTagIndex,
     DecisionIndex,
+    DivisionTemplateIndex,
+    DynamicModifierIndex,
     EventIndex,
     FocusIndex,
     GfxIndex,
@@ -21,6 +23,7 @@ from md_mcp.indexes import (
     LocalisationIndex,
     ScriptedEffectIndex,
     ScriptedTriggerIndex,
+    TechnologyIndex,
     TraitIndex,
 )
 
@@ -77,6 +80,58 @@ def audit_mod(fake_mod_root, cache_dir):
 def test_requires_scope(fake_mod_root, cache_dir):
     out = check_refs(fake_mod_root, **_indexes(fake_mod_root, cache_dir))
     assert out["ok"] is False
+
+
+def test_content_definition_refs_resolve_with_explicit_kinds(fake_mod_root, cache_dir):
+    root = fake_mod_root
+    (root / "common/technologies").mkdir(parents=True, exist_ok=True)
+    (root / "common/technologies/test.txt").write_text(
+        "technologies = { known_tech = { cost = 1 } }", encoding="utf-8"
+    )
+    (root / "common/dynamic_modifiers").mkdir(parents=True, exist_ok=True)
+    (root / "common/dynamic_modifiers/test.txt").write_text(
+        "known_dynamic = { icon = 1 }", encoding="utf-8"
+    )
+    (root / "history/units").mkdir(parents=True, exist_ok=True)
+    (root / "history/units/TST_2000.txt").write_text(
+        'division_template = { name = "Infantry" }\n'
+        'units = { division = { name = Army division_template = "Infantry" } }',
+        encoding="utf-8",
+    )
+    (root / "history/countries").mkdir(parents=True, exist_ok=True)
+    (root / "history/countries/TST.txt").write_text(
+        'set_technology = { known_tech = 1 popup = no }\noob = "TST_2000"',
+        encoding="utf-8",
+    )
+    scope = root / "common/national_focus/refs.txt"
+    scope.write_text(
+        "focus = {\n" " add_dynamic_modifier = { modifier = known_dynamic days = 30 }\n" "}\n",
+        encoding="utf-8",
+    )
+    indexes = _indexes(root, cache_dir)
+    registry_indexes = {
+        "technology_index": TechnologyIndex(root, cache_dir, None),
+        "dynamic_modifier_index": DynamicModifierIndex(root, cache_dir, None),
+        "unit_history_index": DivisionTemplateIndex(root, cache_dir, None),
+    }
+    result = check_refs(
+        root,
+        files=[
+            "common/national_focus/refs.txt",
+            "history/countries/TST.txt",
+            "history/units/TST_2000.txt",
+        ],
+        kinds=[
+            "technology",
+            "dynamic_modifier",
+            "oob",
+            "division_template",
+        ],
+        **indexes,
+        registry_indexes=registry_indexes,
+    )
+    assert result["ok"] is True
+    assert result["total_unresolved"] == 0
 
 
 def test_unknown_kind_rejected(fake_mod_root, cache_dir):

@@ -24,20 +24,56 @@ from md_mcp.validators import (
 
 
 def _normalise(results: dict[str, dict[str, Any]]) -> str:
-    """Stable issue content and success state; elapsed times are intentionally excluded."""
-    normalised = {
-        name: {
-            "ok": result.get("ok"),
-            "error": result.get("error"),
-            "issues": sorted(
-                result.get("issues", []),
+    """Compare all result content, ignoring only elapsed time and issue order."""
+    normalised = {}
+    for name, result in sorted(results.items()):
+        stable = {key: value for key, value in result.items() if key != "elapsed_s"}
+        if "issues" in stable:
+            stable["issues"] = sorted(
+                stable["issues"],
                 key=lambda issue: json.dumps(issue, sort_keys=True, ensure_ascii=False),
-            ),
+            )
+        normalised[name] = stable
+    return json.dumps(normalised, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
+def _physical_cores(
+    cpus: list[int], topology_root: Path = Path("/sys/devices/system/cpu")
+) -> list[tuple[int, int, int]]:
+    cores = []
+    seen = set()
+    try:
+        for cpu in cpus:
+            topology = topology_root / f"cpu{cpu}" / "topology"
+            package = int((topology / "physical_package_id").read_text())
+            core = int((topology / "core_id").read_text())
+            identity = (package, core)
+            if identity not in seen:
+                cores.append((cpu, package, core))
+                seen.add(identity)
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"physical CPU topology unavailable: {exc}") from exc
+    return cores
+
+
+def _select_physical_cpus(
+    cpus: list[int], budget: int, topology_root: Path = Path("/sys/devices/system/cpu")
+) -> list[tuple[int, int, int]]:
+    cores = _physical_cores(cpus, topology_root)
+    if len(cores) < budget:
+        raise ValueError(f"CPU budget {budget} exceeds available physical cores ({len(cores)})")
+    return cores[:budget]
+
+
+def _validator_samples(results: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    return {
+        name: {
+            "elapsed_s": result.get("elapsed_s"),
+            "issue_count": len(result.get("issues", [])),
             "counts": result.get("counts", {}),
         }
         for name, result in sorted(results.items())
     }
-    return json.dumps(normalised, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
 def _run(
@@ -92,7 +128,8 @@ def _sample(
         "speedup": serial_s / concurrent_s if concurrent_s else None,
         "equivalent": True,
         "normalized_sha256": hashlib.sha256(serial_json.encode()).hexdigest(),
-        "issue_count": sum(len(result.get("issues", [])) for result in serial.values()),
+        "sequential_validators": _validator_samples(serial),
+        "concurrent_validators": _validator_samples(parallel),
     }
 
 
@@ -100,7 +137,7 @@ def _validate_args(cpu_budget: int, workers: int, repetitions: int) -> None:
     if cpu_budget < 1 or workers < 2 or repetitions < 1:
         raise ValueError("cpu budget/repetitions must be positive and workers at least 2")
     if workers > cpu_budget:
-        raise ValueError("outer workers cannot exceed the logical CPU budget")
+        raise ValueError("outer workers cannot exceed the physical CPU budget")
 
 
 def main() -> None:
@@ -110,7 +147,7 @@ def main() -> None:
         "--cpu-budget",
         type=int,
         default=14,
-        help="logical CPU affinity budget; does not imply distinct physical cores",
+        help="distinct physical-core affinity budget; selects one logical CPU per core",
     )
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--repetitions", type=int, default=3)
@@ -123,16 +160,18 @@ def main() -> None:
     mod_root = args.mod_root.resolve()
     if not (mod_root / "tools/validation").is_dir():
         parser.error(f"not a Millennium-Dawn checkout: {mod_root}")
-    host_affinity = sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None
-    if host_affinity is not None and len(host_affinity) < args.cpu_budget:
-        parser.error(
-            f"CPU budget {args.cpu_budget} exceeds available affinity CPUs ({len(host_affinity)})"
-        )
-    selected_affinity = None
-    if host_affinity is not None:
-        selected_affinity = host_affinity[: args.cpu_budget]
-        os.sched_setaffinity(0, set(selected_affinity))
-    os.environ["MD_NO_CACHE"] = "1"
+    if not hasattr(os, "sched_getaffinity") or not hasattr(os, "sched_setaffinity"):
+        parser.error("physical-core affinity selection requires Linux sched affinity support")
+    host_affinity = sorted(os.sched_getaffinity(0))
+    try:
+        selected_cores = _select_physical_cpus(host_affinity, args.cpu_budget)
+    except ValueError as exc:
+        parser.error(str(exc))
+    selected_affinity = [cpu for cpu, _package, _core in selected_cores]
+    previous_affinity = set(host_affinity)
+    if os.environ.get("MD_NO_CACHE") == "1":
+        parser.error("MD_NO_CACHE=1 disables the required warm validator caches")
+    os.sched_setaffinity(0, set(selected_affinity))
     names = [
         info.name
         for info in available_validators(mod_root)
@@ -140,16 +179,20 @@ def main() -> None:
     ]
     if not names:
         parser.error("no run-all validators found")
-    samples = [
-        _sample(
-            mod_root,
-            names,
-            args.cpu_budget,
-            args.workers,
-            serial_first=index % 2 == 0,
-        )
-        for index in range(args.repetitions)
-    ]
+    try:
+        warmup = _sample(mod_root, names, args.cpu_budget, args.workers, serial_first=True)
+        samples = [
+            _sample(
+                mod_root,
+                names,
+                args.cpu_budget,
+                args.workers,
+                serial_first=index % 2 == 0,
+            )
+            for index in range(args.repetitions)
+        ]
+    finally:
+        os.sched_setaffinity(0, previous_affinity)
     report = {
         "mod_root": str(mod_root),
         "mod_revision": subprocess.run(
@@ -169,15 +212,17 @@ def main() -> None:
         "host_logical_cpus": os.cpu_count(),
         "host_affinity_cpus": host_affinity,
         "selected_affinity_cpus": selected_affinity,
-        "cpu_budget_logical_cpus": args.cpu_budget,
-        "physical_core_budget": "not measured; selected affinity is a logical-CPU budget",
+        "selected_physical_cores": [
+            {"cpu": cpu, "package_id": package, "core_id": core}
+            for cpu, package, core in selected_cores
+        ],
+        "cpu_budget_physical_cores": args.cpu_budget,
         "outer_workers": args.workers,
         "inner_md_max_workers_sequential": args.cpu_budget,
         "inner_md_max_workers_concurrent": max(1, args.cpu_budget // args.workers),
-        "cache_conditions": (
-            "MD_NO_CACHE=1; validator caches bypassed; OS filesystem cache uncontrolled"
-        ),
+        "cache_conditions": "validator disk caches enabled; OS filesystem cache uncontrolled",
         "validators": names,
+        "discarded_warmup": warmup,
         "repetitions": samples,
         "median_sequential_wall_s": statistics.median(
             item["sequential_wall_s"] for item in samples
@@ -186,6 +231,8 @@ def main() -> None:
             item["concurrent_wall_s"] for item in samples
         ),
         "median_speedup": statistics.median(item["speedup"] for item in samples),
+        "meets_two_x_threshold": statistics.median(item["speedup"] for item in samples) >= 2.0,
+        "adoption_status": "candidate only; production remains sequential",
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
@@ -193,6 +240,7 @@ def main() -> None:
         "median_sequential_wall_s",
         "median_concurrent_wall_s",
         "median_speedup",
+        "meets_two_x_threshold",
         "validators",
     )
     print(json.dumps({key: report[key] for key in summary_keys}, indent=2))

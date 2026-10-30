@@ -178,11 +178,12 @@ validate(validator="unused_textures")
 ```
 
 Concurrent run-all is not enabled. `benchmarks/validator_concurrency.py` is an
-unvalidated prototype for comparing sequential and concurrent full run-all; it
-currently disables validator disk caches and its `--cpu-budget` controls logical
-CPUs, not physical cores. A production-like warm-cache comparison on 14 distinct
-physical cores, with complete result equivalence and at least 2x speedup, is
-still required before considering adoption. Example prototype invocation:
+experiment for comparing sequential and concurrent full run-all. It selects one
+logical CPU per physical core from the current Linux affinity, enables validator
+disk caches, discards one full-run warmup, and compares every result field except
+elapsed time. A measured speedup of at least 2x on 14 distinct physical cores is
+required before considering adoption. Any qualifying result is a candidate only;
+production remains sequential pending a separate decision. Example invocation:
 
 ```sh
 python benchmarks/validator_concurrency.py \
@@ -191,9 +192,10 @@ python benchmarks/validator_concurrency.py \
   --output benchmarks/results/validator-concurrency.json
 ```
 
-This command is not evidence of a valid adoption measurement: cache isolation,
-physical-core affinity selection, warmup, and benchmark result reporting still
-need review.
+The report includes host and selected core affinity, per-validator elapsed times
+and issue counts, result equivalence digest, warmup, repeated medians, and the 2x
+threshold outcome. OS filesystem caching remains uncontrolled; no measurement is
+claimed until the experiment is run against a real checkout.
 
 ## Suppression
 

@@ -7,7 +7,13 @@ from typing import Any
 import pytest
 
 import md_mcp
-from benchmarks.validator_concurrency import _normalise, _run, _sample, _validate_args
+from benchmarks.validator_concurrency import (
+    _normalise,
+    _run,
+    _sample,
+    _select_physical_cpus,
+    _validate_args,
+)
 
 
 def test_benchmark_imports_md_mcp_from_this_checkout():
@@ -21,6 +27,8 @@ def test_normalise_ignores_issue_order_but_preserves_issue_content():
             "ok": True,
             "issues": [{"message": "b"}, {"message": "a"}],
             "counts": {"warning": 2},
+            "elapsed_s": 1.2,
+            "suppressed": 1,
         },
         "alpha": {"ok": True, "issues": [], "counts": {}},
     }
@@ -30,11 +38,16 @@ def test_normalise_ignores_issue_order_but_preserves_issue_content():
             "ok": True,
             "issues": [{"message": "a"}, {"message": "b"}],
             "counts": {"warning": 2},
+            "elapsed_s": 9.3,
+            "suppressed": 1,
         },
     }
 
     assert _normalise(first) == _normalise(second)
     second["beta"]["issues"][0]["message"] = "different"
+    assert _normalise(first) != _normalise(second)
+    second["beta"]["issues"][0]["message"] = "a"
+    second["beta"]["suppressed"] = 2
     assert _normalise(first) != _normalise(second)
 
 
@@ -63,8 +76,24 @@ def test_sample_fails_when_results_differ(monkeypatch, tmp_path):
         _sample(tmp_path, ["validator"], cpu_budget=2, workers=2, serial_first=True)
 
 
-def test_validate_args_rejects_invalid_logical_cpu_budget():
-    with pytest.raises(ValueError, match="logical CPU budget"):
+def test_select_physical_cpus_deduplicates_by_package_and_core(tmp_path):
+    for cpu, package, core in [(0, 0, 0), (1, 0, 0), (2, 1, 0), (3, 1, 1)]:
+        topology = tmp_path / f"cpu{cpu}" / "topology"
+        topology.mkdir(parents=True)
+        (topology / "physical_package_id").write_text(str(package))
+        (topology / "core_id").write_text(str(core))
+
+    assert _select_physical_cpus([0, 1, 2, 3], 3, tmp_path) == [
+        (0, 0, 0),
+        (2, 1, 0),
+        (3, 1, 1),
+    ]
+    with pytest.raises(ValueError, match=r"available physical cores \(3\)"):
+        _select_physical_cpus([0, 1, 2, 3], 4, tmp_path)
+
+
+def test_validate_args_rejects_invalid_physical_cpu_budget():
+    with pytest.raises(ValueError, match="physical CPU budget"):
         _validate_args(cpu_budget=1, workers=2, repetitions=1)
     with pytest.raises(ValueError, match="positive"):
         _validate_args(cpu_budget=4, workers=2, repetitions=0)

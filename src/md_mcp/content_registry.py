@@ -219,6 +219,7 @@ CONTENT_TYPES: tuple[ContentType, ...] = (
         audit_default=True,
         audit_default_order=3,
         encoding_dirs=("interface",),
+        encoding_order=3,
     ),
     ContentType("flag", not_checked_label="country_flags", not_checked_order=0),
     ContentType("variable", not_checked_label="variables", not_checked_order=1),

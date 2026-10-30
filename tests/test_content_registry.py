@@ -7,6 +7,8 @@ from md_mcp.content_registry import (
     AUDIT_RESOLVER_INDEX_ATTRS,
     CONTENT_BY_NAME,
     CONTENT_TYPES,
+    ENCODING_TEXT_DIRS,
+    ENCODING_YML_DIRS,
     INDEX_TYPES,
     MANIFEST_CATEGORIES,
     REFERENCE_EXTENSIONS,
@@ -60,6 +62,11 @@ def test_manifest_categories_are_unique():
         "scripted_effects",
         "scripted_triggers",
     )
+
+
+def test_builtin_encoding_directory_order_matches_the_registry_scan_bases():
+    assert ENCODING_TEXT_DIRS == ("common", "events", "history", "interface")
+    assert ENCODING_YML_DIRS == ("localisation",)
 
 
 def test_synthetic_content_entry_routes_consumers_and_fixture_builder(tmp_path, monkeypatch):

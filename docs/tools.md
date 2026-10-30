@@ -1056,6 +1056,16 @@ character and CRLF endings survive); localisation text is returned BOM-free,
 upstream writes the file back with a UTF-8 BOM; add one if the input lacked
 it. `txt_truncated=true` means the returned text must not be written back.
 
+### `transform_content(content, transform, mapping?, tag?, action?, content_type?) -> dict`
+
+Run one of the upstream maintenance transforms against supplied text and
+return `{ok, txt, changed, summary}` without writing files. `transform` may be
+`apply_ai_path_weights` (also supply `mapping` and `tag`),
+`strip_idea_allowed_gates`, `strip_dynmod_tag_gates`,
+`add_idea_equipment_bonus_instant`, or `logging_tool`. For `logging_tool`, use
+`action=add|remove` and `content_type=focus|event|idea|decision|technology`.
+Text output can be clipped; never write it back when `txt_truncated` is true.
+
 ### `generate_focus(id, tag, x?, y?, ...) -> dict`
 
 Scaffold a `focus = { ... }` block. Optional fields: `x`, `y`, `cost`, `icon`,

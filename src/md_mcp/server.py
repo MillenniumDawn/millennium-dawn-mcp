@@ -58,6 +58,7 @@ from .resources import (
     sprite_resource,
 )
 from .tools.analysis_tools import find_focuses_tool, find_indexed_tool
+from .tools.content_transforms import transform_tool
 from .tools.equipment_variant_tools import EquipmentVariantChecker, check_equipment_variant_tool
 from .tools.lint_fixers import fix_lint_tool
 from .tools.linting_tools import lint_tool, review_branch_tool
@@ -468,6 +469,10 @@ def build_server(settings: Settings):
         name="standardize",
         description="Standardize content in memory using upstream formatters: content= with content_type=focus|event|decision|idea|mio|technology|history|localisation, or mod-relative path= (.txt, or .yml for localisation; bounded category scan per call). txt is BOM-free — localisation reports had_bom, keep the BOM when writing .yml. Clipped txt must not be written back.",
     )(_bind_tool(standardize_tool, settings.mod_root, settings.submod_root))
+    mcp.tool(
+        name="transform_content",
+        description="Apply an upstream content transform in memory; returns {txt, changed, summary}. Transforms: apply_ai_path_weights (mapping, tag), strip_idea_allowed_gates, strip_dynmod_tag_gates, add_idea_equipment_bonus_instant, logging_tool (action, content_type). Never writes files.",
+    )(_bind_tool(transform_tool, settings.mod_root))
 
     # ---------- M3 analysis ----------
 

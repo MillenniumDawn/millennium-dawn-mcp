@@ -86,6 +86,21 @@ def test_root_without_the_modules_fails_instead_of_reusing_another_root(tmp_path
         upstream.load(tmp_path / "empty", ["md_test_core"])
 
 
+def test_one_loader_cannot_fall_through_to_another_loaders_root(tmp_path):
+    realish_root = _plant(tmp_path / "realish", "realish")
+    missing_root = tmp_path / "missing"
+    (missing_root / "tools" / "sub").mkdir(parents=True)
+    first = UpstreamModules("sub", _NAMES)
+    second = UpstreamModules("sub", _NAMES)
+    first.load(realish_root, ["md_test_core"])
+    try:
+        with pytest.raises(ModuleNotFoundError, match="md_test_core"):
+            second.load(missing_root, ["md_test_core"])
+    finally:
+        first.reset()
+        second.reset()
+
+
 def test_reset_removes_path_entries_and_owned_modules(tmp_path):
     root = _plant(tmp_path / "mod", "one")
     upstream = UpstreamModules("sub", _NAMES)

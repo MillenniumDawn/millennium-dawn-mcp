@@ -148,6 +148,9 @@ TOOL_SIGNATURES = {
     ),
     "standardize": "content=None, path=None, content_type=None",
     "rename_focus_ids": "focus_file, tag, loc_file=None, path=None, limit=50, offset=0",
+    "transform_content": (
+        "content, transform, mapping='', tag='', action='add', content_type='focus'"
+    ),
     "tick_audit": (
         "tag=None, list=None, cadence=None, tree=False, node_limit=100, limit=20, offset=0"
     ),
@@ -459,6 +462,10 @@ TOOL_CALLS: dict[str, tuple[dict, dict]] = {
     "rename_focus_ids": (
         {"focus_file": "common/national_focus/test.txt", "tag": "TST"},
         {"ok": False},
+    ),
+    "transform_content": (
+        {"content": "not a transform", "transform": "unknown"},
+        {"ok": False, "error": "Unsupported transform: unknown"},
     ),
     "tick_audit": ({}, {"ok": False}),
     "tick_spot_check": ({"files": ["events/test.txt"]}, {"ok": False}),

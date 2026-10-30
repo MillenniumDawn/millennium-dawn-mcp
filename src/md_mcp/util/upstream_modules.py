@@ -40,15 +40,38 @@ class UpstreamModules:
             if root != self._root:
                 self.reset()
                 self._dirs = [str(root / "tools"), str(root / "tools" / self._subdir)]
+                self._root = root
                 for directory in self._dirs:
                     if directory in sys.path:
                         sys.path.remove(directory)
                     sys.path.insert(0, directory)
-                self._root = root
 
             for name in names:
-                if name not in self._loaded:
-                    self._loaded[name] = importlib.import_module(name)
+                if name in self._loaded:
+                    continue
+                candidates = [Path(directory) / f"{name}.py" for directory in self._dirs] + [
+                    Path(directory) / name / "__init__.py" for directory in self._dirs
+                ]
+                if not any(path.is_file() for path in candidates):
+                    raise ModuleNotFoundError(
+                        f"No module named '{name}' under upstream root {root}"
+                    )
+                cached = sys.modules.get(name)
+                cached_path = getattr(cached, "__file__", None)
+                if cached_path and not any(
+                    Path(cached_path).resolve().is_relative_to(Path(directory).resolve())
+                    for directory in self._dirs
+                ):
+                    sys.modules.pop(name, None)
+                module = importlib.import_module(name)
+                source = getattr(module, "__file__", None)
+                if not source or not any(
+                    Path(source).resolve().is_relative_to(Path(directory).resolve())
+                    for directory in self._dirs
+                ):
+                    sys.modules.pop(name, None)
+                    raise ImportError(f"Imported '{name}' outside upstream root {root}: {source}")
+                self._loaded[name] = module
             return self._loaded
 
     def reset(self) -> None:

@@ -7,6 +7,7 @@ import pytest
 from md_mcp.config import Settings
 from md_mcp.generators import missing_loc
 from md_mcp.indexes import EventIndex, FocusIndex, LocalisationIndex
+from md_mcp.util.response import enforce_budget
 
 
 def _tool(fake_mod_root, cache_dir):
@@ -44,6 +45,54 @@ def test_generate_missing_loc_omits_existing_keys_and_returns_complete_text(
     ]
     assert "TST_root:" not in result["txt"]
     assert "TestnsNews.42.t:" in result["txt"]
+
+
+@pytest.mark.parametrize("target_root", ["vanilla", "mod", "submod"])
+def test_file_route_target_metadata_uses_mod_and_submod_only(
+    fake_mod_root, cache_dir, tmp_path, target_root
+):
+    vanilla = tmp_path / "vanilla"
+    submod = tmp_path / "submod"
+    relative = "localisation/english/target_roots_l_english.yml"
+    vanilla_target = vanilla / relative
+    vanilla_target.parent.mkdir(parents=True)
+    original = b'\xef\xbb\xbfl_english:\n vanilla_key:0 "Vanilla"\n'
+    vanilla_target.write_bytes(original)
+    target = {"vanilla": vanilla, "mod": fake_mod_root, "submod": submod}[target_root] / relative
+    if target_root != "vanilla":
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(original)
+    source = fake_mod_root / "common/national_focus/target_roots.txt"
+    source.write_text("focus_tree = { focus = { id = TST_target_roots x = 0 y = 0 } }")
+    settings = Settings(
+        mod_root=fake_mod_root,
+        vanilla_path=vanilla,
+        submod_root=submod,
+        cache_dir=cache_dir,
+        validator_mode="isolated",
+        default_lang="en",
+    )
+
+    result = missing_loc.generate_missing_loc_tool(
+        settings,
+        FocusIndex(fake_mod_root, cache_dir, vanilla, submod_root=submod),
+        EventIndex(fake_mod_root, cache_dir, vanilla, submod_root=submod),
+        LocalisationIndex(fake_mod_root, cache_dir, vanilla, langs=("en",), submod_root=submod),
+        file="common/national_focus/target_roots.txt",
+        target_file=relative,
+    )
+
+    existing = target_root != "vanilla"
+    assert result["ok"] is True
+    assert result["target_exists"] is existing
+    assert result["bom_prefix"] is not existing
+    assert result["txt"].startswith("\ufeffl_english:") is not existing
+    assert vanilla_target.read_bytes() == original
+    if existing:
+        assert target.read_bytes() == original
+    else:
+        assert not (fake_mod_root / relative).exists()
+        assert not (submod / relative).exists()
 
 
 def test_file_route_validates_selector_and_language_arguments(fake_mod_root, cache_dir):
@@ -287,7 +336,7 @@ def test_generate_missing_loc_marks_final_budget_truncation_partial(
     fake_mod_root, cache_dir, monkeypatch
 ):
     tool = _tool(fake_mod_root, cache_dir)
-    original = missing_loc.enforce_budget
+    original = enforce_budget
 
     def truncate(result, *, heavy_keys):
         return {**original(result, heavy_keys=heavy_keys), "size_truncated": True, "txt_dropped": 1}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import io
 import json
 import os
@@ -11,10 +12,12 @@ from pathlib import Path
 import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.types import TextContent
 
 from md_mcp.tools import ci_timing_shim, ci_timing_tools
 from md_mcp.tools.ci_timing_shim import analyze
 from md_mcp.tools.ci_timing_tools import validation_timing_summary_tool
+from md_mcp.util.response import enforce_budget
 
 UPSTREAM_HELPER_FIXTURE = Path(__file__).parent / "fixtures/upstream/validation_timing_report.py"
 
@@ -203,7 +206,7 @@ def test_budget_drop_reconciles_returned_counts_and_truncation(
     fake_mod_root: Path, monkeypatch, heavy_key: str
 ):
     _install_helper(fake_mod_root)
-    original_budget = ci_timing_tools.enforce_budget
+    original_budget = enforce_budget
 
     def drop_one_list(result: dict, *, heavy_keys: tuple[str, ...]) -> dict:
         assert heavy_keys == ("samples", "groups")
@@ -407,9 +410,7 @@ def test_helper_api_shape_mismatch_is_explicitly_unsupported(fake_mod_root: Path
     assert result["ok"] is False and result["unsupported"] is True
     assert "TimingSample.database_id" in result["error"]
 
-    monkeypatch.setattr(
-        ci_timing_shim.importlib.util, "spec_from_file_location", lambda *args: None
-    )
+    monkeypatch.setattr(importlib.util, "spec_from_file_location", lambda *args: None)
     result = analyze(fake_mod_root, _request(_content(_export(2))))
     assert result["ok"] is False and result["unsupported"] is True
     assert "could not load" in result["error"]
@@ -488,10 +489,10 @@ async def _stdio_timing_probe(mod_root: Path, cache_dir: Path, content: str) -> 
             "validation_timing_summary",
             {"content": content, "limit": 2, "offset": 0},
         )
-        assert not response.is_error
-        if not response.content or not hasattr(response.content[0], "text"):
-            raise AssertionError("timing tool returned no text payload")
-        return json.loads(response.content[0].text)
+        assert not response.is_error and response.content
+        first = response.content[0]
+        assert isinstance(first, TextContent)
+        return json.loads(first.text)
 
 
 def test_stdio_accepts_large_supplied_json_with_fixture_without_source_writes(tmp_path: Path):

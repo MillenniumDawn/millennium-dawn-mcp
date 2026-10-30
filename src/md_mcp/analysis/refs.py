@@ -14,9 +14,14 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Optional
 
-from ..paradox.schema import EVENT_KINDS
+from ..content_registry import (
+    REFERENCE_EXTENSIONS,
+    REFERENCE_KIND_ALIASES,
+    REFERENCE_PATTERNS,
+    REFERENCE_SCAN_DIRS,
+)
 from ..util.line_numbers import line_and_column, line_starts
 from ..util.pathing import roots_for
 from ..util.response import enforce_budget
@@ -24,313 +29,25 @@ from .text_cache import read_text
 
 logger = logging.getLogger(__name__)
 
-Kind = Literal[
-    "focus",
-    "event",
-    "decision",
-    "idea",
-    "loc",
-    "sprite",
-    "flag",
-    "variable",
-    "country_tag",
-    "tag",
-    "character",
-    "trait",
-    "scripted_effect",
-    "scripted_trigger",
-    "scripted_effects",
-    "scripted_triggers",
-]
+Kind = str
 
 
-# For each kind, define:
-#   * subdirs to scan (mod-relative)
-#   * extensions to match (.txt usually; .yml for loc)
-#   * a regex generator that, given the target id, returns the pattern to search for
-def _identifier(target: str) -> str:
-    return _target_group(re.escape(target))
-
-
-def _target_group(body: str) -> str:
-    # The only capture in each pattern: `_active_matches` judges this span.
-    return r'(?<![\w.])("' + body + r'"|' + body + r")(?![\w.])"
-
-
-def _focus_pattern(target: str) -> re.Pattern:
-    # `focus = X`, `prerequisite = { focus = X }`, `mutually_exclusive = { focus = X }`,
-    # `complete_national_focus = X`, `mark_focus_tree_layout_dirty` style false-positives skipped.
-    return re.compile(
-        r"\b(?:focus|complete_national_focus|unlock_national_focus)\s*=\s*" + _identifier(target)
-    )
-
-
-def _event_pattern(target: str) -> re.Pattern:
-    # `country_event = X`, `country_event = { id = X ... }`, `news_event = X`, etc.
-    event_kinds = "|".join(re.escape(kind) for kind in EVENT_KINDS)
-    return re.compile(
-        rf"\b(?:{event_kinds})\s*=\s*(?:"
-        + _identifier(target)
-        + r"|\{\s*(?:[^{}]*\s)?id\s*=\s*"
-        + _identifier(target)
-        + r")"
-    )
-
-
-def _decision_pattern(target: str) -> re.Pattern:
-    # `activate_decision = X`, `unlock_decision_tooltip = X`, decision target in tooltips.
-    return re.compile(
-        r"\b(?:activate_decision|unlock_decision_tooltip|remove_decision|decision)\s*=\s*"
-        + _identifier(target)
-    )
-
-
-def _idea_pattern(target: str) -> re.Pattern:
-    return re.compile(
-        r"\b(?:has_idea|add_ideas|remove_ideas|swap_ideas|add_timed_idea)\s*=\s*"
-        + r"(?:"
-        + _identifier(target)
-        + r"|\{\s*(?:[^{}]*\s)?(?:idea|add)\s*=\s*"
-        + _identifier(target)
-        + r")"
-    )
-
-
-def _flag_pattern(target: str) -> re.Pattern:
-    return re.compile(
-        r"\b(?:has_country_flag|set_country_flag|clr_country_flag|modify_country_flag"
-        r"|has_global_flag|set_global_flag|clr_global_flag|modify_global_flag"
-        r"|has_state_flag|set_state_flag|clr_state_flag"
-        r"|has_character_flag|set_character_flag|clr_character_flag)\s*=\s*"
-        + r"(?:"
-        + _identifier(target)
-        + r"|\{\s*flag\s*=\s*"
-        + _identifier(target)
-        + r")"
-    )
-
-
-def _variable_pattern(target: str) -> re.Pattern:
-    # References can be explicit (`var = X`), scoped (`var = ROOT.X`),
-    # or short-form assignments (`set_temp_variable = { X = 10 }`).
-    target_ref = _identifier(target)
-    if "." not in target:
-        target_ref = _target_group(r"(?:[A-Za-z_]\w*\.)?" + re.escape(target))
-    operators = (
-        r"var|has_variable|set_variable|set_temp_variable|add_to_variable|subtract_from_variable"
-        r"|multiply_variable|divide_variable|check_variable|clamp_variable|modulo_variable"
-    )
-    return re.compile(
-        r"\b(?:"
-        + operators
-        + r")\s*=\s*(?:"
-        + target_ref
-        + r"|\{\s*(?:[^{}]*?\s)?(?:var|name)\s*=\s*"
-        + target_ref
-        + r"(?:\s|\})|\{\s*(?:[^{}]*?\s)?"
-        + target_ref
-        + r"\s*=)"
-    )
-
-
-def _loc_pattern(target: str) -> re.Pattern:
-    # Both `KEY:` definitions and `[KEY]` / `$KEY$` references.
-    return re.compile(_identifier(target))
-
-
-def _sprite_pattern(target: str) -> re.Pattern:
-    return re.compile(_identifier(target))
-
-
-def _named_definition_pattern(target: str) -> re.Pattern:
-    """Match a top-level definition or direct scripted call by name."""
-    return re.compile(_identifier(target) + r"\s*=\s*(?:\{|[^\s{}#]+)")
-
-
-def _country_tag_pattern(target: str) -> re.Pattern:
-    return re.compile(
-        r"\b(?:original_tag|tag|change_tag|set_cosmetic_tag|target_tag|"
-        r"original_tag_to_check|tag_to_check)\s*=\s*(?:"
-        + _identifier(target)
-        + r"|\{\s*(?:tag|original_tag)\s*=\s*"
-        + _identifier(target)
-        + r")"
-    )
-
-
-def _character_pattern(target: str) -> re.Pattern:
-    return re.compile(
-        r"\b(?:character|has_character|create_character|remove_character|"
-        r"modify_character|set_character)\s*=\s*(?:"
-        + _identifier(target)
-        + r"|\{\s*character\s*=\s*"
-        + _identifier(target)
-        + r")"
-    )
-
-
-def _trait_pattern(target: str) -> re.Pattern:
-    return re.compile(
-        r"\b(?:trait|has_trait|add_trait|remove_trait|remove_leader_trait)\s*=\s*(?:"
-        + _identifier(target)
-        + r"|\{\s*trait\s*=\s*"
-        + _identifier(target)
-        + r")"
-    )
-
-
-_PATTERNS = {
-    "focus": _focus_pattern,
-    "event": _event_pattern,
-    "decision": _decision_pattern,
-    "idea": _idea_pattern,
-    "loc": _loc_pattern,
-    "sprite": _sprite_pattern,
-    "flag": _flag_pattern,
-    "variable": _variable_pattern,
-    "country_tag": _country_tag_pattern,
-    "character": _character_pattern,
-    "trait": _trait_pattern,
-    "scripted_effect": _named_definition_pattern,
-    "scripted_trigger": _named_definition_pattern,
-}
-
-KIND_ALIASES = {
-    "tag": "country_tag",
-    "scripted_effects": "scripted_effect",
-    "scripted_triggers": "scripted_trigger",
-}
-
-
-# Directories to scan per reference kind. Keep the set small to minimise false positives.
-_SCAN_DIRS = {
-    "focus": [
-        "common/national_focus",
-        "events",
-        "common/decisions",
-        "common/scripted_effects",
-        "common/scripted_triggers",
-        "common/on_actions",
-        "common/ideas",
-    ],
-    "event": [
-        "events",
-        "common/national_focus",
-        "common/decisions",
-        "common/on_actions",
-        "common/scripted_effects",
-        "common/scripted_triggers",
-        "common/ideas",
-    ],
-    "decision": [
-        "events",
-        "common/national_focus",
-        "common/decisions",
-        "common/on_actions",
-        "common/scripted_effects",
-        "common/scripted_triggers",
-    ],
-    "idea": [
-        "events",
-        "common/national_focus",
-        "common/decisions",
-        "common/scripted_effects",
-        "common/scripted_triggers",
-        "common/ideas",
-        "history/countries",
-    ],
-    "flag": [
-        "events",
-        "common/national_focus",
-        "common/decisions",
-        "common/scripted_effects",
-        "common/scripted_triggers",
-        "common/ideas",
-    ],
-    "variable": [
-        "events",
-        "common/national_focus",
-        "common/decisions",
-        "common/scripted_effects",
-        "common/scripted_triggers",
-        "common/ideas",
-    ],
-    # Loc keys are *defined* in localisation/, but *referenced* across all script
-    # files (focus titles, event descs, tooltips, custom_effect_tooltip targets).
-    "loc": [
-        "localisation/english",
-        "common/national_focus",
-        "events",
-        "common/decisions",
-        "common/ideas",
-        "common/scripted_localisation",
-        "common/scripted_effects",
-        "common/scripted_triggers",
-    ],
-    "sprite": [
-        "common/national_focus",
-        "common/decisions",
-        "common/ideas",
-        "interface",
-    ],
-    "country_tag": [
-        "common/country_tags",
-        "common/national_focus",
-        "events",
-        "common/decisions",
-        "common/ideas",
-        "common/scripted_effects",
-        "common/scripted_triggers",
-        "history/countries",
-    ],
-    "character": [
-        "common/characters",
-        "common/national_focus",
-        "events",
-        "common/decisions",
-        "common/scripted_effects",
-        "common/scripted_triggers",
-        "history/countries",
-        "history/units",
-    ],
-    "trait": [
-        "common/country_leader",
-        "common/unit_leader",
-        "common/characters",
-        "common/national_focus",
-        "events",
-        "common/scripted_effects",
-        "common/scripted_triggers",
-        "history/units",
-    ],
-    "scripted_effect": [
-        "common/scripted_effects",
-        "common/scripted_triggers",
-        "common/national_focus",
-        "events",
-        "common/decisions",
-        "common/ideas",
-        "common/on_actions",
-        "history/countries",
-    ],
-    "scripted_trigger": [
-        "common/scripted_triggers",
-        "common/scripted_effects",
-        "common/national_focus",
-        "events",
-        "common/decisions",
-        "common/ideas",
-        "common/on_actions",
-        "history/countries",
-    ],
-}
-
-_EXTENSIONS = {
-    # Loc keys appear in both the defining .yml files and as bare identifiers in
-    # script (.txt) files used as titles / descriptions / tooltip targets.
-    "loc": (".yml", ".txt"),
-    "sprite": (".txt", ".gui", ".gfx"),
-}
+_PATTERNS = REFERENCE_PATTERNS
+_SCAN_DIRS = REFERENCE_SCAN_DIRS
+_EXTENSIONS = REFERENCE_EXTENSIONS
+KIND_ALIASES = REFERENCE_KIND_ALIASES
+_character_pattern = REFERENCE_PATTERNS["character"]
+_country_tag_pattern = REFERENCE_PATTERNS["country_tag"]
+_decision_pattern = REFERENCE_PATTERNS["decision"]
+_event_pattern = REFERENCE_PATTERNS["event"]
+_flag_pattern = REFERENCE_PATTERNS["flag"]
+_focus_pattern = REFERENCE_PATTERNS["focus"]
+_idea_pattern = REFERENCE_PATTERNS["idea"]
+_loc_pattern = REFERENCE_PATTERNS["loc"]
+_named_definition_pattern = REFERENCE_PATTERNS["scripted_effect"]
+_sprite_pattern = REFERENCE_PATTERNS["sprite"]
+_trait_pattern = REFERENCE_PATTERNS["trait"]
+_variable_pattern = REFERENCE_PATTERNS["variable"]
 
 
 def find_references(

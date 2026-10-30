@@ -9,13 +9,25 @@ from pathlib import Path
 
 import pytest
 
+from md_mcp.content_registry import CONTENT_TYPES, build_registry_views
+
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def _build_fake_mod(root: Path) -> Path:
-    (root / "common" / "national_focus").mkdir(parents=True)
-    (root / "localisation" / "english").mkdir(parents=True)
-    (root / "tools" / "validation").mkdir(parents=True)
+def _build_fake_mod(root: Path, content_types=CONTENT_TYPES) -> Path:
+    registry = build_registry_views(content_types)
+    fixture_dirs = {
+        prefix.rstrip("/")
+        for item in content_types
+        for prefix in item.path_prefixes
+        if "/" in prefix.rstrip("/")
+    }
+    fixture_dirs.update(
+        directory for dirs in registry["reference_scan_dirs"].values() for directory in dirs
+    )
+    fixture_dirs.update({"localisation/english", "tools/validation"})
+    for directory in fixture_dirs:
+        (root / directory).mkdir(parents=True, exist_ok=True)
 
     (root / "descriptor.mod").write_text(
         'name = "Fake Mod"\nversion = "0.1"\nsupported_version = "1.13.*"\n',
@@ -28,16 +40,6 @@ def _build_fake_mod(root: Path) -> Path:
     )
 
     # M2 additions
-    (root / "events").mkdir()
-    (root / "common" / "decisions").mkdir()
-    (root / "common" / "ideas").mkdir()
-    (root / "common" / "country_tags").mkdir()
-    (root / "common" / "characters").mkdir()
-    (root / "common" / "country_leader").mkdir()
-    (root / "common" / "unit_leader").mkdir()
-    (root / "common" / "scripted_effects").mkdir()
-    (root / "common" / "scripted_triggers").mkdir()
-    (root / "interface").mkdir()
     shutil.copy(FIXTURES / "events_minimal.txt", root / "events" / "test_events.txt")
     shutil.copy(
         FIXTURES / "decisions_minimal.txt", root / "common" / "decisions" / "test_decisions.txt"

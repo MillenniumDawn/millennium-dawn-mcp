@@ -16,6 +16,26 @@ def test_clean_fixtures_have_no_violations(fake_mod_root):
     assert r["violations"] == []
 
 
+def test_check_encoding_paginates_in_builtin_directory_order(fake_mod_root):
+    for relative in (
+        "common/national_focus/common_bom.txt",
+        "events/events_bom.txt",
+        "history/countries/history_bom.txt",
+        "interface/interface_bom.txt",
+    ):
+        path = fake_mod_root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"\xef\xbb\xbf" + b"content\n")
+
+    result = check_encoding(fake_mod_root, limit=2)
+
+    assert result["total"] == 4
+    assert [violation["file"] for violation in result["violations"]] == [
+        "common/national_focus/common_bom.txt",
+        "events/events_bom.txt",
+    ]
+
+
 def test_check_encoding_paginates_violations(fake_mod_root):
     for i in range(3):
         txt = fake_mod_root / "common" / "national_focus" / f"bad_{i}.txt"

@@ -9,6 +9,7 @@ import pytest
 from md_mcp.server import build_server
 from md_mcp.tools.lookup_docs import lookup_docs_tool
 from md_mcp.util.response import BUDGET_BYTES
+from tests.support.mcp_protocol import tool_payload
 from tests.support.mod import in_process_settings
 from tests.support.stdio import server_parameters
 
@@ -606,7 +607,7 @@ def test_lookup_docs_oversized_metadata_over_stdio(fake_mod_root, cache_dir, mon
                         "content_limit": 20_000,
                     },
                 )
-                assert result.isError is False
+                assert result.is_error is False
                 payload = json.loads(cast(Any, result).content[0].text)
                 assert payload["returned"] == 1
                 assert len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
@@ -656,13 +657,13 @@ def test_lookup_docs_mcp_registration_and_call(fake_mod_root, cache_dir) -> None
         "content_limit",
     ):
         assert advertised in description
-    payload = json.loads(cast(Any, result)[0].text)
+    payload = tool_payload(result)
     assert payload["ok"] is True
     assert payload["entries"][0]["key"] == "test_effect"
-    system_payload = json.loads(cast(Any, system_result)[0].text)
+    system_payload = tool_payload(system_result)
     assert system_payload["ok"] is True
     assert "Use the workflow." in system_payload["entries"][0]["content"]
-    windowed_payload = json.loads(cast(Any, windowed_result)[0].text)
+    windowed_payload = tool_payload(windowed_result)
     assert windowed_payload["ok"] is True
     assert windowed_payload["entries"][0]["content"] == "A tes"
     assert windowed_payload["entries"][0]["content_complete"] is False
@@ -681,6 +682,26 @@ def test_lookup_docs_real_mcp_stdio(real_mod_root, cache_dir) -> None:
             ClientSession(read, write) as session,
         ):
             await session.initialize()
+            listed_tools = (await session.list_tools()).tools
+            lookup_tool = next(tool for tool in listed_tools if tool.name == "lookup_docs")
+            assert lookup_tool.input_schema["required"] == ["kind"]
+            assert set(lookup_tool.input_schema["properties"]) == {
+                "kind",
+                "key",
+                "limit",
+                "offset",
+                "content_offset",
+                "content_limit",
+            }
+            templates = (await session.list_resource_templates()).resource_templates
+            assert {template.uri_template for template in templates} == {
+                "md://focus/{focus_id}",
+                "md://loc/{key}",
+                "md://sprite/{name}",
+                "md://event/{event_id}",
+                "md://decision/{decision_id}",
+                "md://idea/{idea_id}",
+            }
             exact = await session.call_tool(
                 "lookup_docs", {"kind": "effect", "key": "add_advisor_role"}
             )

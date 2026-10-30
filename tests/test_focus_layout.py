@@ -8,7 +8,6 @@ import json
 import math
 import sys
 import time
-from datetime import timedelta
 from importlib.util import find_spec
 from pathlib import Path
 from typing import cast
@@ -797,7 +796,7 @@ def test_focus_layout_live_stdio_and_brazil_matches_upstream_helper(
     async def probe_stdio():
         async with (
             stdio_client(parameters) as (read, write),
-            ClientSession(read, write, read_timeout_seconds=timedelta(seconds=600)) as session,
+            ClientSession(read, write, read_timeout_seconds=600) as session,
         ):
             await session.initialize()
 
@@ -806,7 +805,7 @@ def test_focus_layout_live_stdio_and_brazil_matches_upstream_helper(
                 if include_positions:
                     arguments.update(include_positions=True, limit=10000)
                 response = await session.call_tool("focus_layout", arguments)
-                assert not response.isError
+                assert not response.is_error
                 content = cast(TextContent, response.content[0])
                 assert content.type == "text"
                 return json.loads(content.text)

@@ -4,7 +4,6 @@ import asyncio
 import json
 import os
 import sys
-from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -46,7 +45,7 @@ async def _probe_concurrent_stdio(
     )
     async with (
         stdio_client(params) as (read, write),
-        ClientSession(read, write, read_timeout_seconds=timedelta(seconds=10)) as session,
+        ClientSession(read, write, read_timeout_seconds=10) as session,
     ):
         await session.initialize()
         slow_call = asyncio.create_task(session.call_tool(tool_name, arguments))
@@ -59,7 +58,7 @@ async def _probe_concurrent_stdio(
                 session.call_tool("calculate_days", {"year": 2000, "month": 1, "day": 1}),
                 timeout=3,
             )
-            assert not fast_result.isError
+            assert not fast_result.is_error
             fast_content = fast_result.content[0]
             assert isinstance(fast_content, TextContent)
             assert json.loads(fast_content.text) == {"ok": True, "days": 0}
@@ -69,7 +68,7 @@ async def _probe_concurrent_stdio(
             if not slow_call.done():
                 await asyncio.gather(slow_call, return_exceptions=True)
         result = await slow_call
-        assert not result.isError
+        assert not result.is_error
         content = result.content[0]
         assert isinstance(content, TextContent)
         assert json.loads(content.text) == {"ok": True, "tool": tool_name}
@@ -156,7 +155,7 @@ async def _probe_slow_lint_stdio(mod_root: Path, cache_dir: Path, slow_started: 
     )
     async with (
         stdio_client(params) as (read, write),
-        ClientSession(read, write, read_timeout_seconds=timedelta(seconds=5)) as session,
+        ClientSession(read, write, read_timeout_seconds=5) as session,
     ):
         await session.initialize()
         slow_call = asyncio.create_task(
@@ -172,11 +171,11 @@ async def _probe_slow_lint_stdio(mod_root: Path, cache_dir: Path, slow_started: 
             session.call_tool("generate_focus", {"id": "TST_protocol_probe", "tag": "TST"}),
             timeout=0.7,
         )
-        assert not fast_call.isError
+        assert not fast_call.is_error
         assert not slow_call.done(), "slow lint call should still be running"
 
         slow_result = await slow_call
-        assert not slow_result.isError
+        assert not slow_result.is_error
         assert slow_result.content[0].type == "text"
         payload = json.loads(slow_result.content[0].text)
         assert payload["ok"] is True

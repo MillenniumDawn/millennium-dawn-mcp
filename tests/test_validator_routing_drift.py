@@ -190,7 +190,9 @@ def test_commit_registry_paths_reach_auto_map(real_mod_root):
 
 @pytest.mark.integration
 def test_auto_routing_matches_current_upstream_groups(real_mod_root):
-    batches, change_groups = _upstream_routing(str(real_mod_root.resolve()))
+    routing = _upstream_routing(str(real_mod_root.resolve()))
+    assert routing is not None
+    batches, change_groups = routing
     available = {info.name for info in available_validators(real_mod_root)}
     excluded = {
         Path(script).stem.removeprefix("validate_").replace("-", "_")
@@ -230,7 +232,9 @@ def test_auto_routing_matches_current_upstream_groups(real_mod_root):
 
 @pytest.mark.integration
 def test_impact_exclusions_and_validator_arguments_follow_upstream(real_mod_root):
-    batches, _groups = _upstream_routing(str(real_mod_root.resolve()))
+    routing = _upstream_routing(str(real_mod_root.resolve()))
+    assert routing is not None
+    batches, _groups = routing
     available = {info.name for info in available_validators(real_mod_root)}
     excluded_names = {
         Path(script).stem.removeprefix("validate_").replace("-", "_")
@@ -265,7 +269,9 @@ def test_impact_exclusions_and_validator_arguments_follow_upstream(real_mod_root
     ],
 )
 def test_tooling_auto_selection_matches_upstream_impact_selector(real_mod_root, path):
-    batches, _groups = _upstream_routing(str(real_mod_root.resolve()))
+    routing = _upstream_routing(str(real_mod_root.resolve()))
+    assert routing is not None
+    batches, _groups = routing
     available = {info.name for info in available_validators(real_mod_root)}
     selected, adhoc = batches.select_for_changed_files([path])
     expected = {

@@ -454,7 +454,7 @@ def build_server(settings: Settings):
     )(generate_loc_stub)
     mcp.tool(
         name="generate_missing_loc",
-        description="Generate missing English localisation for selected focus_ids and event_ids. Returns bounded YAML text only; reports complete versus partial results.",
+        description="Generate missing English localisation for focus_ids/event_ids or a source file=; target_file= skips existing keys and derives BOM from target existence. Returns bounded text only.",
     )(
         _bind_tool(
             generate_missing_loc_tool,

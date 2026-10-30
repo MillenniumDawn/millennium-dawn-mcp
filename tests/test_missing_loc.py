@@ -7,6 +7,7 @@ import pytest
 from md_mcp.config import Settings
 from md_mcp.generators import missing_loc
 from md_mcp.indexes import EventIndex, FocusIndex, LocalisationIndex
+from md_mcp.util.response import enforce_budget
 
 
 def _tool(fake_mod_root, cache_dir):
@@ -46,6 +47,280 @@ def test_generate_missing_loc_omits_existing_keys_and_returns_complete_text(
     assert "TestnsNews.42.t:" in result["txt"]
 
 
+@pytest.mark.parametrize("target_root", ["vanilla", "mod", "submod"])
+def test_file_route_target_metadata_uses_mod_and_submod_only(
+    fake_mod_root, cache_dir, tmp_path, target_root
+):
+    vanilla = tmp_path / "vanilla"
+    submod = tmp_path / "submod"
+    relative = "localisation/english/target_roots_l_english.yml"
+    vanilla_target = vanilla / relative
+    vanilla_target.parent.mkdir(parents=True)
+    original = b'\xef\xbb\xbfl_english:\n vanilla_key:0 "Vanilla"\n'
+    vanilla_target.write_bytes(original)
+    target = {"vanilla": vanilla, "mod": fake_mod_root, "submod": submod}[target_root] / relative
+    if target_root != "vanilla":
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(original)
+    source = fake_mod_root / "common/national_focus/target_roots.txt"
+    source.write_text("focus_tree = { focus = { id = TST_target_roots x = 0 y = 0 } }")
+    settings = Settings(
+        mod_root=fake_mod_root,
+        vanilla_path=vanilla,
+        submod_root=submod,
+        cache_dir=cache_dir,
+        validator_mode="isolated",
+        default_lang="en",
+    )
+
+    result = missing_loc.generate_missing_loc_tool(
+        settings,
+        FocusIndex(fake_mod_root, cache_dir, vanilla, submod_root=submod),
+        EventIndex(fake_mod_root, cache_dir, vanilla, submod_root=submod),
+        LocalisationIndex(fake_mod_root, cache_dir, vanilla, langs=("en",), submod_root=submod),
+        file="common/national_focus/target_roots.txt",
+        target_file=relative,
+    )
+
+    existing = target_root != "vanilla"
+    assert result["ok"] is True
+    assert result["target_exists"] is existing
+    assert result["bom_prefix"] is not existing
+    assert result["txt"].startswith("\ufeffl_english:") is not existing
+    assert vanilla_target.read_bytes() == original
+    if existing:
+        assert target.read_bytes() == original
+    else:
+        assert not (fake_mod_root / relative).exists()
+        assert not (submod / relative).exists()
+
+
+def test_file_route_validates_selector_and_language_arguments(fake_mod_root, cache_dir):
+    tool = _tool(fake_mod_root, cache_dir)
+
+    assert tool()["error"] == "Provide file=, focus_ids= or event_ids=."
+    assert tool(target_file="localisation/english/new_l_english.yml")["error"] == (
+        "target_file= requires file=."
+    )
+    assert tool(file="common/national_focus/test.txt", lang="de")["error"].endswith("(lang='en').")
+    mixed = tool(file="common/national_focus/test.txt", focus_ids=["TST_root"])
+    assert mixed["error"] == "Use file= or focus_ids=/event_ids=, not both."
+
+
+def test_file_route_reports_missing_unreadable_and_unsupported_sources(
+    fake_mod_root, cache_dir, monkeypatch
+):
+    tool = _tool(fake_mod_root, cache_dir)
+    assert tool(file="common/national_focus/missing.txt")["error"].startswith(
+        "Source file not found"
+    )
+
+    source = fake_mod_root / "common" / "national_focus" / "bad_parse.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("focus_tree = { }", encoding="utf-8")
+    monkeypatch.setattr(
+        missing_loc,
+        "parse_cached",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("fixture parse error")),
+    )
+    assert tool(file="common/national_focus/bad_parse.txt")["error"] == (
+        "Could not parse source file (ValueError)."
+    )
+    monkeypatch.undo()
+
+    unsupported = fake_mod_root / "common" / "scripted_effects" / "unsupported.txt"
+    unsupported.parent.mkdir(parents=True, exist_ok=True)
+    unsupported.write_text("effect = { add_stability = 0.1 }", encoding="utf-8")
+    assert tool(file="common/scripted_effects/unsupported.txt")["error"].startswith(
+        "Source file type is unsupported"
+    )
+
+
+def test_file_route_marks_missing_event_fields_partial(fake_mod_root, cache_dir):
+    source = fake_mod_root / "events" / "missing_fields_route.txt"
+    source.write_text(
+        "add_namespace = TST\ncountry_event = { id = TST.4 title = TST.4.t }",
+        encoding="utf-8",
+    )
+    result = _tool(fake_mod_root, cache_dir)(file="events/missing_fields_route.txt")
+    assert result["complete"] is False
+    assert result["partial"] is True
+    assert result["failures"] == ["event:TST.4: desc localisation key is missing"]
+
+
+def test_file_route_skips_target_keys_and_derives_header_and_bom(fake_mod_root, cache_dir):
+    source = fake_mod_root / "common" / "national_focus" / "file_route.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(
+        "focus_tree = { id = TST_file_route country = { factor = 0 } "
+        "focus = { id = TST_file_route_new x = 0 y = 0 } }\n",
+        encoding="utf-8",
+    )
+    target = fake_mod_root / "localisation" / "english" / "file_route_l_english.yml"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text('\ufeffl_english:\n TST_file_route_new: "Already here"\n', encoding="utf-8")
+
+    result = _tool(fake_mod_root, cache_dir)(
+        file="common/national_focus/file_route.txt",
+        target_file="localisation/english/file_route_l_english.yml",
+    )
+    assert result["ok"] is True
+    assert result["target_exists"] is True
+    assert result["bom_prefix"] is False
+    assert result["txt"].startswith("l_english:") is False
+    assert " TST_file_route_new:" not in result["txt"]
+    assert "TST_file_route_new_desc" in result["txt"]
+    assert (
+        target.read_text(encoding="utf-8-sig")
+        == 'l_english:\n TST_file_route_new: "Already here"\n'
+    )
+
+    new_result = _tool(fake_mod_root, cache_dir)(file="common/national_focus/file_route.txt")
+    assert new_result["bom_prefix"] is True
+    assert new_result["txt"].startswith("\ufeffl_english:")
+
+
+def test_file_route_validates_and_reads_target_paths(fake_mod_root, cache_dir):
+    source = fake_mod_root / "common" / "national_focus" / "target_path_route.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(
+        "focus_tree = { id = TST_target_route focus = { id = TST_target_route x = 0 y = 0 } }",
+        encoding="utf-8",
+    )
+    tool = _tool(fake_mod_root, cache_dir)
+
+    invalid_name = tool(file="common/national_focus/target_path_route.txt", target_file="loc.yml")
+    assert invalid_name["error"].startswith("target_file must be an English localisation path")
+
+    escapes = tool(
+        file="common/national_focus/target_path_route.txt",
+        target_file="localisation/english/../../../outside_l_english.yml",
+    )
+    assert escapes["error"] == "target_file escapes configured content roots."
+
+    new_target = tool(
+        file="common/national_focus/target_path_route.txt",
+        target_file="localisation/english/new_l_english.yml",
+    )
+    assert new_target["ok"] is True
+    assert new_target["target_exists"] is False
+    assert new_target["bom_prefix"] is True
+
+    directory_target = fake_mod_root / "localisation" / "english" / "directory_l_english.yml"
+    directory_target.mkdir(parents=True)
+    unreadable = tool(
+        file="common/national_focus/target_path_route.txt",
+        target_file="localisation/english/directory_l_english.yml",
+    )
+    assert unreadable["error"] == "Could not read target localisation file (IsADirectoryError)."
+
+
+@pytest.mark.parametrize(
+    ("relative", "text", "expected"),
+    [
+        (
+            "common/ideas/route_ideas.txt",
+            "ideas = { political = { TST_new_idea = { picture = generic_idea } } }",
+            "TST_new_idea_desc",
+        ),
+        (
+            "common/decisions/route_decisions.txt",
+            "route_category = { TST_new_decision = { cost = 10 } }",
+            "TST_new_decision_desc",
+        ),
+        (
+            "common/decisions/categories/route_categories.txt",
+            "route_category = { icon = GFX_decision }",
+            "route_category_desc",
+        ),
+    ],
+)
+def test_file_route_supports_idea_decision_and_category_keys(
+    fake_mod_root, cache_dir, relative, text, expected
+):
+    source = fake_mod_root / relative
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(text, encoding="utf-8")
+    result = _tool(fake_mod_root, cache_dir)(file=relative)
+    assert result["ok"] is True
+    assert expected in result["txt"]
+
+
+def test_file_route_rejects_invalid_target_path(fake_mod_root, cache_dir):
+    source = fake_mod_root / "events" / "route_event.txt"
+    source.write_text(
+        "add_namespace = TST\ncountry_event = { id = TST.1 title = TST.1.t desc = TST.1.d }",
+        encoding="utf-8",
+    )
+    result = _tool(fake_mod_root, cache_dir)(
+        file="events/route_event.txt", target_file="../outside_l_english.yml"
+    )
+    assert result["ok"] is False
+
+
+def test_file_route_marks_non_scalar_event_and_offset_results_partial(fake_mod_root, cache_dir):
+    source = fake_mod_root / "events" / "partial_route.txt"
+    source.write_text(
+        "add_namespace = TST\ncountry_event = { id = TST.2 "
+        "title = { trigger = { has_war = yes } } desc = TST.2.d "
+        "option = { name = { text = TST.2.a } } }",
+        encoding="utf-8",
+    )
+    result = _tool(fake_mod_root, cache_dir)(file="events/partial_route.txt", offset=1)
+    assert result["complete"] is False
+    assert result["partial"] is True
+    assert any("no scalar or text key" in item for item in result["failures"])
+
+
+def test_file_route_skips_scripted_localisation_calls(fake_mod_root, cache_dir):
+    source = fake_mod_root / "events" / "scripted_loc_route.txt"
+    source.write_text(
+        "add_namespace = TST\n"
+        "country_event = { id = TST.3 "
+        'title = { trigger = { has_war = yes } text = "[GetTitle]" } '
+        'desc = TST.3.d option = { name = "[GetOption]" } }',
+        encoding="utf-8",
+    )
+    result = _tool(fake_mod_root, cache_dir)(file="events/scripted_loc_route.txt")
+    assert result["ok"] is True
+    assert result["complete"] is True
+    assert "[GetTitle]" not in result["txt"]
+    assert "[GetOption]" not in result["txt"]
+    assert "TST.3.d" in result["txt"]
+
+
+@pytest.mark.parametrize("drop_kind", ["size", "text", "keys"])
+def test_file_route_reconciles_final_budget_drops(fake_mod_root, cache_dir, monkeypatch, drop_kind):
+    source = fake_mod_root / "common" / "national_focus" / f"budget_{drop_kind}.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(
+        f"focus_tree = {{ id = TST_budget focus = {{ id = TST_{drop_kind} x = 0 y = 0 }} }}",
+        encoding="utf-8",
+    )
+    calls = 0
+
+    def simulate_budget(result, *, heavy_keys):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            return result
+        if drop_kind == "size":
+            return {**result, "size_truncated": True}
+        if drop_kind == "text":
+            return {**result, "txt_dropped": 1}
+        return {**result, "loc_yml_keys_dropped": 2}
+
+    monkeypatch.setattr(missing_loc, "enforce_budget", simulate_budget)
+    result = _tool(fake_mod_root, cache_dir)(file=f"common/national_focus/budget_{drop_kind}.txt")
+    assert result["complete"] is False
+    assert result["partial"] is True
+    if drop_kind == "text":
+        assert result["txt_truncated"] is True
+    if drop_kind == "keys":
+        assert result["returned"] == 0
+        assert result["truncated"] is True
+
+
 def test_generate_missing_loc_marks_paged_and_unresolved_results_partial(fake_mod_root, cache_dir):
     tool = _tool(fake_mod_root, cache_dir)
 
@@ -61,7 +336,7 @@ def test_generate_missing_loc_marks_final_budget_truncation_partial(
     fake_mod_root, cache_dir, monkeypatch
 ):
     tool = _tool(fake_mod_root, cache_dir)
-    original = missing_loc.enforce_budget
+    original = enforce_budget
 
     def truncate(result, *, heavy_keys):
         return {**original(result, heavy_keys=heavy_keys), "size_truncated": True, "txt_dropped": 1}

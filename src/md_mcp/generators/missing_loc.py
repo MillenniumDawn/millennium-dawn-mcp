@@ -9,14 +9,13 @@ from ..config import Settings
 from ..indexes import EventIndex, FocusIndex, LocalisationIndex
 from ..indexes.localisation import LANG_ISO_TO_SUFFIX
 from ..paradox.ast_cache import parse_cached
+from ..paradox.nodes import node_line, symbol_or_str
 from ..paradox.schema import (
     extract_decision_records,
     extract_event_records,
     extract_focus_records,
     extract_idea_records,
     find_event_nodes,
-    node_line,
-    symbol_or_str,
 )
 from ..util.index_anchor import select_indexed_anchor
 from ..util.line_numbers import line_starts
@@ -279,16 +278,12 @@ def _generate_file_missing_loc(
                     "target_file must be an English localisation path ending in _l_english.yml."
                 ),
             }
-        target_path = resolve_scope_file(
-            target_file, settings.mod_root, settings.vanilla_path, settings.submod_root
-        )
+        target_path = resolve_scope_file(target_file, settings.mod_root, None, settings.submod_root)
         if target_path is None:
             target_path = next(
                 (
                     path
-                    for root_path in roots_for(
-                        settings.mod_root, settings.vanilla_path, settings.submod_root
-                    )
+                    for root_path in roots_for(settings.mod_root, None, settings.submod_root)
                     if (path := contained(root_path, target_file)) is not None
                 ),
                 None,

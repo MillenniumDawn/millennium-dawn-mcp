@@ -199,8 +199,9 @@ threshold outcome. OS filesystem caching remains uncontrolled.
 
 The [recorded run](../benchmarks/results/validator-concurrency.json) used benchmark
 commit `dfc1217` and mod commit `0b325f8` in a dedicated checkout. It covered all
-47 run-all validators on 14 physical cores. Sequential validators received 14
-inner workers; four concurrent validators received three inner workers each.
+47 run-all validators on 14 physical cores. `MD_MAX_WORKERS` was 14 for the
+sequential run and three per concurrent validator, with four outer workers.
+Upstream defaults may use fewer workers than this cap.
 
 | Pair | Sequential (s) | Concurrent (s) | Speedup |
 | --- | ---: | ---: | ---: |

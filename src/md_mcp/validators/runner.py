@@ -504,6 +504,16 @@ def _collect(
     if validator_cls is None:
         raise AttributeError(f"module {module_name} does not define `Validator`")
 
+    # Treat stale __main__ pickle references as cache misses.
+    disk_cache = getattr(module, "disk_cache", None)
+    disk_cache_errors = getattr(disk_cache, "_DB_ERRORS", None)
+    if (
+        disk_cache is not None
+        and isinstance(disk_cache_errors, tuple)
+        and AttributeError not in disk_cache_errors
+    ):
+        disk_cache._DB_ERRORS = (*disk_cache_errors, AttributeError)
+
     validator_kwargs = {}
     if args:
         add_extra_args = getattr(module, "_add_extra_args", None)

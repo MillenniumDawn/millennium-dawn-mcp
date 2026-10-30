@@ -101,6 +101,47 @@ class Validator:
 """
 )
 
+# Simulate a CLI cache payload whose class no longer exists in __main__.
+_UNPICKLABLE = (
+    r"""
+import pickle
+from types import SimpleNamespace
+
+
+disk_cache = SimpleNamespace(_DB_ERRORS=(pickle.UnpicklingError,))
+
+
+def _get():
+    try:
+        pickle.loads(b"c__main__\nVariantDefinition\n.")
+    except disk_cache._DB_ERRORS:
+        return False, None
+    return True, object()
+
+
+"""
+    + ISSUE_CLASS
+    + """
+class Validator:
+    TITLE = "Unpicklable"
+
+    def __init__(self, mod_path, output_file=None, use_colors=True, staged_only=False, **kw):
+        self._issues = []
+
+    def run_all_validations(self):
+        hit, _ = _get()
+        if not hit:
+            self._issues = [
+                _Issue(
+                    severity="warning",
+                    category="cache",
+                    message="recomputed after miss (attribute_error=%d)"
+                    % disk_cache._DB_ERRORS.count(AttributeError),
+                )
+            ]
+"""
+)
+
 
 def test_files_filter_resolves_nonuniform_issue_paths(fake_mod_root):
     """A bare-basename issue must land in scope via attribution, not be dropped."""
@@ -222,6 +263,52 @@ def test_runner_keeps_issues_when_validator_exits(fake_mod_root, mode):
     result = ValidatorRunner(fake_mod_root, mode=mode).run(f"exits_{mode}")
     assert result["ok"] is True
     assert [i["message"] for i in result["issues"]] == ["found before exit"]
+
+
+@pytest.mark.parametrize("mode", _MODES)
+def test_runner_tolerates_unpicklable_cache_rows(fake_mod_root, mode):
+    """A cached class missing from this __main__ is a cache miss, not a crash."""
+    plant_validator(fake_mod_root, f"unpicklable_{mode}", _UNPICKLABLE)
+    runner = ValidatorRunner(fake_mod_root, mode=mode)
+    result = runner.run(f"unpicklable_{mode}")
+    assert result["ok"] is True
+    assert [i["message"] for i in result["issues"]] == ["recomputed after miss (attribute_error=1)"]
+    assert result["counts"] == {"error": 0, "warning": 1, "info": 0}
+
+    again = runner.run(f"unpicklable_{mode}")
+    assert again["ok"] is True
+    assert [i["message"] for i in again["issues"]] == ["recomputed after miss (attribute_error=1)"]
+
+
+@pytest.mark.parametrize("mode", _MODES)
+def test_runner_still_surfaces_real_validator_errors_outside_cache(fake_mod_root, mode):
+    """AttributeError raised by validator logic must not be swallowed as a miss."""
+    plant_validator(
+        fake_mod_root,
+        f"raising_{mode}",
+        ISSUE_CLASS
+        + """
+import pickle
+from types import SimpleNamespace
+
+
+disk_cache = SimpleNamespace(_DB_ERRORS=(pickle.UnpicklingError,))
+
+
+class Validator:
+    TITLE = "Raising"
+
+    def __init__(self, mod_path, output_file=None, use_colors=True, staged_only=False, **kw):
+        self._issues = []
+
+    def run_all_validations(self):
+        raise AttributeError("variant lookup exploded in validator logic")
+""",
+    )
+    result = ValidatorRunner(fake_mod_root, mode=mode).run(f"raising_{mode}")
+    assert result["ok"] is False
+    assert "AttributeError" in result["error"]
+    assert "variant lookup exploded" in result["error"]
 
 
 @pytest.mark.parametrize("mode", _MODES)

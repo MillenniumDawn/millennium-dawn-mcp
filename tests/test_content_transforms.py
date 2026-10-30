@@ -6,6 +6,7 @@ import contextlib
 import io
 import json
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -276,8 +277,8 @@ def test_logging_child_protocol_success_and_upstream_stdout_capture(monkeypatch)
         {"mod_root": "/unused", "content": "source", "action": "add", "content_type": "focus"}
     )
     stdout = io.StringIO()
-    monkeypatch.setattr(transforms.sys, "stdin", io.StringIO(request))
-    monkeypatch.setattr(transforms.sys, "stdout", stdout)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(request))
+    monkeypatch.setattr(sys, "stdout", stdout)
     monkeypatch.setattr(
         transforms,
         "_logging_transform_virtual",
@@ -287,7 +288,7 @@ def test_logging_child_protocol_success_and_upstream_stdout_capture(monkeypatch)
     assert json.loads(stdout.getvalue()) == {"ok": True, "txt": "updated", "count": 1}
     stdout.seek(0)
     stdout.truncate()
-    monkeypatch.setattr(transforms.sys, "stdin", io.StringIO(request))
+    monkeypatch.setattr(sys, "stdin", io.StringIO(request))
 
     def fail(*_args):
         raise ValueError("bad content")

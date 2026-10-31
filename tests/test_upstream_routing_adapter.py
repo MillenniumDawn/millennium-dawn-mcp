@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
 
-import md_mcp.tools.lint_validators as lint_validators
 from md_mcp.tools.lint_validators import (
     _load_upstream_module,
     _upstream_args,
@@ -68,11 +68,11 @@ def _install_routing(root: Path, *, include_groups: bool = True) -> Path:
 def test_upstream_module_loader_handles_missing_specs_and_import_errors(tmp_path, monkeypatch):
     source = tmp_path / "helper.py"
     source.write_text("pass\n", encoding="utf-8")
-    monkeypatch.setattr(lint_validators.importlib.util, "spec_from_file_location", lambda *_: None)
+    monkeypatch.setattr(importlib.util, "spec_from_file_location", lambda *_: None)
     assert _load_upstream_module(tmp_path, "helper.py", "md_test_no_spec") is None
 
     monkeypatch.setattr(
-        lint_validators.importlib.util,
+        importlib.util,
         "spec_from_file_location",
         lambda *_: SimpleNamespace(loader=None),
     )
@@ -149,8 +149,18 @@ def test_tool_routes_and_validator_args_use_upstream_specs(tmp_path):
             super().__init__(Path("/unused"))
             self.calls = []
 
-        def run(self, name, *, staged_only=False, files=None, post_filter=True, args=None):
-            kwargs = {"staged_only": staged_only}
+        def run(
+            self,
+            name,
+            *,
+            staged_only=False,
+            files=None,
+            post_filter=True,
+            args=None,
+            _worker_budget=None,
+        ):
+            assert _worker_budget is None
+            kwargs: dict[str, object] = {"staged_only": staged_only}
             if files is not None:
                 kwargs["files"] = files
             if not post_filter:

@@ -94,6 +94,13 @@ info, then returns the issues collected up to that point.
 peaks around 500 MB on the real mod. The wrapper doesn't pool instances —
 each call constructs fresh — so memory drops back after each call.
 
+An unscoped, non-staged run-all in isolated mode runs up to four validators
+concurrently. Its worker budget starts at half the logical CPU count, then is
+capped by a positive `MD_MAX_WORKERS` value and the process's allowed CPU
+affinity. Each isolated validator receives an inner worker cap so the combined
+pool stays within that budget. Named, scoped, staged, and delta runs remain
+sequential.
+
 `MD_MCP_VALIDATOR_MODE=subprocess` is accepted as an alias for `isolated`.
 It used to mean something different: shelling out to
 `python validate_<name>.py --mod-path ... --json <sidecar>` and reading the
@@ -177,13 +184,13 @@ when you want them:
 validate(validator="unused_textures")
 ```
 
-Concurrent run-all is not enabled. `benchmarks/validator_concurrency.py` is an
-experiment for comparing sequential and concurrent full run-all. It selects one
-logical CPU per physical core from the current Linux affinity, enables validator
+`benchmarks/validator_concurrency.py` measures sequential and concurrent full
+run-all. It selects one logical CPU per physical core from the current Linux
+affinity, enables validator
 disk caches, discards one full-run warmup, and compares every result field,
 ignoring only elapsed time and issue order. A speedup of at least 2x on 14
-physical cores is required before considering adoption. Any qualifying result
-is a candidate only; production remains sequential pending a separate decision.
+physical cores was required before adoption. The qualifying result supported
+the bounded production run-all described above.
 Example invocation:
 
 ```sh
@@ -214,8 +221,7 @@ sequential and 24.564 seconds concurrent. All four equivalence digests matched,
 including the discarded warmup, and all per-validator timings were present.
 
 This clears the experiment's 2x threshold. It is not a measured MCP server
-speedup, and production validation remains sequential pending a maintainer
-decision.
+speedup. The production concurrency is limited to isolated, unscoped run-all.
 
 ## Suppression
 

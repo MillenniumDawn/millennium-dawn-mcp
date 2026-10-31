@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Iterable, Optional
 
 from ..analysis.issue_delta import new_issue_dicts, prepare_baseline
 from ..analysis.suppressions import SUPPRESSION_SOURCE, suppressed_count
@@ -173,8 +173,21 @@ def validate_tool(
     per_validator: list[dict] = []
     overall = {"error": 0, "warning": 0, "info": 0}
 
-    for v in targets:
-        result = runner.run(v.name, staged_only=staged_only, files=validation_files)
+    results: Iterable[dict]
+    if (
+        validator is None
+        and files is None
+        and not staged_only
+        and not delta
+        and runner.mode == "isolated"
+    ):
+        results = runner.run_many([v.name for v in targets])
+    else:
+        results = (
+            runner.run(v.name, staged_only=staged_only, files=validation_files) for v in targets
+        )
+
+    for v, result in zip(targets, results, strict=True):
         per_validator.append(
             {
                 "name": v.name,

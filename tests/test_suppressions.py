@@ -179,7 +179,17 @@ def test_lint_reports_runner_suppressed_count_without_doing_its_own_pass(tmp_pat
         def __init__(self):
             super().__init__(tmp_path)
 
-        def run(self, name, *, staged_only=False, files=None, post_filter=True, args=None):
+        def run(
+            self,
+            name,
+            *,
+            staged_only=False,
+            files=None,
+            post_filter=True,
+            args=None,
+            _worker_budget=None,
+        ):
+            assert _worker_budget is None
             return {
                 "ok": True,
                 "issues": [],
@@ -222,7 +232,17 @@ def test_lint_does_not_suppress_when_runner_returned_no_count(tmp_path):
         def __init__(self):
             super().__init__(tmp_path)
 
-        def run(self, name, *, staged_only=False, files=None, post_filter=True, args=None):
+        def run(
+            self,
+            name,
+            *,
+            staged_only=False,
+            files=None,
+            post_filter=True,
+            args=None,
+            _worker_budget=None,
+        ):
+            assert _worker_budget is None
             return {
                 "ok": True,
                 "issues": [
@@ -281,7 +301,17 @@ def test_lint_tool_reports_validator_suppressions_in_summary(tmp_path):
                 )
             ]
 
-        def run(self, name, *, staged_only=False, files=None, post_filter=True, args=None):
+        def run(
+            self,
+            name,
+            *,
+            staged_only=False,
+            files=None,
+            post_filter=True,
+            args=None,
+            _worker_budget=None,
+        ):
+            assert _worker_budget is None
             return {
                 "ok": True,
                 "issues": [],
@@ -337,7 +367,17 @@ def test_missing_manifest_is_a_graceful_noop(tmp_path):
         def __init__(self):
             super().__init__(tmp_path)
 
-        def run(self, name, *, staged_only=False, files=None, post_filter=True, args=None):
+        def run(
+            self,
+            name,
+            *,
+            staged_only=False,
+            files=None,
+            post_filter=True,
+            args=None,
+            _worker_budget=None,
+        ):
+            assert _worker_budget is None
             return {
                 "ok": True,
                 "issues": [

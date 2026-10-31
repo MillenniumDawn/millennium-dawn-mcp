@@ -11,13 +11,142 @@ Isolated-mode tests plant synthetic `validate_*.py` modules in the fake mod's
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 
 import pytest
 
 from md_mcp.validators import SLOW_VALIDATORS, ValidatorRunner, available_validators
+from md_mcp.validators import runner as runner_module
 from md_mcp.validators.runner import _collect
 from tests.support.upstream import ISSUE_CLASS, plant_validator
+
+
+def test_run_many_isolates_parallel_results_and_preserves_order(fake_mod_root, monkeypatch):
+    for name in ("alpha", "beta", "gamma", "delta"):
+        plant_validator(fake_mod_root, name, _PLAIN)
+    monkeypatch.setattr(runner_module, "_validator_cpu_budget", lambda: 4)
+    monkeypatch.setattr(runner_module, "_maintain_validator_cache", lambda _: None)
+    barrier = threading.Barrier(4)
+    release = {name: threading.Event() for name in ("alpha", "beta", "gamma", "delta")}
+    observed_budgets = []
+
+    def run_isolated(self, info, **kwargs):
+        observed_budgets.append(kwargs["worker_budget"])
+        barrier.wait(timeout=5)
+        if info.name == "delta":
+            release["gamma"].set()
+        else:
+            assert release[info.name].wait(timeout=5)
+            if info.name == "gamma":
+                release["beta"].set()
+            elif info.name == "beta":
+                release["alpha"].set()
+        if info.name == "gamma":
+            return {
+                "ok": False,
+                "validator": info.name,
+                "error": "failed",
+                "counts": {"error": 2},
+                "elapsed_s": 0.0,
+            }
+        return {"ok": True, "validator": info.name, "issues": [], "counts": {}}
+
+    monkeypatch.setattr(ValidatorRunner, "_run_isolated", run_isolated)
+    results = ValidatorRunner(fake_mod_root).run_many(["alpha", "beta", "gamma", "delta"])
+
+    assert [result["validator"] for result in results] == ["alpha", "beta", "gamma", "delta"]
+    assert observed_budgets == [1, 1, 1, 1]
+    assert results[2]["ok"] is False
+    assert results[2]["error"] == "failed"
+    assert results[2]["counts"] == {"error": 2}
+    assert all("elapsed_s" in result for result in results)
+
+
+@pytest.mark.parametrize(
+    ("budget", "names", "expected"),
+    [(1, ["alpha"], "1"), (4, ["alpha", "beta"], "2")],
+)
+def test_run_many_applies_child_budget_and_preserves_parent_environment(
+    fake_mod_root, monkeypatch, budget, names, expected
+):
+    for name in ("alpha", "beta"):
+        plant_validator(fake_mod_root, name, _WORKER_BUDGET)
+    monkeypatch.setattr(runner_module, "_validator_cpu_budget", lambda: budget)
+    monkeypatch.setenv("MD_MAX_WORKERS", "14")
+
+    results = ValidatorRunner(fake_mod_root).run_many(names)
+
+    assert [issue["message"] for result in results for issue in result["issues"]] == [
+        expected
+    ] * len(names)
+    assert os.environ["MD_MAX_WORKERS"] == "14"
+
+
+def test_run_many_empty_and_mode_fallback_do_not_allocate_threads(fake_mod_root, monkeypatch):
+    monkeypatch.setattr(
+        runner_module, "ThreadPoolExecutor", lambda **_: pytest.fail("unexpected thread pool")
+    )
+    runner = ValidatorRunner(fake_mod_root, mode="in_process")
+    calls = []
+
+    def run(name, **kwargs):
+        calls.append((name, kwargs))
+        return {"ok": True}
+
+    monkeypatch.setattr(runner, "run", run)
+
+    assert runner.run_many([]) == []
+    assert runner.run_many(["alpha", "beta"]) == [{"ok": True}, {"ok": True}]
+    assert calls == [("alpha", {}), ("beta", {})]
+
+
+def test_validator_cpu_budget_matches_default_pool_and_caps(monkeypatch):
+    monkeypatch.setattr(os, "cpu_count", lambda: 24)
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _: set(range(14)), raising=False)
+    monkeypatch.setenv("MD_MAX_WORKERS", "14")
+    assert runner_module._validator_cpu_budget() == 12
+
+    monkeypatch.setenv("MD_MAX_WORKERS", "3")
+    assert runner_module._validator_cpu_budget() == 3
+
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _: set(range(2)), raising=False)
+    monkeypatch.delenv("MD_MAX_WORKERS")
+    assert runner_module._validator_cpu_budget() == 2
+
+    monkeypatch.delattr(os, "sched_getaffinity", raising=False)
+    monkeypatch.setenv("MD_MAX_WORKERS", "14")
+    assert runner_module._validator_cpu_budget() == 12
+    monkeypatch.setenv("MD_MAX_WORKERS", "²")
+    assert runner_module._validator_cpu_budget() == 12
+    monkeypatch.setenv("MD_MAX_WORKERS", "invalid")
+    assert runner_module._validator_cpu_budget() == 12
+
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _: set(), raising=False)
+    assert runner_module._validator_cpu_budget() == 1
+    monkeypatch.delattr(os, "sched_getaffinity", raising=False)
+    monkeypatch.setattr(os, "cpu_count", lambda: 0)
+    monkeypatch.setenv("MD_MAX_WORKERS", "0")
+    assert runner_module._validator_cpu_budget() == 1
+
+
+_WORKER_BUDGET = (
+    ISSUE_CLASS
+    + """
+import os
+
+class Validator:
+    TITLE = "Budget"
+
+    def __init__(self, mod_path, output_file=None, use_colors=True, staged_only=False, **kw):
+        self._issues = []
+
+    def run_all_validations(self):
+        budget = os.environ.get("MD_MAX_WORKERS", "missing")
+        self._issues = [_Issue(severity="info", category="worker", message=budget)]
+"""
+)
+
 
 _PLAIN = (
     ISSUE_CLASS

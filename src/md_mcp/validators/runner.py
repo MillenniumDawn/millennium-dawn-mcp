@@ -35,6 +35,7 @@ import sys
 import tempfile
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
@@ -217,6 +218,26 @@ class ValidatorRunner:
         self.list()  # populate
         return self._infos.get(name) if self._infos else None
 
+    def run_many(self, names: builtins.list[str]) -> builtins.list[dict]:
+        """Run unscoped validators concurrently within the upstream CPU budget."""
+        if not names:
+            return []
+        if self.mode != "isolated":
+            return [self.run(name) for name in names]
+
+        budget = _validator_cpu_budget()
+        outer = min(4, len(names), budget)
+        inner = max(1, budget // outer)
+        if outer == 1:
+            return [self.run(name, _worker_budget=inner) for name in names]
+        # Resolve shared runner caches before worker threads use them.
+        self.list()
+        self._attributor()
+        _maintain_validator_cache(self.mod_root)
+        with ThreadPoolExecutor(max_workers=outer, thread_name_prefix="md-mcp-validator") as pool:
+            futures = [pool.submit(self.run, name, _worker_budget=inner) for name in names]
+            return [future.result() for future in futures]
+
     def run(
         self,
         name: str,
@@ -225,6 +246,7 @@ class ValidatorRunner:
         files: Optional[builtins.list[str]] = None,
         post_filter: bool = True,
         args: Optional[builtins.list[str] | tuple[str, ...]] = None,
+        _worker_budget: Optional[int] = None,
     ) -> dict:
         """Run a single validator. Returns {ok, validator, title, issues, counts}.
 
@@ -249,7 +271,12 @@ class ValidatorRunner:
             )
         else:
             result = self._run_isolated(
-                info, staged_only=staged_only, files=files, post_filter=post_filter, args=args
+                info,
+                staged_only=staged_only,
+                files=files,
+                post_filter=post_filter,
+                args=args,
+                worker_budget=_worker_budget,
             )
         # Every attempted run is timed, failures included; the unknown-validator
         # early return above never attempts a run and carries no timing.
@@ -338,6 +365,7 @@ class ValidatorRunner:
         files: Optional[builtins.list[str]],
         post_filter: bool,
         args: Optional[builtins.list[str] | tuple[str, ...]],
+        worker_budget: Optional[int] = None,
     ) -> dict:
         cmd = [
             sys.executable,
@@ -362,6 +390,8 @@ class ValidatorRunner:
                 cmd.extend(["--files", str(scope)])
             try:
                 env = os.environ.copy()
+                if worker_budget is not None:
+                    env["MD_MAX_WORKERS"] = str(worker_budget)
                 if staged_only:
                     try:
                         env["MD_STAGED_FILES"] = _staged_files_env(self.mod_root)
@@ -392,6 +422,19 @@ class ValidatorRunner:
                 }
 
         return self._finish(info, payload, files=files, post_filter=post_filter)
+
+
+def _validator_cpu_budget() -> int:
+    budget = max(1, (os.cpu_count() or 1) // 2)
+    try:
+        override = int(os.environ.get("MD_MAX_WORKERS", "0"))
+    except ValueError:
+        override = 0
+    if override > 0:
+        budget = min(budget, override)
+    with contextlib.suppress(AttributeError, OSError):
+        budget = max(1, min(budget, len(os.sched_getaffinity(0))))
+    return budget
 
 
 # Upstream passes that build repo-wide sets from plain collector calls.

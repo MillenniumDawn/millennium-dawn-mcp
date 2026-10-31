@@ -233,7 +233,7 @@ def test_focus_overlap_stdio_budget_and_no_write(real_mod_root: Path, tmp_path: 
     async def call_tool() -> None:
         async with (
             stdio_client(params) as (read, write),
-            ClientSession(read, write, read_timeout_seconds=timedelta(seconds=30)) as session,
+            ClientSession(read, write) as session,
         ):
             await session.initialize()
             response = await session.call_tool(
@@ -245,7 +245,7 @@ def test_focus_overlap_stdio_budget_and_no_write(real_mod_root: Path, tmp_path: 
                     "limit": 100,
                 },
             )
-            assert not response.isError
+            assert response.model_dump(by_alias=True)["isError"] is False
             content = response.content[0]
             assert isinstance(content, TextContent)
             payload = json.loads(content.text)
@@ -256,7 +256,7 @@ def test_focus_overlap_stdio_budget_and_no_write(real_mod_root: Path, tmp_path: 
             assert payload["adjacent_pairs_truncated"] is True
             assert len(content.text.encode("utf-8")) <= 100_000
 
-    asyncio.run(call_tool())
+    asyncio.run(asyncio.wait_for(call_tool(), timeout=30))
     after = {
         path.relative_to(mod_root): path.read_bytes()
         for path in mod_root.rglob("*")

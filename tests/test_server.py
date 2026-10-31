@@ -172,7 +172,8 @@ TOOL_SIGNATURES = {
         "scale=None, ref=None, limit=20"
     ),
     "focus_overlap_scenarios": (
-        "file, tag, completed=None, date=None, include_positions=False, limit=50, offset=0"
+        "file, tag, completed=None, date=None, include_positions=False, region=None, "
+        "adjacent=False, limit=50, offset=0"
     ),
     "diff_summary": "base='main', kinds=None, with_ids=True, limit=200",
     "check_encoding": "files=None, limit=200, offset=0",

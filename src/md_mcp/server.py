@@ -565,10 +565,12 @@ def build_server(settings: Settings):
         completed: Optional[list[str]] = None,
         date: Optional[str] = None,
         include_positions: bool = False,
+        region: Optional[str] = None,
+        adjacent: bool = False,
         limit: int = 50,
         offset: int = 0,
     ) -> dict:
-        """Read one focus file in an explicit tag/date/completion scenario; page overlaps and optional visible positions."""
+        """Read focus overlaps for a scenario; optionally restrict region, include adjacent pairs and positions."""
         return await blocking_tools.run(
             focus_overlap_scenarios_tool,
             settings.mod_root,
@@ -578,6 +580,8 @@ def build_server(settings: Settings):
             completed=completed,
             date=date,
             include_positions=include_positions,
+            region=region,
+            adjacent=adjacent,
             limit=limit,
             offset=offset,
         )

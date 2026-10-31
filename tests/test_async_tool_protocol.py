@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import shutil
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -181,6 +182,87 @@ async def _probe_slow_lint_stdio(mod_root: Path, cache_dir: Path, slow_started: 
         payload = json.loads(slow_result.content[0].text)
         assert payload["ok"] is True
         assert payload["checks"][0]["name"] == "common_mistakes"
+
+
+@pytest.mark.integration
+def test_focus_overlap_stdio_budget_and_no_write(real_mod_root: Path, tmp_path: Path) -> None:
+    mod_root = tmp_path / "mod"
+    helper_dir = mod_root / "tools" / "analysis"
+    helper_dir.mkdir(parents=True)
+    shutil.copyfile(
+        real_mod_root / "tools" / "analysis" / "focus_overlap_report.py",
+        helper_dir / "focus_overlap_report.py",
+    )
+    shutil.copyfile(
+        real_mod_root / "tools" / "shared_utils.py", mod_root / "tools" / "shared_utils.py"
+    )
+    source = mod_root / "common" / "national_focus" / "long_adjacent.txt"
+    source.parent.mkdir(parents=True)
+    focus_ids = [f"F{index:03d}" + "X" * 1000 for index in range(150)]
+    source.write_text(
+        "focus_tree = {\n"
+        + "".join(
+            f" focus = {{ id = {focus_id} x = {index} y = 0 }}\n"
+            for index, focus_id in enumerate(focus_ids)
+        )
+        + "}\n",
+        encoding="utf-8",
+    )
+    before = {
+        path.relative_to(mod_root): path.read_bytes()
+        for path in mod_root.rglob("*")
+        if path.is_file()
+    }
+    source_root = Path(__file__).resolve().parents[1] / "src"
+    env = os.environ.copy()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["PYTHONPATH"] = os.pathsep.join(
+        part for part in (str(source_root), env.get("PYTHONPATH", "")) if part
+    )
+    code = (
+        "import sys; from pathlib import Path; "
+        "from md_mcp.config import Settings; from md_mcp.server import build_server; "
+        "build_server(Settings(Path(sys.argv[1]), None, Path(sys.argv[2]))).run()"
+    )
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", code, str(mod_root), str(tmp_path / "cache")],
+        env=env,
+    )
+
+    async def call_tool() -> None:
+        async with (
+            stdio_client(params) as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            response = await session.call_tool(
+                "focus_overlap_scenarios",
+                {
+                    "file": "common/national_focus/long_adjacent.txt",
+                    "tag": "POL",
+                    "adjacent": True,
+                    "limit": 100,
+                },
+            )
+            assert response.model_dump(by_alias=True)["isError"] is False
+            content = response.content[0]
+            assert isinstance(content, TextContent)
+            payload = json.loads(content.text)
+            assert payload["ok"] is True, payload
+            assert payload["adjacent_pairs_total"] == len(focus_ids) - 1
+            assert payload["adjacent_pairs_dropped"] == 100
+            assert payload["adjacent_pairs_returned"] == 0
+            assert payload["adjacent_pairs_truncated"] is True
+            assert len(content.text.encode("utf-8")) <= 100_000
+
+    asyncio.run(asyncio.wait_for(call_tool(), timeout=30))
+    after = {
+        path.relative_to(mod_root): path.read_bytes()
+        for path in mod_root.rglob("*")
+        if path.is_file()
+    }
+    assert after == before
 
 
 def test_slow_lint_tool_does_not_block_concurrent_stdio_call(

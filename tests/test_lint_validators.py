@@ -82,9 +82,7 @@ class FakeRunner(ValidatorRunner):
         files=None,
         post_filter=True,
         args=None,
-        _worker_budget=None,
     ):
-        assert _worker_budget is None
         self.calls.append({"name": name, "staged_only": staged_only})
         call = {"name": name, "files": files, "post_filter": post_filter}
         if args:

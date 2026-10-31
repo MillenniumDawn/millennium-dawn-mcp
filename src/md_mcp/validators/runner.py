@@ -36,6 +36,7 @@ import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
@@ -203,6 +204,9 @@ class ValidatorRunner:
         self.mode = mode
         self._infos: Optional[dict[str, ValidatorInfo]] = None
         self._attributor_cache: Optional[IssueAttributor] = None
+        self._worker_budget: ContextVar[Optional[int]] = ContextVar(
+            f"validator_worker_budget_{id(self)}", default=None
+        )
 
     def _attributor(self) -> IssueAttributor:
         """Reuse one TTL-refreshed path index for lint and validate."""
@@ -229,14 +233,21 @@ class ValidatorRunner:
         outer = min(4, len(names), budget)
         inner = max(1, budget // outer)
         if outer == 1:
-            return [self.run(name, _worker_budget=inner) for name in names]
+            return [self._run_with_worker_budget(name, inner) for name in names]
         # Resolve shared runner caches before worker threads use them.
         self.list()
         self._attributor()
         _maintain_validator_cache(self.mod_root)
         with ThreadPoolExecutor(max_workers=outer, thread_name_prefix="md-mcp-validator") as pool:
-            futures = [pool.submit(self.run, name, _worker_budget=inner) for name in names]
+            futures = [pool.submit(self._run_with_worker_budget, name, inner) for name in names]
             return [future.result() for future in futures]
+
+    def _run_with_worker_budget(self, name: str, worker_budget: int) -> dict:
+        token = self._worker_budget.set(worker_budget)
+        try:
+            return self.run(name)
+        finally:
+            self._worker_budget.reset(token)
 
     def run(
         self,
@@ -246,7 +257,6 @@ class ValidatorRunner:
         files: Optional[builtins.list[str]] = None,
         post_filter: bool = True,
         args: Optional[builtins.list[str] | tuple[str, ...]] = None,
-        _worker_budget: Optional[int] = None,
     ) -> dict:
         """Run a single validator. Returns {ok, validator, title, issues, counts}.
 
@@ -276,7 +286,7 @@ class ValidatorRunner:
                 files=files,
                 post_filter=post_filter,
                 args=args,
-                worker_budget=_worker_budget,
+                worker_budget=self._worker_budget.get(),
             )
         # Every attempted run is timed, failures included; the unknown-validator
         # early return above never attempts a run and carries no timing.

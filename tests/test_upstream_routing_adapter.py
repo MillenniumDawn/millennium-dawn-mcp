@@ -157,9 +157,7 @@ def test_tool_routes_and_validator_args_use_upstream_specs(tmp_path):
             files=None,
             post_filter=True,
             args=None,
-            _worker_budget=None,
         ):
-            assert _worker_budget is None
             kwargs: dict[str, object] = {"staged_only": staged_only}
             if files is not None:
                 kwargs["files"] = files

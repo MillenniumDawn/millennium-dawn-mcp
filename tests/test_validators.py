@@ -67,7 +67,7 @@ def test_run_many_isolates_parallel_results_and_preserves_order(fake_mod_root, m
     ("budget", "names", "expected"),
     [(1, ["alpha"], "1"), (4, ["alpha", "beta"], "2")],
 )
-def test_run_many_applies_child_budget_and_preserves_parent_environment(
+def test_run_many_applies_child_budget_through_legacy_run_override(
     fake_mod_root, monkeypatch, budget, names, expected
 ):
     for name in ("alpha", "beta"):
@@ -75,11 +75,26 @@ def test_run_many_applies_child_budget_and_preserves_parent_environment(
     monkeypatch.setattr(runner_module, "_validator_cpu_budget", lambda: budget)
     monkeypatch.setenv("MD_MAX_WORKERS", "14")
 
-    results = ValidatorRunner(fake_mod_root).run_many(names)
+    class LegacyRunner(ValidatorRunner):
+        def __init__(self):
+            super().__init__(fake_mod_root)
+            self.calls = []
 
+        def run(self, name, *, staged_only=False, files=None, post_filter=True, args=None):
+            self.calls.append(name)
+            return super().run(
+                name, staged_only=staged_only, files=files, post_filter=post_filter, args=args
+            )
+
+    runner = LegacyRunner()
+    results = runner.run_many(names)
+    named_result = runner.run("alpha")
+
+    assert runner.calls == [*names, "alpha"]
     assert [issue["message"] for result in results for issue in result["issues"]] == [
         expected
     ] * len(names)
+    assert [issue["message"] for issue in named_result["issues"]] == ["14"]
     assert os.environ["MD_MAX_WORKERS"] == "14"
 
 

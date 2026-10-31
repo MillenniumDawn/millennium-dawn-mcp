@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import sys
 import threading
+import time as clock
 from pathlib import Path
 
 import pytest
 
 from md_mcp.config import Settings
-from md_mcp.indexes import base as index_base
 from md_mcp.tools import lint_validators, linting_tools
 from md_mcp.tools.lint_validators import (
     SCAN_PREFIXES,
@@ -74,7 +74,15 @@ class FakeRunner(ValidatorRunner):
             for n in self.names
         ]
 
-    def run(self, name, *, staged_only=False, files=None, post_filter=True, args=None):
+    def run(
+        self,
+        name,
+        *,
+        staged_only=False,
+        files=None,
+        post_filter=True,
+        args=None,
+    ):
         self.calls.append({"name": name, "staged_only": staged_only})
         call = {"name": name, "files": files, "post_filter": post_filter}
         if args:
@@ -1594,7 +1602,7 @@ def test_lint_attributor_costs_one_listing_per_ttl_across_calls(mod_with_files, 
 
     monkeypatch.setattr(attribution_module, "_list_mod_files", counting)
     now = [10.0]
-    monkeypatch.setattr(index_base.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(clock, "monotonic", lambda: now[0])
     runner = FakeRunner(
         mod_root=mod_with_files,
         results={"events": {"ok": True, "issues": [_issue("Algeria.txt")]}},
@@ -1650,7 +1658,7 @@ def test_validate_files_resolves_new_untracked_bare_name_after_refresh(tmp_path,
     git(tmp_path, "add", "tools/validation/validate_events.py")
     git(tmp_path, "add", "events")
     now = [10.0]
-    monkeypatch.setattr(index_base.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(clock, "monotonic", lambda: now[0])
     monkeypatch.setattr(
         runner_module,
         "_collect",
@@ -1678,7 +1686,7 @@ def test_lint_resolves_untracked_file_after_ttl_refresh(tmp_path, monkeypatch):
     (events / "old.txt").write_text("x", encoding="utf-8")
     git(tmp_path, "add", "events")
     now = [10.0]
-    monkeypatch.setattr(index_base.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(clock, "monotonic", lambda: now[0])
     results = {"events": {"ok": True, "issues": [_issue("old.txt")]}}
     runner = FakeRunner(mod_root=tmp_path, results=results)
     kwargs = {

@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,19 @@ from md_mcp.tools.lint_fixers import (
 from md_mcp.util.response import BUDGET_BYTES, MAX_TEXT_BYTES
 
 LINTING = "tools/linting"
+
+
+@pytest.fixture(autouse=True)
+def fresh_fixer_imports():
+    """Keep fixer stand-ins and helper paths within the test that loaded them."""
+    saved_path = sys.path.copy()
+    lint_fixers._UPSTREAM.reset()
+    lint_fixers._EVENTS_VALIDATION.reset()
+    yield
+    lint_fixers._UPSTREAM.reset()
+    lint_fixers._EVENTS_VALIDATION.reset()
+    sys.path[:] = saved_path
+
 
 # ---------------------------------------------------------------------------
 # Stand-in upstream modules (unit layer)

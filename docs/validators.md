@@ -186,8 +186,8 @@ validate(validator="unused_textures")
 
 `benchmarks/validator_concurrency.py` measures sequential and concurrent full
 run-all. It selects one logical CPU per physical core from the current Linux
-affinity, enables validator
-disk caches, discards one full-run warmup, and compares every result field,
+affinity, enables validator disk caches, discards one full-run warmup, and
+compares every result field,
 ignoring only elapsed time and issue order. A speedup of at least 2x on 14
 physical cores was required before adoption. The qualifying result supported
 the bounded production run-all described above.
@@ -220,8 +220,20 @@ The median paired speedup was 2.593x. Median wall times were 63.903 seconds
 sequential and 24.564 seconds concurrent. All four equivalence digests matched,
 including the discarded warmup, and all per-validator timings were present.
 
-This clears the experiment's 2x threshold. It is not a measured MCP server
-speedup. The production concurrency is limited to isolated, unscoped run-all.
+This clears the CLI experiment's 2x threshold. Production concurrency is
+limited to isolated, unscoped run-all.
+
+The [live MCP comparison](../benchmarks/results/validator-concurrency-mcp.json)
+used sequential source `75edb15` and concurrent source `3b09206` against the same
+mod commit and 14 physical cores. After a discarded warmup, three alternating
+`validate(counts_only=True)` pairs measured median wall times of 64.522 seconds
+sequential and 24.554 seconds concurrent, with a median paired speedup of 2.650x.
+All eight normalized summary digests matched, ignoring only validator timings.
+A separate default-argument call also returned equivalent results. All 54 tool
+schemas and six resource templates matched. A `calculate_days` request completed
+in 0.002 seconds while run-all remained active. The report includes each
+validator's timing, the probe source, and the uncontrolled filesystem-cache
+condition. These measurements do not promise the same speedup on other hosts.
 
 ## Suppression
 

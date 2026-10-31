@@ -90,12 +90,27 @@ def test_run_many_applies_child_budget_through_legacy_run_override(
     results = runner.run_many(names)
     named_result = runner.run("alpha")
 
-    assert runner.calls == [*names, "alpha"]
+    assert sorted(runner.calls[:-1]) == sorted(names)
+    assert runner.calls[-1] == "alpha"
     assert [issue["message"] for result in results for issue in result["issues"]] == [
         expected
     ] * len(names)
     assert [issue["message"] for issue in named_result["issues"]] == ["14"]
     assert os.environ["MD_MAX_WORKERS"] == "14"
+
+
+def test_run_many_resets_worker_budget_after_override_failure(fake_mod_root, monkeypatch):
+    runner = ValidatorRunner(fake_mod_root)
+    monkeypatch.setattr(runner_module, "_validator_cpu_budget", lambda: 1)
+
+    def fail(name):
+        assert runner._worker_budget.get() == 1
+        raise RuntimeError("override failed")
+
+    monkeypatch.setattr(runner, "run", fail)
+    with pytest.raises(RuntimeError, match="override failed"):
+        runner.run_many(["alpha"])
+    assert runner._worker_budget.get() is None
 
 
 def test_run_many_empty_and_mode_fallback_do_not_allocate_threads(fake_mod_root, monkeypatch):

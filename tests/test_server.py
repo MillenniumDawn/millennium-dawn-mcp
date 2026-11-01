@@ -115,6 +115,7 @@ TOOL_SIGNATURES = {
     "find_oobs": "query=None, limit=200, offset=0",
     "lookup_docs": "kind, key=None, limit=100, offset=0, content_offset=None, content_limit=None",
     "find_references": "kind, target, limit=100, offset=0, snippet_chars=120, files_only=False",
+    "find_unreferenced": "kind, file, limit=200, offset=0, include_hits=False",
     "list_country_content": "tag, include=None, limit_per_category=100",
     "check_equipment_variant": "text, limit=100, offset=0",
     "validate": (
@@ -430,6 +431,15 @@ TOOL_CALLS: dict[str, tuple[dict, dict]] = {
     ),
     "lookup_docs": ({"kind": "doc"}, {"ok": False, "file": ".claude/docs"}),
     "find_references": ({"kind": "focus", "target": "TST_root"}, {"ok": True, "total": 2}),
+    "find_unreferenced": (
+        {"kind": "scripted_effect", "file": "common/scripted_effects/test_effects.txt"},
+        {
+            "ok": True,
+            "file": "common/scripted_effects/test_effects.txt",
+            "total": 1,
+            "unreferenced": ["TST_test_effect"],
+        },
+    ),
     # One sample per index shows each index reached its own parameter.
     "list_country_content": (
         {"tag": "TST"},

@@ -651,6 +651,76 @@ The internal **scan budget** caps how many matches the scanner accumulates
 before bailing. `scan_truncated=True` means the response is incomplete; raise
 `limit` or set `files_only=True` for hot targets.
 
+### `find_unreferenced(kind, file, limit?, offset?, include_hits?) -> dict`
+
+Which names a file defines are never referenced anywhere else. One call replaces a
+grep loop with `find_references` per name.
+
+- **`kind`** — `idea`, `scripted_loc`, `scripted_effect`, or `scripted_trigger`.
+- **`file`** — mod-relative path of a `.txt` file (the submod copy wins). Absolute
+  paths, paths outside the mod, missing files, and other extensions return
+  `{ok: false, error, kind, file}`. A file with no definitions is `ok: true`, `total: 0`.
+- **`limit=200`**, **`offset=0`** — slice the `unreferenced` name list.
+- **`include_hits=True`** — adds `hits: [{name, count, samples}]` for the referenced
+  names, sliced by the same `limit`/`offset`. `count` is one per name per line.
+  `samples` holds at most 3 `{file, line, snippet}` entries (snippet capped at 120
+  characters). A page of `hits` that overflows the 100 KB budget is dropped whole
+  (`hits_dropped`); lower `limit`.
+
+Returns `{ok, kind, file, total, referenced, unreferenced_total, returned, offset,
+limit, truncated, unreferenced}`. `total` is the number of names analysed and
+`referenced` is a count. `truncated` is true when any returned list has more.
+
+Only the mod and the submod are scanned, never vanilla, and a file a higher-priority
+root also has is read from that root only.
+
+**`idea` and `scripted_loc`** port upstream `tools/analysis/find_idea_references.py` and
+`find_scripted_loc_references.py`: the same name extraction, search directories, and
+line rules, so results and per-name `count` match
+`find_idea_references.py <file> --show-all` and `find_scripted_loc_references.py <file>`.
+
+- Idea names are the `name = {` lines at brace depth 2 (not tags like `ABC`, not
+  `modifier`, `limit`, and the other upstream skip words). A line counts when it holds
+  the name as a whole word and matches an idea keyword (`add_ideas`, `has_idea`,
+  `idea.*=`, `=\s*idea`, ...) or sits inside an `add_ideas = { ... }` style block.
+  Searched: `common/{events,decisions,national_focus,scripted_effects,on_actions,focuses,country_leader,ideas}`,
+  `history/countries`, `events`.
+- Scripted loc names are the `name = X` lines. A whole-word `X` counts anywhere in
+  `.txt/.gui/.gfx/.yml` under `interface`, `events`, `common/{decisions,national_focus,scripted_effects,on_actions,focuses,scripted_guis}`,
+  and `gfx/interface`. Under `localisation` (every language) only `[X]` in a `.yml` counts.
+  The `name = X` line of the analysed file is skipped when that file is itself scanned.
+- Upstream's quirks are kept because they err toward "referenced": a commented reference
+  counts, and an idea definition line such as `foo_idea = {` matches `idea.*=` and
+  counts as a reference to itself.
+- Upstream's idea search omits `common/scripted_triggers`, `common/scripted_guis`, and
+  `common/characters`, so an idea used only there is reported unreferenced.
+
+**`scripted_effect` and `scripted_trigger`** have no upstream finder. Names come from the
+scripted effect or trigger index for `file`; a file the index failed to parse is an
+error. A reference is any of these, outside comments, and a name's own definition line
+never counts. Searched: every `.txt` under `common`, `events`, and `history`, the set
+`validate_unused_scripted` scans.
+
+- What `find_references` counts: the name (bare or quoted, not part of a longer word or
+  dotted path) followed by `= {` or `= value`, not inside a string.
+- `custom_effect_tooltip = name` or `custom_trigger_tooltip = name`.
+- A `meta_effect` / `meta_trigger` template that can expand to the name, in a file that
+  uses one: `set_leader_[TAG]` counts for `set_leader_ABC`, compared without case. This
+  is `validate_unused_scripted`'s rule, and it errs toward "referenced".
+
+An unreferenced name that `validation_config.json` lists under `validate_unused_scripted`
+(engine hooks such as `DIPLOMACY_*_ENABLE_TRIGGER`, pending work, whole files) goes in
+`allowlisted` instead of `unreferenced`, with `allowlisted_total`. Both keys appear only
+when there is at least one such name. Nothing in the mod calls these names, but they are
+not safe to delete.
+
+**Performance.** On the real mod the largest ideas file takes about 0.4 s, `scripted_loc`
+about 1.7 s, and the effect and trigger kinds about 4 s, cold or warm. Files are read
+through the shared text cache (`analysis/text_cache.py`), which is bounded and never
+evicts (`MD_MCP_TEXT_CACHE_BYTES`). `scripted_loc` reads all of `localisation`, about
+300 MB, so it fills the cache, as `find_references` alone already does. Measured
+`find_references` latency after a full cache stays within 0.03 s.
+
 ### `focus_graph(tag, detail?, focus_ids?, node_limit?, edge_limit?, include_nodes?, include_edges?) -> dict`
 
 Prereq/mutex DAG for a tag's focuses, with **four detail tiers**:

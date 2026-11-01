@@ -283,6 +283,8 @@ def focus_overlap_scenarios_tool(
     completed: Optional[list[str]] = None,
     date: Optional[str] = None,
     include_positions: bool = False,
+    region: Optional[str] = None,
+    adjacent: bool = False,
     limit: int = 50,
     offset: int = 0,
 ) -> dict:
@@ -309,6 +311,18 @@ def focus_overlap_scenarios_tool(
         return error_result(str(exc))
     if not isinstance(include_positions, bool):
         return error_result("include_positions must be a boolean")
+    if not isinstance(adjacent, bool):
+        return error_result("adjacent must be a boolean")
+    if region is not None:
+        if not isinstance(region, str):
+            return error_result("region must be an x0,x1,y0,y1 string")
+        parts = region.split(",")
+        if len(parts) != 4:
+            return error_result(f"Invalid region: expected x0,x1,y0,y1, got {region!r}")
+        try:
+            tuple(int(part) for part in parts)
+        except ValueError as exc:
+            return error_result(f"Invalid region: {exc}")
     try:
         source_path, path_error = _focus_source_path(mod_root, submod_root, file)
     except (OSError, ValueError) as exc:
@@ -325,19 +339,22 @@ def focus_overlap_scenarios_tool(
             "completed": completed,
             "date": date,
             "include_positions": include_positions,
+            "region": region,
+            "adjacent": adjacent,
             "limit": limit,
             "offset": offset,
         },
         timeout=_FOCUS_OVERLAP_TIMEOUT,
     )
-    heavy_keys = (("positions",) if result.get("positions_included") else ()) + (
-        "collision_groups",
-        "diagnostics",
+    heavy_keys = (
+        (("positions",) if result.get("positions_included") else ())
+        + (("adjacent_pairs",) if result.get("adjacent_included") else ())
+        + ("collision_groups", "diagnostics")
     )
     shaped = enforce_budget(result, heavy_keys=heavy_keys)
     for _ in range(len(heavy_keys) + 1):
         metadata_changed = False
-        for name in ("positions", "collision_groups", "diagnostics"):
+        for name in ("positions", "adjacent_pairs", "collision_groups", "diagnostics"):
             dropped_key = f"{name}_dropped"
             if dropped_key in shaped and (
                 shaped.get(f"{name}_returned") != 0 or shaped.get(f"{name}_truncated") is not True

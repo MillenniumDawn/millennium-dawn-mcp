@@ -10,7 +10,7 @@ import sys
 import tempfile
 from collections import UserDict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 def _load_module(path: Path, name: str):
@@ -725,6 +725,22 @@ def _focus_overlap_scenarios(mod_root: Path, payload: dict) -> dict:
         return {"ok": False, "file": raw_file, "error": "completed must be a list of focus ids"}
     if not isinstance(payload.get("include_positions", False), bool):
         return {"ok": False, "file": raw_file, "error": "include_positions must be a boolean"}
+    if not isinstance(payload.get("adjacent", False), bool):
+        return {"ok": False, "file": raw_file, "error": "adjacent must be a boolean"}
+    raw_region = payload.get("region")
+    if raw_region is not None and not isinstance(raw_region, str):
+        return {"ok": False, "file": raw_file, "error": "region must be an x0,x1,y0,y1 string"}
+    if raw_region is not None and len(raw_region.split(",")) != 4:
+        return {
+            "ok": False,
+            "file": raw_file,
+            "error": f"Invalid region: expected x0,x1,y0,y1, got {raw_region!r}",
+        }
+    try:
+        if raw_region is not None:
+            tuple(int(part) for part in raw_region.split(","))
+    except ValueError as exc:
+        return {"ok": False, "file": raw_file, "error": f"Invalid region: {exc}"}
     try:
         limit = min(100, max(0, int(payload.get("limit", 50))))
         offset = max(0, int(payload.get("offset", 0)))
@@ -870,13 +886,26 @@ def _focus_overlap_scenarios(mod_root: Path, payload: dict) -> dict:
             }
         positions = module.resolve_positions(focuses, scenario)
         visible = module.resolve_visibility(focuses, scenario)
+        if raw_region is None:
+            region = None
+        else:
+            parse_region = getattr(module, "parse_region", None)
+            if not callable(parse_region):
+                return {
+                    "ok": False,
+                    "unsupported": True,
+                    "file": raw_file,
+                    "error": "Upstream focus overlap API is missing: parse_region",
+                }
+            region = cast(tuple[int, int, int, int], parse_region(raw_region))
+        adjacent = bool(payload.get("adjacent", False))
         report = module.build_report(
             focuses,
             positions,
             visible,
             scenario,
-            None,
-            False,
+            region,
+            adjacent,
             bool(payload.get("include_positions", False)),
         )
         collision_groups = report.get("collisions")
@@ -930,10 +959,28 @@ def _focus_overlap_scenarios(mod_root: Path, payload: dict) -> dict:
             current = parent_id
 
     collisions_page = collision_groups[offset : offset + limit]
-    position_total = int(report.get("visible", 0))
+    if region is None:
+        position_total = int(report.get("visible", 0))
+    else:
+        position_total = sum(
+            shown
+            and region[0] <= positions[focus_id][0] <= region[1]
+            and region[2] <= positions[focus_id][1] <= region[3]
+            for focus_id, shown in visible.items()
+        )
+        if payload.get("include_positions"):
+            position_total = len(all_positions)
     positions_page = all_positions[offset : offset + limit]
     diagnostics_page = diagnostics[offset : offset + limit]
-    return {
+    adjacent_pairs = report.get("adjacent", []) if adjacent else []
+    if not isinstance(adjacent_pairs, list):
+        return {
+            "ok": False,
+            "file": raw_file,
+            "error": "Upstream report has an invalid adjacent list",
+        }
+    adjacent_page = adjacent_pairs[offset : offset + limit]
+    result = {
         "ok": True,
         "file": str(source),
         "scenario": report.get("scenario", {}),
@@ -963,6 +1010,17 @@ def _focus_overlap_scenarios(mod_root: Path, payload: dict) -> dict:
         "unresolved_chain_total": unresolved_total,
         "positions_are_partial": unknown_total > 0 or unresolved_total > 0,
     }
+    if adjacent:
+        result.update(
+            {
+                "adjacent_included": True,
+                "adjacent_pairs_total": len(adjacent_pairs),
+                "adjacent_pairs_returned": len(adjacent_page),
+                "adjacent_pairs_truncated": offset + limit < len(adjacent_pairs),
+                "adjacent_pairs": adjacent_page,
+            }
+        )
+    return result
 
 
 RENAME_SCAN_TREES = ("common", "events", "history", "interface")

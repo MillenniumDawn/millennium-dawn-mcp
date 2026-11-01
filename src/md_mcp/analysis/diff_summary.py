@@ -27,6 +27,7 @@ from pathlib import Path
 from subprocess import TimeoutExpired
 from typing import Any, Optional, Union
 
+from ..content_registry import CONTENT_BY_NAME, classify_content_path
 from ..paradox import parse_string
 from ..paradox.schema import (
     extract_decision_records,
@@ -44,6 +45,12 @@ GIT_TIMEOUT_SHOW = 15.0
 
 # Cap stderr from git subprocesses so a noisy failure doesn't bloat responses.
 GIT_ERR_MAX_BYTES = 4_000
+_DIFF_EXTRACTORS = {
+    "focus": extract_focus_records,
+    "event": extract_event_records,
+    "decision": extract_decision_records,
+    "idea": extract_idea_records,
+}
 
 # Git revisions must be non-empty and must not start with `-` (option-injection).
 # We further separate revs from options with `--end-of-options` at the call site
@@ -156,7 +163,7 @@ def diff_summary(
         if old_path and old_path != new_path:
             record["old_path"] = old_path
 
-        if with_ids and kind in ("focus", "event", "decision", "idea"):
+        if with_ids and (content := CONTENT_BY_NAME.get(kind)) and content.diff_extractor:
             id_block: dict[str, Any] = {}
             base_err: Optional[str] = None
             head_err: Optional[str] = None
@@ -218,28 +225,7 @@ def diff_summary(
 
 
 def _classify(path: str) -> str:
-    p = path.replace("\\", "/")
-    if p.startswith("common/national_focus/"):
-        return "focus"
-    if p.startswith("events/"):
-        return "event"
-    if p.startswith("common/decisions/"):
-        return "decision"
-    if p.startswith("common/ideas/"):
-        return "idea"
-    if p.startswith("localisation/"):
-        return "loc"
-    if p.startswith("interface/") and p.endswith(".gfx"):
-        return "gfx"
-    if p.startswith("common/military_industrial_organization/"):
-        return "mio"
-    if p.startswith("history/"):
-        return "history"
-    if p.startswith("tools/"):
-        return "tools"
-    if p.startswith(".claude/"):
-        return "claude"
-    return "other"
+    return classify_content_path(path)
 
 
 def _git_diff_files(mod_root: Path, base: str) -> Any:
@@ -361,12 +347,8 @@ def _extract_ids(text: str, kind: str) -> list[str]:
         # caller that swallows the result would otherwise conclude nothing
         # changed in this file when in fact it failed to parse.
         raise RuntimeError(f"paradox parser: {exc.__class__.__name__}: {exc}") from exc
-    if kind == "focus":
-        return [r["id"] for r in extract_focus_records(root)]
-    if kind == "event":
-        return [r["id"] for r in extract_event_records(root)]
-    if kind == "decision":
-        return [r["id"] for r in extract_decision_records(root)]
-    if kind == "idea":
-        return [r["id"] for r in extract_idea_records(root)]
-    return []
+    content = CONTENT_BY_NAME.get(kind)
+    if content is None or content.diff_extractor is None:
+        return []
+    extractor = _DIFF_EXTRACTORS[content.diff_extractor]
+    return [record["id"] for record in extractor(root)]

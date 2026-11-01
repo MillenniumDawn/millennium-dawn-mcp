@@ -3,7 +3,6 @@
 import asyncio
 import json
 import os
-from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -28,13 +27,13 @@ async def _probe_delta(mod_root: Path, tmp_path: Path) -> None:
     params = server_parameters(fixture, tmp_path / "cache")
     async with (
         stdio_client(params) as (read, write),
-        ClientSession(read, write, read_timeout_seconds=timedelta(seconds=180)) as session,
+        ClientSession(read, write, read_timeout_seconds=180) as session,
     ):
         await session.initialize()
 
         async def validate(**arguments):
             result = await session.call_tool("validate", arguments)
-            assert not result.isError
+            assert not result.is_error
             assert result.content[0].type == "text"
             return json.loads(result.content[0].text)
 

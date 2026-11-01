@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import io
 import json
 import os
@@ -12,6 +13,7 @@ from pathlib import Path
 import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.types import TextContent
 
 from md_mcp.tools import attribution_shim, attribution_tools
 from md_mcp.tools.attribution_shim import analyze
@@ -135,7 +137,7 @@ def test_unloadable_api_shape_and_analysis_exception_are_structured(tmp_path: Pa
     helper = tmp_path / "mod/tools/analysis/check_ai_attribution.py"
     helper.parent.mkdir(parents=True)
     helper.write_text("def classify(line): return None\ndef findings(*args): return []\n")
-    monkeypatch.setattr(attribution_shim.importlib.util, "spec_from_file_location", lambda *a: None)
+    monkeypatch.setattr(importlib.util, "spec_from_file_location", lambda *a: None)
     result = analyze(helper.parents[2], {"content": "safe"})
     assert result["ok"] is False and result["unsupported"] is True
     assert "API is unavailable" in result["error"]
@@ -349,10 +351,10 @@ async def _stdio_calls(
         await session.initialize()
         answers = []
         good = await session.call_tool("check_attribution_labels", {"content": "Author: Codex"})
-        assert not good.isError
+        assert not good.is_error
         answers.append(str(good.model_dump()))
         large = await session.call_tool("check_attribution_labels", {"content": "x" * 150_000})
-        assert not large.isError
+        assert not large.is_error
         answers.append(str(large.model_dump()))
         if include_dense:
             dense_content = "Author: Codex\n" * 64_000
@@ -360,8 +362,10 @@ async def _stdio_calls(
                 "check_attribution_labels",
                 {"content": dense_content, "limit": 2, "offset": 0},
             )
-            assert not dense.isError and dense.content and hasattr(dense.content[0], "text")
-            answers.append(dense.content[0].text)
+            assert not dense.is_error and dense.content
+            text = dense.content[0]
+            assert isinstance(text, TextContent)
+            answers.append(text.text)
         return answers
 
 

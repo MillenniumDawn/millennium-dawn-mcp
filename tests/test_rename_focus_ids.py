@@ -17,7 +17,6 @@ import json
 import shutil
 import subprocess
 import sys
-from datetime import timedelta
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any, cast
@@ -1101,7 +1100,7 @@ def test_rename_focus_ids_over_real_stdio(real_mod_root: Path, tmp_path: Path) -
     async def go() -> tuple[dict, dict]:
         async with (
             stdio_client(server_parameters(real_mod_root, tmp_path / "cache")) as (read, write),
-            ClientSession(read, write, read_timeout_seconds=timedelta(seconds=600)) as session,
+            ClientSession(read, write, read_timeout_seconds=600.0) as session,
         ):
             await session.initialize()
             plan = await session.call_tool(

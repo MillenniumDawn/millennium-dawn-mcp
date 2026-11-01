@@ -13,7 +13,7 @@ stdio and a result going back out.
                              │
 ┌────────────────────────────▼───────────────────────────────┐
 │ src/md_mcp/server.py                                       │
-│   FastMCP instance · @mcp.tool() + @mcp.resource()         │
+│   MCPServer · @mcp.tool() + @mcp.resource()                 │
 │   one-line descriptions are the agent's prompt budget      │
 └──────┬──────────────────────────────┬──────────────────────┘
        │                              │
@@ -39,7 +39,7 @@ The arrows are import direction. Lower modules don't know about higher ones.
 
 ## Request lifecycle
 
-1. **Client sends `tools/call`** over stdio. FastMCP deserialises and routes
+1. **Client sends `tools/call`** over stdio. MCPServer deserialises and routes
    to the matching `@mcp.tool()` function in `server.py`.
 2. **Server wrapper** in `server.py` does parameter unpacking and calls the
    real implementation in `tools/`, `analysis/`, or `generators/`.
@@ -58,7 +58,7 @@ The arrows are import direction. Lower modules don't know about higher ones.
    detail-tier equivalent) and wraps the dict in `enforce_budget(..., heavy_keys=(...))`
    from `util/response.py`. This is the **last-line defence** that keeps
    output below the ~100 KB MCP client cap.
-5. **FastMCP serialises** the dict to JSON and writes it to stdout.
+5. **MCPServer serialises** the result to MCP content and writes it to stdout.
 
 ## Why this layering matters
 
@@ -66,7 +66,7 @@ The arrows are import direction. Lower modules don't know about higher ones.
   filesystem; instead it walks the in-memory focus map, which is ~50× faster
   and lets `resolve_*` callers compose without paying a re-scan.
 - **Indexes never invoke tools.** They depend only on `paradox/` and `util/`.
-  This keeps the index layer testable without spinning up FastMCP.
+  This keeps the index layer testable without spinning up MCPServer.
 - **Generators never invoke validators or indexes.** They take their args at
   face value and emit script. Validation of the *result* is the agent's job
   via a follow-up `validate` call.

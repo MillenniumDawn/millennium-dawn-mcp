@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,8 @@ from md_mcp.indexes import (
     ScriptedTriggerIndex,
     TraitIndex,
 )
+from md_mcp.paradox.nodes import SymbolNode
+from md_mcp.paradox.parser import parse_string
 
 # References real fixture content from conftest's fake_mod_root:
 #   events_minimal.txt defines Testns.1 / TestnsNews.42
@@ -241,6 +244,34 @@ def test_duplicate_icons_does_not_group_across_focus_files(audit_mod):
     assert result["total_duplicate_icons"] == 0
 
 
+def test_duplicate_icons_ignores_repeated_nested_equipment_icons(audit_mod):
+    root, cache = audit_mod
+    focus_file = root / "common" / "national_focus" / "TST_audit.txt"
+    source = focus_file.read_text(encoding="utf-8")
+    assert source.count("completion_reward = {") == 1
+    equipment_icons = (
+        "equipment_variant = { icon = GFX_nested_equipment }\n"
+        "            equipment_variant = { icon = GFX_nested_equipment }\n"
+    )
+    focus_file.write_text(
+        source.replace("completion_reward = {", "completion_reward = {\n" + equipment_icons, 1),
+        encoding="utf-8",
+    )
+    inserted = focus_file.read_text(encoding="utf-8")
+    assert inserted.count("icon = GFX_nested_equipment") == 2
+    assert inserted.count("completion_reward = {") == 1
+
+    result = check_refs(
+        root,
+        files=["common/national_focus/TST_audit.txt"],
+        kinds=["duplicate_icons"],
+        **_indexes(root, cache),
+    )
+
+    assert result["duplicate_icons"] == []
+    assert result["counts"]["duplicate_icons"] == {"checked": 2, "unresolved": 0}
+
+
 def test_duplicate_icons_is_opt_in(audit_mod):
     root, cache = audit_mod
     (root / "common" / "national_focus" / "AAA.txt").write_text(
@@ -311,22 +342,35 @@ def test_duplicate_icons_matches_upstream_script_on_fixture(audit_mod, tmp_path,
     assert script_count == len(group["focuses"]) - 1
 
 
+def _focus_icon_duplicate_occurrences(source: str) -> Counter[str]:
+    """Project duplicate icon values from direct focus definitions only."""
+    counts: Counter[str] = Counter()
+    root = parse_string(source)
+    for tree in root.children():
+        if tree.name != "focus_tree":
+            continue
+        for focus in tree.children():
+            if focus.name != "focus":
+                continue
+            icon = focus.get("icon")
+            if icon is None:
+                continue
+            if isinstance(icon.value, SymbolNode):
+                icon_name = icon.value.name
+            elif isinstance(icon.value, str):
+                icon_name = icon.value
+            else:
+                continue
+            counts[icon_name.casefold()] += 1
+    return Counter({icon: count - 1 for icon, count in counts.items() if count > 1})
+
+
 @pytest.mark.integration
-def test_duplicate_icons_matches_upstream_script_on_usa_focus_file(real_mod_root, tmp_path):
-    """Normalize script output to duplicate occurrences per icon group."""
+def test_usa_focus_duplicate_icons_match_focus_only_oracle(real_mod_root, tmp_path):
+    """Compare duplicate icons against an independent focus-only AST projection."""
     root = real_mod_root
     source = root / "common" / "national_focus" / "05_usa.txt"
-    script = root / "tools" / "assets" / "duplicate_icon.py"
     assert source.is_file()
-    assert script.is_file()
-    proc = subprocess.run(
-        [sys.executable, "assets/duplicate_icon.py", source.name],
-        cwd=root / "tools",
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    script_count = int(proc.stdout.splitlines()[-1].split(" has ")[1].split()[0])
     result = check_refs(
         root,
         files=["common/national_focus/05_usa.txt"],
@@ -334,8 +378,12 @@ def test_duplicate_icons_matches_upstream_script_on_usa_focus_file(real_mod_root
         limit=-1,
         **_indexes(root, tmp_path),
     )
-    api_count = sum(len(group["focuses"]) - 1 for group in result["duplicate_icons"])
-    assert api_count == script_count
+    actual = Counter(
+        group["icon"].casefold()
+        for group in result["duplicate_icons"]
+        for _ in range(len(group["focuses"]) - 1)
+    )
+    assert actual == _focus_icon_duplicate_occurrences(source.read_text(encoding="utf-8"))
 
 
 def test_tag_scope(audit_mod):

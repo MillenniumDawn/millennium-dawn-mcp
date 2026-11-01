@@ -12,17 +12,23 @@ from typing import Any
 
 from .indexes import (
     CharacterIndex,
+    CountryHistoryIndex,
     CountryTagIndex,
     DecisionIndex,
+    DynamicModifierIndex,
     EventIndex,
     FocusIndex,
     GfxIndex,
     IdeaIndex,
     LocalisationIndex,
+    ModifierDefinitionIndex,
+    OnActionIndex,
     ScriptedEffectIndex,
     ScriptedTriggerIndex,
+    TechnologyIndex,
     TraitIndex,
 )
+from .indexes.content import UnitHistoryIndex
 from .paradox.schema import EVENT_KINDS
 
 
@@ -39,6 +45,7 @@ class ContentType:
     audit_default_order: int = 0
     audit_symbol_nodes: tuple[str, ...] = ()
     audit_resolver: bool = False
+    audit_resolver_field: str | None = None
     encoding_dirs: tuple[str, ...] = ()
     index_class: Any = None
     reference_pattern: Any = None
@@ -192,6 +199,57 @@ CONTENT_TYPES: tuple[ContentType, ...] = (
         encoding_dirs=("common",),
         not_checked_label="scripted_triggers",
         not_checked_order=3,
+    ),
+    ContentType(
+        "on_action",
+        "OnActionIndex",
+        ("common/on_actions/",),
+        "on_action_index",
+        index_class=OnActionIndex,
+    ),
+    ContentType(
+        "technology",
+        "TechnologyIndex",
+        ("common/technologies/",),
+        "technology_index",
+        index_class=TechnologyIndex,
+        audit_resolver=True,
+    ),
+    ContentType(
+        "dynamic_modifier",
+        "DynamicModifierIndex",
+        ("common/dynamic_modifiers/",),
+        "dynamic_modifier_index",
+        index_class=DynamicModifierIndex,
+        audit_resolver=True,
+    ),
+    ContentType(
+        "modifier_definition",
+        "ModifierDefinitionIndex",
+        ("common/modifier_definitions/",),
+        "modifier_definition_index",
+        index_class=ModifierDefinitionIndex,
+    ),
+    ContentType(
+        "country_history",
+        "CountryHistoryIndex",
+        index_attribute="country_history_index",
+        index_class=CountryHistoryIndex,
+    ),
+    ContentType(
+        "oob",
+        "OobIndex",
+        index_attribute="unit_history_index",
+        index_class=UnitHistoryIndex,
+        audit_resolver=True,
+    ),
+    ContentType(
+        "division_template",
+        "DivisionTemplateIndex",
+        index_attribute="unit_history_index",
+        index_class=UnitHistoryIndex,
+        audit_resolver=True,
+        audit_resolver_field="name",
     ),
     ContentType(
         "mio",
@@ -551,6 +609,15 @@ AUDIT_NODE_SETS = {
     "scope_keywords": frozenset({"ROOT", "FROM", "PREV", "THIS", "OWNER", "CONTROLLER"}),
     "dotted_scope_prefixes": ("var:", "event_target:"),
     "focus_definitions": frozenset({"focus", "shared_focus", "joint_focus"}),
+    "technology": frozenset(
+        {"has_tech", "has_technology", "research_technology", "set_technology"}
+    ),
+    "technology_control_keys": frozenset({"popup"}),
+    "dynamic_modifier": frozenset(
+        {"add_dynamic_modifier", "remove_dynamic_modifier", "has_dynamic_modifier"}
+    ),
+    "oob": frozenset({"set_oob", "set_air_oob", "load_oob", "oob"}),
+    "division_template": frozenset({"division_template"}),
 }
 
 
@@ -617,6 +684,11 @@ def build_registry_views(content_types: tuple[ContentType, ...]) -> dict[str, An
             item.name: item.index_attribute
             for item in content_types
             if item.audit_resolver and item.index_attribute is not None
+        },
+        "audit_resolver_fields": {
+            item.name: item.audit_resolver_field
+            for item in content_types
+            if item.audit_resolver and item.audit_resolver_field is not None
         },
         "audit_symbol_kinds": tuple(item.name for item in content_types if item.audit_symbol_nodes),
         "audit_default_kinds": tuple(

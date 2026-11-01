@@ -160,3 +160,118 @@ def parse_scripted_trigger_file(
     abs_path: str, relpath: str, close_blocks_at_eof: bool = False
 ) -> ParseResult:
     return _parse_scripted_file(abs_path, relpath, close_blocks_at_eof, kind="scripted_trigger")
+
+
+def parse_named_blocks_file(
+    abs_path: str,
+    relpath: str,
+    close_blocks_at_eof: bool = False,
+    *,
+    kind: str,
+    wrapper: str | None = None,
+) -> ParseResult:
+    """Index named top-level blocks, optionally inside one named container."""
+    parsed = _parse_root(abs_path, relpath, close_blocks_at_eof)
+    if isinstance(parsed, ParseResult):
+        return parsed
+    root, text = parsed
+    starts = line_starts(text)
+    records: list[dict] = []
+    parents = [node for node in root.children() if node.name == wrapper] if wrapper else []
+    candidates = (
+        [child for parent in parents for child in parent.children()] if wrapper else root.children()
+    )
+    records.extend(
+        _record(node, relpath, starts, kind=kind)
+        for node in candidates
+        if node.name and isinstance(node.value, list)
+    )
+    return ParseResult(records)
+
+
+def parse_on_action_file(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> ParseResult:
+    return parse_named_blocks_file(
+        abs_path, relpath, close_blocks_at_eof, kind="on_action", wrapper="on_actions"
+    )
+
+
+def parse_technology_file(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> ParseResult:
+    return parse_named_blocks_file(
+        abs_path, relpath, close_blocks_at_eof, kind="technology", wrapper="technologies"
+    )
+
+
+def parse_dynamic_modifier_file(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> ParseResult:
+    return parse_named_blocks_file(abs_path, relpath, close_blocks_at_eof, kind="dynamic_modifier")
+
+
+def parse_modifier_definition_file(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> ParseResult:
+    return parse_named_blocks_file(
+        abs_path, relpath, close_blocks_at_eof, kind="modifier_definition"
+    )
+
+
+def parse_country_history_file(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> ParseResult:
+    parsed = _parse_root(abs_path, relpath, close_blocks_at_eof)
+    if isinstance(parsed, ParseResult):
+        return parsed
+    root, text = parsed
+    stem = relpath.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    tag = stem.split(" - ", 1)[0].upper()
+    return ParseResult(
+        [
+            {
+                "id": tag,
+                "tag": tag,
+                "kind": "country_history",
+                "file": relpath,
+                "line": node_line(root.children()[0], line_starts(text)) if root.children() else 1,
+            }
+        ]
+    )
+
+
+def parse_unit_history_file(
+    abs_path: str, relpath: str, close_blocks_at_eof: bool = False
+) -> ParseResult:
+    parsed = _parse_root(abs_path, relpath, close_blocks_at_eof)
+    if isinstance(parsed, ParseResult):
+        return parsed
+    root, text = parsed
+    starts = line_starts(text)
+    records: list[dict] = []
+    stem = relpath.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    for node in root.children():
+        if node.name == "division_template" and isinstance(node.value, list):
+            name = next(
+                (symbol_or_str(child) for child in node.children() if child.name == "name"), None
+            )
+            if name:
+                # The qualified key avoids collisions between countries/OOBs.
+                records.append(
+                    _record(
+                        node,
+                        relpath,
+                        starts,
+                        kind="division_template",
+                        id=f"{stem}:{name}",
+                        name=name,
+                    )
+                )
+    anchor = root.children()[0] if root.children() else None
+    records.append(
+        _record(anchor, relpath, starts, kind="oob", id=stem)
+        if anchor is not None
+        else {"id": stem, "kind": "oob", "file": relpath, "line": 1}
+    )
+    return ParseResult(records)

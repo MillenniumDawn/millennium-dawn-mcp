@@ -82,6 +82,31 @@ def test_find_indexed_filters_by_query_and_kind_and_pages(fake_mod_root, cache_d
     assert (page["total"], page["returned"], page["truncated"]) == (1, 1, False)
 
 
+def test_find_indexed_budget_drop_reconciles_pagination_metadata():
+    class LargeHistoryIndex:
+        def list_files(self):
+            return ["history/units/test.txt"]
+
+        def records_for_file(self, _):
+            return [
+                {
+                    "id": f"template-{index}-" + ("x" * 400),
+                    "kind": "division_template",
+                    "file": "history/units/test.txt",
+                    "line": index,
+                }
+                for index in range(854)
+            ]
+
+    out = analysis_tools.find_indexed_tool(LargeHistoryIndex(), "division_template", limit=10_000)
+
+    assert out["total"] == 854
+    assert out["returned"] == 0
+    assert out["truncated"] is True
+    assert out["matches_dropped"] == 854
+    assert "matches" not in out
+
+
 def test_find_focuses_paginates_with_offset(fake_mod_root, cache_dir):
     out = analysis_tools.find_focuses_tool(
         in_process_settings(fake_mod_root, cache_dir),

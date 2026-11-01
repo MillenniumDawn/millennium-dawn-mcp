@@ -1,0 +1,1250 @@
+{
+  "transport": "MCP stdio",
+  "arguments": {
+    "counts_only": true
+  },
+  "source_revisions": {
+    "sequential": "75edb1575272b1b54417f2d55d9a84a5a5bab741",
+    "concurrent": "3b092069a344cd8afa0d3472a396c33d38413c7b"
+  },
+  "mod_root": "/mnt/Linux/github-projects/worktrees/Millennium-Dawn-mcp-validator-benchmark",
+  "mod_revision": "0b325f86d03928875fbded86991008ded7df8a8e",
+  "sdk_version": "1.29.1",
+  "python": "3.12.13 (main, Apr 14 2026, 14:29:00) [Clang 22.1.3 ]",
+  "platform": "Linux-7.0.0-42-generic-x86_64-with-glibc2.43",
+  "host_logical_cpus": 24,
+  "selected_physical_cores": [
+    {
+      "cpu": 0,
+      "package_id": 0,
+      "core_id": 0
+    },
+    {
+      "cpu": 2,
+      "package_id": 0,
+      "core_id": 4
+    },
+    {
+      "cpu": 4,
+      "package_id": 0,
+      "core_id": 8
+    },
+    {
+      "cpu": 6,
+      "package_id": 0,
+      "core_id": 12
+    },
+    {
+      "cpu": 8,
+      "package_id": 0,
+      "core_id": 16
+    },
+    {
+      "cpu": 10,
+      "package_id": 0,
+      "core_id": 20
+    },
+    {
+      "cpu": 12,
+      "package_id": 0,
+      "core_id": 24
+    },
+    {
+      "cpu": 14,
+      "package_id": 0,
+      "core_id": 28
+    },
+    {
+      "cpu": 16,
+      "package_id": 0,
+      "core_id": 32
+    },
+    {
+      "cpu": 17,
+      "package_id": 0,
+      "core_id": 33
+    },
+    {
+      "cpu": 18,
+      "package_id": 0,
+      "core_id": 34
+    },
+    {
+      "cpu": 19,
+      "package_id": 0,
+      "core_id": 35
+    },
+    {
+      "cpu": 20,
+      "package_id": 0,
+      "core_id": 36
+    },
+    {
+      "cpu": 21,
+      "package_id": 0,
+      "core_id": 37
+    }
+  ],
+  "server_md_max_workers": 14,
+  "concurrent_total_pool_budget": 12,
+  "concurrent_outer_workers": 4,
+  "concurrent_inner_pool_cap": 3,
+  "cache_conditions": "Validator disk caches enabled; full discarded warmup per server; OS filesystem cache uncontrolled.",
+  "validators": [
+    "achievements",
+    "agency_upgrades",
+    "ai_equipment",
+    "ai_navy",
+    "ai_path_rules",
+    "ai_roles",
+    "ai_weight_order",
+    "bonus_names",
+    "building_guards",
+    "characters",
+    "common_mistakes",
+    "cosmetic_tags",
+    "country_names",
+    "decisions",
+    "defines",
+    "dlc_guards",
+    "dynamic_modifier_guards",
+    "equipment_upkeep",
+    "equipment_variants",
+    "events",
+    "factions",
+    "file_paths",
+    "focus_tree",
+    "gfx_references",
+    "graphical_cultures",
+    "history",
+    "ideas",
+    "influence_calls",
+    "localisation",
+    "math_expressions",
+    "mio_icons",
+    "mios",
+    "mod_descriptors",
+    "modifiers",
+    "on_actions",
+    "oob_units",
+    "party_loc",
+    "scientist_traits",
+    "scripted_gui",
+    "scripted_localisation",
+    "scripted_params",
+    "set_variables",
+    "simplifications",
+    "style",
+    "tech_categories",
+    "technologies",
+    "variables"
+  ],
+  "schemas_equal": true,
+  "discarded_warmup": {
+    "sequential": {
+      "wall_s": 67.21751234399562,
+      "normalized_sha256": "a8057c685560fffb26c7910edae16c6838b1e24d7ec40ceea9b748f5f5bbd55d",
+      "wire_text_bytes": 11456,
+      "validator_elapsed_s": {
+        "achievements": 0.066,
+        "agency_upgrades": 0.23,
+        "ai_equipment": 0.805,
+        "ai_navy": 0.059,
+        "ai_path_rules": 0.192,
+        "ai_roles": 0.083,
+        "ai_weight_order": 0.145,
+        "bonus_names": 3.353,
+        "building_guards": 0.144,
+        "characters": 1.278,
+        "common_mistakes": 2.891,
+        "cosmetic_tags": 0.94,
+        "country_names": 0.062,
+        "decisions": 9.984,
+        "defines": 0.065,
+        "dlc_guards": 0.193,
+        "dynamic_modifier_guards": 0.094,
+        "equipment_upkeep": 0.114,
+        "equipment_variants": 12.446,
+        "events": 1.583,
+        "factions": 0.107,
+        "file_paths": 0.259,
+        "focus_tree": 1.073,
+        "gfx_references": 0.575,
+        "graphical_cultures": 0.093,
+        "history": 0.705,
+        "ideas": 3.948,
+        "influence_calls": 0.098,
+        "localisation": 2.578,
+        "math_expressions": 0.134,
+        "mio_icons": 0.242,
+        "mios": 1.638,
+        "mod_descriptors": 0.055,
+        "modifiers": 0.344,
+        "on_actions": 0.209,
+        "oob_units": 8.5,
+        "party_loc": 2.357,
+        "scientist_traits": 0.118,
+        "scripted_gui": 0.529,
+        "scripted_localisation": 1.546,
+        "scripted_params": 2.923,
+        "set_variables": 0.76,
+        "simplifications": 0.209,
+        "style": 0.942,
+        "tech_categories": 0.442,
+        "technologies": 0.14,
+        "variables": 1.932
+      },
+      "fast_call_s": null
+    },
+    "concurrent": {
+      "wall_s": 24.30174180999893,
+      "normalized_sha256": "a8057c685560fffb26c7910edae16c6838b1e24d7ec40ceea9b748f5f5bbd55d",
+      "wire_text_bytes": 11460,
+      "validator_elapsed_s": {
+        "achievements": 0.08,
+        "agency_upgrades": 0.344,
+        "ai_equipment": 0.85,
+        "ai_navy": 0.081,
+        "ai_path_rules": 0.185,
+        "ai_roles": 0.086,
+        "ai_weight_order": 0.246,
+        "bonus_names": 5.303,
+        "building_guards": 0.147,
+        "characters": 1.374,
+        "common_mistakes": 8.124,
+        "cosmetic_tags": 2.302,
+        "country_names": 0.072,
+        "decisions": 11.778,
+        "defines": 0.077,
+        "dlc_guards": 0.232,
+        "dynamic_modifier_guards": 0.128,
+        "equipment_upkeep": 0.121,
+        "equipment_variants": 13.295,
+        "events": 2.895,
+        "factions": 0.106,
+        "file_paths": 0.245,
+        "focus_tree": 1.259,
+        "gfx_references": 0.741,
+        "graphical_cultures": 0.097,
+        "history": 0.766,
+        "ideas": 4.331,
+        "influence_calls": 0.115,
+        "localisation": 4.792,
+        "math_expressions": 0.195,
+        "mio_icons": 0.258,
+        "mios": 1.674,
+        "mod_descriptors": 0.06,
+        "modifiers": 0.408,
+        "on_actions": 0.244,
+        "oob_units": 9.333,
+        "party_loc": 2.326,
+        "scientist_traits": 0.113,
+        "scripted_gui": 0.499,
+        "scripted_localisation": 2.439,
+        "scripted_params": 6.247,
+        "set_variables": 1.104,
+        "simplifications": 0.423,
+        "style": 1.158,
+        "tech_categories": 1.092,
+        "technologies": 0.163,
+        "variables": 4.138
+      },
+      "fast_call_s": 0.002048645001195837
+    }
+  },
+  "samples": [
+    {
+      "sequential": {
+        "wall_s": 64.22269270800462,
+        "normalized_sha256": "a8057c685560fffb26c7910edae16c6838b1e24d7ec40ceea9b748f5f5bbd55d",
+        "wire_text_bytes": 11455,
+        "validator_elapsed_s": {
+          "achievements": 0.053,
+          "agency_upgrades": 0.202,
+          "ai_equipment": 0.776,
+          "ai_navy": 0.053,
+          "ai_path_rules": 0.176,
+          "ai_roles": 0.082,
+          "ai_weight_order": 0.144,
+          "bonus_names": 2.952,
+          "building_guards": 0.107,
+          "characters": 1.224,
+          "common_mistakes": 2.713,
+          "cosmetic_tags": 0.853,
+          "country_names": 0.06,
+          "decisions": 9.736,
+          "defines": 0.065,
+          "dlc_guards": 0.219,
+          "dynamic_modifier_guards": 0.099,
+          "equipment_upkeep": 0.108,
+          "equipment_variants": 12.361,
+          "events": 1.5,
+          "factions": 0.099,
+          "file_paths": 0.234,
+          "focus_tree": 1.045,
+          "gfx_references": 0.61,
+          "graphical_cultures": 0.097,
+          "history": 0.708,
+          "ideas": 3.782,
+          "influence_calls": 0.096,
+          "localisation": 2.642,
+          "math_expressions": 0.14,
+          "mio_icons": 0.255,
+          "mios": 1.637,
+          "mod_descriptors": 0.053,
+          "modifiers": 0.33,
+          "on_actions": 0.207,
+          "oob_units": 8.195,
+          "party_loc": 2.208,
+          "scientist_traits": 0.112,
+          "scripted_gui": 0.472,
+          "scripted_localisation": 1.36,
+          "scripted_params": 2.256,
+          "set_variables": 0.575,
+          "simplifications": 0.193,
+          "style": 0.977,
+          "tech_categories": 0.407,
+          "technologies": 0.142,
+          "variables": 1.895
+        },
+        "fast_call_s": null
+      },
+      "concurrent": {
+        "wall_s": 24.22924149100436,
+        "normalized_sha256": "a8057c685560fffb26c7910edae16c6838b1e24d7ec40ceea9b748f5f5bbd55d",
+        "wire_text_bytes": 11457,
+        "validator_elapsed_s": {
+          "achievements": 0.073,
+          "agency_upgrades": 0.333,
+          "ai_equipment": 0.805,
+          "ai_navy": 0.066,
+          "ai_path_rules": 0.198,
+          "ai_roles": 0.093,
+          "ai_weight_order": 0.251,
+          "bonus_names": 5.594,
+          "building_guards": 0.133,
+          "characters": 1.303,
+          "common_mistakes": 7.732,
+          "cosmetic_tags": 2.312,
+          "country_names": 0.11,
+          "decisions": 11.383,
+          "defines": 0.061,
+          "dlc_guards": 0.291,
+          "dynamic_modifier_guards": 0.146,
+          "equipment_upkeep": 0.11,
+          "equipment_variants": 13.288,
+          "events": 2.719,
+          "factions": 0.107,
+          "file_paths": 0.256,
+          "focus_tree": 1.222,
+          "gfx_references": 0.713,
+          "graphical_cultures": 0.1,
+          "history": 0.818,
+          "ideas": 4.28,
+          "influence_calls": 0.12,
+          "localisation": 4.625,
+          "math_expressions": 0.171,
+          "mio_icons": 0.249,
+          "mios": 1.651,
+          "mod_descriptors": 0.054,
+          "modifiers": 0.377,
+          "on_actions": 0.218,
+          "oob_units": 9.504,
+          "party_loc": 2.246,
+          "scientist_traits": 0.119,
+          "scripted_gui": 0.499,
+          "scripted_localisation": 2.363,
+          "scripted_params": 6.227,
+          "set_variables": 1.059,
+          "simplifications": 0.357,
+          "style": 1.144,
+          "tech_categories": 1.067,
+          "technologies": 0.148,
+          "variables": 4.179
+        },
+        "fast_call_s": null
+      },
+      "speedup": 2.650627454922545
+    },
+    {
+      "concurrent": {
+        "wall_s": 24.554001386997697,
+        "normalized_sha256": "a8057c685560fffb26c7910edae16c6838b1e24d7ec40ceea9b748f5f5bbd55d",
+        "wire_text_bytes": 11458,
+        "validator_elapsed_s": {
+          "achievements": 0.057,
+          "agency_upgrades": 0.347,
+          "ai_equipment": 0.872,
+          "ai_navy": 0.061,
+          "ai_path_rules": 0.178,
+          "ai_roles": 0.08,
+          "ai_weight_order": 0.258,
+          "bonus_names": 5.489,
+          "building_guards": 0.146,
+          "characters": 1.438,
+          "common_mistakes": 8.129,
+          "cosmetic_tags": 2.3,
+          "country_names": 0.167,
+          "decisions": 11.214,
+          "defines": 0.066,
+          "dlc_guards": 0.269,
+          "dynamic_modifier_guards": 0.129,
+          "equipment_upkeep": 0.135,
+          "equipment_variants": 13.479,
+          "events": 2.987,
+          "factions": 0.107,
+          "file_paths": 0.256,
+          "focus_tree": 1.228,
+          "gfx_references": 0.773,
+          "graphical_cultures": 0.108,
+          "history": 0.804,
+          "ideas": 4.337,
+          "influence_calls": 0.121,
+          "localisation": 4.63,
+          "math_expressions": 0.175,
+          "mio_icons": 0.255,
+          "mios": 1.688,
+          "mod_descriptors": 0.058,
+          "modifiers": 0.376,
+          "on_actions": 0.215,
+          "oob_units": 9.597,
+          "party_loc": 2.381,
+          "scientist_traits": 0.115,
+          "scripted_gui": 0.509,
+          "scripted_localisation": 2.513,
+          "scripted_params": 6.449,
+          "set_variables": 1.169,
+          "simplifications": 0.391,
+          "style": 1.034,
+          "tech_categories": 1.012,
+          "technologies": 0.15,
+          "variables": 4.312
+        },
+        "fast_call_s": null
+      },
+      "sequential": {
+        "wall_s": 64.52160396899853,
+        "normalized_sha256": "a8057c685560fffb26c7910edae16c6838b1e24d7ec40ceea9b748f5f5bbd55d",
+        "wire_text_bytes": 11451,
+        "validator_elapsed_s": {
+          "achievements": 0.057,
+          "agency_upgrades": 0.201,
+          "ai_equipment": 0.82,
+          "ai_navy": 0.059,
+          "ai_path_rules": 0.176,
+          "ai_roles": 0.082,
+          "ai_weight_order": 0.145,
+          "bonus_names": 3.109,
+          "building_guards": 0.107,
+          "characters": 1.26,
+          "common_mistakes": 2.717,
+          "cosmetic_tags": 0.91,
+          "country_names": 0.061,
+          "decisions": 9.795,
+          "defines": 0.063,
+          "dlc_guards": 0.188,
+          "dynamic_modifier_guards": 0.095,
+          "equipment_upkeep": 0.104,
+          "equipment_variants": 12.32,
+          "events": 1.578,
+          "factions": 0.109,
+          "file_paths": 0.237,
+          "focus_tree": 1.042,
+          "gfx_references": 0.561,
+          "graphical_cultures": 0.095,
+          "history": 0.687,
+          "ideas": 3.87,
+          "influence_calls": 0.1,
+          "localisation": 2.293,
+          "math_expressions": 0.136,
+          "mio_icons": 0.237,
+          "mios": 1.628,
+          "mod_descriptors": 0.051,
+          "modifiers": 0.336,
+          "on_actions": 0.201,
+          "oob_units": 8.22,
+          "party_loc": 2.237,
+          "scientist_traits": 0.111,
+          "scripted_gui": 0.5,
+          "scripted_localisation": 1.363,
+          "scripted_params": 2.334,
+          "set_variables": 0.551,
+          "simplifications": 0.178,
+          "style": 0.971,
+          "tech_categories": 0.417,
+          "technologies": 0.149,
+          "variables": 2.05
+        },
+        "fast_call_s": null
+      },
+      "speedup": 2.6277429471501637
+    },
+    {
+      "sequential": {
+        "wall_s": 67.65336826499697,
+        "normalized_sha256": "a8057c685560fffb26c7910edae16c6838b1e24d7ec40ceea9b748f5f5bbd55d",
+        "wire_text_bytes": 11457,
+        "validator_elapsed_s": {
+          "achievements": 0.056,
+          "agency_upgrades": 0.2,
+          "ai_equipment": 0.785,
+          "ai_navy": 0.055,
+          "ai_path_rules": 0.176,
+          "ai_roles": 0.083,
+          "ai_weight_order": 0.164,
+          "bonus_names": 2.998,
+          "building_guards": 0.106,
+          "characters": 1.252,
+          "common_mistakes": 2.898,
+          "cosmetic_tags": 0.935,
+          "country_names": 0.063,
+          "decisions": 9.966,
+          "defines": 0.06,
+          "dlc_guards": 0.186,
+          "dynamic_modifier_guards": 0.102,
+          "equipment_upkeep": 0.107,
+          "equipment_variants": 12.495,
+          "events": 1.545,
+          "factions": 0.108,
+          "file_paths": 0.244,
+          "focus_tree": 1.083,
+          "gfx_references": 0.57,
+          "graphical_cultures": 0.103,
+          "history": 0.712,
+          "ideas": 5.199,
+          "influence_calls": 0.103,
+          "localisation": 2.528,
+          "math_expressions": 0.136,
+          "mio_icons": 0.243,
+          "mios": 1.672,
+          "mod_descriptors": 0.054,
+          "modifiers": 0.352,
+          "on_actions": 0.208,
+          "oob_units": 9.048,
+          "party_loc": 2.343,
+          "scientist_traits": 0.116,
+          "scripted_gui": 0.502,
+          "scripted_localisation": 1.417,
+          "scripted_params": 2.479,
+          "set_variables": 0.575,
+          "simplifications": 0.193,
+          "style": 0.94,
+          "tech_categories": 0.431,
+          "technologies": 0.141,
+          "variables": 1.905
+        },
+        "fast_call_s": null
+      },
+      "concurrent": {
+        "wall_s": 25.533997118996922,
+        "normalized_sha256": "a8057c685560fffb26c7910edae16c6838b1e24d7ec40ceea9b748f5f5bbd55d",
+        "wire_text_bytes": 11460,
+        "validator_elapsed_s": {
+          "achievements": 0.057,
+          "agency_upgrades": 0.337,
+          "ai_equipment": 0.838,
+          "ai_navy": 0.064,
+          "ai_path_rules": 0.184,
+          "ai_roles": 0.085,
+          "ai_weight_order": 0.274,
+          "bonus_names": 5.589,
+          "building_guards": 0.136,
+          "characters": 1.392,
+          "common_mistakes": 8.213,
+          "cosmetic_tags": 2.439,
+          "country_names": 0.073,
+          "decisions": 11.977,
+          "defines": 0.063,
+          "dlc_guards": 0.263,
+          "dynamic_modifier_guards": 0.144,
+          "equipment_upkeep": 0.12,
+          "equipment_variants": 14.582,
+          "events": 2.914,
+          "factions": 0.114,
+          "file_paths": 0.249,
+          "focus_tree": 1.354,
+          "gfx_references": 0.762,
+          "graphical_cultures": 0.14,
+          "history": 0.881,
+          "ideas": 4.956,
+          "influence_calls": 0.123,
+          "localisation": 5.158,
+          "math_expressions": 0.208,
+          "mio_icons": 0.332,
+          "mios": 1.791,
+          "mod_descriptors": 0.056,
+          "modifiers": 0.428,
+          "on_actions": 0.261,
+          "oob_units": 9.667,
+          "party_loc": 2.407,
+          "scientist_traits": 0.124,
+          "scripted_gui": 0.552,
+          "scripted_localisation": 2.451,
+          "scripted_params": 6.34,
+          "set_variables": 1.059,
+          "simplifications": 0.409,
+          "style": 1.216,
+          "tech_categories": 1.096,
+          "technologies": 0.146,
+          "variables": 4.285
+        },
+        "fast_call_s": null
+      },
+      "speedup": 2.6495408435157946
+    }
+  ],
+  "default_arguments_functional_probe": {
+    "sequential": {
+      "wall_s": 65.27534879499581,
+      "normalized_sha256": "55cc5818a469443e2a5560a61de0e200fe176e10663f5371efbcae1549c30023",
+      "wire_text_bytes": 11504,
+      "validator_elapsed_s": {
+        "achievements": 0.054,
+        "agency_upgrades": 0.196,
+        "ai_equipment": 0.779,
+        "ai_navy": 0.054,
+        "ai_path_rules": 0.176,
+        "ai_roles": 0.084,
+        "ai_weight_order": 0.144,
+        "bonus_names": 2.925,
+        "building_guards": 0.102,
+        "characters": 1.24,
+        "common_mistakes": 2.844,
+        "cosmetic_tags": 0.933,
+        "country_names": 0.06,
+        "decisions": 9.898,
+        "defines": 0.059,
+        "dlc_guards": 0.187,
+        "dynamic_modifier_guards": 0.096,
+        "equipment_upkeep": 0.105,
+        "equipment_variants": 12.781,
+        "events": 1.67,
+        "factions": 0.101,
+        "file_paths": 0.243,
+        "focus_tree": 1.049,
+        "gfx_references": 0.563,
+        "graphical_cultures": 0.099,
+        "history": 0.68,
+        "ideas": 3.808,
+        "influence_calls": 0.1,
+        "localisation": 2.395,
+        "math_expressions": 0.138,
+        "mio_icons": 0.24,
+        "mios": 1.627,
+        "mod_descriptors": 0.053,
+        "modifiers": 0.344,
+        "on_actions": 0.212,
+        "oob_units": 8.338,
+        "party_loc": 2.265,
+        "scientist_traits": 0.116,
+        "scripted_gui": 0.481,
+        "scripted_localisation": 1.347,
+        "scripted_params": 2.337,
+        "set_variables": 0.552,
+        "simplifications": 0.175,
+        "style": 0.945,
+        "tech_categories": 0.41,
+        "technologies": 0.14,
+        "variables": 2.104
+      },
+      "fast_call_s": null
+    },
+    "concurrent": {
+      "wall_s": 25.034412414002873,
+      "normalized_sha256": "55cc5818a469443e2a5560a61de0e200fe176e10663f5371efbcae1549c30023",
+      "wire_text_bytes": 11511,
+      "validator_elapsed_s": {
+        "achievements": 0.065,
+        "agency_upgrades": 0.343,
+        "ai_equipment": 0.888,
+        "ai_navy": 0.062,
+        "ai_path_rules": 0.184,
+        "ai_roles": 0.082,
+        "ai_weight_order": 0.261,
+        "bonus_names": 5.836,
+        "building_guards": 0.139,
+        "characters": 1.468,
+        "common_mistakes": 8.337,
+        "cosmetic_tags": 2.192,
+        "country_names": 0.097,
+        "decisions": 11.6,
+        "defines": 0.087,
+        "dlc_guards": 0.262,
+        "dynamic_modifier_guards": 0.141,
+        "equipment_upkeep": 0.136,
+        "equipment_variants": 13.898,
+        "events": 2.787,
+        "factions": 0.115,
+        "file_paths": 0.268,
+        "focus_tree": 1.449,
+        "gfx_references": 0.945,
+        "graphical_cultures": 0.107,
+        "history": 0.816,
+        "ideas": 4.414,
+        "influence_calls": 0.116,
+        "localisation": 4.832,
+        "math_expressions": 0.19,
+        "mio_icons": 0.267,
+        "mios": 1.873,
+        "mod_descriptors": 0.055,
+        "modifiers": 0.395,
+        "on_actions": 0.229,
+        "oob_units": 9.526,
+        "party_loc": 2.272,
+        "scientist_traits": 0.128,
+        "scripted_gui": 0.515,
+        "scripted_localisation": 2.412,
+        "scripted_params": 6.384,
+        "set_variables": 1.213,
+        "simplifications": 0.396,
+        "style": 1.085,
+        "tech_categories": 1.117,
+        "technologies": 0.147,
+        "variables": 4.251
+      },
+      "fast_call_s": null
+    }
+  },
+  "normalized_counts_only_response": {
+    "counts": {
+      "error": 0,
+      "info": 0,
+      "warning": 11179
+    },
+    "issues_total_after_filter": 11179,
+    "ok": true,
+    "skipped_implicit": [
+      "mesh_textures",
+      "standardization"
+    ],
+    "skipped_slow": [
+      "unused_scripted",
+      "unused_textures"
+    ],
+    "truncated": true,
+    "validators": [
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "achievements",
+        "ok": true,
+        "title": "ACHIEVEMENT VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "agency_upgrades",
+        "ok": true,
+        "title": "AGENCY UPGRADES"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "ai_equipment",
+        "ok": true,
+        "title": "AI EQUIPMENT COVERAGE"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "ai_navy",
+        "ok": true,
+        "title": "NAVAL TEMPLATE VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "ai_path_rules",
+        "ok": true,
+        "title": "AI PATH RULES"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "ai_roles",
+        "ok": true,
+        "title": "AI ROLE REFERENCES"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 1
+        },
+        "error": null,
+        "name": "ai_weight_order",
+        "ok": true,
+        "title": "AI WEIGHT ORDER VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "bonus_names",
+        "ok": true,
+        "title": "BONUS SOURCE NAME VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "building_guards",
+        "ok": true,
+        "title": "BUILDING GUARD VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "characters",
+        "ok": true,
+        "title": "CHARACTER TRAIT VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "common_mistakes",
+        "ok": true,
+        "title": "COMMON SCRIPTING MISTAKE VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "cosmetic_tags",
+        "ok": true,
+        "title": "COSMETIC TAG VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "country_names",
+        "ok": true,
+        "title": "COUNTRY NAMES"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 544
+        },
+        "error": null,
+        "name": "decisions",
+        "ok": true,
+        "title": "DECISION VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "defines",
+        "ok": true,
+        "title": "DEFINES VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "dlc_guards",
+        "ok": true,
+        "title": "DLC GUARD VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "dynamic_modifier_guards",
+        "ok": true,
+        "title": "DYNAMIC MODIFIER GUARD VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "equipment_upkeep",
+        "ok": true,
+        "title": "EQUIPMENT UPKEEP VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "equipment_variants",
+        "ok": true,
+        "title": "EQUIPMENT VARIANT AVAILABILITY"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "events",
+        "ok": true,
+        "title": "EVENT VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "factions",
+        "ok": true,
+        "title": "FACTION SYSTEM VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "file_paths",
+        "ok": true,
+        "title": "FILE PATH VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 23
+        },
+        "error": null,
+        "name": "focus_tree",
+        "ok": true,
+        "title": "FOCUS TREE STRUCTURAL VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "gfx_references",
+        "ok": true,
+        "title": "GFX SPRITE REFERENCE VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "graphical_cultures",
+        "ok": true,
+        "title": "GRAPHICAL CULTURE REGISTRATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "history",
+        "ok": true,
+        "title": "HISTORY FILE VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 55
+        },
+        "error": null,
+        "name": "ideas",
+        "ok": true,
+        "title": "IDEA VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "influence_calls",
+        "ok": true,
+        "title": "INFLUENCE CALL VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 2
+        },
+        "error": null,
+        "name": "localisation",
+        "ok": true,
+        "title": "LOCALISATION VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "math_expressions",
+        "ok": true,
+        "title": "MATH EXPRESSION VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "mio_icons",
+        "ok": true,
+        "title": "MIO EQUIPMENT ICONS"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "mios",
+        "ok": true,
+        "title": "MIOS"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "mod_descriptors",
+        "ok": true,
+        "title": "MOD DESCRIPTOR VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "modifiers",
+        "ok": true,
+        "title": "MODIFIER NAME VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "on_actions",
+        "ok": true,
+        "title": "ON_ACTIONS REFERENCE VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 1204
+        },
+        "error": null,
+        "name": "oob_units",
+        "ok": true,
+        "title": "OOB UNIT NAME VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "party_loc",
+        "ok": true,
+        "title": "PARTY LOCALISATION VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "scientist_traits",
+        "ok": true,
+        "title": "SCIENTIST TRAIT VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "scripted_gui",
+        "ok": true,
+        "title": "SCRIPTED GUI VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "scripted_localisation",
+        "ok": true,
+        "title": "SCRIPTED LOCALISATION VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "scripted_params",
+        "ok": true,
+        "title": "SCRIPTED EFFECT PARAMETER VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "set_variables",
+        "ok": true,
+        "title": "SET_VARIABLE USAGE VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "simplifications",
+        "ok": true,
+        "title": "SIMPLIFICATION SUGGESTIONS"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 9350
+        },
+        "error": null,
+        "name": "style",
+        "ok": true,
+        "title": "STYLE & STANDARDS CHECKS"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "tech_categories",
+        "ok": true,
+        "title": "TECHNOLOGY CATEGORY VALIDATION"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "technologies",
+        "ok": true,
+        "title": "TECHNOLOGIES"
+      },
+      {
+        "counts": {
+          "error": 0,
+          "info": 0,
+          "warning": 0
+        },
+        "error": null,
+        "name": "variables",
+        "ok": true,
+        "title": "VARIABLE AND EVENT TARGET VALIDATION"
+      }
+    ]
+  },
+  "median_sequential_wall_s": 64.52160396899853,
+  "median_concurrent_wall_s": 24.554001386997697,
+  "median_paired_speedup": 2.6495408435157946,
+  "probe_sha256": "57f794cebe81f6d57f83baad72c269f9006c90064a3cefed4b839fbadc09a566",
+  "probe_source": "from __future__ import annotations\n\nimport asyncio\nimport hashlib\nimport importlib.metadata\nimport json\nimport os\nimport platform\nimport statistics\nimport sys\nimport time\nfrom contextlib import AsyncExitStack\nfrom datetime import timedelta\nfrom pathlib import Path\n\nfrom mcp import ClientSession, StdioServerParameters\nfrom mcp.client.stdio import stdio_client\n\nfrom md_mcp.validators import (\n    IMPLICIT_RUN_ALL_EXCLUDED,\n    SLOW_VALIDATORS,\n    available_validators,\n)\n\nROOT = Path(\"/mnt/Linux/github-projects/millennium-dawn-mcp\")\nBASE = Path(\"/mnt/Linux/github-projects/worktrees/millennium-dawn-mcp-review-pr323-sequential\")\nCONCURRENT = Path(\"/mnt/Linux/github-projects/worktrees/millennium-dawn-mcp-review-pr323-final\")\nMOD = Path(\"/mnt/Linux/github-projects/worktrees/Millennium-Dawn-mcp-validator-benchmark\")\nREVISIONS = {\n    \"sequential\": \"75edb1575272b1b54417f2d55d9a84a5a5bab741\",\n    \"concurrent\": \"3b092069a344cd8afa0d3472a396c33d38413c7b\",\n}\n\n\ndef _payload(result):\n    wire = result.model_dump(mode=\"json\", by_alias=True)\n    assert not wire[\"isError\"], wire\n    text = wire[\"content\"][0][\"text\"]\n    return json.loads(text), len(text.encode(\"utf-8\"))\n\n\ndef _stable(payload):\n    stable = dict(payload)\n    stable[\"validators\"] = [\n        {key: value for key, value in row.items() if key != \"elapsed_s\"}\n        for row in payload[\"validators\"]\n    ]\n    if \"issues\" in stable:\n        stable[\"issues\"] = sorted(stable[\"issues\"], key=lambda row: json.dumps(row, sort_keys=True))\n    return json.dumps(stable, sort_keys=True, ensure_ascii=False, separators=(\",\", \":\"))\n\n\ndef _params(source, cache, cores):\n    source_root = source / \"src\"\n    env = os.environ.copy()\n    env.update(\n        {\n            \"MD_MAX_WORKERS\": \"14\",\n            \"MD_MCP_VALIDATOR_MODE\": \"isolated\",\n            \"MD_MCP_SERIAL_PARSE\": \"1\",\n            \"MD_MCP_CACHE_DIR\": str(cache),\n            \"PYTHONPATH\": str(source_root),\n        }\n    )\n    code = (\n        'import os,sys; from pathlib import Path; '\n        f'os.sched_setaffinity(0, {set(cores)!r}); '\n        f'sys.path.insert(0, {str(source_root)!r}); '\n        'import md_mcp; '\n        f'assert Path(md_mcp.__file__).resolve().parent == Path({str(source_root / \"md_mcp\")!r}); '\n        'from md_mcp.server import main; main()'\n    )\n    return StdioServerParameters(\n        command=sys.executable,\n        args=[\"-c\", code, \"serve\", \"--mod-root\", str(MOD)],\n        env=env,\n    )\n\n\nasync def _exercise(tmp_path):\n    sys.path.insert(0, str(ROOT))\n    from benchmarks.validator_concurrency import _select_physical_cpus\n\n    assert os.environ.get(\"MD_NO_CACHE\") != \"1\"\n    topology = _select_physical_cpus(sorted(os.sched_getaffinity(0)), 14)\n    cores = [row[0] for row in topology]\n    names = [\n        info.name\n        for info in available_validators(MOD)\n        if info.name not in SLOW_VALIDATORS | IMPLICIT_RUN_ALL_EXCLUDED\n    ]\n    assert len(names) == 47\n    schemas = {}\n    sessions = {}\n    async with AsyncExitStack() as stack:\n        for mode, source in [(\"sequential\", BASE), (\"concurrent\", CONCURRENT)]:\n            read, write = await stack.enter_async_context(\n                stdio_client(_params(source, tmp_path / mode, cores))\n            )\n            session = await stack.enter_async_context(\n                ClientSession(read, write, read_timeout_seconds=timedelta(seconds=600))\n            )\n            await session.initialize()\n            tools = (await session.list_tools()).model_dump(mode=\"json\", by_alias=True)\n            templates = (await session.list_resource_templates()).model_dump(\n                mode=\"json\", by_alias=True\n            )\n            assert len(tools[\"tools\"]) == 54\n            assert len(templates[\"resourceTemplates\"]) == 6\n            schemas[mode] = {\"tools\": tools, \"templates\": templates}\n            sessions[mode] = session\n        assert schemas[\"sequential\"] == schemas[\"concurrent\"]\n        reference = None\n\n        async def sample(mode, arguments, responsive=False):\n            nonlocal reference\n            started = time.perf_counter()\n            pending = asyncio.create_task(sessions[mode].call_tool(\"validate\", arguments))\n            fast_s = None\n            if responsive:\n                done, _ = await asyncio.wait({pending}, timeout=0.25)\n                assert not done, \"full validation finished before responsiveness check\"\n                fast_started = time.perf_counter()\n                fast = await asyncio.wait_for(\n                    sessions[mode].call_tool(\n                        \"calculate_days\", {\"year\": 2000, \"month\": 1, \"day\": 1}\n                    ),\n                    timeout=3,\n                )\n                fast_payload, _ = _payload(fast)\n                fast_s = time.perf_counter() - fast_started\n                assert fast_payload == {\"ok\": True, \"days\": 0}\n                assert not pending.done(), \"validation was not active during fast call\"\n            payload, wire_bytes = _payload(await pending)\n            wall_s = time.perf_counter() - started\n            assert payload[\"ok\"] is True, payload\n            assert [row[\"name\"] for row in payload[\"validators\"]] == names\n            assert all(\n                row[\"ok\"] and isinstance(row[\"elapsed_s\"], (int, float))\n                for row in payload[\"validators\"]\n            )\n            assert len(json.dumps(payload, ensure_ascii=False).encode(\"utf-8\")) <= 100000\n            stable = _stable(payload)\n            if arguments.get(\"counts_only\"):\n                if reference is None:\n                    reference = stable\n                assert stable == reference, f\"{mode} MCP summary changed\"\n                assert wire_bytes <= 100000\n            return {\n                \"wall_s\": wall_s,\n                \"normalized_sha256\": hashlib.sha256(stable.encode()).hexdigest(),\n                \"wire_text_bytes\": wire_bytes,\n                \"validator_elapsed_s\": {\n                    row[\"name\"]: row[\"elapsed_s\"] for row in payload[\"validators\"]\n                },\n                \"fast_call_s\": fast_s,\n                \"stable\": stable,\n            }\n\n        warmup = {}\n        for mode in (\"sequential\", \"concurrent\"):\n            warmup[mode] = await sample(\n                mode, {\"counts_only\": True}, responsive=mode == \"concurrent\"\n            )\n        pairs = []\n        for index in range(3):\n            pair = {}\n            order = (\"sequential\", \"concurrent\") if index % 2 == 0 else (\"concurrent\", \"sequential\")\n            for mode in order:\n                pair[mode] = await sample(mode, {\"counts_only\": True})\n            pair[\"speedup\"] = pair[\"sequential\"][\"wall_s\"] / pair[\"concurrent\"][\"wall_s\"]\n            pairs.append(pair)\n        defaults = {}\n        for mode in (\"sequential\", \"concurrent\"):\n            defaults[mode] = await sample(mode, {})\n        assert (\n            defaults[\"sequential\"][\"stable\"] == defaults[\"concurrent\"][\"stable\"]\n        ), \"default MCP responses differ\"\n\n    assert reference is not None\n    normalized_summary = json.loads(reference)\n    for group in [warmup, defaults, *pairs]:\n        for mode in (\"sequential\", \"concurrent\"):\n            group[mode].pop(\"stable\")\n    report = {\n        \"transport\": \"MCP stdio\",\n        \"arguments\": {\"counts_only\": True},\n        \"source_revisions\": REVISIONS,\n        \"mod_root\": str(MOD),\n        \"mod_revision\": \"0b325f86d03928875fbded86991008ded7df8a8e\",\n        \"sdk_version\": importlib.metadata.version(\"mcp\"),\n        \"python\": sys.version,\n        \"platform\": platform.platform(),\n        \"host_logical_cpus\": os.cpu_count(),\n        \"selected_physical_cores\": [\n            dict(cpu=cpu, package_id=package, core_id=core) for cpu, package, core in topology\n        ],\n        \"server_md_max_workers\": 14,\n        \"concurrent_total_pool_budget\": 12,\n        \"concurrent_outer_workers\": 4,\n        \"concurrent_inner_pool_cap\": 3,\n        \"cache_conditions\": (\n            \"Validator disk caches enabled; full discarded warmup per server; \"\n            \"OS filesystem cache uncontrolled.\"\n        ),\n        \"validators\": names,\n        \"schemas_equal\": True,\n        \"discarded_warmup\": warmup,\n        \"samples\": pairs,\n        \"default_arguments_functional_probe\": defaults,\n        \"normalized_counts_only_response\": normalized_summary,\n        \"median_sequential_wall_s\": statistics.median(\n            pair[\"sequential\"][\"wall_s\"] for pair in pairs\n        ),\n        \"median_concurrent_wall_s\": statistics.median(\n            pair[\"concurrent\"][\"wall_s\"] for pair in pairs\n        ),\n        \"median_paired_speedup\": statistics.median(pair[\"speedup\"] for pair in pairs),\n        \"probe_sha256\": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),\n        \"probe_source\": Path(__file__).read_text(),\n    }\n    output = ROOT / \"benchmarks/results/validator-concurrency-mcp.json\"\n    output.write_text(json.dumps(report, indent=2) + \"\\n\")\n    print(\n        json.dumps(\n            {\n                key: report[key]\n                for key in (\n                    \"median_sequential_wall_s\",\n                    \"median_concurrent_wall_s\",\n                    \"median_paired_speedup\",\n                )\n            }\n        )\n    )\n    assert report[\"median_paired_speedup\"] >= 2\n\n\ndef test_live_mcp_run_all_comparison(tmp_path):\n    asyncio.run(_exercise(tmp_path))\n"
+}

@@ -1,0 +1,3611 @@
+{
+  "mod_root": "/mnt/Linux/github-projects/worktrees/Millennium-Dawn-mcp-validator-benchmark",
+  "mod_revision": "0b325f86d03928875fbded86991008ded7df8a8e",
+  "code_revision": "dfc1217f078b520d3b32e72d1d6f85e58fea1cf5",
+  "python": "3.12.13 (main, Apr 14 2026, 14:29:00) [Clang 22.1.3 ]",
+  "platform": "Linux-7.0.0-42-generic-x86_64-with-glibc2.43",
+  "host_logical_cpus": 24,
+  "host_affinity_cpus": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23
+  ],
+  "selected_affinity_cpus": [
+    0,
+    2,
+    4,
+    6,
+    8,
+    10,
+    12,
+    14,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21
+  ],
+  "selected_physical_cores": [
+    {
+      "cpu": 0,
+      "package_id": 0,
+      "core_id": 0
+    },
+    {
+      "cpu": 2,
+      "package_id": 0,
+      "core_id": 4
+    },
+    {
+      "cpu": 4,
+      "package_id": 0,
+      "core_id": 8
+    },
+    {
+      "cpu": 6,
+      "package_id": 0,
+      "core_id": 12
+    },
+    {
+      "cpu": 8,
+      "package_id": 0,
+      "core_id": 16
+    },
+    {
+      "cpu": 10,
+      "package_id": 0,
+      "core_id": 20
+    },
+    {
+      "cpu": 12,
+      "package_id": 0,
+      "core_id": 24
+    },
+    {
+      "cpu": 14,
+      "package_id": 0,
+      "core_id": 28
+    },
+    {
+      "cpu": 16,
+      "package_id": 0,
+      "core_id": 32
+    },
+    {
+      "cpu": 17,
+      "package_id": 0,
+      "core_id": 33
+    },
+    {
+      "cpu": 18,
+      "package_id": 0,
+      "core_id": 34
+    },
+    {
+      "cpu": 19,
+      "package_id": 0,
+      "core_id": 35
+    },
+    {
+      "cpu": 20,
+      "package_id": 0,
+      "core_id": 36
+    },
+    {
+      "cpu": 21,
+      "package_id": 0,
+      "core_id": 37
+    }
+  ],
+  "cpu_budget_physical_cores": 14,
+  "outer_workers": 4,
+  "inner_md_max_workers_sequential": 14,
+  "inner_md_max_workers_concurrent": 3,
+  "cache_conditions": "validator disk caches enabled; OS filesystem cache uncontrolled",
+  "validators": [
+    "achievements",
+    "agency_upgrades",
+    "ai_equipment",
+    "ai_navy",
+    "ai_path_rules",
+    "ai_roles",
+    "ai_weight_order",
+    "bonus_names",
+    "building_guards",
+    "characters",
+    "common_mistakes",
+    "cosmetic_tags",
+    "country_names",
+    "decisions",
+    "defines",
+    "dlc_guards",
+    "dynamic_modifier_guards",
+    "equipment_upkeep",
+    "equipment_variants",
+    "events",
+    "factions",
+    "file_paths",
+    "focus_tree",
+    "gfx_references",
+    "graphical_cultures",
+    "history",
+    "ideas",
+    "influence_calls",
+    "localisation",
+    "math_expressions",
+    "mio_icons",
+    "mios",
+    "mod_descriptors",
+    "modifiers",
+    "on_actions",
+    "oob_units",
+    "party_loc",
+    "scientist_traits",
+    "scripted_gui",
+    "scripted_localisation",
+    "scripted_params",
+    "set_variables",
+    "simplifications",
+    "style",
+    "tech_categories",
+    "technologies",
+    "variables"
+  ],
+  "discarded_warmup": {
+    "sequential_wall_s": 173.78521843900307,
+    "concurrent_wall_s": 24.041907850001735,
+    "speedup": 7.2284287720947455,
+    "equivalent": true,
+    "normalized_sha256": "ca2cc3c2514547ebf29daf79b22dfb473b5e997856b6f28943a0525f540eb191",
+    "sequential_validators": {
+      "achievements": {
+        "elapsed_s": 0.079,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "agency_upgrades": {
+        "elapsed_s": 1.297,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "ai_equipment": {
+        "elapsed_s": 0.819,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "ai_navy": {
+        "elapsed_s": 0.058,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "ai_path_rules": {
+        "elapsed_s": 0.177,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "ai_roles": {
+        "elapsed_s": 0.081,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "ai_weight_order": {
+        "elapsed_s": 0.746,
+        "issue_count": 1,
+        "counts": {
+          "error": 0,
+          "warning": 1,
+          "info": 0
+        }
+      },
+      "bonus_names": {
+        "elapsed_s": 3.135,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "building_guards": {
+        "elapsed_s": 1.227,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "characters": {
+        "elapsed_s": 1.228,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "common_mistakes": {
+        "elapsed_s": 2.892,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "cosmetic_tags": {
+        "elapsed_s": 1.257,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "country_names": {
+        "elapsed_s": 0.06,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "decisions": {
+        "elapsed_s": 10.96,
+        "issue_count": 544,
+        "counts": {
+          "error": 0,
+          "warning": 544,
+          "info": 0
+        }
+      },
+      "defines": {
+        "elapsed_s": 0.061,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "dlc_guards": {
+        "elapsed_s": 1.757,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "dynamic_modifier_guards": {
+        "elapsed_s": 1.7,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "equipment_upkeep": {
+        "elapsed_s": 0.108,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "equipment_variants": {
+        "elapsed_s": 12.654,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "events": {
+        "elapsed_s": 3.706,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "factions": {
+        "elapsed_s": 0.107,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "file_paths": {
+        "elapsed_s": 0.256,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "focus_tree": {
+        "elapsed_s": 1.761,
+        "issue_count": 23,
+        "counts": {
+          "error": 0,
+          "warning": 23,
+          "info": 0
+        }
+      },
+      "gfx_references": {
+        "elapsed_s": 1.746,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "graphical_cultures": {
+        "elapsed_s": 0.141,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "history": {
+        "elapsed_s": 0.776,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "ideas": {
+        "elapsed_s": 5.108,
+        "issue_count": 55,
+        "counts": {
+          "error": 0,
+          "warning": 55,
+          "info": 0
+        }
+      },
+      "influence_calls": {
+        "elapsed_s": 1.33,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "localisation": {
+        "elapsed_s": 2.677,
+        "issue_count": 2,
+        "counts": {
+          "error": 0,
+          "warning": 2,
+          "info": 0
+        }
+      },
+      "math_expressions": {
+        "elapsed_s": 0.896,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "mio_icons": {
+        "elapsed_s": 0.697,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "mios": {
+        "elapsed_s": 2.306,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "mod_descriptors": {
+        "elapsed_s": 0.052,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "modifiers": {
+        "elapsed_s": 2.168,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "on_actions": {
+        "elapsed_s": 0.392,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "oob_units": {
+        "elapsed_s": 21.841,
+        "issue_count": 1204,
+        "counts": {
+          "error": 0,
+          "warning": 1204,
+          "info": 0
+        }
+      },
+      "party_loc": {
+        "elapsed_s": 2.852,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "scientist_traits": {
+        "elapsed_s": 0.113,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "scripted_gui": {
+        "elapsed_s": 30.57,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "scripted_localisation": {
+        "elapsed_s": 15.095,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "scripted_params": {
+        "elapsed_s": 3.281,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "set_variables": {
+        "elapsed_s": 1.642,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "simplifications": {
+        "elapsed_s": 1.187,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "style": {
+        "elapsed_s": 28.657,
+        "issue_count": 9350,
+        "counts": {
+          "error": 0,
+          "warning": 9350,
+          "info": 0
+        }
+      },
+      "tech_categories": {
+        "elapsed_s": 0.39,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "technologies": {
+        "elapsed_s": 0.145,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "variables": {
+        "elapsed_s": 3.573,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      }
+    },
+    "concurrent_validators": {
+      "achievements": {
+        "elapsed_s": 0.061,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "agency_upgrades": {
+        "elapsed_s": 0.338,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "ai_equipment": {
+        "elapsed_s": 0.805,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "ai_navy": {
+        "elapsed_s": 0.061,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "ai_path_rules": {
+        "elapsed_s": 0.178,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "ai_roles": {
+        "elapsed_s": 0.08,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "ai_weight_order": {
+        "elapsed_s": 0.277,
+        "issue_count": 1,
+        "counts": {
+          "error": 0,
+          "warning": 1,
+          "info": 0
+        }
+      },
+      "bonus_names": {
+        "elapsed_s": 5.168,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "building_guards": {
+        "elapsed_s": 0.127,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "characters": {
+        "elapsed_s": 1.275,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "common_mistakes": {
+        "elapsed_s": 7.76,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "cosmetic_tags": {
+        "elapsed_s": 2.177,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "country_names": {
+        "elapsed_s": 0.085,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "decisions": {
+        "elapsed_s": 10.899,
+        "issue_count": 544,
+        "counts": {
+          "error": 0,
+          "warning": 544,
+          "info": 0
+        }
+      },
+      "defines": {
+        "elapsed_s": 0.084,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "dlc_guards": {
+        "elapsed_s": 0.264,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "dynamic_modifier_guards": {
+        "elapsed_s": 0.117,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "equipment_upkeep": {
+        "elapsed_s": 0.111,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "equipment_variants": {
+        "elapsed_s": 13.641,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "events": {
+        "elapsed_s": 2.704,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "factions": {
+        "elapsed_s": 0.111,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "file_paths": {
+        "elapsed_s": 0.253,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "focus_tree": {
+        "elapsed_s": 1.223,
+        "issue_count": 23,
+        "counts": {
+          "error": 0,
+          "warning": 23,
+          "info": 0
+        }
+      },
+      "gfx_references": {
+        "elapsed_s": 0.739,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "graphical_cultures": {
+        "elapsed_s": 0.104,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "history": {
+        "elapsed_s": 0.823,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "ideas": {
+        "elapsed_s": 4.536,
+        "issue_count": 55,
+        "counts": {
+          "error": 0,
+          "warning": 55,
+          "info": 0
+        }
+      },
+      "influence_calls": {
+        "elapsed_s": 0.128,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "localisation": {
+        "elapsed_s": 4.637,
+        "issue_count": 2,
+        "counts": {
+          "error": 0,
+          "warning": 2,
+          "info": 0
+        }
+      },
+      "math_expressions": {
+        "elapsed_s": 0.269,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "mio_icons": {
+        "elapsed_s": 0.278,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "mios": {
+        "elapsed_s": 1.716,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "mod_descriptors": {
+        "elapsed_s": 0.056,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "modifiers": {
+        "elapsed_s": 0.389,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "on_actions": {
+        "elapsed_s": 0.236,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "oob_units": {
+        "elapsed_s": 9.342,
+        "issue_count": 1204,
+        "counts": {
+          "error": 0,
+          "warning": 1204,
+          "info": 0
+        }
+      },
+      "party_loc": {
+        "elapsed_s": 2.352,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "scientist_traits": {
+        "elapsed_s": 0.113,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "scripted_gui": {
+        "elapsed_s": 0.488,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "scripted_localisation": {
+        "elapsed_s": 2.325,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "scripted_params": {
+        "elapsed_s": 6.23,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "set_variables": {
+        "elapsed_s": 1.056,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "simplifications": {
+        "elapsed_s": 0.409,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "style": {
+        "elapsed_s": 1.01,
+        "issue_count": 9350,
+        "counts": {
+          "error": 0,
+          "warning": 9350,
+          "info": 0
+        }
+      },
+      "tech_categories": {
+        "elapsed_s": 1.001,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "technologies": {
+        "elapsed_s": 0.158,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      },
+      "variables": {
+        "elapsed_s": 4.261,
+        "issue_count": 0,
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        }
+      }
+    }
+  },
+  "repetitions": [
+    {
+      "sequential_wall_s": 63.903414575997886,
+      "concurrent_wall_s": 25.436762283999997,
+      "speedup": 2.512246403945593,
+      "equivalent": true,
+      "normalized_sha256": "ca2cc3c2514547ebf29daf79b22dfb473b5e997856b6f28943a0525f540eb191",
+      "sequential_validators": {
+        "achievements": {
+          "elapsed_s": 0.059,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "agency_upgrades": {
+          "elapsed_s": 0.215,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_equipment": {
+          "elapsed_s": 0.764,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_navy": {
+          "elapsed_s": 0.053,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_path_rules": {
+          "elapsed_s": 0.172,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_roles": {
+          "elapsed_s": 0.079,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_weight_order": {
+          "elapsed_s": 0.141,
+          "issue_count": 1,
+          "counts": {
+            "error": 0,
+            "warning": 1,
+            "info": 0
+          }
+        },
+        "bonus_names": {
+          "elapsed_s": 2.889,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "building_guards": {
+          "elapsed_s": 0.106,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "characters": {
+          "elapsed_s": 1.234,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "common_mistakes": {
+          "elapsed_s": 2.765,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "cosmetic_tags": {
+          "elapsed_s": 0.896,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "country_names": {
+          "elapsed_s": 0.059,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "decisions": {
+          "elapsed_s": 9.954,
+          "issue_count": 544,
+          "counts": {
+            "error": 0,
+            "warning": 544,
+            "info": 0
+          }
+        },
+        "defines": {
+          "elapsed_s": 0.058,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "dlc_guards": {
+          "elapsed_s": 0.187,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "dynamic_modifier_guards": {
+          "elapsed_s": 0.096,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "equipment_upkeep": {
+          "elapsed_s": 0.103,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "equipment_variants": {
+          "elapsed_s": 12.4,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "events": {
+          "elapsed_s": 1.584,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "factions": {
+          "elapsed_s": 0.105,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "file_paths": {
+          "elapsed_s": 0.235,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "focus_tree": {
+          "elapsed_s": 1.017,
+          "issue_count": 23,
+          "counts": {
+            "error": 0,
+            "warning": 23,
+            "info": 0
+          }
+        },
+        "gfx_references": {
+          "elapsed_s": 0.542,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "graphical_cultures": {
+          "elapsed_s": 0.095,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "history": {
+          "elapsed_s": 0.666,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ideas": {
+          "elapsed_s": 3.796,
+          "issue_count": 55,
+          "counts": {
+            "error": 0,
+            "warning": 55,
+            "info": 0
+          }
+        },
+        "influence_calls": {
+          "elapsed_s": 0.103,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "localisation": {
+          "elapsed_s": 2.354,
+          "issue_count": 2,
+          "counts": {
+            "error": 0,
+            "warning": 2,
+            "info": 0
+          }
+        },
+        "math_expressions": {
+          "elapsed_s": 0.137,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mio_icons": {
+          "elapsed_s": 0.243,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mios": {
+          "elapsed_s": 1.588,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mod_descriptors": {
+          "elapsed_s": 0.051,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "modifiers": {
+          "elapsed_s": 0.328,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "on_actions": {
+          "elapsed_s": 0.198,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "oob_units": {
+          "elapsed_s": 8.089,
+          "issue_count": 1204,
+          "counts": {
+            "error": 0,
+            "warning": 1204,
+            "info": 0
+          }
+        },
+        "party_loc": {
+          "elapsed_s": 2.229,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scientist_traits": {
+          "elapsed_s": 0.113,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_gui": {
+          "elapsed_s": 0.496,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_localisation": {
+          "elapsed_s": 1.354,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_params": {
+          "elapsed_s": 2.3,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "set_variables": {
+          "elapsed_s": 0.537,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "simplifications": {
+          "elapsed_s": 0.165,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "style": {
+          "elapsed_s": 0.942,
+          "issue_count": 9350,
+          "counts": {
+            "error": 0,
+            "warning": 9350,
+            "info": 0
+          }
+        },
+        "tech_categories": {
+          "elapsed_s": 0.4,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "technologies": {
+          "elapsed_s": 0.144,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "variables": {
+          "elapsed_s": 1.856,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        }
+      },
+      "concurrent_validators": {
+        "achievements": {
+          "elapsed_s": 0.053,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "agency_upgrades": {
+          "elapsed_s": 0.354,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_equipment": {
+          "elapsed_s": 0.861,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_navy": {
+          "elapsed_s": 0.074,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_path_rules": {
+          "elapsed_s": 0.182,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_roles": {
+          "elapsed_s": 0.082,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_weight_order": {
+          "elapsed_s": 0.256,
+          "issue_count": 1,
+          "counts": {
+            "error": 0,
+            "warning": 1,
+            "info": 0
+          }
+        },
+        "bonus_names": {
+          "elapsed_s": 5.475,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "building_guards": {
+          "elapsed_s": 0.153,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "characters": {
+          "elapsed_s": 1.376,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "common_mistakes": {
+          "elapsed_s": 7.976,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "cosmetic_tags": {
+          "elapsed_s": 2.344,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "country_names": {
+          "elapsed_s": 0.062,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "decisions": {
+          "elapsed_s": 11.736,
+          "issue_count": 544,
+          "counts": {
+            "error": 0,
+            "warning": 544,
+            "info": 0
+          }
+        },
+        "defines": {
+          "elapsed_s": 0.071,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "dlc_guards": {
+          "elapsed_s": 0.244,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "dynamic_modifier_guards": {
+          "elapsed_s": 0.119,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "equipment_upkeep": {
+          "elapsed_s": 0.113,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "equipment_variants": {
+          "elapsed_s": 13.966,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "events": {
+          "elapsed_s": 2.855,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "factions": {
+          "elapsed_s": 0.106,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "file_paths": {
+          "elapsed_s": 0.252,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "focus_tree": {
+          "elapsed_s": 1.267,
+          "issue_count": 23,
+          "counts": {
+            "error": 0,
+            "warning": 23,
+            "info": 0
+          }
+        },
+        "gfx_references": {
+          "elapsed_s": 0.747,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "graphical_cultures": {
+          "elapsed_s": 0.106,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "history": {
+          "elapsed_s": 0.792,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ideas": {
+          "elapsed_s": 4.678,
+          "issue_count": 55,
+          "counts": {
+            "error": 0,
+            "warning": 55,
+            "info": 0
+          }
+        },
+        "influence_calls": {
+          "elapsed_s": 0.117,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "localisation": {
+          "elapsed_s": 4.914,
+          "issue_count": 2,
+          "counts": {
+            "error": 0,
+            "warning": 2,
+            "info": 0
+          }
+        },
+        "math_expressions": {
+          "elapsed_s": 0.189,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mio_icons": {
+          "elapsed_s": 0.266,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mios": {
+          "elapsed_s": 1.829,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mod_descriptors": {
+          "elapsed_s": 0.06,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "modifiers": {
+          "elapsed_s": 0.421,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "on_actions": {
+          "elapsed_s": 0.258,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "oob_units": {
+          "elapsed_s": 10.143,
+          "issue_count": 1204,
+          "counts": {
+            "error": 0,
+            "warning": 1204,
+            "info": 0
+          }
+        },
+        "party_loc": {
+          "elapsed_s": 2.274,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scientist_traits": {
+          "elapsed_s": 0.115,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_gui": {
+          "elapsed_s": 0.547,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_localisation": {
+          "elapsed_s": 2.768,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_params": {
+          "elapsed_s": 6.79,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "set_variables": {
+          "elapsed_s": 1.359,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "simplifications": {
+          "elapsed_s": 0.351,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "style": {
+          "elapsed_s": 1.134,
+          "issue_count": 9350,
+          "counts": {
+            "error": 0,
+            "warning": 9350,
+            "info": 0
+          }
+        },
+        "tech_categories": {
+          "elapsed_s": 0.991,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "technologies": {
+          "elapsed_s": 0.148,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "variables": {
+          "elapsed_s": 4.493,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        }
+      }
+    },
+    {
+      "sequential_wall_s": 64.28629930300303,
+      "concurrent_wall_s": 24.34940008600097,
+      "speedup": 2.6401594731675835,
+      "equivalent": true,
+      "normalized_sha256": "ca2cc3c2514547ebf29daf79b22dfb473b5e997856b6f28943a0525f540eb191",
+      "sequential_validators": {
+        "achievements": {
+          "elapsed_s": 0.06,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "agency_upgrades": {
+          "elapsed_s": 0.201,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_equipment": {
+          "elapsed_s": 0.788,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_navy": {
+          "elapsed_s": 0.06,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_path_rules": {
+          "elapsed_s": 0.181,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_roles": {
+          "elapsed_s": 0.082,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_weight_order": {
+          "elapsed_s": 0.138,
+          "issue_count": 1,
+          "counts": {
+            "error": 0,
+            "warning": 1,
+            "info": 0
+          }
+        },
+        "bonus_names": {
+          "elapsed_s": 2.952,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "building_guards": {
+          "elapsed_s": 0.099,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "characters": {
+          "elapsed_s": 1.228,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "common_mistakes": {
+          "elapsed_s": 2.843,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "cosmetic_tags": {
+          "elapsed_s": 0.895,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "country_names": {
+          "elapsed_s": 0.058,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "decisions": {
+          "elapsed_s": 9.709,
+          "issue_count": 544,
+          "counts": {
+            "error": 0,
+            "warning": 544,
+            "info": 0
+          }
+        },
+        "defines": {
+          "elapsed_s": 0.063,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "dlc_guards": {
+          "elapsed_s": 0.184,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "dynamic_modifier_guards": {
+          "elapsed_s": 0.094,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "equipment_upkeep": {
+          "elapsed_s": 0.107,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "equipment_variants": {
+          "elapsed_s": 12.298,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "events": {
+          "elapsed_s": 1.594,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "factions": {
+          "elapsed_s": 0.101,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "file_paths": {
+          "elapsed_s": 0.241,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "focus_tree": {
+          "elapsed_s": 1.047,
+          "issue_count": 23,
+          "counts": {
+            "error": 0,
+            "warning": 23,
+            "info": 0
+          }
+        },
+        "gfx_references": {
+          "elapsed_s": 0.584,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "graphical_cultures": {
+          "elapsed_s": 0.092,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "history": {
+          "elapsed_s": 0.669,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ideas": {
+          "elapsed_s": 3.893,
+          "issue_count": 55,
+          "counts": {
+            "error": 0,
+            "warning": 55,
+            "info": 0
+          }
+        },
+        "influence_calls": {
+          "elapsed_s": 0.109,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "localisation": {
+          "elapsed_s": 2.456,
+          "issue_count": 2,
+          "counts": {
+            "error": 0,
+            "warning": 2,
+            "info": 0
+          }
+        },
+        "math_expressions": {
+          "elapsed_s": 0.132,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mio_icons": {
+          "elapsed_s": 0.239,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mios": {
+          "elapsed_s": 1.598,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mod_descriptors": {
+          "elapsed_s": 0.051,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "modifiers": {
+          "elapsed_s": 0.322,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "on_actions": {
+          "elapsed_s": 0.205,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "oob_units": {
+          "elapsed_s": 8.054,
+          "issue_count": 1204,
+          "counts": {
+            "error": 0,
+            "warning": 1204,
+            "info": 0
+          }
+        },
+        "party_loc": {
+          "elapsed_s": 2.221,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scientist_traits": {
+          "elapsed_s": 0.112,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_gui": {
+          "elapsed_s": 0.479,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_localisation": {
+          "elapsed_s": 1.383,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_params": {
+          "elapsed_s": 2.366,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "set_variables": {
+          "elapsed_s": 0.555,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "simplifications": {
+          "elapsed_s": 0.174,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "style": {
+          "elapsed_s": 0.933,
+          "issue_count": 9350,
+          "counts": {
+            "error": 0,
+            "warning": 9350,
+            "info": 0
+          }
+        },
+        "tech_categories": {
+          "elapsed_s": 0.408,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "technologies": {
+          "elapsed_s": 0.139,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "variables": {
+          "elapsed_s": 2.084,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        }
+      },
+      "concurrent_validators": {
+        "achievements": {
+          "elapsed_s": 0.056,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "agency_upgrades": {
+          "elapsed_s": 0.348,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_equipment": {
+          "elapsed_s": 0.86,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_navy": {
+          "elapsed_s": 0.057,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_path_rules": {
+          "elapsed_s": 0.18,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_roles": {
+          "elapsed_s": 0.083,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_weight_order": {
+          "elapsed_s": 0.253,
+          "issue_count": 1,
+          "counts": {
+            "error": 0,
+            "warning": 1,
+            "info": 0
+          }
+        },
+        "bonus_names": {
+          "elapsed_s": 5.29,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "building_guards": {
+          "elapsed_s": 0.134,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "characters": {
+          "elapsed_s": 1.372,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "common_mistakes": {
+          "elapsed_s": 8.093,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "cosmetic_tags": {
+          "elapsed_s": 2.462,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "country_names": {
+          "elapsed_s": 0.069,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "decisions": {
+          "elapsed_s": 11.513,
+          "issue_count": 544,
+          "counts": {
+            "error": 0,
+            "warning": 544,
+            "info": 0
+          }
+        },
+        "defines": {
+          "elapsed_s": 0.074,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "dlc_guards": {
+          "elapsed_s": 0.353,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "dynamic_modifier_guards": {
+          "elapsed_s": 0.13,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "equipment_upkeep": {
+          "elapsed_s": 0.112,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "equipment_variants": {
+          "elapsed_s": 13.551,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "events": {
+          "elapsed_s": 2.859,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "factions": {
+          "elapsed_s": 0.179,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "file_paths": {
+          "elapsed_s": 0.257,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "focus_tree": {
+          "elapsed_s": 1.19,
+          "issue_count": 23,
+          "counts": {
+            "error": 0,
+            "warning": 23,
+            "info": 0
+          }
+        },
+        "gfx_references": {
+          "elapsed_s": 0.733,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "graphical_cultures": {
+          "elapsed_s": 0.098,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "history": {
+          "elapsed_s": 0.796,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ideas": {
+          "elapsed_s": 4.356,
+          "issue_count": 55,
+          "counts": {
+            "error": 0,
+            "warning": 55,
+            "info": 0
+          }
+        },
+        "influence_calls": {
+          "elapsed_s": 0.114,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "localisation": {
+          "elapsed_s": 4.686,
+          "issue_count": 2,
+          "counts": {
+            "error": 0,
+            "warning": 2,
+            "info": 0
+          }
+        },
+        "math_expressions": {
+          "elapsed_s": 0.183,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mio_icons": {
+          "elapsed_s": 0.242,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mios": {
+          "elapsed_s": 1.694,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mod_descriptors": {
+          "elapsed_s": 0.055,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "modifiers": {
+          "elapsed_s": 0.38,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "on_actions": {
+          "elapsed_s": 0.246,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "oob_units": {
+          "elapsed_s": 9.524,
+          "issue_count": 1204,
+          "counts": {
+            "error": 0,
+            "warning": 1204,
+            "info": 0
+          }
+        },
+        "party_loc": {
+          "elapsed_s": 2.271,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scientist_traits": {
+          "elapsed_s": 0.111,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_gui": {
+          "elapsed_s": 0.505,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_localisation": {
+          "elapsed_s": 2.513,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_params": {
+          "elapsed_s": 6.382,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "set_variables": {
+          "elapsed_s": 1.219,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "simplifications": {
+          "elapsed_s": 0.331,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "style": {
+          "elapsed_s": 0.969,
+          "issue_count": 9350,
+          "counts": {
+            "error": 0,
+            "warning": 9350,
+            "info": 0
+          }
+        },
+        "tech_categories": {
+          "elapsed_s": 0.941,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "technologies": {
+          "elapsed_s": 0.151,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "variables": {
+          "elapsed_s": 4.302,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        }
+      }
+    },
+    {
+      "sequential_wall_s": 63.69990876100201,
+      "concurrent_wall_s": 24.564313809998566,
+      "speedup": 2.593189016135832,
+      "equivalent": true,
+      "normalized_sha256": "ca2cc3c2514547ebf29daf79b22dfb473b5e997856b6f28943a0525f540eb191",
+      "sequential_validators": {
+        "achievements": {
+          "elapsed_s": 0.055,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "agency_upgrades": {
+          "elapsed_s": 0.2,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_equipment": {
+          "elapsed_s": 0.773,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_navy": {
+          "elapsed_s": 0.055,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_path_rules": {
+          "elapsed_s": 0.174,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_roles": {
+          "elapsed_s": 0.084,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_weight_order": {
+          "elapsed_s": 0.14,
+          "issue_count": 1,
+          "counts": {
+            "error": 0,
+            "warning": 1,
+            "info": 0
+          }
+        },
+        "bonus_names": {
+          "elapsed_s": 2.871,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "building_guards": {
+          "elapsed_s": 0.1,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "characters": {
+          "elapsed_s": 1.229,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "common_mistakes": {
+          "elapsed_s": 2.916,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "cosmetic_tags": {
+          "elapsed_s": 0.926,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "country_names": {
+          "elapsed_s": 0.06,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "decisions": {
+          "elapsed_s": 9.787,
+          "issue_count": 544,
+          "counts": {
+            "error": 0,
+            "warning": 544,
+            "info": 0
+          }
+        },
+        "defines": {
+          "elapsed_s": 0.06,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "dlc_guards": {
+          "elapsed_s": 0.185,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "dynamic_modifier_guards": {
+          "elapsed_s": 0.096,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "equipment_upkeep": {
+          "elapsed_s": 0.107,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "equipment_variants": {
+          "elapsed_s": 12.204,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "events": {
+          "elapsed_s": 1.582,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "factions": {
+          "elapsed_s": 0.101,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "file_paths": {
+          "elapsed_s": 0.234,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "focus_tree": {
+          "elapsed_s": 1.064,
+          "issue_count": 23,
+          "counts": {
+            "error": 0,
+            "warning": 23,
+            "info": 0
+          }
+        },
+        "gfx_references": {
+          "elapsed_s": 0.571,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "graphical_cultures": {
+          "elapsed_s": 0.096,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "history": {
+          "elapsed_s": 0.672,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ideas": {
+          "elapsed_s": 3.777,
+          "issue_count": 55,
+          "counts": {
+            "error": 0,
+            "warning": 55,
+            "info": 0
+          }
+        },
+        "influence_calls": {
+          "elapsed_s": 0.108,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "localisation": {
+          "elapsed_s": 2.43,
+          "issue_count": 2,
+          "counts": {
+            "error": 0,
+            "warning": 2,
+            "info": 0
+          }
+        },
+        "math_expressions": {
+          "elapsed_s": 0.133,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mio_icons": {
+          "elapsed_s": 0.236,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mios": {
+          "elapsed_s": 1.596,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mod_descriptors": {
+          "elapsed_s": 0.051,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "modifiers": {
+          "elapsed_s": 0.336,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "on_actions": {
+          "elapsed_s": 0.201,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "oob_units": {
+          "elapsed_s": 8.072,
+          "issue_count": 1204,
+          "counts": {
+            "error": 0,
+            "warning": 1204,
+            "info": 0
+          }
+        },
+        "party_loc": {
+          "elapsed_s": 2.206,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scientist_traits": {
+          "elapsed_s": 0.11,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_gui": {
+          "elapsed_s": 0.485,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_localisation": {
+          "elapsed_s": 1.344,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_params": {
+          "elapsed_s": 2.241,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "set_variables": {
+          "elapsed_s": 0.541,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "simplifications": {
+          "elapsed_s": 0.174,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "style": {
+          "elapsed_s": 0.941,
+          "issue_count": 9350,
+          "counts": {
+            "error": 0,
+            "warning": 9350,
+            "info": 0
+          }
+        },
+        "tech_categories": {
+          "elapsed_s": 0.392,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "technologies": {
+          "elapsed_s": 0.138,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "variables": {
+          "elapsed_s": 1.834,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        }
+      },
+      "concurrent_validators": {
+        "achievements": {
+          "elapsed_s": 0.06,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "agency_upgrades": {
+          "elapsed_s": 0.331,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_equipment": {
+          "elapsed_s": 0.79,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_navy": {
+          "elapsed_s": 0.057,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_path_rules": {
+          "elapsed_s": 0.177,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_roles": {
+          "elapsed_s": 0.082,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ai_weight_order": {
+          "elapsed_s": 0.278,
+          "issue_count": 1,
+          "counts": {
+            "error": 0,
+            "warning": 1,
+            "info": 0
+          }
+        },
+        "bonus_names": {
+          "elapsed_s": 5.482,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "building_guards": {
+          "elapsed_s": 0.133,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "characters": {
+          "elapsed_s": 1.306,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "common_mistakes": {
+          "elapsed_s": 7.869,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "cosmetic_tags": {
+          "elapsed_s": 2.263,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "country_names": {
+          "elapsed_s": 0.083,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "decisions": {
+          "elapsed_s": 11.656,
+          "issue_count": 544,
+          "counts": {
+            "error": 0,
+            "warning": 544,
+            "info": 0
+          }
+        },
+        "defines": {
+          "elapsed_s": 0.077,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "dlc_guards": {
+          "elapsed_s": 0.291,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "dynamic_modifier_guards": {
+          "elapsed_s": 0.12,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "equipment_upkeep": {
+          "elapsed_s": 0.138,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "equipment_variants": {
+          "elapsed_s": 13.41,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "events": {
+          "elapsed_s": 2.929,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "factions": {
+          "elapsed_s": 0.104,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "file_paths": {
+          "elapsed_s": 0.252,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "focus_tree": {
+          "elapsed_s": 1.266,
+          "issue_count": 23,
+          "counts": {
+            "error": 0,
+            "warning": 23,
+            "info": 0
+          }
+        },
+        "gfx_references": {
+          "elapsed_s": 0.795,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "graphical_cultures": {
+          "elapsed_s": 0.103,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "history": {
+          "elapsed_s": 0.817,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "ideas": {
+          "elapsed_s": 4.501,
+          "issue_count": 55,
+          "counts": {
+            "error": 0,
+            "warning": 55,
+            "info": 0
+          }
+        },
+        "influence_calls": {
+          "elapsed_s": 0.127,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "localisation": {
+          "elapsed_s": 4.706,
+          "issue_count": 2,
+          "counts": {
+            "error": 0,
+            "warning": 2,
+            "info": 0
+          }
+        },
+        "math_expressions": {
+          "elapsed_s": 0.186,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mio_icons": {
+          "elapsed_s": 0.257,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mios": {
+          "elapsed_s": 1.678,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "mod_descriptors": {
+          "elapsed_s": 0.063,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "modifiers": {
+          "elapsed_s": 0.405,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "on_actions": {
+          "elapsed_s": 0.218,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "oob_units": {
+          "elapsed_s": 9.44,
+          "issue_count": 1204,
+          "counts": {
+            "error": 0,
+            "warning": 1204,
+            "info": 0
+          }
+        },
+        "party_loc": {
+          "elapsed_s": 2.302,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scientist_traits": {
+          "elapsed_s": 0.123,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_gui": {
+          "elapsed_s": 0.508,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_localisation": {
+          "elapsed_s": 2.624,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "scripted_params": {
+          "elapsed_s": 6.32,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "set_variables": {
+          "elapsed_s": 1.209,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "simplifications": {
+          "elapsed_s": 0.35,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "style": {
+          "elapsed_s": 1.18,
+          "issue_count": 9350,
+          "counts": {
+            "error": 0,
+            "warning": 9350,
+            "info": 0
+          }
+        },
+        "tech_categories": {
+          "elapsed_s": 1.066,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "technologies": {
+          "elapsed_s": 0.149,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        },
+        "variables": {
+          "elapsed_s": 4.066,
+          "issue_count": 0,
+          "counts": {
+            "error": 0,
+            "warning": 0,
+            "info": 0
+          }
+        }
+      }
+    }
+  ],
+  "median_sequential_wall_s": 63.903414575997886,
+  "median_concurrent_wall_s": 24.564313809998566,
+  "median_speedup": 2.593189016135832,
+  "meets_two_x_threshold": true,
+  "adoption_status": "candidate only; production remains sequential"
+}

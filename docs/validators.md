@@ -94,6 +94,13 @@ info, then returns the issues collected up to that point.
 peaks around 500 MB on the real mod. The wrapper doesn't pool instances —
 each call constructs fresh — so memory drops back after each call.
 
+An unscoped, non-staged run-all in isolated mode runs up to four validators
+concurrently. Its worker budget starts at half the logical CPU count, then is
+capped by a positive `MD_MAX_WORKERS` value and the process's allowed CPU
+affinity. Each isolated validator receives an inner worker cap so the combined
+pool stays within that budget. Named, scoped, staged, and delta runs remain
+sequential.
+
 `MD_MCP_VALIDATOR_MODE=subprocess` is accepted as an alias for `isolated`.
 It used to mean something different: shelling out to
 `python validate_<name>.py --mod-path ... --json <sidecar>` and reading the
@@ -177,9 +184,56 @@ when you want them:
 validate(validator="unused_textures")
 ```
 
-Concurrent run-all is not enabled. The adoption gate is a full run-all at
-least twice as fast on a 14-core host. This host has 24 cores, so that
-measurement was not run and the concurrent path was not added.
+`benchmarks/validator_concurrency.py` measures sequential and concurrent full
+run-all. It selects one logical CPU per physical core from the current Linux
+affinity, enables validator disk caches, discards one full-run warmup, and
+compares every result field,
+ignoring only elapsed time and issue order. A speedup of at least 2x on 14
+physical cores was required before adoption. The qualifying result supported
+the bounded production run-all described above.
+Example invocation:
+
+```sh
+python benchmarks/validator_concurrency.py \
+  --mod-root /path/to/Millennium-Dawn \
+  --cpu-budget 14 --workers 4 --repetitions 3 \
+  --output benchmarks/results/validator-concurrency.json
+```
+
+The report includes host and selected core affinity, per-validator elapsed times
+and issue counts, result equivalence digest, warmup, repeated medians, and the 2x
+threshold outcome. OS filesystem caching remains uncontrolled.
+
+The [recorded run](../benchmarks/results/validator-concurrency.json) used benchmark
+commit `dfc1217` and mod commit `0b325f8` in a dedicated checkout. It covered all
+47 run-all validators on 14 physical cores. `MD_MAX_WORKERS` was 14 for the
+sequential run and three per concurrent validator, with four outer workers.
+Upstream defaults may use fewer workers than this cap.
+
+| Pair | Sequential (s) | Concurrent (s) | Speedup |
+| --- | ---: | ---: | ---: |
+| 1 | 63.903 | 25.437 | 2.512x |
+| 2 | 64.286 | 24.349 | 2.640x |
+| 3 | 63.700 | 24.564 | 2.593x |
+
+The median paired speedup was 2.593x. Median wall times were 63.903 seconds
+sequential and 24.564 seconds concurrent. All four equivalence digests matched,
+including the discarded warmup, and all per-validator timings were present.
+
+This clears the CLI experiment's 2x threshold. Production concurrency is
+limited to isolated, unscoped run-all.
+
+The [live MCP comparison](../benchmarks/results/validator-concurrency-mcp.json)
+used sequential source `75edb15` and concurrent source `3b09206` against the same
+mod commit and 14 physical cores. After a discarded warmup, three alternating
+`validate(counts_only=True)` pairs measured median wall times of 64.522 seconds
+sequential and 24.554 seconds concurrent, with a median paired speedup of 2.650x.
+All eight normalized summary digests matched, ignoring only validator timings.
+A separate default-argument call also returned equivalent results. All 54 tool
+schemas and six resource templates matched. A `calculate_days` request completed
+in 0.002 seconds while run-all remained active. The report includes each
+validator's timing, the probe source, and the uncontrolled filesystem-cache
+condition. These measurements do not promise the same speedup on other hosts.
 
 ## Suppression
 

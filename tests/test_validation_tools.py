@@ -919,12 +919,83 @@ def test_validate_delta_uses_real_sibling_report_lib(tmp_path, line):
     assert sidecar_new_issues == new_issues
 
 
+@pytest.mark.parametrize(
+    ("mode", "arguments", "parallel"),
+    [
+        ("isolated", {}, True),
+        ("isolated", {"files": []}, False),
+        ("isolated", {"files": ["events/a.txt"]}, False),
+        ("isolated", {"staged_only": True}, False),
+        ("isolated", {"delta": True, "baseline": "baseline"}, False),
+        ("in_process", {}, False),
+        ("isolated", {"validator": "ordinary"}, False),
+    ],
+)
+def test_validate_dispatches_only_default_isolated_run_all_to_run_many(
+    fake_mod_root, monkeypatch, mode, arguments, parallel
+):
+    plant_validator(fake_mod_root, "ordinary", _GOOD)
+    (fake_mod_root / "events").mkdir(exist_ok=True)
+    (fake_mod_root / "events" / "a.txt").write_text("x", encoding="utf-8")
+    if arguments.get("delta"):
+        monkeypatch.setattr(validation_tools, "prepare_baseline", lambda *_args: object())
+        monkeypatch.setattr(
+            validation_tools,
+            "new_issue_dicts",
+            lambda *_args, **_kwargs: SimpleNamespace(issues=[], unclassified=0, owners=[]),
+        )
+
+    class Runner:
+        def __init__(self):
+            self.mode = mode
+            self.calls = []
+
+        def run_many(self, names):
+            self.calls.append(("many", names))
+            return [self.result(name) for name in names]
+
+        def run(self, name, *, _worker_budget=None, **kwargs):
+            assert _worker_budget is None
+            self.calls.append(("one", name, kwargs))
+            return self.result(name)
+
+        @staticmethod
+        def result(name):
+            return {
+                "ok": True,
+                "validator": name,
+                "issues": [],
+                "counts": {"error": 0, "warning": 0, "info": 0},
+            }
+
+    runner = cast(Any, Runner())
+    validate_tool(mod_settings(fake_mod_root), runner, **arguments)
+
+    if parallel:
+        assert runner.calls == [("many", ["ordinary"])]
+    elif arguments.get("validator"):
+        assert runner.calls == [("one", "ordinary", {"staged_only": False, "files": None})]
+    else:
+        assert runner.calls == [
+            (
+                "one",
+                "ordinary",
+                {
+                    "staged_only": arguments.get("staged_only", False),
+                    "files": arguments.get("files"),
+                },
+            )
+        ]
+
+
 def test_validate_run_all_excludes_manual_and_commit_only_but_named_calls_remain(fake_mod_root):
     for name in ("standardization", "mesh_textures", "ordinary"):
         plant_validator(fake_mod_root, name, _GOOD)
     calls = []
 
     class Runner:
+        mode = "in_process"
+
         def run(self, name, **kwargs):
             calls.append(name)
             return {

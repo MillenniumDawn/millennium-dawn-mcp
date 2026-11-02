@@ -23,6 +23,7 @@ from .analysis.focus_render import render_focus_tree
 from .analysis.manifest import list_country_content
 from .analysis.ref_audit import check_refs
 from .analysis.refs import find_references
+from .analysis.unreferenced import find_unreferenced
 from .analysis.vanilla_manifest import load_sprite_manifest
 from .config import Settings, load
 from .content_registry import INDEX_TYPES
@@ -374,6 +375,29 @@ def build_server(settings: Settings):
             offset=offset,
             snippet_chars=snippet_chars,
             files_only=files_only,
+        )
+
+    @mcp.tool(name="find_unreferenced")
+    def _find_unreferenced(
+        kind: str,
+        file: str,
+        limit: int = 200,
+        offset: int = 0,
+        include_hits: bool = False,
+    ) -> dict:
+        """List names defined in one mod .txt file that nothing references. kind=idea|scripted_loc|scripted_effect|scripted_trigger; limit/offset page names; include_hits adds sample references."""
+        return find_unreferenced(
+            settings.mod_root,
+            kind,
+            file,
+            submod_root=settings.submod_root,
+            indexes={
+                "scripted_effect": scripted_effect_index,
+                "scripted_trigger": scripted_trigger_index,
+            },
+            limit=limit,
+            offset=offset,
+            include_hits=include_hits,
         )
 
     @mcp.tool(name="list_country_content")

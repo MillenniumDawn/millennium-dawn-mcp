@@ -141,7 +141,7 @@ Full env-var reference:
 | `MD_MCP_DEFAULT_LANG` | Default loc language for `resolve_loc` (defaults to `en`). |
 | `MD_MCP_LOC_LANGS` | Loc languages to index, e.g. `en,de` or `*` for all (defaults to `default_lang` plus English, which is always included). Other languages still resolve through a slower on-demand scan. Each language set has its own cache (`loc-en`, `loc-de_en`). |
 | `MD_MCP_SERIAL_PARSE` | `1` forces serial parsing. `md-mcp serve` sets it. |
-| `MD_MCP_TEXT_CACHE_BYTES` | Bound on decoded text held by `find_references`' in-memory file cache, measured as the strings cost in memory (default 134217728 = 128 MB; `0` disables). Once full, further files are read but not cached. |
+| `MD_MCP_TEXT_CACHE_BYTES` | Bound on decoded text held by the in-memory file cache that `find_references` and `find_unreferenced` share, measured as the strings cost in memory (default 134217728 = 128 MB; `0` disables). Once full, further files are read but not cached. |
 | `MD_MCP_AST_CACHE_SIZE` | Parsed-AST LRU capacity in files (default 32, `0` disables). |
 | `MD_MCP_AST_CACHE_BYTES` | Bound on source text held by the parsed-AST cache (default 8000000). Resident cost is ~23x that: 8 MB of source is ~184 MB of trees on the real mod. |
 

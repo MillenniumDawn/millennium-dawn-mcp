@@ -275,7 +275,7 @@ def test_monolithic_indexes_keep_data_json(fake_mod_root, cache_dir):
     assert not idx._cache.shard_dir.exists()
 
 
-def test_sharded_parse_errors_survive_restart(tmp_path, cache_dir):
+def test_sharded_parse_errors_survive_restart(tmp_path, cache_dir, monkeypatch):
     """A sharded index that tracks parse errors reports them after a restart."""
 
     class ShardedFocus(FocusIndex):
@@ -293,8 +293,10 @@ def test_sharded_parse_errors_survive_restart(tmp_path, cache_dir):
     assert [e["file"] for e in first.parse_errors()] == [str(Path("common/national_focus/bad.txt"))]
 
     second = ShardedFocus(root, cache_dir, include_vanilla=False)
+    parsed = spy_parse(second, monkeypatch)
     assert second.parse_errors() == first.parse_errors()
     assert second.resolve("TST_good") is not None
+    assert all(not relpaths for relpaths in parsed)
 
 
 # ----- incremental rebuild ---------------------------------------------------

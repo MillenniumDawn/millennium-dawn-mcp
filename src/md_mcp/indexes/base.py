@@ -689,6 +689,12 @@ class GenericTxtIndex:
                     new_by_file[relpath] = records
                 elif self.track_parse_errors:
                     new_parse_errors[relpath] = self._failure_message(error)
+                else:
+                    # Without retained errors, null records cannot be reused.
+                    logger.info(
+                        "%s index: re-parsing %s (null cached shard)", self.cache_name, relpath
+                    )
+                    to_parse.append(relpath)
         else:
             cached_data = self._cache.load_data()
             cached_files: dict[str, Any] = {}

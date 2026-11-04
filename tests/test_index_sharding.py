@@ -11,7 +11,9 @@ from pathlib import Path
 import pytest
 
 from md_mcp.indexes import FocusIndex, IdeaIndex, LocalisationIndex
-from md_mcp.indexes.base import IndexCache, shard_filename
+from md_mcp.indexes import localisation as loc_module
+from md_mcp.indexes.base import IndexCache, file_signature, shard_filename
+from md_mcp.util.encoding import read_text
 from tests.support.indexes import (
     bump_mtime,
     force_refresh,
@@ -195,6 +197,54 @@ def test_corrupt_shard_reparses_only_that_file(loc_root, cache_dir, tmp_path, ga
     # The shard was healed, so the next start parses nothing.
     third = _mk(loc_root, cache_dir)
     assert third._cache.load_shard(str(Path("localisation/english/c_l_english.yml"))) is not None
+    assert index_state(third) == index_state(second)
+
+
+def test_transient_worker_failure_persists_null_shard_and_heals(
+    loc_root, cache_dir, tmp_path, monkeypatch
+):
+    """An unchanged file recovers after a cached transient read failure."""
+    relpath = str(Path("localisation/english/a_l_english.yml"))
+    victim = _loc(loc_root, "a")
+    sig = file_signature(victim)
+    first = _mk(loc_root, cache_dir)
+    real_read = read_text
+
+    def transient_read(path):
+        if Path(path) == victim:
+            raise OSError("temporarily unavailable")
+        return real_read(path)
+
+    with monkeypatch.context() as failure:
+        failure.setattr(loc_module, "read_text", transient_read)
+        first.ensure_fresh()
+        assert first.resolve("K_only_a") is None
+
+    # Restore reads without touching source mtime or size.
+    assert first._cache.load_shard(relpath) == (None, None)
+    assert file_signature(victim) == sig
+    manifest = first._cache.load_manifest()
+    assert sig is not None
+    assert manifest is not None and manifest[relpath].to_json() == sig.to_json()
+
+    second = _mk(loc_root, cache_dir)
+    parsed = spy_parse(second, monkeypatch)
+    second.ensure_fresh()
+    assert parsed == [[relpath]]
+    only_a = second.resolve("K_only_a")
+    shared = second.resolve("K_shared")
+    assert only_a is not None and only_a["value"] == "a"
+    assert shared is not None and shared["value"] == "from c"
+    assert index_state(second) == scratch_state(LocalisationIndex, loc_root, tmp_path, "heal")
+    shard = second._cache.load_shard(relpath)
+    assert shard is not None
+    records, error = shard
+    assert error is None and records
+
+    third = _mk(loc_root, cache_dir)
+    reloaded = spy_parse(third, monkeypatch)
+    third.ensure_fresh()
+    assert all(not rels for rels in reloaded)
     assert index_state(third) == index_state(second)
 
 
@@ -496,7 +546,8 @@ def test_file_removed_by_another_process_is_dropped_on_refresh(tmp_path):
     force_refresh(a)
 
     assert a.resolve("K_Z") is None
-    assert a.resolve("K_X")["value"] == "x2"
+    hit = a.resolve("K_X")
+    assert hit is not None and hit["value"] == "x2"
     assert str(Path(_Z)) not in a._by_file
 
 
@@ -521,9 +572,11 @@ def test_file_edited_by_another_process_is_reparsed(tmp_path):
     root, a, b = _two_loc_indexes(tmp_path)
     bump_mtime(write_loc(root, _X, "l_english", "K_X", "x2"))
     force_refresh(b)  # B re-indexes X and updates the manifest
-    assert b.resolve("K_X")["value"] == "x2"
+    b_hit = b.resolve("K_X")
+    assert b_hit is not None and b_hit["value"] == "x2"
     force_refresh(a)
-    assert a.resolve("K_X")["value"] == "x2"
+    a_hit = a.resolve("K_X")
+    assert a_hit is not None and a_hit["value"] == "x2"
 
 
 def test_file_removed_by_another_process_monolithic_index(tmp_path):

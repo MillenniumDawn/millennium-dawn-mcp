@@ -600,10 +600,39 @@ def _collect(
                 stderr_on_failure.append(buf_err.getvalue()[-2000:])
             raise
 
-    payload = {"ok": True, "issues": [i.to_dict() for i in getattr(inst, "_issues", [])]}
+    payload = {"ok": True, "issues": _harvest_issues(inst, module_name)}
     if scoped:
         payload["scoped"] = True
     return payload
+
+
+def _harvest_issues(inst, module_name: str) -> list[dict]:
+    """Reject incompatible upstream issue collections instead of reporting a clean run."""
+    contract = (
+        f"incompatible validator contract: `{module_name}.Validator` must expose "
+        "`_issues` as an iterable of issues whose to_dict() returns a dict"
+    )
+    if not hasattr(inst, "_issues"):
+        raise TypeError(f"{contract} (attribute `_issues` is missing)")
+    issues = inst._issues
+    if isinstance(issues, (str, bytes, dict)):
+        raise TypeError(contract)
+    try:
+        items = iter(issues)
+    except TypeError:
+        raise TypeError(contract) from None
+    collected: list[dict] = []
+    for index, item in enumerate(items):
+        to_dict = getattr(item, "to_dict", None)
+        if not callable(to_dict):
+            raise TypeError(f"{contract} (member {index} has no usable to_dict())")
+        record = to_dict()
+        if not isinstance(record, dict):
+            raise TypeError(
+                f"{contract} (member {index} to_dict() returned {type(record).__name__})"
+            )
+        collected.append(record)
+    return collected
 
 
 def _filter_by_files(

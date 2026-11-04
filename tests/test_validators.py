@@ -241,6 +241,80 @@ class Validator:
 )
 
 
+_NONE_ISSUES = (
+    ISSUE_CLASS
+    + """
+class Validator:
+    TITLE = "None Issues"
+
+    def __init__(self, mod_path, output_file=None, use_colors=True, staged_only=False, **kw):
+        self._issues = None
+
+    def run_all_validations(self):
+        pass
+"""
+)
+
+_BAD_MEMBER_ISSUES = (
+    ISSUE_CLASS
+    + """
+class Validator:
+    TITLE = "Bad Member Issues"
+
+    def __init__(self, mod_path, output_file=None, use_colors=True, staged_only=False, **kw):
+        self._issues = []
+
+    def run_all_validations(self):
+        self._issues.append("not an issue object")
+"""
+)
+
+_EMPTY_ISSUES = (
+    ISSUE_CLASS
+    + """
+class Validator:
+    TITLE = "Empty Issues"
+
+    def __init__(self, mod_path, output_file=None, use_colors=True, staged_only=False, **kw):
+        self._issues = []
+
+    def run_all_validations(self):
+        pass
+"""
+)
+
+_EXITS_WITHOUT_ISSUES = (
+    ISSUE_CLASS
+    + """
+import sys
+
+
+class Validator:
+    TITLE = "Exits Without Issues"
+
+    def __init__(self, mod_path, output_file=None, use_colors=True, staged_only=False, **kw):
+        pass
+
+    def run_all_validations(self):
+        sys.exit(1)
+"""
+)
+
+_MISSING_ISSUES = (
+    ISSUE_CLASS
+    + """
+class Validator:
+    TITLE = "Missing Issues"
+
+    def __init__(self, mod_path, output_file=None, use_colors=True, staged_only=False, **kw):
+        pass
+
+    def run_all_validations(self):
+        pass
+"""
+)
+
+
 # Emits the non-uniform `Issue.file` shapes the upstream suite produces.
 _BASENAMES = (
     ISSUE_CLASS
@@ -487,6 +561,76 @@ def test_runner_reports_missing_validator_class(fake_mod_root, mode):
     result = ValidatorRunner(fake_mod_root, mode=mode).run(f"classless_{mode}")
     assert result["ok"] is False
     assert "Validator" in result["error"]
+
+
+@pytest.mark.parametrize("mode", _MODES)
+def test_runner_reports_missing_issues_attribute(fake_mod_root, mode):
+    plant_validator(fake_mod_root, f"missing_issues_{mode}", _MISSING_ISSUES)
+    result = ValidatorRunner(fake_mod_root, mode=mode).run(f"missing_issues_{mode}")
+    assert result["ok"] is False
+    assert result["validator"] == f"missing_issues_{mode}"
+    assert "incompatible validator contract" in result["error"]
+    assert "_issues" in result["error"]
+    assert f"validate_missing_issues_{mode}" in result["error"]
+
+
+@pytest.mark.parametrize("mode", _MODES)
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [("none", "None"), ("number", "0"), ("string", "''"), ("bytes", "b''"), ("mapping", "{}")],
+)
+def test_runner_reports_unusable_issues_collection(fake_mod_root, mode, name, value):
+    source = _NONE_ISSUES.replace("self._issues = None", f"self._issues = {value}")
+    module = f"unusable_{name}_{mode}"
+    plant_validator(fake_mod_root, module, source)
+    result = ValidatorRunner(fake_mod_root, mode=mode).run(module)
+    assert result["ok"] is False
+    assert "incompatible validator contract" in result["error"]
+    assert "_issues" in result["error"]
+
+
+@pytest.mark.parametrize("mode", _MODES)
+@pytest.mark.parametrize(
+    ("name", "member"),
+    [
+        ("missing_method", '"not an issue object"'),
+        ("invalid_result", "type('Issue', (), {'to_dict': lambda self: None})()"),
+    ],
+)
+def test_runner_reports_unusable_issue_member(fake_mod_root, mode, name, member):
+    source = _BAD_MEMBER_ISSUES.replace('"not an issue object"', member)
+    module = f"bad_member_{name}_{mode}"
+    plant_validator(fake_mod_root, module, source)
+    result = ValidatorRunner(fake_mod_root, mode=mode).run(module)
+    assert result["ok"] is False
+    assert "incompatible validator contract" in result["error"]
+    assert "to_dict" in result["error"]
+
+
+@pytest.mark.parametrize("mode", _MODES)
+def test_runner_keeps_system_exit_and_rejects_missing_issues_after_it(fake_mod_root, mode):
+    """SystemExit must not hide an incompatible validator contract."""
+    plant_validator(fake_mod_root, f"exits_without_issues_{mode}", _EXITS_WITHOUT_ISSUES)
+    result = ValidatorRunner(fake_mod_root, mode=mode).run(f"exits_without_issues_{mode}")
+    assert result["ok"] is False
+    assert "incompatible validator contract" in result["error"]
+    assert "_issues" in result["error"]
+
+
+@pytest.mark.parametrize("mode", _MODES)
+def test_runner_treats_empty_issues_as_a_clean_run(fake_mod_root, mode):
+    plant_validator(fake_mod_root, f"empty_issues_{mode}", _EMPTY_ISSUES)
+    result = ValidatorRunner(fake_mod_root, mode=mode).run(f"empty_issues_{mode}")
+    assert result["ok"] is True
+    assert result["issues"] == []
+    assert result["counts"] == {"error": 0, "warning": 0, "info": 0}
+
+
+def test_collect_raises_incompatible_contract_error(fake_mod_root):
+    """_collect itself raises (the docs' debugging entry point surfaces the contract error)."""
+    plant_validator(fake_mod_root, "missing_issues_collect", _MISSING_ISSUES)
+    with pytest.raises(TypeError, match=r"incompatible validator contract.*_issues"):
+        _collect(str(fake_mod_root), "validate_missing_issues_collect", False)
 
 
 def test_isolated_forwards_staged_only(fake_mod_root):

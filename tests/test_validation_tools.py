@@ -110,11 +110,28 @@ def test_validate_list_budget_guard_drops_oversized_validator_page(fake_mod_root
 
     assert result["ok"] is True
     assert result["total"] == 2_000
-    assert result["returned"] == 2_000
-    assert result["truncated"] is False
+    assert result["returned"] == 0
+    assert result["truncated"] is True
     assert result["size_truncated"] is True
+    assert result["validators_dropped"] == 2_000
     assert "validators" not in result
     assert len(json.dumps(result).encode("utf-8")) <= BUDGET_BYTES
+
+
+@pytest.mark.parametrize(("names", "offset"), [((), 0), (("first", "second", "third"), 3)])
+def test_validate_list_empty_page_keeps_accurate_counts(fake_mod_root, names, offset):
+    for name in names:
+        plant_validator(fake_mod_root, name, _GOOD)
+
+    result = validate_list_tool(mod_settings(fake_mod_root), offset=offset)
+
+    assert result["ok"] is True
+    assert result["total"] == len(names)
+    assert result["returned"] == 0
+    assert result["truncated"] is False
+    assert result["validators"] == []
+    assert "validators_dropped" not in result
+    assert "size_truncated" not in result
 
 
 def test_validate_default_skips_non_english_localisation(fake_mod_root):

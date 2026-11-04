@@ -10,15 +10,21 @@ Isolated-mode tests plant synthetic `validate_*.py` modules in the fake mod's
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import threading
 from pathlib import Path
 
 import pytest
+from mcp import ClientSession
+from mcp.client.stdio import stdio_client
+from mcp.types import TextContent
 
 from md_mcp.validators import SLOW_VALIDATORS, ValidatorRunner, available_validators
 from md_mcp.validators import runner as runner_module
 from md_mcp.validators.runner import _collect
+from tests.support.stdio import server_parameters
 from tests.support.upstream import ISSUE_CLASS, plant_validator
 
 
@@ -624,6 +630,34 @@ def test_runner_treats_empty_issues_as_a_clean_run(fake_mod_root, mode):
     assert result["ok"] is True
     assert result["issues"] == []
     assert result["counts"] == {"error": 0, "warning": 0, "info": 0}
+
+
+async def _probe_validator_contract_stdio(mod_root: Path, cache_dir: Path) -> None:
+    async with (
+        stdio_client(server_parameters(mod_root, cache_dir)) as (read, write),
+        ClientSession(read, write, read_timeout_seconds=10) as session,
+    ):
+        await session.initialize()
+        for name, expected_ok in (("missing_protocol", False), ("empty_protocol", True)):
+            result = await session.call_tool("validate", {"validator": name})
+            assert not result.is_error
+            content = result.content[0]
+            assert isinstance(content, TextContent)
+            payload = json.loads(content.text)
+            assert payload["ok"] is expected_ok
+            assert payload["validator"] == name
+            if expected_ok:
+                assert payload["issues"] == []
+                assert payload["counts"] == {"error": 0, "warning": 0, "info": 0}
+            else:
+                assert "incompatible validator contract" in payload["error"]
+                assert "_issues" in payload["error"]
+
+
+def test_validator_contract_errors_survive_stdio(fake_mod_root, cache_dir):
+    plant_validator(fake_mod_root, "missing_protocol", _MISSING_ISSUES)
+    plant_validator(fake_mod_root, "empty_protocol", _EMPTY_ISSUES)
+    asyncio.run(_probe_validator_contract_stdio(fake_mod_root, cache_dir))
 
 
 def test_collect_raises_incompatible_contract_error(fake_mod_root):

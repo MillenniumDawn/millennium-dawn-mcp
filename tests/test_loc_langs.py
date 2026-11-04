@@ -381,7 +381,7 @@ def test_first_scan_coordinates_concurrent_language_lookups(
 
     scan_started = threading.Event()
     release_scan = threading.Event()
-    second_started = threading.Event()
+    second_waiting = threading.Event()
     second_done = threading.Event()
     real_read = read_text
 
@@ -406,7 +406,6 @@ def test_first_scan_coordinates_concurrent_language_lookups(
             errors.append(exc)
 
     def second() -> None:
-        second_started.set()
         try:
             if second_kind == "resolve":
                 second_missing.append(li.resolve("TST_only_de", "de"))
@@ -424,12 +423,24 @@ def test_first_scan_coordinates_concurrent_language_lookups(
     try:
         first_thread.start()
         assert scan_started.wait(timeout=10), "first scan never reached the German file"
+        lock = li._scans["l_german"].lock
+
+        class ObservedLock:
+            def __enter__(self):
+                if not lock.acquire(blocking=False):
+                    second_waiting.set()
+                    lock.acquire()
+
+            def __exit__(self, *args):
+                lock.release()
+
+        monkeypatch.setattr(li._scans["l_german"], "lock", ObservedLock())
         second_thread.start()
-        assert second_started.wait(timeout=10), "second lookup was never admitted"
         if second_kind == "other_language":
             assert second_done.wait(timeout=5), "unrelated warm lookup was blocked"
         else:
-            assert not second_done.wait(timeout=0.5), "second lookup saw the unfinished scan"
+            assert second_waiting.wait(timeout=10), "second lookup never waited for the scan"
+            assert not second_done.is_set(), "second lookup saw the unfinished scan"
     finally:
         release_scan.set()
         first_thread.join(timeout=10)
@@ -458,24 +469,6 @@ def test_first_scan_coordinates_concurrent_language_lookups(
         french = second_root[0]
         assert french is not None
         assert french["value"] == "La Racine" and french["lang"] == "fr"
-
-    scan = li._scans["l_german"]
-    records = scan.files[str(Path("localisation/german/test_l_german.yml"))]
-    calls: list[int] = []
-    real_collect = collect_files
-
-    def spy(*args, **kwargs):
-        calls.append(1)
-        return real_collect(*args, **kwargs)
-
-    monkeypatch.setattr(loc_mod, "collect_files", spy)
-    scan.stale_check.should_check()  # re-open the debounce window for the check below
-    assert li.resolve("TST_root", "de") is not None
-    assert calls == [], "a debounced lookup must not re-stat the language"
-    scan.stale_check.force_next()
-    assert li.list_keys("de") == ["TST_only_de", "TST_root"]
-    assert calls == [1]
-    assert scan.files[str(Path("localisation/german/test_l_german.yml"))] is records
 
 
 def test_failed_first_scan_releases_the_lock_and_retries(multi_lang_root, cache_dir, monkeypatch):

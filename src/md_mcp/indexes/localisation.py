@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -156,6 +157,7 @@ class _LangScan:
     """In-memory result of scanning one non-indexed language."""
 
     def __init__(self) -> None:
+        self.lock = threading.Lock()
         self.stale_check = StaleCheck()
         self.sigs: dict[str, FileSig] = {}
         self.files: dict[str, list[dict]] = {}
@@ -200,6 +202,7 @@ class LocalisationIndex(GenericTxtIndex):
         self.file_predicate = self._is_indexed_file
         # suffix -> scan state for languages that are not indexed.
         self._scans: dict[str, _LangScan] = {}
+        self._scan_lock = threading.Lock()
 
     def _is_indexed_file(self, path: Path) -> bool:
         return _file_lang_suffix(path) in self._indexed_suffixes
@@ -246,45 +249,48 @@ class LocalisationIndex(GenericTxtIndex):
         stat walk is debounced like `ensure_fresh`. Parsing is always serial: this runs
         inside tool calls, where forking would deadlock the stdio server.
         """
-        scan = self._scans.get(suffix)
-        if scan is None:
-            scan = self._scans[suffix] = _LangScan()
-            scan.stale_check.should_check()  # arm the debounce window for the scan below
-        elif not scan.stale_check.should_check():
+        with self._scan_lock:
+            scan = self._scans.get(suffix)
+            if scan is None:
+                scan = self._scans[suffix] = _LangScan()
+
+        # Only callers for this language wait for its scan to finish.
+        with scan.lock:
+            if not scan.stale_check.should_check() and scan.loaded:
+                return scan
+
+            def wanted(path: Path) -> bool:
+                return _file_lang_suffix(path) == suffix
+
+            roots = self._roots()
+            files = collect_files(roots, self._subdirs, self._patterns, wanted)
+            sigs = signatures_for(files, roots)
+            if scan.loaded and sigs == scan.sigs:
+                return scan
+
+            # A file whose last parse failed has a signature but no records; it is
+            # re-parsed below rather than looked up.
+            kept = {
+                rel: scan.files[rel]
+                for rel, sig in sigs.items()
+                if scan.sigs.get(rel) == sig and rel in scan.files
+            }
+            for rel in sorted(sigs):
+                if rel in kept:
+                    continue
+                base = resolve_root(roots, rel)
+                records = _parse_loc_worker(str(base / rel), rel) if base is not None else None
+                if records is not None:
+                    kept[rel] = [{**rec, "file": rel} for rec in records]
+            by_key: dict[str, dict] = {}
+            for rel in sorted(kept):
+                for rec in kept[rel]:
+                    by_key[rec["key"]] = rec
+            scan.sigs = sigs
+            scan.files = kept
+            scan.by_key = by_key
+            scan.loaded = True
             return scan
-
-        def wanted(path: Path) -> bool:
-            return _file_lang_suffix(path) == suffix
-
-        roots = self._roots()
-        files = collect_files(roots, self._subdirs, self._patterns, wanted)
-        sigs = signatures_for(files, roots)
-        if scan.loaded and sigs == scan.sigs:
-            return scan
-
-        # A file whose last parse failed has a signature but no records; it is
-        # re-parsed below rather than looked up.
-        kept = {
-            rel: scan.files[rel]
-            for rel, sig in sigs.items()
-            if scan.sigs.get(rel) == sig and rel in scan.files
-        }
-        for rel in sorted(sigs):
-            if rel in kept:
-                continue
-            base = resolve_root(roots, rel)
-            records = _parse_loc_worker(str(base / rel), rel) if base is not None else None
-            if records is not None:
-                kept[rel] = [{**rec, "file": rel} for rec in records]
-        by_key: dict[str, dict] = {}
-        for rel in sorted(kept):
-            for rec in kept[rel]:
-                by_key[rec["key"]] = rec
-        scan.sigs = sigs
-        scan.files = kept
-        scan.by_key = by_key
-        scan.loaded = True
-        return scan
 
 
 def _parse_loc_file(text: str, relpath: str) -> dict:

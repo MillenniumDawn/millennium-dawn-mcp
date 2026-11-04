@@ -6,6 +6,7 @@ must not report success while individual validators failed.
 
 from __future__ import annotations
 
+import asyncio
 import errno
 import importlib
 import json
@@ -14,6 +15,9 @@ from types import SimpleNamespace
 from typing import Any, Callable, cast
 
 import pytest
+from mcp import ClientSession
+from mcp.client.stdio import stdio_client
+from mcp.types import TextContent
 
 from md_mcp.config import Settings
 from md_mcp.tools import validation_tools
@@ -21,6 +25,7 @@ from md_mcp.tools.validation_tools import filter_and_cap, validate_list_tool, va
 from md_mcp.util.response import BUDGET_BYTES
 from md_mcp.validators import ValidatorRunner
 from tests.support.mod import mod_settings
+from tests.support.stdio import server_parameters
 from tests.support.upstream import ISSUE_CLASS, plant_validator
 
 _validate_tool_with_delta = cast(Callable[..., dict], validate_tool)
@@ -132,6 +137,34 @@ def test_validate_list_empty_page_keeps_accurate_counts(fake_mod_root, names, of
     assert result["validators"] == []
     assert "validators_dropped" not in result
     assert "size_truncated" not in result
+
+
+async def _probe_validate_list_budget_stdio(mod_root: Path, cache_dir: Path) -> None:
+    async with (
+        stdio_client(server_parameters(mod_root, cache_dir)) as (read, write),
+        ClientSession(read, write, read_timeout_seconds=10) as session,
+    ):
+        await session.initialize()
+        result = await session.call_tool("validate_list", {"limit": 2})
+        assert not result.is_error
+        content = result.content[0]
+        assert isinstance(content, TextContent)
+        payload = json.loads(content.text)
+        assert payload["ok"] is True
+        assert payload["total"] == 2
+        assert payload["returned"] == 0
+        assert payload["truncated"] is True
+        assert payload["validators_dropped"] == 2
+        assert payload["size_truncated"] is True
+        assert "validators" not in payload
+        assert len(content.text.encode("utf-8")) <= BUDGET_BYTES
+
+
+def test_validate_list_budget_metadata_survives_stdio(fake_mod_root, cache_dir):
+    source = "TITLE = " + repr("x" * 60_000) + "\n"
+    for name in ("large_first", "large_second"):
+        plant_validator(fake_mod_root, name, source)
+    asyncio.run(_probe_validate_list_budget_stdio(fake_mod_root, cache_dir))
 
 
 def test_validate_default_skips_non_english_localisation(fake_mod_root):

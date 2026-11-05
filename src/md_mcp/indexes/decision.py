@@ -34,7 +34,7 @@ def _parse_decision_file(
 class DecisionIndex(GenericTxtIndex):
     # v3: parser acceptance widened (+ numbers, acute symbols, anonymous blocks,
     # vanilla EOF recovery); cached parse errors rebuild.
-    cache_version = 3
+    cache_version = 4
     cache_name = "decision"
     subdir = "common/decisions"
     parser_fn = staticmethod(_parse_decision_file)

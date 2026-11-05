@@ -7,7 +7,7 @@ import logging
 from ..paradox import parse_string
 from ..paradox.schema import EVENT_KINDS, extract_event_records
 from ..util.encoding import read_text
-from .base import FILE_NOT_FOUND, GenericTxtIndex, ParseResult
+from .base import FILE_NOT_FOUND, ParsedTxtIndex, ParseResult
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ def _parse_event_file(
         return ParseResult.failed("parse", e)
 
 
-class EventIndex(GenericTxtIndex):
+class EventIndex(ParsedTxtIndex):
     # v3: parser acceptance widened (+ numbers, acute symbols, anonymous blocks,
     # vanilla EOF recovery); cached parse errors rebuild.
     cache_version = 4

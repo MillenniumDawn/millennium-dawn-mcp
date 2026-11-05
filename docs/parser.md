@@ -64,7 +64,7 @@ From `lexer.py`:
 | `comment` | `#.*(?:[\r\n]|$)` | `# this is a comment` |
 | `operator` | `>=`, `<=`, `!=` first, then `[={}<>;,]` | `=`, `{`, `}`, `>=` |
 | `string` | `"[^"\\]*(?:\\[\s\S][^"\\]*)*"` | `"localised key"` |
-| `symbol` | `-\[\?[\w:\._@\-\?\^\/\u00A0-\u024F\|]+\]` or `(?:\d+\.)?[a-zA-Z_@\[\]\u00B4][\w:\._@\[\]\-\?\^\/\u00A0-\u024F\|]*` | `ISR_idf`, `[VAR]`, `5.cycle_var`, `´45`, `-[?var]` |
+| `symbol` | `-\[\?[\w:\._@\-\?\^\/\u00A0-\u024F\|]+\]` or `(?:(?!0x[0-9a-fA-F])\d+|(?:\d+\.)?)[a-zA-Z_@\[\]\u00B4][\w:\._@\[\]\-\?\^\/\u00A0-\u024F\|]*` | `ISR_idf`, `[VAR]`, `5.cycle_var`, `10_percent_x`, `´45`, `-[?var]` |
 | `date` | `\d+(?:\.\d+){2,}` | `1936.1.1`, `2030.1.1.12` |
 | `unitnumber` | `(?:[+-]?\d*\.\d+|[+-]?\d+)(?:%%?)` | `5%`, `42%%`, `-3%`, `+2%` |
 | `number` | `0x[0-9a-fA-F]+|[+-]?\d*\.\d+|[+-]?\d+\.?` | `42`, `-3.5`, `+0.10`, `1.`, `2030.1`, `0xffffffff` |
@@ -166,7 +166,12 @@ offers only the `closeBlocksAtEof` option of these):
    are one symbol, preserving the full expression and its source span. This narrowly
    admits the bracketed form without changing negative number tokenization.
 
-These changes widen acceptance; nothing about malformed input outside these five
+6. **Digit-leading symbols.** Mod triggers such as `10_percent_government_popularity`
+   are one symbol when digits are immediately followed by a symbol-start character.
+   A hexadecimal prefix keeps its existing numeric precedence, and dates, decimal
+   numbers, and percentages retain their existing tokenization.
+
+These changes widen acceptance; nothing about malformed input outside these six
 shapes fails later or more quietly than before. Index persist caches were version-
 bumped (idea/gfx/focus/event/decision/definitions-based to force a rebuild) exactly
 because previously-failing files now parse and must not be served stale errors.

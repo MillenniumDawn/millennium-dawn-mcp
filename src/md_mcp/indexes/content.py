@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .base import FILE_NOT_FOUND, GenericTxtIndex
+from .base import FILE_NOT_FOUND, ParsedTxtIndex
 from .definitions import (
     parse_country_history_file,
     parse_dynamic_modifier_file,
@@ -13,7 +13,7 @@ from .definitions import (
 )
 
 
-class OnActionIndex(GenericTxtIndex):
+class OnActionIndex(ParsedTxtIndex):
     cache_version = 2
     cache_name = "on_action"
     subdir = "common/on_actions"
@@ -23,7 +23,7 @@ class OnActionIndex(GenericTxtIndex):
     track_parse_errors = True
 
 
-class TechnologyIndex(GenericTxtIndex):
+class TechnologyIndex(ParsedTxtIndex):
     cache_version = 2
     cache_name = "technology"
     subdir = "common/technologies"
@@ -33,7 +33,7 @@ class TechnologyIndex(GenericTxtIndex):
     track_parse_errors = True
 
 
-class DynamicModifierIndex(GenericTxtIndex):
+class DynamicModifierIndex(ParsedTxtIndex):
     cache_version = 2
     cache_name = "dynamic_modifier"
     subdir = "common/dynamic_modifiers"
@@ -43,7 +43,7 @@ class DynamicModifierIndex(GenericTxtIndex):
     track_parse_errors = True
 
 
-class ModifierDefinitionIndex(GenericTxtIndex):
+class ModifierDefinitionIndex(ParsedTxtIndex):
     cache_version = 2
     cache_name = "modifier_definition"
     subdir = "common/modifier_definitions"
@@ -53,7 +53,7 @@ class ModifierDefinitionIndex(GenericTxtIndex):
     track_parse_errors = True
 
 
-class CountryHistoryIndex(GenericTxtIndex):
+class CountryHistoryIndex(ParsedTxtIndex):
     cache_version = 2
     cache_name = "country_history"
     subdir = "history/countries"
@@ -63,7 +63,7 @@ class CountryHistoryIndex(GenericTxtIndex):
     track_parse_errors = True
 
 
-class UnitHistoryIndex(GenericTxtIndex):
+class UnitHistoryIndex(ParsedTxtIndex):
     cache_version = 2
     cache_name = "unit_history"
     subdir = "history/units"

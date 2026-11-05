@@ -11,13 +11,14 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from md_mcp.analysis import text_cache
 from md_mcp.analysis.refs import find_references
 from md_mcp.analysis.unreferenced import analyse, find_unreferenced
-from md_mcp.indexes import ScriptedEffectIndex, ScriptedTriggerIndex
+from md_mcp.indexes import GenericTxtIndex, ScriptedEffectIndex, ScriptedTriggerIndex
 from md_mcp.util.encoding import read_text
 from md_mcp.util.response import BUDGET_BYTES
 
@@ -876,3 +877,79 @@ def test_idea_warm_scan_of_the_largest_ideas_file_is_fast(real_mod_root):
 
     assert result["ok"] is True
     assert elapsed < 2.0 * _BUDGET_SCALE
+
+
+@pytest.mark.parametrize("kind", ["scripted_effect", "scripted_trigger"])
+def test_windows_index_paths_match_definitions_and_calls(fake_mod_root, kind, monkeypatch):
+    monkeypatch.setattr(
+        "md_mcp.analysis.unreferenced._index_path", lambda path: path.replace("\\", "/")
+    )
+    directory = (
+        "common/scripted_effects" if kind == "scripted_effect" else "common/scripted_triggers"
+    )
+    rel = _write(fake_mod_root, f"{directory}/fx.txt", "used = { }\nidle = { }\n")
+    _write(fake_mod_root, "events/call.txt", "used = yes\n")
+    index = _indexes(fake_mod_root)[kind]
+    index.ensure_fresh()
+
+    original_paths = {p.replace("/", "\\"): p for p in index.list_files()}
+
+    class WindowsCachedIndex:
+        def list_files(self):
+            return list(original_paths)
+
+        def records_for_file(self, path):
+            return index.records_for_file(original_paths[path])
+
+        def parse_errors(self):
+            return []
+
+    result = find_unreferenced(
+        fake_mod_root, kind, rel, indexes={kind: cast(GenericTxtIndex, WindowsCachedIndex())}
+    )
+    assert result["total"] == 2
+    assert result["referenced"] == 1
+    assert result["unreferenced"] == ["idle"]
+
+
+def test_windows_index_paths_report_cached_parse_errors(fake_mod_root, monkeypatch):
+    monkeypatch.setattr(
+        "md_mcp.analysis.unreferenced._index_path", lambda path: path.replace("\\", "/")
+    )
+    rel = _write(fake_mod_root, "common/scripted_effects/bad.txt", "bad = {\n")
+
+    class WindowsCachedError:
+        def parse_errors(self):
+            return [{"file": rel.replace("/", "\\"), "error": "cached parse failure"}]
+
+    result = find_unreferenced(
+        fake_mod_root,
+        "scripted_effect",
+        rel,
+        indexes={"scripted_effect": cast(GenericTxtIndex, WindowsCachedError())},
+    )
+    assert not result["ok"]
+    assert "cached parse failure" in result["error"]
+
+
+def test_native_index_paths_work_after_cache_reload(fake_mod_root):
+    rel = _write(fake_mod_root, "common/scripted_effects/reload.txt", "used = { }\nidle = { }\n")
+    _write(fake_mod_root, "events/call.txt", "used = yes\n")
+    bad = _write(fake_mod_root, "common/scripted_effects/bad.txt", "bad = {\n")
+    indexes = _indexes(fake_mod_root)
+    indexes["scripted_effect"].ensure_fresh()
+    reloaded = _indexes(fake_mod_root)
+    result = find_unreferenced(fake_mod_root, "scripted_effect", rel, indexes=reloaded)
+    assert result["total"] == 2
+    assert result["referenced"] == 1
+    assert result["unreferenced"] == ["idle"]
+    failed = find_unreferenced(fake_mod_root, "scripted_effect", bad, indexes=reloaded)
+    assert failed["ok"] is False
+    assert "could not be parsed" in failed["error"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="backslash is a path separator on Windows")
+def test_index_path_preserves_literal_backslash_on_posix():
+    from md_mcp.analysis.unreferenced import _index_path
+
+    assert _index_path(r"common/literal\name.txt") == r"common/literal\name.txt"

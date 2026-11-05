@@ -407,7 +407,11 @@ for "check this code's quality."
   when the resolved scope contains a `.txt` file under `common/`, `events/`, or
   `history/`. A clean tree or explicit non-script-only scope runs no validator.
   Pass an explicit `[]` to disable all validators. Other explicit selections
-  replace the default and retain exact/union semantics.
+  replace the default and retain exact/union semantics. Validators use the base
+  mod only. Explicit overlay-owned or uncheckable scopes and changed/staged
+  scopes from a distinct overlay worktree fail the validator checks before
+  dispatch; other selected lint checks still run. Full-tree validator results
+  report `validator_root: "base"` when an overlay is configured.
   - `["auto"]` — select validators by the domain of the files in scope, e.g.
     a change under `common/national_focus/` runs `focus_tree`,
     `scripted_params`, `simplifications`, `modifiers`, and `style`; a change

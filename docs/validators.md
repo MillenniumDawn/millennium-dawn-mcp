@@ -18,6 +18,15 @@ Every `validate_*.py` under `<mod_root>/tools/validation/`. The wrapper:
 
 Implementation: [`src/md_mcp/validators/runner.py`](../src/md_mcp/validators/runner.py).
 
+## Overlay limitation
+
+Validators run against the base mod only, including unscoped and staged runs. They do
+not validate overlay contents or use overlay definitions. For explicit `files` scopes,
+`validate` rejects overlay-owned files, including files that override base paths, with
+`ok: false` and `unsupported_overlay_files`. Base-only paths remain supported; missing
+paths are reported separately. Remove the overlay or validate it with other tooling if
+you need to check overlay content.
+
 ## Isolated mode (default)
 
 ```bash
@@ -276,11 +285,10 @@ feedback on what you just touched.
 supports file scoping, while keeping definition passes unscoped; issues are
 also post-filtered to that file set.
 
-The `validate` tool looks each path up in `submod_root`, then `mod_root`,
-before it runs anything. A path in neither returns `{ok: false, error: "scope
-file not found: …", missing: [...]}` and no validator child starts. The check
-lives in the tool, not in `ValidatorRunner.run`: `lint` passes Git-derived
-scopes to the runner, and those include staged deletions.
+The `validate` tool checks each path before running anything. A path in neither
+root returns `{ok: false, error: "scope file not found: …", missing: [...]}`;
+an overlay-owned path is rejected as described above. The check lives in the
+tool, not in `ValidatorRunner.run`, which also supports deleted Git paths.
 
 For a file-scoped `validate`, a validator reports an `unattributed` count when
 some of its issues name a file that could not be resolved. Run-all keeps that
@@ -299,7 +307,13 @@ A clean tree or a non-script-only scope runs no validator. Explicit selections
 retain their current behavior: `lint(validators=["auto"])` uses domain-matched
 validators, and `validators=[]` disables validators. Validator issues merge into
 the lint response as `validator:<name>` checks with both on-scope and mod-wide
-totals. See the lint section of [`docs/tools.md`](./tools.md). The bridge
+totals. Validators use the base mod only. For explicit scopes, lint rejects
+validator execution when a path is overlay-owned or cannot be checked, with
+`unsupported_overlay_files` or `unchecked_scope_files` and failed validator
+entries. Changed and staged scopes from a distinct overlay worktree are rejected
+for validators, including deleted paths. Other selected lint checks still run;
+`validators=[]` disables validator execution. Full-tree validators remain base-only
+and report `validator_root: "base"` when an overlay is configured. See the lint section of [`docs/tools.md`](./tools.md). The bridge
 consumes `ValidatorRunner.run()` output only, so the coupling caveat above still
 has a single adapter point.
 

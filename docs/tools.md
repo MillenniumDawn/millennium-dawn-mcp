@@ -672,7 +672,9 @@ limit, truncated, unreferenced}`. `total` is the number of names analysed and
 `referenced` is a count. `truncated` is true when any returned list has more.
 
 Only the mod and the submod are scanned, never vanilla, and a file a higher-priority
-root also has is read from that root only.
+root also has is read from that root only. If a selected scan file cannot be read or
+a scan directory cannot be traversed, the tool returns `{ok: false, error, kind, file}`
+instead of incomplete counts.
 
 **`idea` and `scripted_loc`** port upstream `tools/analysis/find_idea_references.py` and
 `find_scripted_loc_references.py`: the same name extraction, search directories, and

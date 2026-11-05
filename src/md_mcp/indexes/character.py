@@ -11,7 +11,7 @@ class CharacterIndex(GenericTxtIndex):
 
     # v2: parser accepts leading-+ numbers, acute-initial symbols and anonymous
     # blocks, and vanilla files parse with EOF recovery — cached records rebuild.
-    cache_version = 2
+    cache_version = 3
     cache_name = "character"
     subdir = "common/characters"
     parser_fn = staticmethod(parse_character_file)
@@ -24,7 +24,7 @@ class TraitIndex(GenericTxtIndex):
 
     # v2: parser accepts leading-+ numbers, acute-initial symbols and anonymous
     # blocks, and vanilla files parse with EOF recovery — cached records rebuild.
-    cache_version = 2
+    cache_version = 3
     cache_name = "trait"
     subdirs = ("common/country_leader", "common/unit_leader")
     parser_fn = staticmethod(parse_trait_file)

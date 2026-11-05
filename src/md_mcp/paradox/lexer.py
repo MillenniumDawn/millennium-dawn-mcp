@@ -32,7 +32,11 @@ _TOKEN_TYPES: list[tuple[str, str]] = [
     # starts an escape, so an unterminated string fails in linear time. Plain runs
     # sit outside the group so the regex keeps state per escape, not per character.
     ("string", r'"[^"\\]*(?:\\[\s\S][^"\\]*)*"'),
-    ("symbol", r"(?:\d+\.)?[a-zA-Z_@\[\]\u00B4][\w:\._@\[\]\-\?\^\/\u00A0-\u024F|]*"),
+    (
+        "symbol",
+        r"-\[\?[\w:\._@\-\?\^\/\u00A0-\u024F|]+\]"
+        r"|(?:\d+\.)?[a-zA-Z_@\[\]\u00B4][\w:\._@\[\]\-\?\^\/\u00A0-\u024F|]*",
+    ),
     ("date", r"\d+(?:\.\d+){2,}"),
     ("unitnumber", r"(?:[+-]?\d*\.\d+|[+-]?\d+)(?:%%?)"),
     # Hex first: behind the others, the `0` of `0xffffffff` was the whole number.

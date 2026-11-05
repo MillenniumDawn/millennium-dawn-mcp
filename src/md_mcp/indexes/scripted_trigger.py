@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from .base import FILE_NOT_FOUND, GenericTxtIndex
+from .base import FILE_NOT_FOUND, ParsedTxtIndex
 from .definitions import parse_scripted_trigger_file
 
 
-class ScriptedTriggerIndex(GenericTxtIndex):
+class ScriptedTriggerIndex(ParsedTxtIndex):
     """Index top-level scripted trigger blocks."""
 
     # v3: parser acceptance widened (+ numbers, acute symbols, anonymous blocks,

@@ -509,3 +509,24 @@ def test_real_focus_file_parses(fake_mod_root):
     path = fake_mod_root / "common" / "national_focus" / "test.txt"
     root = parse_string(read_text(path))
     assert len(root.children()) == 2  # focus_tree + shared_focus
+
+
+def test_digit_leading_symbols_keep_numeric_precedence():
+    source = "10_percent_x = { } value = 10_percent_x"
+    tokens = _tokens(source)
+    assert (tokens[0].type, tokens[0].value) == ("symbol", "10_percent_x")
+    assert source[tokens[0].start : tokens[0].end] == "10_percent_x"
+    definition, value = parse_string(source).children()
+    assert definition.name == "10_percent_x"
+    assert value.value == SymbolNode("10_percent_x")
+    for literal, expected in [
+        ("1.5", 1.5),
+        ("10%", SymbolNode("10%")),
+        ("2000.1.1", SymbolNode("2000.1.1")),
+        ("0xff", 255),
+    ]:
+        assert parse_string("x = " + literal).children()[0].value == expected
+    assert [(t.type, t.value) for t in _tokens("0xff_name")] == [
+        ("number", "0xff"),
+        ("symbol", "_name"),
+    ]

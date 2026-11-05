@@ -433,6 +433,8 @@ class GenericTxtIndex:
 
     cache_version: int = 1
     cache_name: str = ""
+    # Independent parser generation composes with each index schema version.
+    parser_cache_generation: str = ""
     subdir: str = ""
     pattern: str = "*.txt"
     subdirs: Sequence[str] = ()
@@ -465,7 +467,8 @@ class GenericTxtIndex:
         self.mod_root: Path = mod_root
         self.submod_root: Optional[Path] = submod_root
         self.vanilla_path: Optional[Path] = vanilla_path if include_vanilla else None
-        self._cache = IndexCache(cache_dir, self.cache_name, self.cache_version)
+        cache_name = self.cache_name + self.parser_cache_generation
+        self._cache = IndexCache(cache_dir, cache_name, self.cache_version)
         self._stale_check = StaleCheck()
         self._subdirs = _normalise_specs(self.subdirs or self.subdir)
         self._patterns = _normalise_specs(self.patterns or self.pattern)
@@ -1000,3 +1003,9 @@ class StaleCheck:
 
     def force_next(self) -> None:
         self._last_check = 0.0
+
+
+class ParsedTxtIndex(GenericTxtIndex):
+    """Indexes whose persistent data depends on the Paradox parser."""
+
+    parser_cache_generation = "-parser326"

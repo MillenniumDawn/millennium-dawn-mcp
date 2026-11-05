@@ -122,12 +122,17 @@ Each index has `cache_version: int`. Bump it when the on-disk schema changes
 (adding fields to the cached record, changing key semantics). Old `v<N>/`
 directories are simply ignored; users can blow them away manually.
 
+Indexes backed by the Paradox parser also include a parser generation in the cache
+name, currently `-parser326`. This invalidates old parser-derived records and errors
+once on upgrade, including records that were silently misparsed. The generation and
+per-index version are independent parts of the cache identity: changing either causes
+a rebuild. Localisation uses its own parser and retains its existing cache names.
+
 ```
 .md-mcp-cache/
-├── v3/                           (focus v3)
-│   ├── focus.data.json
-│   └── focus.manifest.json
-├── v4/                           (localisation v4)
+├── v4/                           (focus and localisation v4)
+│   ├── focus-parser326.data.json
+│   ├── focus-parser326.manifest.json
 │   ├── loc-en.manifest.json      one cache per language set (loc-en, loc-de_en, ...)
 │   └── loc-en.data/              sharded: one JSON file per contributing .yml
 │       ├── MD_GCC_membership_l_english.yml-3fa9c1…json

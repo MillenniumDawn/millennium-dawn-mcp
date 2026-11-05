@@ -149,8 +149,8 @@ def test_focus_index_cache_persisted(fake_mod_root, cache_dir):
     fi = FocusIndex(fake_mod_root, cache_dir)
     fi.ensure_fresh()
     # FOCUS_CACHE_VERSION bumped to v4 with the issue-300 parser widening.
-    assert (cache_dir / "v4" / "focus.manifest.json").exists()
-    assert (cache_dir / "v4" / "focus.data.json").exists()
+    assert (fi._cache.manifest_path).exists()
+    assert (fi._cache.data_path).exists()
 
     # Second instance reads cache + ensures freshness; no exception, matching ids.
     fi2 = FocusIndex(fake_mod_root, cache_dir)
@@ -206,8 +206,8 @@ def test_focus_index_rebuilds_on_shape_corrupt_manifest(fake_mod_root, cache_dir
     ids = sorted(fi.list_keys())
     assert ids
 
-    manifest = cache_dir / "v4" / "focus.manifest.json"
-    data = cache_dir / "v4" / "focus.data.json"
+    manifest = fi._cache.manifest_path
+    data = fi._cache.data_path
     manifest.write_text(
         '{"common/national_focus/test.txt": {"mtime_ns": 1, "size": 2}}',
         encoding="utf-8",
@@ -384,7 +384,7 @@ def test_scripted_index_version_bump_rebuilds_cached_parse_errors(
 
     assert index.list_keys() == [expected_key]
     assert index.parse_errors() == []
-    assert (cache_dir / "v3" / f"{cache_name}.data.json").exists()
+    assert (index._cache.data_path).exists()
 
 
 def test_idea_index_version_bump_rebuilds_misclassified_block_only_ideas(fake_mod_root, cache_dir):
@@ -425,7 +425,7 @@ def test_idea_index_version_bump_rebuilds_misclassified_block_only_ideas(fake_mo
 
     assert index.resolve("TST_monitor") is not None
     assert "allowed_civil_war" not in index.list_keys()
-    assert (cache_dir / "v4" / "idea.data.json").exists()
+    assert (index._cache.data_path).exists()
 
 
 def test_loc_index_parallel_build(fake_mod_root, cache_dir, monkeypatch):
@@ -856,3 +856,36 @@ def test_loc_index_skips_junk_lines_and_reads_the_language_from_the_file_name(
     assert named is not None and named["value"] == "named by file"
     # With no header and no language in the name there is nothing to file the keys under.
     assert _parse_loc_worker(str(headless), "headless.yml") == []
+
+
+@pytest.mark.parametrize("old_version", [3, 4])
+def test_digit_symbol_rebuilds_pre_generation_cache(fake_mod_root, cache_dir, old_version):
+    relpath = "common/scripted_triggers/test_triggers.txt"
+    path = fake_mod_root / relpath
+    path.write_text("10_percent_x = { always = yes }", encoding="utf-8")
+    sig = file_signature(path)
+    assert sig is not None
+    # 3 is main; 4 is #343's proposed version. Both must be invalidated.
+    old = IndexCache(cache_dir, "scripted_trigger", old_version)
+    old.save_manifest({relpath: sig})
+    old.save_data({"files": {relpath: [{"id": "_percent_x", "file": relpath}]}})
+    index = ScriptedTriggerIndex(fake_mod_root, cache_dir)
+    index.cache_version = old_version
+    index._cache = IndexCache(
+        cache_dir, "scripted_trigger" + index.parser_cache_generation, old_version
+    )
+    assert index.resolve("10_percent_x") is not None
+    assert "_percent_x" not in index.list_keys()
+    assert index._cache.data_path.exists()
+
+
+@pytest.mark.integration
+def test_real_mod_digit_leading_trigger_resolves(real_mod_root, cache_dir, caplog):
+    relpath = "common/scripted_triggers/01_political_triggers.txt"
+    path = real_mod_root / relpath
+    if not path.exists() or "10_percent_government_popularity" not in path.read_text("utf-8-sig"):
+        pytest.skip("checkout does not contain the trigger")
+    index = ScriptedTriggerIndex(real_mod_root, cache_dir, include_vanilla=False)
+    result = index.resolve("10_percent_government_popularity")
+    assert result is not None and result["file"] == relpath
+    assert not any("_percent_government_popularity" in record.message for record in caplog.records)

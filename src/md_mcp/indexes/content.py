@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .base import FILE_NOT_FOUND, GenericTxtIndex
+from .base import FILE_NOT_FOUND, ParsedTxtIndex
 from .definitions import (
     parse_country_history_file,
     parse_dynamic_modifier_file,
@@ -13,8 +13,8 @@ from .definitions import (
 )
 
 
-class OnActionIndex(GenericTxtIndex):
-    cache_version = 1
+class OnActionIndex(ParsedTxtIndex):
+    cache_version = 2
     cache_name = "on_action"
     subdir = "common/on_actions"
     parser_fn = staticmethod(parse_on_action_file)
@@ -23,8 +23,8 @@ class OnActionIndex(GenericTxtIndex):
     track_parse_errors = True
 
 
-class TechnologyIndex(GenericTxtIndex):
-    cache_version = 1
+class TechnologyIndex(ParsedTxtIndex):
+    cache_version = 2
     cache_name = "technology"
     subdir = "common/technologies"
     parser_fn = staticmethod(parse_technology_file)
@@ -33,8 +33,8 @@ class TechnologyIndex(GenericTxtIndex):
     track_parse_errors = True
 
 
-class DynamicModifierIndex(GenericTxtIndex):
-    cache_version = 1
+class DynamicModifierIndex(ParsedTxtIndex):
+    cache_version = 2
     cache_name = "dynamic_modifier"
     subdir = "common/dynamic_modifiers"
     parser_fn = staticmethod(parse_dynamic_modifier_file)
@@ -43,8 +43,8 @@ class DynamicModifierIndex(GenericTxtIndex):
     track_parse_errors = True
 
 
-class ModifierDefinitionIndex(GenericTxtIndex):
-    cache_version = 1
+class ModifierDefinitionIndex(ParsedTxtIndex):
+    cache_version = 2
     cache_name = "modifier_definition"
     subdir = "common/modifier_definitions"
     parser_fn = staticmethod(parse_modifier_definition_file)
@@ -53,8 +53,8 @@ class ModifierDefinitionIndex(GenericTxtIndex):
     track_parse_errors = True
 
 
-class CountryHistoryIndex(GenericTxtIndex):
-    cache_version = 1
+class CountryHistoryIndex(ParsedTxtIndex):
+    cache_version = 2
     cache_name = "country_history"
     subdir = "history/countries"
     parser_fn = staticmethod(parse_country_history_file)
@@ -63,8 +63,8 @@ class CountryHistoryIndex(GenericTxtIndex):
     track_parse_errors = True
 
 
-class UnitHistoryIndex(GenericTxtIndex):
-    cache_version = 1
+class UnitHistoryIndex(ParsedTxtIndex):
+    cache_version = 2
     cache_name = "unit_history"
     subdir = "history/units"
     parser_fn = staticmethod(parse_unit_history_file)

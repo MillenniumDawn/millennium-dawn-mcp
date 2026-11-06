@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from .base import GenericTxtIndex
+from .base import ParsedTxtIndex
 from .definitions import parse_country_tag_file
 
 
-class CountryTagIndex(GenericTxtIndex):
+class CountryTagIndex(ParsedTxtIndex):
     """Index country tags and their country-history paths."""
 
     # v2: parser accepts leading-+ numbers, acute-initial symbols and anonymous
     # blocks, and vanilla files parse with EOF recovery — cached records rebuild.
-    cache_version = 2
+    cache_version = 3
     cache_name = "country_tag"
     subdir = "common/country_tags"
     parser_fn = staticmethod(parse_country_tag_file)

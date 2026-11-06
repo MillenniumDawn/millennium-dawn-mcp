@@ -7,7 +7,7 @@ parsed record is fetched on-demand to keep cache size manageable.
 Cold path parses in a ProcessPoolExecutor so the parser can use all cores; warm
 path remains in-process (single-stat refresh + dict diff).
 
-Cache layout (JSON, under <cache_dir>/v4/focus.data.json):
+Cache layout (JSON, under <cache_dir>/v5/focus-parser326.data.json):
     {
         "files": {
             "<relative_path>": [
@@ -26,11 +26,11 @@ import logging
 from ..paradox import parse_string
 from ..paradox.schema import extract_focus_records, is_focus_file_content
 from ..util.encoding import read_text
-from .base import FILE_NOT_FOUND, GenericTxtIndex, ParseResult
+from .base import FILE_NOT_FOUND, ParsedTxtIndex, ParseResult
 
 logger = logging.getLogger(__name__)
 
-FOCUS_CACHE_VERSION = 4
+FOCUS_CACHE_VERSION = 5
 FOCUS_SUBDIR = "common/national_focus"
 
 
@@ -56,7 +56,7 @@ def _parse_focus_file(
     return ParseResult([{"id": r["id"], "line": r["line"], "kind": r["kind"]} for r in records])
 
 
-class FocusIndex(GenericTxtIndex):
+class FocusIndex(ParsedTxtIndex):
     """Focus ID index with parse-error reporting and tag-based file lookup."""
 
     cache_version = FOCUS_CACHE_VERSION

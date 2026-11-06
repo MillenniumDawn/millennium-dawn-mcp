@@ -22,7 +22,7 @@ from ..paradox.parser import _unescape_string
 from ..paradox.schema import SPRITE_KINDS, extract_sprite_records
 from ..util.encoding import read_text
 from ..util.line_numbers import line_starts, pos_to_line
-from .base import FILE_NOT_FOUND, GenericTxtIndex, ParseResult
+from .base import FILE_NOT_FOUND, ParsedTxtIndex, ParseResult
 
 logger = logging.getLogger(__name__)
 
@@ -166,11 +166,11 @@ def _parse_gfx_file(abs_path: str, relpath: str, close_blocks_at_eof: bool = Fal
         return ParseResult.failed("parse", e)
 
 
-class GfxIndex(GenericTxtIndex):
+class GfxIndex(ParsedTxtIndex):
     # v4: parser accepts leading-+ numbers, acute-initial symbols and anonymous
     # blocks, and vanilla files (unclosed final block) parse with EOF recovery via
     # the AST fallback — persisted records and cached parse errors must rebuild.
-    cache_version = 4
+    cache_version = 5
     cache_name = "gfx"
     subdir = "interface"
     pattern = "*.gfx"

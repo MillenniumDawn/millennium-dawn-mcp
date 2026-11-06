@@ -7,7 +7,7 @@ import logging
 from ..paradox import parse_string
 from ..paradox.schema import extract_decision_records
 from ..util.encoding import read_text
-from .base import FILE_NOT_FOUND, GenericTxtIndex, ParseResult
+from .base import FILE_NOT_FOUND, ParsedTxtIndex, ParseResult
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +31,10 @@ def _parse_decision_file(
         return ParseResult.failed("parse", e)
 
 
-class DecisionIndex(GenericTxtIndex):
+class DecisionIndex(ParsedTxtIndex):
     # v3: parser acceptance widened (+ numbers, acute symbols, anonymous blocks,
     # vanilla EOF recovery); cached parse errors rebuild.
-    cache_version = 3
+    cache_version = 4
     cache_name = "decision"
     subdir = "common/decisions"
     parser_fn = staticmethod(_parse_decision_file)

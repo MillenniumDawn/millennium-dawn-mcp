@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from .base import GenericTxtIndex
+from .base import ParsedTxtIndex
 from .definitions import parse_character_file, parse_trait_file
 
 
-class CharacterIndex(GenericTxtIndex):
+class CharacterIndex(ParsedTxtIndex):
     """Index character definitions from ``common/characters``."""
 
     # v2: parser accepts leading-+ numbers, acute-initial symbols and anonymous
     # blocks, and vanilla files parse with EOF recovery — cached records rebuild.
-    cache_version = 2
+    cache_version = 3
     cache_name = "character"
     subdir = "common/characters"
     parser_fn = staticmethod(parse_character_file)
@@ -19,12 +19,12 @@ class CharacterIndex(GenericTxtIndex):
     source_tag_indexed = True
 
 
-class TraitIndex(GenericTxtIndex):
+class TraitIndex(ParsedTxtIndex):
     """Index country and unit leader traits."""
 
     # v2: parser accepts leading-+ numbers, acute-initial symbols and anonymous
     # blocks, and vanilla files parse with EOF recovery — cached records rebuild.
-    cache_version = 2
+    cache_version = 3
     cache_name = "trait"
     subdirs = ("common/country_leader", "common/unit_leader")
     parser_fn = staticmethod(parse_trait_file)

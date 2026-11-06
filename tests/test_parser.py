@@ -509,3 +509,68 @@ def test_real_focus_file_parses(fake_mod_root):
     path = fake_mod_root / "common" / "national_focus" / "test.txt"
     root = parse_string(read_text(path))
     assert len(root.children()) == 2  # focus_tree + shared_focus
+
+
+def test_digit_leading_symbols_keep_numeric_precedence():
+    source = "10_percent_x = { } value = 10_percent_x"
+    tokens = _tokens(source)
+    assert (tokens[0].type, tokens[0].value) == ("symbol", "10_percent_x")
+    assert source[tokens[0].start : tokens[0].end] == "10_percent_x"
+    definition, value = parse_string(source).children()
+    assert definition.name == "10_percent_x"
+    assert value.value == SymbolNode("10_percent_x")
+    for literal, expected in [
+        ("1.5", 1.5),
+        ("10%", SymbolNode("10%")),
+        ("2000.1.1", SymbolNode("2000.1.1")),
+        ("0xff", 255),
+    ]:
+        assert parse_string("x = " + literal).children()[0].value == expected
+    assert [(t.type, t.value) for t in _tokens("0xff_name")] == [
+        ("number", "0xff"),
+        ("symbol", "_name"),
+    ]
+
+
+def test_negated_bracketed_variable_is_one_symbol():
+    source = "amount = -[?ukr_btr60_amount] next = -12 percent = -2.5%"
+    tokens = _tokens(source)
+    token = tokens[2]
+    assert (token.type, token.value) == ("symbol", "-[?ukr_btr60_amount]")
+    assert source[token.start : token.end] == token.value
+    amount, following, percent = parse_string(source).children()
+    assert amount.value == SymbolNode("-[?ukr_btr60_amount]")
+    assert following.value == -12
+    assert percent.value == SymbolNode("-2.5%")
+    values = parse_string("a = -1 b = -.5 c = -10%").children()
+    assert [node.value for node in values] == [-1, -0.5, SymbolNode("-10%")]
+
+
+def test_digit_leading_definition_and_negated_variable_parse_together():
+    source = "10_percent_x = { amount = -[?value] fraction = -0.5 mask = 0xff }"
+    definition = parse_string(source).children()[0]
+    assert definition.name == "10_percent_x"
+    assert [node.value for node in definition.children()] == [SymbolNode("-[?value]"), -0.5, 255]
+    symbols = [token for token in _tokens(source) if token.value in ("10_percent_x", "-[?value]")]
+    assert len(symbols) == 2
+    assert all(
+        token.type == "symbol" and source[token.start : token.end] == token.value
+        for token in symbols
+    )
+
+
+@pytest.mark.parametrize("value", ["-[?]", "-[?foo", "-[foo]", "-foo"])
+def test_malformed_negated_bracketed_variable_is_rejected(value):
+    with pytest.raises(ParseError):
+        parse_string("amount = " + value)
+
+
+@pytest.mark.integration
+def test_real_mod_negated_variable_file_parses(real_mod_root):
+    path = real_mod_root / "common/scripted_effects/99_UKR_scripted_effects.txt"
+    if not path.exists():
+        pytest.skip("UKR scripted effects file not present in this checkout")
+    source = path.read_text(encoding="utf-8-sig")
+    if "-[?ukr_btr60_amount]" not in source:
+        pytest.skip("checkout does not contain the expression")
+    assert parse_string(source).children()

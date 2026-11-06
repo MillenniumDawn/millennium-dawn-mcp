@@ -36,7 +36,7 @@ def _parse_event_file(
 class EventIndex(ParsedTxtIndex):
     # v3: parser acceptance widened (+ numbers, acute symbols, anonymous blocks,
     # vanilla EOF recovery); cached parse errors rebuild.
-    cache_version = 3
+    cache_version = 4
     cache_name = "event"
     subdir = "events"
     parser_fn = staticmethod(_parse_event_file)

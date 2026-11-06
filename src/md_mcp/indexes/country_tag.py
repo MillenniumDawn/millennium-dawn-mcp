@@ -11,7 +11,7 @@ class CountryTagIndex(ParsedTxtIndex):
 
     # v2: parser accepts leading-+ numbers, acute-initial symbols and anonymous
     # blocks, and vanilla files parse with EOF recovery — cached records rebuild.
-    cache_version = 2
+    cache_version = 3
     cache_name = "country_tag"
     subdir = "common/country_tags"
     parser_fn = staticmethod(parse_country_tag_file)

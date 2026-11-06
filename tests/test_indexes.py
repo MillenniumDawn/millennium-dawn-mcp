@@ -148,7 +148,7 @@ def test_focus_index_warm_path_is_noop(fake_mod_root, cache_dir):
 def test_focus_index_cache_persisted(fake_mod_root, cache_dir):
     fi = FocusIndex(fake_mod_root, cache_dir)
     fi.ensure_fresh()
-    # FOCUS_CACHE_VERSION bumped to v4 with the issue-300 parser widening.
+    # The current schema version and parser generation own the persisted cache.
     assert (fi._cache.manifest_path).exists()
     assert (fi._cache.data_path).exists()
 
@@ -889,3 +889,35 @@ def test_real_mod_digit_leading_trigger_resolves(real_mod_root, cache_dir, caplo
     result = index.resolve("10_percent_government_popularity")
     assert result is not None and result["file"] == relpath
     assert not any("_percent_government_popularity" in record.message for record in caplog.records)
+
+
+@pytest.mark.parametrize("old_parser_generation", ["", "-parser326"])
+def test_negated_variable_invalidates_persisted_parse_error(
+    fake_mod_root, cache_dir, old_parser_generation
+):
+    relpath = "common/scripted_effects/test_effects.txt"
+    path = fake_mod_root / relpath
+    path.write_text("TST_negated = { amount = -[?ukr_btr60_amount] }", encoding="utf-8")
+    sig = file_signature(path)
+    assert sig is not None
+    assert ScriptedEffectIndex.cache_version > 3
+    # Main used an unversioned name; the pre-integration #346 head used parser326.
+    old = IndexCache(cache_dir, "scripted_effect" + old_parser_generation, 3)
+    old.save_manifest({relpath: sig})
+    old.save_data({"files": {}, "parse_errors": {relpath: "Invalid token"}})
+    index = ScriptedEffectIndex(fake_mod_root, cache_dir)
+    index.ensure_fresh()
+    assert "TST_negated" in index.list_keys()
+    assert index.parse_errors() == []
+
+
+@pytest.mark.integration
+def test_real_mod_negated_variable_effect_index(real_mod_root, cache_dir):
+    path = real_mod_root / "common/scripted_effects/99_UKR_scripted_effects.txt"
+    if not path.exists() or "-[?ukr_btr60_amount]" not in path.read_text(encoding="utf-8-sig"):
+        pytest.skip("checkout does not contain the UKR expression")
+    index = ScriptedEffectIndex(real_mod_root, cache_dir, include_vanilla=False)
+    result = index.resolve("UKR_add_political_tension")
+    assert result is not None
+    assert result.get("file") == "common/scripted_effects/99_UKR_scripted_effects.txt"
+    assert not any(error["file"] == result["file"] for error in index.parse_errors())

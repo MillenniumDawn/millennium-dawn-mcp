@@ -130,9 +130,10 @@ a rebuild. Localisation uses its own parser and retains its existing cache names
 
 ```
 .md-mcp-cache/
-├── v4/                           (focus and localisation v4)
+├── v5/                           (focus v5)
 │   ├── focus-parser326.data.json
 │   ├── focus-parser326.manifest.json
+├── v4/                           (localisation v4)
 │   ├── loc-en.manifest.json      one cache per language set (loc-en, loc-de_en, ...)
 │   └── loc-en.data/              sharded: one JSON file per contributing .yml
 │       ├── MD_GCC_membership_l_english.yml-3fa9c1…json

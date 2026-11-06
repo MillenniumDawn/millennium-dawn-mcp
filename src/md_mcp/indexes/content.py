@@ -14,7 +14,7 @@ from .definitions import (
 
 
 class OnActionIndex(ParsedTxtIndex):
-    cache_version = 1
+    cache_version = 2
     cache_name = "on_action"
     subdir = "common/on_actions"
     parser_fn = staticmethod(parse_on_action_file)
@@ -24,7 +24,7 @@ class OnActionIndex(ParsedTxtIndex):
 
 
 class TechnologyIndex(ParsedTxtIndex):
-    cache_version = 1
+    cache_version = 2
     cache_name = "technology"
     subdir = "common/technologies"
     parser_fn = staticmethod(parse_technology_file)
@@ -34,7 +34,7 @@ class TechnologyIndex(ParsedTxtIndex):
 
 
 class DynamicModifierIndex(ParsedTxtIndex):
-    cache_version = 1
+    cache_version = 2
     cache_name = "dynamic_modifier"
     subdir = "common/dynamic_modifiers"
     parser_fn = staticmethod(parse_dynamic_modifier_file)
@@ -44,7 +44,7 @@ class DynamicModifierIndex(ParsedTxtIndex):
 
 
 class ModifierDefinitionIndex(ParsedTxtIndex):
-    cache_version = 1
+    cache_version = 2
     cache_name = "modifier_definition"
     subdir = "common/modifier_definitions"
     parser_fn = staticmethod(parse_modifier_definition_file)
@@ -54,7 +54,7 @@ class ModifierDefinitionIndex(ParsedTxtIndex):
 
 
 class CountryHistoryIndex(ParsedTxtIndex):
-    cache_version = 1
+    cache_version = 2
     cache_name = "country_history"
     subdir = "history/countries"
     parser_fn = staticmethod(parse_country_history_file)
@@ -64,7 +64,7 @@ class CountryHistoryIndex(ParsedTxtIndex):
 
 
 class UnitHistoryIndex(ParsedTxtIndex):
-    cache_version = 1
+    cache_version = 2
     cache_name = "unit_history"
     subdir = "history/units"
     parser_fn = staticmethod(parse_unit_history_file)

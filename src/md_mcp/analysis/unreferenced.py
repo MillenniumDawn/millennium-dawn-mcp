@@ -9,8 +9,11 @@ and allowlist rules of `validate_unused_scripted`, in one pass over all names.
 
 from __future__ import annotations
 
+import fnmatch
 import json
+import os
 import re
+import stat
 from bisect import bisect_right
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
@@ -287,19 +290,38 @@ def _walk(
         shadowed = frozenset(seen)
         for sub, suffixes in specs:
             directory = base / sub
-            if not directory.is_dir():
+            try:
+                mode = directory.stat().st_mode
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISDIR(mode):
                 continue
             for suffix in suffixes:
-                for path in sorted(directory.rglob(f"*{suffix}")):
-                    if not path.is_file():
-                        continue
+                paths: list[Path] = []
+                pending = [directory]
+                while pending:
+                    with os.scandir(pending.pop()) as entries:
+                        for entry in entries:
+                            path = Path(entry.path)
+                            if path.relative_to(base).as_posix() in shadowed:
+                                continue
+                            # Explicit stat propagates classification and disappearance errors.
+                            mode = entry.stat(follow_symlinks=False).st_mode
+                            if stat.S_ISDIR(mode):
+                                pending.append(path)
+                            elif fnmatch.fnmatch(entry.name, f"*{suffix}"):
+                                paths.append(path)
+                for path in sorted(paths):
                     rel = path.relative_to(base).as_posix()
-                    seen.add(rel)
                     if rel in shadowed:
                         continue
+                    if not stat.S_ISREG(path.stat().st_mode):
+                        continue
+                    seen.add(rel)
                     text = read_text(path)
-                    if text is not None:
-                        yield base, sub, rel, text
+                    if text is None:
+                        raise OSError(f"Could not read scanned file {path}; analysis is incomplete")
+                    yield base, sub, rel, text
 
 
 def _idea_names(text: str) -> list[str]:

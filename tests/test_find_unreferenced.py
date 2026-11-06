@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import ntpath
 import os
 import re
 import subprocess
@@ -13,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from md_mcp.analysis import text_cache
 from md_mcp.analysis.refs import find_references
 from md_mcp.analysis.unreferenced import analyse, find_unreferenced
 from md_mcp.indexes import ScriptedEffectIndex, ScriptedTriggerIndex
@@ -68,6 +70,201 @@ ideas = {
 	}
 }
 """
+
+
+@pytest.mark.parametrize("failure", ["read_error", "deleted"])
+def test_scan_failure_does_not_report_unreferenced(fake_mod_root, monkeypatch, failure):
+    definitions = _write(fake_mod_root, "common/ideas/extra.txt", IDEAS)
+    ref = fake_mod_root / _write(fake_mod_root, "events/refs.txt", "add_ideas = used_spirit\n")
+    decode = text_cache.decode_text
+
+    def failing_decode(path):
+        if Path(path) == ref:
+            if failure == "deleted":
+                ref.unlink()
+                return decode(path)
+            raise OSError("simulated read failure")
+        return decode(path)
+
+    monkeypatch.setattr(text_cache, "decode_text", failing_decode)
+    result = _run(fake_mod_root, "idea", definitions)
+
+    assert result["ok"] is False
+    assert "events/refs.txt" in result["error"]
+    assert "unreferenced" not in result
+
+
+@pytest.mark.parametrize("unreadable_root", ["submod", "mod"])
+def test_scan_failure_respects_shadowing(fake_mod_root, tmp_path, monkeypatch, unreadable_root):
+    submod = tmp_path / "Sub"
+    submod.mkdir()
+    definitions = _write(fake_mod_root, "common/ideas/extra.txt", IDEAS)
+    rel = "events/refs.txt"
+    _write(fake_mod_root, rel, "add_ideas = block_spirit\n")
+    _write(submod, rel, "add_ideas = used_spirit\n")
+    unreadable = (submod if unreadable_root == "submod" else fake_mod_root) / rel
+    decode = text_cache.decode_text
+
+    def failing_decode(path):
+        if Path(path) == unreadable:
+            raise OSError("simulated read failure")
+        return decode(path)
+
+    monkeypatch.setattr(text_cache, "decode_text", failing_decode)
+    result = _run(fake_mod_root, "idea", definitions, submod_root=submod)
+
+    if unreadable_root == "submod":
+        assert result["ok"] is False
+        assert rel in result["error"]
+        assert "unreferenced" not in result
+    else:
+        assert result["ok"] is True
+        assert "used_spirit" not in result["unreferenced"]
+        assert "block_spirit" in result["unreferenced"]
+
+
+def test_shadowing_file_deleted_after_discovery_is_an_error(fake_mod_root, tmp_path, monkeypatch):
+    submod = tmp_path / "Sub"
+    submod.mkdir()
+    definitions = _write(fake_mod_root, "common/ideas/extra.txt", IDEAS)
+    rel = "events/refs.txt"
+    _write(fake_mod_root, rel, "add_ideas = block_spirit\n")
+    ref = submod / _write(submod, rel, "add_ideas = used_spirit\n")
+    original_stat = Path.stat
+
+    def disappearing_stat(path, *args, **kwargs):
+        if path == ref:
+            ref.unlink()
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", disappearing_stat)
+    result = _run(fake_mod_root, "idea", definitions, submod_root=submod)
+
+    assert result["ok"] is False
+    assert rel in result["error"]
+    assert "unreferenced" not in result
+
+
+def test_unreadable_scan_directory_is_an_error(fake_mod_root, monkeypatch):
+    definitions = _write(fake_mod_root, "common/ideas/extra.txt", IDEAS)
+    _write(fake_mod_root, "events/nested/refs.txt", "add_ideas = used_spirit\n")
+    nested = fake_mod_root / "events/nested"
+    scandir = os.scandir
+
+    def failing_scandir(path):
+        if Path(path) == nested:
+            raise PermissionError(13, "Permission denied", str(path))
+        return scandir(path)
+
+    monkeypatch.setattr(os, "scandir", failing_scandir)
+    result = _run(fake_mod_root, "idea", definitions)
+
+    assert result["ok"] is False
+    assert "events/nested" in result["error"]
+    assert "unreferenced" not in result
+
+
+@pytest.mark.parametrize("error_type", [PermissionError, FileNotFoundError])
+def test_scan_entry_classification_failure_is_an_error(fake_mod_root, monkeypatch, error_type):
+    definitions = _write(fake_mod_root, "common/ideas/extra.txt", IDEAS)
+    _write(fake_mod_root, "events/nested/refs.txt", "add_ideas = used_spirit\n")
+    scandir = os.scandir
+    failures = []
+
+    class Entry:
+        def __init__(self, entry):
+            self.entry = entry
+
+        def __getattr__(self, name):
+            return getattr(self.entry, name)
+
+        def is_dir(self, *args, **kwargs):
+            if self.entry.name == "nested":
+                failures.append(self.entry.path)
+                raise error_type("Cannot classify", self.entry.path)
+            return self.entry.is_dir(*args, **kwargs)
+
+        def stat(self, *args, **kwargs):
+            if self.entry.name == "nested":
+                failures.append(self.entry.path)
+                raise error_type("Cannot classify", self.entry.path)
+            return self.entry.stat(*args, **kwargs)
+
+    class Scan:
+        def __init__(self, path):
+            self.scan = scandir(path)
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            return Entry(next(self.scan))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.scan.close()
+
+    monkeypatch.setattr(os, "scandir", Scan)
+    result = _run(fake_mod_root, "idea", definitions)
+
+    assert failures
+    assert result["ok"] is False
+    assert "events/nested" in result["error"]
+    assert "unreferenced" not in result
+
+
+@pytest.mark.parametrize("directory_link", [False, True])
+def test_scan_follows_file_symlinks_only(fake_mod_root, tmp_path, directory_link):
+    definitions = _write(fake_mod_root, "common/ideas/extra.txt", IDEAS)
+    outside = tmp_path / "outside"
+    _write(outside, "refs.txt", "add_ideas = used_spirit\n")
+    events = fake_mod_root / "events"
+    try:
+        (events / "link.txt").symlink_to(
+            outside if directory_link else outside / "refs.txt", target_is_directory=directory_link
+        )
+    except OSError as exc:
+        pytest.skip(f"Symlinks unavailable: {exc}")
+
+    result = _run(fake_mod_root, "idea", definitions)
+
+    assert result["ok"] is True
+    assert ("used_spirit" in result["unreferenced"]) is directory_link
+
+
+def test_shadowed_file_stat_failure_is_ignored(fake_mod_root, tmp_path, monkeypatch):
+    submod = tmp_path / "Sub"
+    submod.mkdir()
+    definitions = _write(fake_mod_root, "common/ideas/extra.txt", IDEAS)
+    rel = "events/refs.txt"
+    ref = fake_mod_root / _write(fake_mod_root, rel, "add_ideas = block_spirit\n")
+    _write(submod, rel, "add_ideas = used_spirit\n")
+    original_stat = Path.stat
+
+    def failing_stat(path, *args, **kwargs):
+        if path == ref:
+            raise PermissionError(13, "Permission denied", str(path))
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", failing_stat)
+    result = _run(fake_mod_root, "idea", definitions, submod_root=submod)
+
+    assert result["ok"] is True
+    assert "used_spirit" not in result["unreferenced"]
+    assert "block_spirit" in result["unreferenced"]
+
+
+def test_scan_matches_extensions_with_platform_case_rules(fake_mod_root, monkeypatch):
+    definitions = _write(fake_mod_root, "common/ideas/extra.txt", IDEAS)
+    _write(fake_mod_root, "events/REFS.TXT", "add_ideas = used_spirit\n")
+    monkeypatch.setattr(os.path, "normcase", ntpath.normcase)
+
+    result = _run(fake_mod_root, "idea", definitions)
+
+    assert result["ok"] is True
+    assert "used_spirit" not in result["unreferenced"]
 
 
 def test_idea_splits_referenced_from_unreferenced(fake_mod_root):

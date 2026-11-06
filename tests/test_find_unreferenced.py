@@ -164,6 +164,76 @@ def test_unreadable_scan_directory_is_an_error(fake_mod_root, monkeypatch):
     assert "unreferenced" not in result
 
 
+@pytest.mark.parametrize("error_type", [PermissionError, FileNotFoundError])
+def test_scan_entry_classification_failure_is_an_error(fake_mod_root, monkeypatch, error_type):
+    definitions = _write(fake_mod_root, "common/ideas/extra.txt", IDEAS)
+    _write(fake_mod_root, "events/nested/refs.txt", "add_ideas = used_spirit\n")
+    scandir = os.scandir
+    failures = []
+
+    class Entry:
+        def __init__(self, entry):
+            self.entry = entry
+
+        def __getattr__(self, name):
+            return getattr(self.entry, name)
+
+        def is_dir(self, *args, **kwargs):
+            if self.entry.name == "nested":
+                failures.append(self.entry.path)
+                raise error_type("Cannot classify", self.entry.path)
+            return self.entry.is_dir(*args, **kwargs)
+
+        def stat(self, *args, **kwargs):
+            if self.entry.name == "nested":
+                failures.append(self.entry.path)
+                raise error_type("Cannot classify", self.entry.path)
+            return self.entry.stat(*args, **kwargs)
+
+    class Scan:
+        def __init__(self, path):
+            self.scan = scandir(path)
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            return Entry(next(self.scan))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.scan.close()
+
+    monkeypatch.setattr(os, "scandir", Scan)
+    result = _run(fake_mod_root, "idea", definitions)
+
+    assert failures
+    assert result["ok"] is False
+    assert "events/nested" in result["error"]
+    assert "unreferenced" not in result
+
+
+@pytest.mark.parametrize("directory_link", [False, True])
+def test_scan_follows_file_symlinks_only(fake_mod_root, tmp_path, directory_link):
+    definitions = _write(fake_mod_root, "common/ideas/extra.txt", IDEAS)
+    outside = tmp_path / "outside"
+    _write(outside, "refs.txt", "add_ideas = used_spirit\n")
+    events = fake_mod_root / "events"
+    try:
+        (events / "link.txt").symlink_to(
+            outside if directory_link else outside / "refs.txt", target_is_directory=directory_link
+        )
+    except OSError as exc:
+        pytest.skip(f"Symlinks unavailable: {exc}")
+
+    result = _run(fake_mod_root, "idea", definitions)
+
+    assert result["ok"] is True
+    assert ("used_spirit" in result["unreferenced"]) is directory_link
+
+
 def test_shadowed_file_stat_failure_is_ignored(fake_mod_root, tmp_path, monkeypatch):
     submod = tmp_path / "Sub"
     submod.mkdir()

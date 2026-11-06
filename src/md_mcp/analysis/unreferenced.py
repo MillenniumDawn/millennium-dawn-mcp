@@ -298,14 +298,19 @@ def _walk(
                 continue
             for suffix in suffixes:
                 paths: list[Path] = []
-
-                def raise_walk_error(error: OSError) -> None:
-                    raise error
-
-                for parent, _, files in os.walk(directory, onerror=raise_walk_error):
-                    paths.extend(
-                        Path(parent) / name for name in files if fnmatch.fnmatch(name, f"*{suffix}")
-                    )
+                pending = [directory]
+                while pending:
+                    with os.scandir(pending.pop()) as entries:
+                        for entry in entries:
+                            path = Path(entry.path)
+                            if path.relative_to(base).as_posix() in shadowed:
+                                continue
+                            # Explicit stat propagates classification and disappearance errors.
+                            mode = entry.stat(follow_symlinks=False).st_mode
+                            if stat.S_ISDIR(mode):
+                                pending.append(path)
+                            elif fnmatch.fnmatch(entry.name, f"*{suffix}"):
+                                paths.append(path)
                 for path in sorted(paths):
                     rel = path.relative_to(base).as_posix()
                     if rel in shadowed:

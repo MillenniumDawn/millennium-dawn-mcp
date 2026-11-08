@@ -309,8 +309,9 @@ def _classify_scope_files(
                 try:
                     candidate.relative_to(overlay.resolve())
                 except ValueError:
-                    missing.append(path)
-                    continue
+                    if candidate != resolve_scope_file(path, mod_root, None):
+                        missing.append(path)
+                        continue
                 else:
                     if candidate.exists():
                         found = candidate

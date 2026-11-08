@@ -697,6 +697,35 @@ def test_validate_rejects_overlay_files_and_preserves_base_scope(tmp_path, monke
     assert result["issues"][0]["message"] == "missing unknown_idea"
 
 
+def test_overlay_scopes_allow_only_the_matching_base_file(tmp_path):
+    from md_mcp.config import Settings
+    from md_mcp.tools.validation_tools import validate_tool
+
+    root = tmp_path / "base"
+    overlay = tmp_path / "overlay"
+    _write_fixture(root, "matching_base", _SCOPED_VALIDATOR)
+    (overlay / "events").mkdir(parents=True)
+    settings = Settings(
+        mod_root=root, submod_root=overlay, vanilla_path=None, cache_dir=tmp_path / "cache"
+    )
+    runner = ValidatorRunner(root)
+    path = "events/Algeria.txt"
+
+    absolute = validate_tool(settings, runner, validator="matching_base", files=[str(root / path)])
+    assert absolute["ok"] is True
+
+    (overlay / path).symlink_to(root / path)
+    matching = validate_tool(settings, runner, validator="matching_base", files=[path])
+    assert matching["ok"] is True
+    assert matching["scoped"] is True
+
+    different = "events/Brazil.txt"
+    (overlay / different).symlink_to(root / path)
+    rejected = validate_tool(settings, runner, validator="matching_base", files=[different])
+    assert rejected["ok"] is False
+    assert rejected["missing"] == [different]
+
+
 def test_escaping_overlay_symlink_does_not_validate_the_base_copy(tmp_path, monkeypatch):
     from md_mcp.config import Settings
     from md_mcp.tools.linting_tools import lint_tool

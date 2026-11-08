@@ -23,7 +23,6 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import timedelta
 from pathlib import Path
 
 
@@ -196,14 +195,14 @@ async def _live_sample(mod_root: Path, cache: Path) -> dict:
     payloads = []
     async with (
         stdio_client(parameters) as (read, write),
-        ClientSession(read, write, read_timeout_seconds=timedelta(seconds=60)) as session,
+        ClientSession(read, write, read_timeout_seconds=60) as session,
     ):
         await session.initialize()
         for _ in range(2):
             started = time.perf_counter()
             result = await session.call_tool("focus_graph", {"tag": "ISR", "detail": "summary"})
             timings.append((time.perf_counter() - started) * 1000)
-            assert not result.isError
+            assert not result.is_error
             content = result.content[0]
             assert isinstance(content, TextContent)
             payload = json.loads(content.text)

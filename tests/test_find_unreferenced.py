@@ -18,6 +18,7 @@ from md_mcp.analysis import text_cache
 from md_mcp.analysis.refs import find_references
 from md_mcp.analysis.unreferenced import analyse, find_unreferenced
 from md_mcp.indexes import ScriptedEffectIndex, ScriptedTriggerIndex
+from md_mcp.util.encoding import read_text
 from md_mcp.util.response import BUDGET_BYTES
 
 _BUDGET_SCALE = float(os.environ.get("MD_PERF_BUDGET_SCALE", "1.0"))
@@ -76,7 +77,7 @@ ideas = {
 def test_scan_failure_does_not_report_unreferenced(fake_mod_root, monkeypatch, failure):
     definitions = _write(fake_mod_root, "common/ideas/extra.txt", IDEAS)
     ref = fake_mod_root / _write(fake_mod_root, "events/refs.txt", "add_ideas = used_spirit\n")
-    decode = text_cache.decode_text
+    decode = read_text
 
     def failing_decode(path):
         if Path(path) == ref:
@@ -103,7 +104,7 @@ def test_scan_failure_respects_shadowing(fake_mod_root, tmp_path, monkeypatch, u
     _write(fake_mod_root, rel, "add_ideas = block_spirit\n")
     _write(submod, rel, "add_ideas = used_spirit\n")
     unreadable = (submod if unreadable_root == "submod" else fake_mod_root) / rel
-    decode = text_cache.decode_text
+    decode = read_text
 
     def failing_decode(path):
         if Path(path) == unreadable:

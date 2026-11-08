@@ -697,6 +697,45 @@ def test_validate_rejects_overlay_files_and_preserves_base_scope(tmp_path, monke
     assert result["issues"][0]["message"] == "missing unknown_idea"
 
 
+def test_escaping_overlay_symlink_does_not_validate_the_base_copy(tmp_path, monkeypatch):
+    from md_mcp.config import Settings
+    from md_mcp.tools.linting_tools import lint_tool
+    from md_mcp.tools.validation_tools import validate_tool
+
+    root = tmp_path / "base"
+    overlay = tmp_path / "overlay"
+    _write_fixture(root, "overlay_symlink", _SCOPED_VALIDATOR)
+    (overlay / "events").mkdir(parents=True)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("unknown_idea", encoding="utf-8")
+    path = "events/Algeria.txt"
+    (overlay / path).symlink_to(outside)
+    settings = Settings(
+        mod_root=root, submod_root=overlay, vanilla_path=None, cache_dir=tmp_path / "cache"
+    )
+    runner = ValidatorRunner(root)
+
+    def no_dispatch(*args, **kwargs):
+        raise AssertionError("escaping overlay scopes must not dispatch validators")
+
+    monkeypatch.setattr(runner, "run", no_dispatch)
+    result = validate_tool(settings, runner, validator="overlay_symlink", files=[path])
+    assert result == {"ok": False, "error": f"scope file not found: {path}", "missing": [path]}
+
+    lint = lint_tool(
+        root,
+        submod_root=overlay,
+        files=[path],
+        checks=["changelog"],
+        validators=["overlay_symlink"],
+        validator_runner=runner,
+    )
+    assert lint["ok"] is False
+    assert lint["unchecked_scope_files"] == [path]
+    assert lint["validators_run"] == []
+    assert lint["failed_checks"] == ["validator:overlay_symlink"]
+
+
 def test_lint_overlay_scopes_reject_validator_but_keep_other_checks(tmp_path):
     from md_mcp.tools.linting_tools import lint_tool
 

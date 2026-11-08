@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 
-from benchmarks.cache_paths import _live_sample
+import pytest
 
 
 def test_live_cache_sample_uses_current_sdk(fake_mod_root, cache_dir):
+    pytest.importorskip("resource", reason="cache benchmark requires Unix resource accounting")
+    from benchmarks.cache_paths import _live_sample
+
     focus = fake_mod_root / "common/national_focus/test.txt"
     focus.write_text(
         "focus_tree = { id = ISR focus = { id = ISR_root x = 0 y = 0 } }",

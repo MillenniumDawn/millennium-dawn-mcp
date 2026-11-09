@@ -33,7 +33,7 @@ def _parse_idea_file(abs_path: str, relpath: str, close_blocks_at_eof: bool = Fa
 
 class IdeaIndex(GenericTxtIndex):
     # v4: ideas holding only allowed_civil_war/on_add/on_remove now recognized; caches rebuild.
-    cache_version = 4
+    cache_version = 5
     cache_name = "idea"
     subdir = "common/ideas"
     parser_fn = staticmethod(_parse_idea_file)

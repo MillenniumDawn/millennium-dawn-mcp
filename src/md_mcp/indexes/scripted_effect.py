@@ -11,7 +11,7 @@ class ScriptedEffectIndex(GenericTxtIndex):
 
     # v3: parser acceptance widened (+ numbers, acute symbols, anonymous blocks,
     # vanilla EOF recovery); cached parse errors rebuild.
-    cache_version = 3
+    cache_version = 4
     cache_name = "scripted_effect"
     subdir = "common/scripted_effects"
     parser_fn = staticmethod(parse_scripted_effect_file)

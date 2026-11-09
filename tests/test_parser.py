@@ -509,3 +509,34 @@ def test_real_focus_file_parses(fake_mod_root):
     path = fake_mod_root / "common" / "national_focus" / "test.txt"
     root = parse_string(read_text(path))
     assert len(root.children()) == 2  # focus_tree + shared_focus
+
+
+def test_negated_bracketed_variable_is_one_symbol():
+    source = "amount = -[?ukr_btr60_amount] next = -12 percent = -2.5%"
+    tokens = _tokens(source)
+    token = tokens[2]
+    assert (token.type, token.value) == ("symbol", "-[?ukr_btr60_amount]")
+    assert source[token.start : token.end] == token.value
+    amount, following, percent = parse_string(source).children()
+    assert amount.value == SymbolNode("-[?ukr_btr60_amount]")
+    assert following.value == -12
+    assert percent.value == SymbolNode("-2.5%")
+    values = parse_string("a = -1 b = -.5 c = -10%").children()
+    assert [node.value for node in values] == [-1, -0.5, SymbolNode("-10%")]
+
+
+@pytest.mark.parametrize("value", ["-[?]", "-[?foo", "-[foo]", "-foo"])
+def test_malformed_negated_bracketed_variable_is_rejected(value):
+    with pytest.raises(ParseError):
+        parse_string("amount = " + value)
+
+
+@pytest.mark.integration
+def test_real_mod_negated_variable_file_parses(real_mod_root):
+    path = real_mod_root / "common/scripted_effects/99_UKR_scripted_effects.txt"
+    if not path.exists():
+        pytest.skip("UKR scripted effects file not present in this checkout")
+    source = path.read_text(encoding="utf-8-sig")
+    if "-[?ukr_btr60_amount]" not in source:
+        pytest.skip("checkout does not contain the expression")
+    assert parse_string(source).children()

@@ -148,9 +148,9 @@ def test_focus_index_warm_path_is_noop(fake_mod_root, cache_dir):
 def test_focus_index_cache_persisted(fake_mod_root, cache_dir):
     fi = FocusIndex(fake_mod_root, cache_dir)
     fi.ensure_fresh()
-    # FOCUS_CACHE_VERSION bumped to v4 with the issue-300 parser widening.
-    assert (cache_dir / "v4" / "focus.manifest.json").exists()
-    assert (cache_dir / "v4" / "focus.data.json").exists()
+    # The current version owns the persisted focus cache.
+    assert (cache_dir / f"v{FocusIndex.cache_version}" / "focus.manifest.json").exists()
+    assert (cache_dir / f"v{FocusIndex.cache_version}" / "focus.data.json").exists()
 
     # Second instance reads cache + ensures freshness; no exception, matching ids.
     fi2 = FocusIndex(fake_mod_root, cache_dir)
@@ -206,8 +206,8 @@ def test_focus_index_rebuilds_on_shape_corrupt_manifest(fake_mod_root, cache_dir
     ids = sorted(fi.list_keys())
     assert ids
 
-    manifest = cache_dir / "v4" / "focus.manifest.json"
-    data = cache_dir / "v4" / "focus.data.json"
+    manifest = cache_dir / f"v{FocusIndex.cache_version}" / "focus.manifest.json"
+    data = cache_dir / f"v{FocusIndex.cache_version}" / "focus.data.json"
     manifest.write_text(
         '{"common/national_focus/test.txt": {"mtime_ns": 1, "size": 2}}',
         encoding="utf-8",
@@ -384,7 +384,7 @@ def test_scripted_index_version_bump_rebuilds_cached_parse_errors(
 
     assert index.list_keys() == [expected_key]
     assert index.parse_errors() == []
-    assert (cache_dir / "v3" / f"{cache_name}.data.json").exists()
+    assert (cache_dir / f"v{index.cache_version}" / f"{cache_name}.data.json").exists()
 
 
 def test_idea_index_version_bump_rebuilds_misclassified_block_only_ideas(fake_mod_root, cache_dir):
@@ -425,7 +425,7 @@ def test_idea_index_version_bump_rebuilds_misclassified_block_only_ideas(fake_mo
 
     assert index.resolve("TST_monitor") is not None
     assert "allowed_civil_war" not in index.list_keys()
-    assert (cache_dir / "v4" / "idea.data.json").exists()
+    assert (cache_dir / f"v{IdeaIndex.cache_version}" / "idea.data.json").exists()
 
 
 def test_loc_index_parallel_build(fake_mod_root, cache_dir, monkeypatch):
@@ -856,3 +856,31 @@ def test_loc_index_skips_junk_lines_and_reads_the_language_from_the_file_name(
     assert named is not None and named["value"] == "named by file"
     # With no header and no language in the name there is nothing to file the keys under.
     assert _parse_loc_worker(str(headless), "headless.yml") == []
+
+
+def test_negated_variable_invalidates_persisted_parse_error(fake_mod_root, cache_dir):
+    relpath = "common/scripted_effects/test_effects.txt"
+    path = fake_mod_root / relpath
+    path.write_text("TST_negated = { amount = -[?ukr_btr60_amount] }", encoding="utf-8")
+    sig = file_signature(path)
+    assert sig is not None
+    assert ScriptedEffectIndex.cache_version > 3
+    old = IndexCache(cache_dir, "scripted_effect", 3)
+    old.save_manifest({relpath: sig})
+    old.save_data({"files": {}, "parse_errors": {relpath: "Invalid token"}})
+    index = ScriptedEffectIndex(fake_mod_root, cache_dir)
+    index.ensure_fresh()
+    assert "TST_negated" in index.list_keys()
+    assert index.parse_errors() == []
+
+
+@pytest.mark.integration
+def test_real_mod_negated_variable_effect_index(real_mod_root, cache_dir):
+    path = real_mod_root / "common/scripted_effects/99_UKR_scripted_effects.txt"
+    if not path.exists() or "-[?ukr_btr60_amount]" not in path.read_text(encoding="utf-8-sig"):
+        pytest.skip("checkout does not contain the UKR expression")
+    index = ScriptedEffectIndex(real_mod_root, cache_dir, include_vanilla=False)
+    result = index.resolve("UKR_add_political_tension")
+    assert result is not None
+    assert result.get("file") == "common/scripted_effects/99_UKR_scripted_effects.txt"
+    assert not any(error["file"] == result["file"] for error in index.parse_errors())

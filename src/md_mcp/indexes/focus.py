@@ -30,7 +30,7 @@ from .base import FILE_NOT_FOUND, GenericTxtIndex, ParseResult
 
 logger = logging.getLogger(__name__)
 
-FOCUS_CACHE_VERSION = 4
+FOCUS_CACHE_VERSION = 5
 FOCUS_SUBDIR = "common/national_focus"
 
 

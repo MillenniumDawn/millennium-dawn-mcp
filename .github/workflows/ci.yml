@@ -76,6 +76,7 @@ jobs:
           cache-dependency-path: pyproject.toml
       - run: pip install -e '.[dev]'
       - run: pytest -q tests/test_index_reload.py tests/test_ast_cache.py tests/test_process.py
+      - run: pytest -q tests/test_find_unreferenced.py -k "windows_index_paths or native_index_paths_work_after_cache_reload or scripted_effect_counts_calls_only or scripted_trigger_uses_its_own_index"
 
   runtime-install:
     runs-on: ubuntu-latest

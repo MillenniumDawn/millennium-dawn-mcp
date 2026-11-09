@@ -198,6 +198,11 @@ def find_unreferenced(
     return result
 
 
+def _index_path(path: str) -> str:
+    """Convert native index keys to the slash form used by the scan."""
+    return Path(path).as_posix()
+
+
 def analyse(
     mod_root: Path,
     kind: str,
@@ -220,14 +225,24 @@ def analyse(
     definitions: frozenset[tuple[str, str, int | None]] = frozenset()
     if kind in _INDEXED:
         index = indexes[kind]
-        errors = [e["error"] for e in index.parse_errors() if e["file"] == relpath]
+        # Index paths can use native Windows separators, including when restored
+        # from an existing cache. Keep the original key for index lookups.
+        errors = [e["error"] for e in index.parse_errors() if _index_path(e["file"]) == relpath]
         if errors:
             raise ValueError(f"{relpath} could not be parsed: {errors[0]}")
-        names = list(dict.fromkeys(rec["id"] for rec in index.records_for_file(relpath)))
+        indexed_files = index.list_files()
+        names = list(
+            dict.fromkeys(
+                rec["id"]
+                for indexed in indexed_files
+                if _index_path(indexed) == relpath
+                for rec in index.records_for_file(indexed)
+            )
+        )
         wanted = set(names)
         definitions = frozenset(
-            (rec["id"], indexed, rec["line"])
-            for indexed in index.list_files()
+            (rec["id"], _index_path(indexed), rec["line"])
+            for indexed in indexed_files
             for rec in index.records_for_file(indexed)
             if rec["id"] in wanted
         )

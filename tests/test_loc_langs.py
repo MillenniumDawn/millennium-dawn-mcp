@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import pytest
@@ -10,8 +11,10 @@ from md_mcp import config
 from md_mcp.config import Settings
 from md_mcp.indexes import LocalisationIndex
 from md_mcp.indexes import localisation as loc_mod
+from md_mcp.indexes.base import collect_files
 from md_mcp.indexes.localisation import LANG_ISO_TO_SUFFIX, cache_name_for, normalise_loc_langs
 from md_mcp.tools.resolver_tools import resolve_loc_tool
+from md_mcp.util.encoding import read_text
 from tests.support.indexes import bump_mtime, write_loc
 from tests.support.mod import make_mod_root
 
@@ -294,7 +297,7 @@ def test_scan_is_debounced(multi_lang_root, cache_dir, monkeypatch):
     scan = li._scans["l_german"]
     records = scan.files[str(Path("localisation/german/test_l_german.yml"))]
     calls: list[int] = []
-    real = loc_mod.collect_files
+    real = collect_files
 
     def spy(*args, **kwargs):
         calls.append(1)
@@ -317,7 +320,7 @@ def test_scan_lang_survives_a_file_that_failed_to_parse(tmp_path, monkeypatch):
     bad = write_loc(root, "localisation/german/b_l_german.yml", "l_german", "B", "b")
     index = LocalisationIndex(root, tmp_path / "cache", None, langs=("en",))
 
-    real_read = loc_mod.read_text
+    real_read = read_text
 
     def flaky_read(path):
         if Path(path).name == bad.name:
@@ -361,3 +364,136 @@ def test_resolve_loc_tool_uses_scan_for_unindexed_language(multi_lang_root, cach
     assert result["ok"] is True
     assert result["value"] == "Nur Deutsch"
     assert result["lang"] == "de"
+
+
+# ----- concurrent first scan ----------------------------------------------------------
+
+
+@pytest.mark.parametrize("second_kind", ["resolve", "list_keys", "other_language"])
+def test_first_scan_coordinates_concurrent_language_lookups(
+    multi_lang_root, cache_dir, monkeypatch, second_kind
+):
+    """Same-language callers wait; unrelated warm lookups do not."""
+    li = LocalisationIndex(multi_lang_root, cache_dir, include_vanilla=False)
+    li.list_keys()
+    if second_kind == "other_language":
+        assert li.resolve("TST_root", "fr") is not None
+
+    scan_started = threading.Event()
+    release_scan = threading.Event()
+    second_waiting = threading.Event()
+    second_done = threading.Event()
+    real_read = read_text
+
+    def pausing_read(path):
+        if Path(path).name == "test_l_german.yml":
+            scan_started.set()
+            assert release_scan.wait(timeout=10), "first scan was never released"
+        return real_read(path)
+
+    monkeypatch.setattr(loc_mod, "read_text", pausing_read)
+
+    first_hits: list[dict | None] = []
+    second_missing: list[dict | None] = []
+    second_root: list[dict | None] = []
+    second_keys: list[list[str]] = []
+    errors: list[BaseException] = []
+
+    def first() -> None:
+        try:
+            first_hits.append(li.resolve("TST_root", "de"))
+        except BaseException as exc:  # reported on the main thread below
+            errors.append(exc)
+
+    def second() -> None:
+        try:
+            if second_kind == "resolve":
+                second_missing.append(li.resolve("TST_only_de", "de"))
+                second_root.append(li.resolve("TST_root", "de"))
+            elif second_kind == "list_keys":
+                second_keys.append(li.list_keys("de"))
+            else:
+                second_root.append(li.resolve("TST_root", "fr"))
+        except BaseException as exc:  # reported on the main thread below
+            errors.append(exc)
+        second_done.set()
+
+    first_thread = threading.Thread(target=first, daemon=True)
+    second_thread = threading.Thread(target=second, daemon=True)
+    try:
+        first_thread.start()
+        assert scan_started.wait(timeout=10), "first scan never reached the German file"
+        lock = li._scans["l_german"].lock
+
+        class ObservedLock:
+            def __enter__(self):
+                if not lock.acquire(blocking=False):
+                    second_waiting.set()
+                    lock.acquire()
+
+            def __exit__(self, *args):
+                lock.release()
+
+        monkeypatch.setattr(li._scans["l_german"], "lock", ObservedLock())
+        second_thread.start()
+        if second_kind == "other_language":
+            assert second_done.wait(timeout=5), "unrelated warm lookup was blocked"
+        else:
+            assert second_waiting.wait(timeout=10), "second lookup never waited for the scan"
+            assert not second_done.is_set(), "second lookup saw the unfinished scan"
+    finally:
+        release_scan.set()
+        first_thread.join(timeout=10)
+        if second_thread.ident is not None:
+            second_thread.join(timeout=10)
+    assert not first_thread.is_alive(), "first scan did not finish"
+    assert not second_thread.is_alive(), "second lookup did not finish"
+    assert errors == []
+
+    assert len(first_hits) == 1
+    first_hit = first_hits[0]
+    assert first_hit is not None
+    assert first_hit["value"] == "Die Wurzel" and first_hit["lang"] == "de"
+    if second_kind == "resolve":
+        assert len(second_missing) == 1 and len(second_root) == 1
+        missing = second_missing[0]
+        root = second_root[0]
+        assert missing is not None
+        assert missing["value"] == "Nur Deutsch" and missing["lang"] == "de"
+        assert root is not None
+        assert root["value"] == "Die Wurzel" and root["lang"] == "de"
+    elif second_kind == "list_keys":
+        assert second_keys == [["TST_only_de", "TST_root"]]
+    else:
+        assert len(second_root) == 1
+        french = second_root[0]
+        assert french is not None
+        assert french["value"] == "La Racine" and french["lang"] == "fr"
+
+
+def test_failed_first_scan_releases_the_lock_and_retries(multi_lang_root, cache_dir, monkeypatch):
+    """A first load that raises must not strand callers or pin the empty scan."""
+    li = LocalisationIndex(multi_lang_root, cache_dir, include_vanilla=False)
+    real_collect = collect_files
+    calls: list[int] = []
+
+    def flaky_collect(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError("directory gone")
+        return real_collect(*args, **kwargs)
+
+    monkeypatch.setattr(loc_mod, "collect_files", flaky_collect)
+
+    with pytest.raises(OSError, match="directory gone"):
+        li.resolve("TST_root", "de")
+
+    scan = li._scans["l_german"]
+    assert scan.loaded is False, "a failed load must not publish results"
+    assert not scan.lock.locked(), "a failed load must release the scan lock"
+
+    hit = li.resolve("TST_root", "de")
+    assert hit is not None
+    assert hit["value"] == "Die Wurzel" and hit["lang"] == "de"
+    assert calls == [1, 1]
+    assert scan.loaded is True

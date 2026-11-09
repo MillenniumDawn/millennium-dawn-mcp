@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from md_mcp.util.response import (
@@ -16,10 +14,11 @@ from md_mcp.util.response import (
     fit_prefix,
     paginate,
 )
+from tests.support.mcp_protocol import mcp_result_size
 
 
 def _byte_size(obj: object) -> int:
-    return len(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
+    return mcp_result_size(obj)
 
 
 @pytest.mark.parametrize(
@@ -144,12 +143,12 @@ def test_fit_prefix_keeps_the_longest_prefix_that_fits():
     def build(count: int) -> dict:
         return {**result, "truncated": True, "items": items[:count]}
 
-    out = fit_prefix(result, len(items), build, budget=300)
+    out = fit_prefix(result, len(items), build, budget=1500)
     kept = len(out["items"])
     assert 0 < kept < len(items)
     assert out["truncated"] is True
-    assert _byte_size(out) <= 300
-    assert _byte_size(build(kept + 1)) > 300
+    assert _byte_size(out) <= 1500
+    assert _byte_size(build(kept + 1)) > 1500
 
 
 def test_fit_prefix_returns_the_empty_prefix_when_nothing_fits():
@@ -170,16 +169,26 @@ def test_clip_utf8_cuts_on_a_character_boundary(text, max_bytes, expected):
     assert clip_utf8(text, max_bytes) == expected
 
 
-def test_bounded_text_binary_search_trims_txt_to_fit():
-    junk = "y" * 99_000
+def test_bounded_text_caps_txt_to_fit_the_duplicated_mcp_payload():
     out = bounded_text(
-        {"ok": True, "kind": "focus", "changed": False, "junk": junk},
-        "x" * 2_000,
+        {"ok": True, "kind": "focus", "changed": False},
+        "x" * 50_000,
     )
 
     assert out["txt_truncated"] is True
     assert _byte_size(out) <= BUDGET_BYTES
-    assert len(out["txt"]) < 2_000
+    assert len(out["txt"]) < 50_000
+
+
+def test_bounded_text_binary_search_trims_txt_beside_large_metadata():
+    out = bounded_text(
+        {"ok": True, "kind": "focus", "changed": False, "junk": "y" * 49_000},
+        "x" * 2_000,
+    )
+
+    assert out["txt_truncated"] is True
+    assert 0 < len(out["txt"]) < 2_000
+    assert _byte_size(out) <= BUDGET_BYTES
 
 
 def test_bounded_text_returns_bounded_fallback_when_nothing_fits():

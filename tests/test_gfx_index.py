@@ -203,7 +203,16 @@ NON_SCALAR_NAME = (
     "}\n"
 )
 
+WIDENED_SYMBOL_VALUES = (
+    "spriteTypes = {\n"
+    "\tspriteType = { name = 10_percent_x texturefile = 10_percent_texture.dds }\n"
+    "\tspriteType = { name = -[?name] texturefile = -[?texture] }\n"
+    "\tspriteType = { name = ´45 texturefile = ´texture.dds }\n"
+    "}\n"
+)
+
 FIXTURES = {
+    "widened_symbol_values": WIDENED_SYMBOL_VALUES,
     "sandwich": SANDWICH,
     "nested_container": NESTED_CONTAINER,
     "commented": COMMENTED_PROPERTIES,

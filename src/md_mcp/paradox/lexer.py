@@ -25,6 +25,12 @@ from .nodes import Token
 # Deliberate divergences from `hoiparser.ts`: leading-`+` decimals, acute-initial
 # symbols, unsigned hex. Details and vanilla examples in docs/parser.md.
 #
+SYMBOL_PATTERN = (
+    r"-\[\?[\w:\._@\-\?\^\/\u00A0-\u024F|]+\]"
+    r"|(?:(?!0x[0-9a-fA-F])\d+|(?:\d+\.)?)"
+    r"[a-zA-Z_@\[\]\u00B4][\w:\._@\[\]\-\?\^\/\u00A0-\u024F|]*"
+)
+
 _TOKEN_TYPES: list[tuple[str, str]] = [
     ("comment", r"#.*(?:[\r\n]|$)"),
     ("operator", r">=|<=|!=|[={}<>;,]"),
@@ -32,11 +38,7 @@ _TOKEN_TYPES: list[tuple[str, str]] = [
     # starts an escape, so an unterminated string fails in linear time. Plain runs
     # sit outside the group so the regex keeps state per escape, not per character.
     ("string", r'"[^"\\]*(?:\\[\s\S][^"\\]*)*"'),
-    (
-        "symbol",
-        r"-\[\?[\w:\._@\-\?\^\/\u00A0-\u024F|]+\]"
-        r"|(?:\d+\.)?[a-zA-Z_@\[\]\u00B4][\w:\._@\[\]\-\?\^\/\u00A0-\u024F|]*",
-    ),
+    ("symbol", SYMBOL_PATTERN),
     ("date", r"\d+(?:\.\d+){2,}"),
     ("unitnumber", r"(?:[+-]?\d*\.\d+|[+-]?\d+)(?:%%?)"),
     # Hex first: behind the others, the `0` of `0xffffffff` was the whole number.

@@ -540,3 +540,24 @@ def test_real_mod_negated_variable_file_parses(real_mod_root):
     if "-[?ukr_btr60_amount]" not in source:
         pytest.skip("checkout does not contain the expression")
     assert parse_string(source).children()
+
+
+def test_digit_leading_symbols_keep_numeric_precedence():
+    source = "10_percent_x = { } value = 10_percent_x"
+    tokens = _tokens(source)
+    assert (tokens[0].type, tokens[0].value) == ("symbol", "10_percent_x")
+    assert source[tokens[0].start : tokens[0].end] == "10_percent_x"
+    definition, value = parse_string(source).children()
+    assert definition.name == "10_percent_x"
+    assert value.value == SymbolNode("10_percent_x")
+    for literal, expected in [
+        ("1.5", 1.5),
+        ("10%", SymbolNode("10%")),
+        ("2000.1.1", SymbolNode("2000.1.1")),
+        ("0xff", 255),
+    ]:
+        assert parse_string("x = " + literal).children()[0].value == expected
+    assert [(t.type, t.value) for t in _tokens("0xff_name")] == [
+        ("number", "0xff"),
+        ("symbol", "_name"),
+    ]

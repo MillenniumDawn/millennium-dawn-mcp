@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from .base import GenericTxtIndex
+from .base import ParsedTxtIndex
 from .definitions import parse_character_file, parse_trait_file
 
 
-class CharacterIndex(GenericTxtIndex):
+class CharacterIndex(ParsedTxtIndex):
     """Index character definitions from ``common/characters``."""
 
     # v2: parser accepts leading-+ numbers, acute-initial symbols and anonymous
@@ -19,7 +19,7 @@ class CharacterIndex(GenericTxtIndex):
     source_tag_indexed = True
 
 
-class TraitIndex(GenericTxtIndex):
+class TraitIndex(ParsedTxtIndex):
     """Index country and unit leader traits."""
 
     # v2: parser accepts leading-+ numbers, acute-initial symbols and anonymous

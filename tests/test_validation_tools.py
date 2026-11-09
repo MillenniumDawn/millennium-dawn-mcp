@@ -1063,3 +1063,27 @@ def test_validate_run_all_excludes_manual_and_commit_only_but_named_calls_remain
     named = validate_tool(mod_settings(fake_mod_root), runner, validator="standardization")
     assert named["ok"] is True
     assert calls == ["standardization"]
+
+
+def test_unresolvable_overlay_scope_does_not_fall_back_to_base(
+    fake_mod_root, tmp_path, monkeypatch
+):
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+    settings = Settings(
+        mod_root=fake_mod_root,
+        vanilla_path=None,
+        cache_dir=tmp_path / "cache",
+        submod_root=overlay,
+    )
+    path = "events/test_events.txt"
+    original_resolve = Path.resolve
+
+    def fail_overlay(candidate, *args, **kwargs):
+        if candidate == overlay / path:
+            raise OSError("cannot resolve overlay path")
+        return original_resolve(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", fail_overlay)
+    result = validate_tool(settings, ValidatorRunner(fake_mod_root), files=[path])
+    assert result == {"ok": False, "error": f"scope file not found: {path}", "missing": [path]}

@@ -445,7 +445,7 @@ def build_server(settings: Settings):
         delta: bool = False,
         baseline: Optional[str] = None,
     ) -> dict:
-        """Run validators, or only new issues with delta=True and explicit baseline; severity_min/limit narrow output. A files= path that does not exist returns {ok: false, missing}."""
+        """Run validators, or only new issues with delta=True and explicit baseline; severity_min/limit narrow output. Validators use the base mod only; missing and overlay-owned files= paths return errors."""
         return await blocking_tools.run_serialized(
             validator_tools_lock,
             validate_tool,
@@ -480,7 +480,7 @@ def build_server(settings: Settings):
         limit: int = 500,
         counts_only: bool = False,
     ) -> dict:
-        """Run lint scripts plus style/brace checks for applicable script scopes. mode=changed|staged|all; checks=[...] subsets scripts; omit validators for scoped style, use [] to disable, or select ['auto'|'*'|names]; severity_min/limit/counts_only narrow output."""
+        """Run lint scripts plus style/brace checks for applicable script scopes. mode=changed|staged|all; checks=[...] subsets scripts; omit validators for scoped style, use [] to disable, or select ['auto'|'*'|names]; severity_min/limit/counts_only narrow output. Validators use the base mod; overlay scopes are unsupported."""
         return await blocking_tools.run_serialized(
             validator_tools_lock,
             lint_tool,

@@ -48,7 +48,7 @@ from .lint_validators import (
     select_validators,
 )
 from .upstream_analysis import tick_spot_check_tool
-from .validation_tools import filter_and_cap
+from .validation_tools import _classify_scope_files, filter_and_cap
 
 _LINT_LINE_RE = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):\s*(?P<msg>.+)$")
 
@@ -738,7 +738,35 @@ def lint_tool(
 
     per_check.extend(validator_setup_entries)
     validators_ran = False
-    if validator_names and runner is not None:
+    unsupported_overlay_files: list[str] = []
+    unchecked_scope_files: list[str] = []
+    if validator_names and runner is not None and submod_root is not None and relevant is not None:
+        try:
+            distinct_overlay = submod_root.resolve() != mod_root.resolve()
+        except (OSError, RuntimeError):
+            distinct_overlay = True
+        if distinct_overlay and files is None:
+            # Git scopes come from the overlay worktree, including deleted paths.
+            unsupported_overlay_files = sorted(
+                (validator_relevant_set or set()) | set(removed_paths)
+            )
+        elif distinct_overlay:
+            unchecked_scope_files, unsupported_overlay_files = _classify_scope_files(
+                mod_root, submod_root, sorted(validator_relevant_set or ())
+            )
+    if unsupported_overlay_files or unchecked_scope_files:
+        per_check.extend(
+            {
+                "name": f"validator:{name}",
+                "ok": False,
+                "error": (
+                    "validator scope includes overlay or uncheckable files; "
+                    "validators use the base mod only"
+                ),
+            }
+            for name in validator_names
+        )
+    elif validator_names and runner is not None:
         validators_ran = True
         v_entries, v_issues = run_validators_for_lint(
             runner,
@@ -778,6 +806,12 @@ def lint_tool(
         "truncated": truncated,
         "checks": per_check,
     }
+    if unsupported_overlay_files:
+        summary["unsupported_overlay_files"] = unsupported_overlay_files
+    if unchecked_scope_files:
+        summary["unchecked_scope_files"] = unchecked_scope_files
+    if validators_ran and submod_root is not None:
+        summary["validator_root"] = "base"
     if suppressed_total:
         summary["suppressed_mod_wide"] = suppressed_total
         summary["suppression_source"] = SUPPRESSION_SOURCE
@@ -792,7 +826,9 @@ def lint_tool(
 
         summary = fit_prefix(summary, len(issues_capped), clipped)
 
-    return enforce_budget(summary, heavy_keys=("issues",))
+    return enforce_budget(
+        summary, heavy_keys=("issues", "unsupported_overlay_files", "unchecked_scope_files")
+    )
 
 
 _GIT_SCOPE_TIMEOUT = 15

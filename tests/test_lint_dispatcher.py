@@ -1062,3 +1062,154 @@ def test_lint_all_mode_skips_mod_encoding_without_mod_files(tmp_path):
     assert me["ok"] is True
     assert me["skipped"] == "no .mod files found"
     assert me["total"] == 0
+
+
+@pytest.mark.parametrize("mode", ["changed", "staged"])
+def test_overlay_git_scopes_include_deleted_files_without_validator_dispatch(tmp_path, mode):
+    from tests.test_lint_validators import FakeRunner
+
+    base = tmp_path / "base"
+    overlay = tmp_path / "overlay"
+    base.mkdir()
+    overlay.mkdir()
+    init_repo(overlay)
+    (base / "events").mkdir()
+    (base / "events" / "deleted.txt").write_text("base", encoding="utf-8")
+    (overlay / "events").mkdir()
+    path = overlay / "events" / "deleted.txt"
+    path.write_text("overlay", encoding="utf-8")
+    git(overlay, "add", "events/deleted.txt")
+    git(overlay, "commit", "-qm", "add event")
+    path.unlink()
+    if mode == "staged":
+        git(overlay, "add", "-u")
+    runner = FakeRunner(names=["events"])
+    out = lint_tool(
+        base,
+        submod_root=overlay,
+        mode=mode,
+        checks=["changelog"],
+        validators=["events"],
+        validator_runner=runner,
+    )
+    assert out["ok"] is False
+    assert out["unsupported_overlay_files"] == ["events/deleted.txt"]
+    assert out["failed_checks"] == ["validator:events"]
+    assert runner.calls == []
+
+
+def test_lint_full_tree_labels_validator_root_with_overlay(tmp_path):
+    from tests.test_lint_validators import FakeRunner
+
+    base = tmp_path / "base"
+    overlay = tmp_path / "overlay"
+    base.mkdir()
+    overlay.mkdir()
+    runner = FakeRunner(names=["events"])
+    out = lint_tool(
+        base,
+        submod_root=overlay,
+        mode="all",
+        checks=["changelog"],
+        validators=["events"],
+        validator_runner=runner,
+    )
+    assert out["ok"] is True
+    assert out["validator_root"] == "base"
+    assert out["validators_run"] == ["events"]
+    assert len(runner.calls) == 1
+
+
+def test_lint_overlay_missing_scope_is_reported_unchecked(tmp_path):
+    from tests.test_lint_validators import FakeRunner
+
+    base = tmp_path / "base"
+    overlay = tmp_path / "overlay"
+    base.mkdir()
+    overlay.mkdir()
+    runner = FakeRunner(names=["events"])
+    out = lint_tool(
+        base,
+        submod_root=overlay,
+        files=["events/missing.txt"],
+        checks=["changelog"],
+        validators=["events"],
+        validator_runner=runner,
+    )
+    assert out["ok"] is False
+    assert out["unchecked_scope_files"] == ["events/missing.txt"]
+    assert runner.calls == []
+
+
+@pytest.mark.parametrize("mode", ["changed", "staged"])
+def test_overlay_git_rename_does_not_dispatch_validators(tmp_path, mode):
+    from tests.test_lint_validators import FakeRunner
+
+    base, overlay = tmp_path / "base", tmp_path / "overlay"
+    base.mkdir()
+    overlay.mkdir()
+    init_repo(overlay)
+    (overlay / "events").mkdir()
+    (overlay / "events" / "old.txt").write_text("overlay", encoding="utf-8")
+    git(overlay, "add", "events/old.txt")
+    git(overlay, "commit", "-qm", "add event")
+    git(overlay, "mv", "events/old.txt", "events/new.txt")
+    runner = FakeRunner(names=["events"])
+    out = lint_tool(
+        base,
+        submod_root=overlay,
+        mode=mode,
+        checks=["changelog"],
+        validators=["events"],
+        validator_runner=runner,
+    )
+    assert out["ok"] is False
+    assert set(out["unsupported_overlay_files"]) == {"events/old.txt", "events/new.txt"}
+    assert runner.calls == []
+
+
+def test_lint_overlay_scope_errors_stay_within_output_budget(tmp_path, monkeypatch):
+    from tests.test_lint_validators import FakeRunner
+
+    base, overlay = tmp_path / "base", tmp_path / "overlay"
+    base.mkdir()
+    overlay.mkdir()
+    paths = [f"events/{i:05}-{'x' * 32}.txt" for i in range(5000)]
+    monkeypatch.setattr(linting_tools, "_changed_files", lambda *args, **kwargs: paths)
+    out = lint_tool(
+        base,
+        submod_root=overlay,
+        checks=["changelog"],
+        validators=["events"],
+        validator_runner=FakeRunner(names=["events"]),
+    )
+    assert out["ok"] is False
+    assert out["unsupported_overlay_files_dropped"] == len(paths)
+    assert len(json.dumps(out).encode("utf-8")) <= BUDGET_BYTES
+
+
+def test_overlay_changed_deletion_of_non_script_blocks_explicit_validator(tmp_path):
+    from tests.test_lint_validators import FakeRunner
+
+    base, overlay = tmp_path / "base", tmp_path / "overlay"
+    base.mkdir()
+    overlay.mkdir()
+    init_repo(overlay)
+    (overlay / "localisation").mkdir()
+    path = overlay / "localisation" / "example.yml"
+    path.write_text("l_english:", encoding="utf-8")
+    git(overlay, "add", "localisation/example.yml")
+    git(overlay, "commit", "-qm", "add localisation")
+    path.unlink()
+    runner = FakeRunner(names=["events"])
+    out = lint_tool(
+        base,
+        submod_root=overlay,
+        mode="changed",
+        checks=["changelog"],
+        validators=["events"],
+        validator_runner=runner,
+    )
+    assert out["ok"] is False
+    assert out["unsupported_overlay_files"] == ["localisation/example.yml"]
+    assert runner.calls == []

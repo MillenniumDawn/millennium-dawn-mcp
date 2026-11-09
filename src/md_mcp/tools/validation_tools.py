@@ -42,7 +42,7 @@ def validate_list_tool(
         for v in infos
     ]
     validators, truncated, total = paginate(all_validators, offset=offset, limit=limit)
-    return enforce_budget(
+    result = enforce_budget(
         {
             "ok": True,
             "total": total,
@@ -52,6 +52,11 @@ def validate_list_tool(
         },
         heavy_keys=("validators",),
     )
+    if result.get("validators_dropped", 0):
+        result["returned"] = 0
+        result["truncated"] = True
+        return enforce_budget(result, heavy_keys=("validators",))
+    return result
 
 
 def _apply_strict(counts: dict) -> dict:

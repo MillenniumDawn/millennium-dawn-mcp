@@ -7,7 +7,7 @@ parsed record is fetched on-demand to keep cache size manageable.
 Cold path parses in a ProcessPoolExecutor so the parser can use all cores; warm
 path remains in-process (single-stat refresh + dict diff).
 
-Cache layout (JSON, under <cache_dir>/v4/focus-parser326.data.json):
+Cache layout (JSON, under <cache_dir>/v5/focus-parser326.data.json):
     {
         "files": {
             "<relative_path>": [

@@ -525,6 +525,19 @@ def test_negated_bracketed_variable_is_one_symbol():
     assert [node.value for node in values] == [-1, -0.5, SymbolNode("-10%")]
 
 
+def test_digit_leading_definition_and_negated_variable_parse_together():
+    source = "10_percent_x = { amount = -[?value] fraction = -0.5 mask = 0xff }"
+    definition = parse_string(source).children()[0]
+    assert definition.name == "10_percent_x"
+    assert [node.value for node in definition.children()] == [SymbolNode("-[?value]"), -0.5, 255]
+    symbols = [token for token in _tokens(source) if token.value in ("10_percent_x", "-[?value]")]
+    assert len(symbols) == 2
+    assert all(
+        token.type == "symbol" and source[token.start : token.end] == token.value
+        for token in symbols
+    )
+
+
 @pytest.mark.parametrize("value", ["-[?]", "-[?foo", "-[foo]", "-foo"])
 def test_malformed_negated_bracketed_variable_is_rejected(value):
     with pytest.raises(ParseError):

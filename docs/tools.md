@@ -1156,9 +1156,9 @@ it. `txt_truncated=true` means the returned text must not be written back.
 
 Run one of the upstream maintenance transforms against supplied text and
 return `{ok, txt, changed, summary}` without writing files. `transform` may be
-`apply_ai_path_weights` (also supply `mapping` and `tag`),
-`strip_idea_allowed_gates`, `strip_dynmod_tag_gates`,
-`add_idea_equipment_bonus_instant`, or `logging_tool`. For `logging_tool`, use
+`apply_ai_path_weights` (also supply `mapping` and `tag`) or `logging_tool`.
+Completed upstream sweeps (`strip_idea_allowed_gates`, `strip_dynmod_tag_gates`,
+`add_idea_equipment_bonus_instant`) are no longer shipped. For `logging_tool`, use
 `action=add|remove` and `content_type=focus|event|idea|decision|technology`.
 Text output can be clipped; never write it back when `txt_truncated` is true.
 

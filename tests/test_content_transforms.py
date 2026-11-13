@@ -17,29 +17,6 @@ from md_mcp.tools.standardize_tools import standardize_tool
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize(
-    ("name", "text"),
-    [
-        ("strip_dynmod_tag_gates", "modifier = {\n enable = { always = yes }\n}\n"),
-        (
-            "add_idea_equipment_bonus_instant",
-            "equipment_bonus = { infantry_equipment = { attack = 0.1 } }\n",
-        ),
-    ],
-)
-def test_line_transforms_match_upstream_core(real_mod_root: Path, name: str, text: str):
-    module = transforms._load(real_mod_root, name)
-    if name == "strip_dynmod_tag_gates":
-        expected = "\n".join(module.strip_enable_gates(text.split("\n"))[0])
-    else:
-        expected = module.add_instant(text)[0]
-    result = transforms.transform_tool(real_mod_root, content=text, transform=name)
-    assert result["ok"] is True
-    assert result["txt"] == expected
-    assert result["changed"] is (expected != text)
-
-
-@pytest.mark.integration
 def test_ai_path_mapping_parity(real_mod_root: Path):
     text = "focus_tree = {\n focus = {\n  id = TST_a\n }\n}\n"
     mapping = "TST_a -\n"
@@ -59,21 +36,7 @@ def test_ai_path_mapping_parity(real_mod_root: Path):
 
 
 @pytest.mark.integration
-def test_idea_gate_and_logging_transforms_are_upstream_backed(real_mod_root: Path):
-    idea_text = (
-        "ideas = {\n country = {\n  TST_example = {\n   allowed = { always = yes }\n  }\n }\n}\n"
-    )
-    gates = transforms._load(real_mod_root, "strip_idea_allowed_gates")
-    shared = transforms._load(real_mod_root, "shared_utils")
-    expected_lines = gates.strip_allowed_blocks(
-        idea_text.split("\n"), shared.get_slotless_idea_categories(str(real_mod_root))
-    )[0]
-    expected = "\n".join(expected_lines)
-    gate_result = transforms.transform_tool(
-        real_mod_root, content=idea_text, transform="strip_idea_allowed_gates"
-    )
-    assert gate_result["txt"] == expected
-
+def test_logging_transform_matches_upstream(real_mod_root: Path):
     focus_text = (
         "focus_tree = {\n focus = {\n id = TST_root\n completion_reward = {\n"
         "  add_political_power = 1\n }\n }\n}\n"
@@ -226,14 +189,15 @@ def test_missing_fixture_standardizer_cannot_fall_through_to_real_mod(
     assert "standardize_api" in result["error"]
 
 
-@pytest.mark.integration
-def test_unchanged_transform_reports_false(real_mod_root: Path):
-    content = "modifier = { enable = { has_idea = example } }\n"
-    result = transforms.transform_tool(
-        real_mod_root, content=content, transform="strip_dynmod_tag_gates"
-    )
-    assert result["changed"] is False
-    assert result["txt"] == content
+def test_removed_upstream_sweeps_are_rejected(tmp_path: Path):
+    for name in (
+        "strip_idea_allowed_gates",
+        "strip_dynmod_tag_gates",
+        "add_idea_equipment_bonus_instant",
+    ):
+        result = transforms.transform_tool(tmp_path, content="text", transform=name)
+        assert result["ok"] is False
+        assert result["error"] == f"Unsupported transform: {name}"
 
 
 def test_unknown_transform_is_rejected(tmp_path: Path):
@@ -247,12 +211,12 @@ def test_transform_upstream_error_is_bounded(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(transforms, "_load", fail)
     result = transforms.transform_tool(
-        tmp_path, content="text", transform="add_idea_equipment_bonus_instant"
+        tmp_path, content="text", transform="apply_ai_path_weights", mapping="x", tag="TST"
     )
     assert result == {
         "ok": False,
         "error": "bad mapping",
-        "transform": "add_idea_equipment_bonus_instant",
+        "transform": "apply_ai_path_weights",
     }
 
 
@@ -311,26 +275,22 @@ def test_logging_parent_protocol_success(tmp_path: Path, monkeypatch):
     )
 
 
-def test_transform_output_budget_and_unchanged_false(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(
-        transforms,
-        "_load",
-        lambda _root, _name: SimpleNamespace(strip_enable_gates=lambda lines: (lines, 0, 0, 0)),
-    )
-    unchanged = transforms.transform_tool(
-        tmp_path, content="modifier = { }\n", transform="strip_dynmod_tag_gates"
-    )
-    assert unchanged["changed"] is False
-    assert unchanged["summary"]["removed"] == 0
-
+def test_transform_output_budget_clips_large_upstream_text(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         transforms,
         "_load",
         lambda _root, _name: SimpleNamespace(
-            strip_enable_gates=lambda _lines: (["x" * 120_000], 1, 0, 0)
+            parse_mapping=lambda _value: SimpleNamespace(assignments={}),
+            apply=lambda lines, _parsed, _tag: (["x" * 120_000], []),
         ),
     )
-    clipped = transforms.transform_tool(tmp_path, content="x", transform="strip_dynmod_tag_gates")
+    clipped = transforms.transform_tool(
+        tmp_path,
+        content="x",
+        transform="apply_ai_path_weights",
+        mapping="unused",
+        tag="TST",
+    )
     assert clipped["txt_truncated"] is True
     assert len(clipped["txt"]) < 120_000
 
@@ -380,37 +340,6 @@ def test_ai_path_summary_bounds_large_upstream_notes(tmp_path: Path, monkeypatch
     assert result["summary"]["notes_truncated"] is True
     assert len(result["summary"]["notes_sample"]) == 20
     assert all(len(sample) == 240 for sample in result["summary"]["notes_sample"])
-
-
-def test_idea_gate_transform_uses_upstream_category_helper(tmp_path: Path, monkeypatch):
-    upstream = SimpleNamespace(
-        strip_allowed_blocks=lambda lines, categories: (
-            [*lines, next(iter(categories))],
-            1,
-            0,
-        )
-    )
-    shared = SimpleNamespace(get_slotless_idea_categories=lambda _root: frozenset({"country"}))
-    monkeypatch.setattr(
-        transforms,
-        "_load",
-        lambda _root, name: upstream if name == "strip_idea_allowed_gates" else shared,
-    )
-    result = transforms.transform_tool(
-        tmp_path, content="ideas = {\n", transform="strip_idea_allowed_gates"
-    )
-    assert result["txt"] == "ideas = {\n\ncountry"
-    assert result["summary"] == {"removed": 1, "unbalanced_skipped": 0}
-
-
-def test_equipment_transform_uses_upstream_helper(tmp_path: Path, monkeypatch):
-    upstream = SimpleNamespace(add_instant=lambda content: (content + "instant = yes\n", 1))
-    monkeypatch.setattr(transforms, "_load", lambda _root, _name: upstream)
-    result = transforms.transform_tool(
-        tmp_path, content="equipment_bonus = { }\n", transform="add_idea_equipment_bonus_instant"
-    )
-    assert result["changed"] is True
-    assert result["summary"] == {"added": 1}
 
 
 def test_logging_transform_dispatches_arguments(tmp_path: Path, monkeypatch):

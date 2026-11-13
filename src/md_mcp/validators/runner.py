@@ -273,6 +273,7 @@ class ValidatorRunner:
             }
 
         _maintain_validator_cache(self.mod_root)
+        files = _canonical_scope_files(self.mod_root, files)
 
         started = time.perf_counter()
         if self.mode == "in_process":
@@ -453,6 +454,13 @@ _FULL_REPO_PASSES = (
     "validate_orphaned_tooltip_keys",
     "_script_written_variables",
 )
+# Scans memoized by an earlier scoped check. A later full-repo pass must rebuild them.
+_SCOPED_MEMOS = (
+    "_shared_txt_memo",
+    "_shared_yml_memo",
+    "_txt_key_refs_memo",
+    "_script_written_vars",
+)
 
 
 def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:
@@ -510,6 +518,9 @@ def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:
         @functools.wraps(method)
         def run_unscoped(*args, **kwargs):
             nonlocal unscoped_depth
+            for attr in _SCOPED_MEMOS:
+                if attr in inst.__dict__:
+                    inst.__dict__[attr] = None
             unscoped_depth += 1
             try:
                 return method(*args, **kwargs)
@@ -633,6 +644,26 @@ def _harvest_issues(inst, module_name: str) -> list[dict]:
             )
         collected.append(record)
     return collected
+
+
+def _canonical_scope_files(mod_root: Path, files: Optional[list[str]]) -> Optional[list[str]]:
+    """Return accepted scope spellings as mod-relative forward-slash paths."""
+    if files is None:
+        return None
+    root = mod_root.resolve()
+    canonical: list[str] = []
+    for raw in files:
+        text = raw.replace("\\", "/")
+        candidate = Path(text)
+        try:
+            if not candidate.is_absolute():
+                candidate = root / candidate
+            rel = candidate.resolve().relative_to(root).as_posix()
+        except (OSError, RuntimeError, ValueError):
+            canonical.append(text)
+            continue
+        canonical.append(rel)
+    return canonical
 
 
 def _filter_by_files(

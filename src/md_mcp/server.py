@@ -566,7 +566,7 @@ def build_server(settings: Settings):
     )(_bind_tool(standardize_tool, settings.mod_root, settings.submod_root))
     mcp.tool(
         name="transform_content",
-        description="Apply an upstream content transform in memory; returns {txt, changed, summary}. Transforms: apply_ai_path_weights (mapping, tag), strip_idea_allowed_gates, strip_dynmod_tag_gates, add_idea_equipment_bonus_instant, logging_tool (action, content_type). Never writes files.",
+        description="Apply an upstream content transform in memory; returns {txt, changed, summary}. Transforms: apply_ai_path_weights (mapping, tag), logging_tool (action, content_type). Never writes files.",
     )(_bind_tool(transform_tool, settings.mod_root))
 
     # ---------- M3 analysis ----------

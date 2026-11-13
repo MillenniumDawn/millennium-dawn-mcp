@@ -2,9 +2,10 @@
 
 `idea` and `scripted_loc` port the matching of upstream `find_idea_references.py` and
 `find_scripted_loc_references.py` so counts agree with those scripts, quirks included
-(a commented reference counts). `scripted_effect` and `scripted_trigger` have no
-upstream finder: they use the `find_references` semantics plus the tooltip, meta template,
-and allowlist rules of `validate_unused_scripted`, in one pass over all names.
+(a commented reference counts; a definition line does not). `scripted_effect` and
+`scripted_trigger` have no upstream finder: they use the `find_references` semantics
+plus the tooltip, meta template, and allowlist rules of `validate_unused_scripted`,
+in one pass over all names.
 """
 
 from __future__ import annotations
@@ -35,37 +36,25 @@ SNIPPET_CHARS = 120
 _WORD = re.compile(r"\w+")
 _BRACKETED = re.compile(r"\[(\w+)\]")
 
-# find_idea_references.py
-_IDEA_DIRS = (
-    "common/events",
-    "common/decisions",
-    "common/national_focus",
-    "history/countries",
-    "common/scripted_effects",
-    "events",
-    "common/on_actions",
-    "common/focuses",
-    "common/country_leader",
-    "common/ideas",
+# find_idea_references.py scans the whole script trees, not a hand-picked subset.
+_IDEA_DIRS = ("common", "events", "history")
+_IDEA_PATTERN_SOURCES = (
+    "add_ideas",
+    "remove_ideas",
+    "has_idea",
+    "swap_ideas",
+    "modify_ideas",
+    "add_timed_idea",
+    "remove_timed_idea",
+    r"idea.*=",
+    r"=\s*idea",
 )
-_IDEA_PATTERNS = re.compile(
-    "|".join(
-        [
-            "add_ideas",
-            "remove_ideas",
-            "has_idea",
-            "swap_ideas",
-            "modify_ideas",
-            "add_timed_idea",
-            "remove_timed_idea",
-            r"idea.*=",
-            r"=\s*idea",
-        ]
-    )
-)
+_IDEA_PATTERNS = [re.compile(pattern) for pattern in _IDEA_PATTERN_SOURCES]
 _IDEA_BLOCK = re.compile(
     r"\b(?:add_ideas|remove_ideas|swap_ideas|modify_ideas|add_timed_idea|remove_timed_idea)\b"
 )
+# `remove_ideas = tribute_idea_[THISTAG]` references every idea with that prefix.
+_IDEA_META_REF = re.compile(r"=\s*(\w+)\[")
 _IDEA_SKIP = frozenset(
     {
         "ideas",
@@ -259,9 +248,10 @@ def analyse(
         odd = [
             (name, REFERENCE_PATTERNS[kind](name)) for name in names if not _WORD.fullmatch(name)
         ]
+        idea_tokens = _idea_token_re(name_set) if kind == "idea" else None
         for base, sub, rel, text in _walk(roots, _SPECS[kind]):
             if kind == "idea":
-                hits = _idea_hits(text, name_set)
+                hits = _idea_hits(text, name_set, idea_tokens)
             elif kind == "scripted_loc":
                 is_source = base == root and rel == relpath
                 hits = _loc_hits(text, name_set, bracketed=sub == _LOC_DIR, is_source=is_source)
@@ -373,18 +363,29 @@ def _strip_inline_comment(line: str) -> str:
     return line
 
 
-def _idea_hits(text: str, names: frozenset[str]) -> Iterator[Hit]:
-    # Every idea pattern and block keyword contains "idea", so other lines cannot hit
-    # and cannot open a block.
-    if "idea" not in text:
+def _idea_token_re(names: frozenset[str]) -> re.Pattern[str] | None:
+    """Whole-token matcher for one idea set, matching upstream `compile_token_regex`."""
+    if not names:
+        return None
+    return re.compile(r"(?<!\w)(?:" + "|".join(map(re.escape, names)) + r")(?!\w)")
+
+
+def _idea_hits(text: str, names: frozenset[str], token_re: re.Pattern[str] | None) -> Iterator[Hit]:
+    # A meta prefix can reference ideas without the word "idea" on the line.
+    if "idea" not in text and "[" not in text:
         return
     depth = 0
     for number, line in enumerate(text.splitlines(), 1):
         in_block = depth > 0
-        if not in_block and "idea" not in line:
+        if not in_block and "idea" not in line and "[" not in line:
             continue
-        present = names.intersection(_WORD.findall(line))
-        if present and (in_block or _IDEA_PATTERNS.search(line)):
+        present = set(token_re.findall(line)) if token_re is not None else set()
+        prefixes = tuple(_IDEA_META_REF.findall(line))
+        if prefixes:
+            present.update(name for name in names if name.startswith(prefixes))
+        # Strip the names before the pattern check so `X_idea = {` is not a hit.
+        stripped = token_re.sub("", line) if token_re is not None else line
+        if present and (in_block or any(pattern.search(stripped) for pattern in _IDEA_PATTERNS)):
             for name in present:
                 yield name, number, line
         if in_block or _IDEA_BLOCK.search(line):

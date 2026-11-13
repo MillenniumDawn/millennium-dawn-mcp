@@ -245,6 +245,101 @@ def test_full_repo_passes_stay_unscoped_under_file_scope(tmp_path):
         _assert_full_repo_passes(tmp_path / mode / "Mod", mode)
 
 
+_MEMO_VALIDATOR = (
+    ISSUE_CLASS
+    + """
+from pathlib import Path
+
+
+class Validator:
+    def __init__(self, mod_path, use_colors=False, staged_only=False, **kwargs):
+        self.mod_path = Path(mod_path)
+        self.staged_only = staged_only
+        self.staged_files = None
+        self._issues = []
+        self._shared_txt_memo = None
+
+    def _collect_files(self, patterns, ignore_staged=False):
+        files = sorted(self.mod_path.glob(patterns[0]))
+        if self.staged_only and not ignore_staged:
+            selected = set(self.staged_files or [])
+            files = [
+                path for path in files
+                if path.relative_to(self.mod_path).as_posix() in selected
+            ]
+        return files
+
+    def _scan(self):
+        if self._shared_txt_memo is None:
+            self._shared_txt_memo = [
+                path.name for path in self._collect_files(["common/ideas/*.txt"])
+            ]
+        return self._shared_txt_memo
+
+    def validate_add_resistance_tooltip(self):
+        self._scan()
+
+    def validate_orphaned_tooltip_keys(self):
+        names = ",".join(self._scan())
+        self._issues.append(
+            _Issue(severity="warning", category="orphan_scan", message=names, file="")
+        )
+
+    def run_all_validations(self):
+        self.validate_add_resistance_tooltip()
+        self.validate_orphaned_tooltip_keys()
+"""
+)
+
+
+def test_full_repo_pass_rebuilds_a_memo_filled_by_an_earlier_scoped_check(tmp_path):
+    for mode in ("isolated", "in_process"):
+        root = tmp_path / mode / "Mod"
+        _write_fixture(root, "memo_scope", _MEMO_VALIDATOR)
+        runner = ValidatorRunner(root, mode=mode)
+        result = runner.run("memo_scope", files=["common/ideas/USA.txt"], post_filter=False)
+        assert result.get("scoped") is True, result
+        assert result["issues"][0]["message"] == "CAN.txt,USA.txt"
+
+
+def test_public_scope_spellings_keep_the_same_findings(tmp_path):
+    from md_mcp.config import Settings
+    from md_mcp.tools.validation_tools import validate_tool
+
+    for mode in ("isolated", "in_process"):
+        root = tmp_path / mode / "Mod"
+        _write_fixture(root, "spellings", _SCOPED_VALIDATOR)
+        settings = Settings(
+            mod_root=root,
+            submod_root=None,
+            vanilla_path=None,
+            cache_dir=tmp_path / mode / "cache",
+        )
+        runner = ValidatorRunner(root, mode=mode)
+        relative = "events/Algeria.txt"
+        other = "events/Brazil.txt"
+        spellings = [
+            [relative, other],
+            [str(root / relative), str(root / other)],
+            [relative.replace("/", "\\"), other.replace("/", "\\")],
+            ["./" + relative, "./" + other],
+        ]
+        results = [
+            validate_tool(settings, runner, validator="spellings", files=files)
+            for files in spellings
+        ]
+        assert all(result["ok"] for result in results)
+        expected = [issue for issue in results[0]["issues"] if issue.get("file")]
+        assert [issue["file"] for issue in expected] == [relative, other]
+        for result in results[1:]:
+            assert [issue for issue in result["issues"] if issue.get("file")] == expected
+        outside = validate_tool(
+            settings, runner, validator="spellings", files=[str(tmp_path / "outside.txt")]
+        )
+        assert outside["ok"] is False
+        assert outside["missing"] == [str(tmp_path / "outside.txt").replace("\\", "/")]
+
+
 def test_scoped_collect_does_not_leave_staged_only_enabled(tmp_path):
     root = tmp_path / "Mod"
     _write_fixture(root, "staged_guard", _STAGED_GUARD_VALIDATOR)

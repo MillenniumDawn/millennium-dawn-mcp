@@ -868,14 +868,22 @@ def test_negated_variable_invalidates_persisted_parse_error(
     sig = file_signature(path)
     assert sig is not None
     assert ScriptedEffectIndex.cache_version > 3
-    # Main used an unversioned name; the pre-integration #346 head used parser326.
-    old = IndexCache(cache_dir, "scripted_effect" + old_parser_generation, 3)
-    old.save_manifest({relpath: sig})
-    old.save_data({"files": {}, "parse_errors": {relpath: "Invalid token"}})
+    payload = {"files": {}, "parse_errors": {relpath: "Invalid token"}}
+    # The live cache is v<current>/scripted_effect-parser326. Main's unversioned
+    # file at that version, and either historical name at v3, must be ignored.
+    stale = IndexCache(cache_dir, "scripted_effect", ScriptedEffectIndex.cache_version)
+    stale.save_manifest({relpath: sig})
+    stale.save_data(payload)
+    historical = IndexCache(cache_dir, "scripted_effect" + old_parser_generation, 3)
+    historical.save_manifest({relpath: sig})
+    historical.save_data(payload)
     index = ScriptedEffectIndex(fake_mod_root, cache_dir)
     index.ensure_fresh()
+    assert index._cache.data_path != stale.data_path
     assert "TST_negated" in index.list_keys()
     assert index.parse_errors() == []
+    assert stale.load_data() == payload
+    assert historical.load_data() == payload
 
 
 @pytest.mark.integration

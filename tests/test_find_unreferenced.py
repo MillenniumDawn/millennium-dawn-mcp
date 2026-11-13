@@ -335,6 +335,34 @@ def test_idea_commented_reference_counts_and_definition_line_does_not(fake_mod_r
     assert result["hits"][0]["samples"][0]["file"] == "events/refs.txt"
 
 
+def test_idea_references_follow_the_checkout_finder(fake_mod_root):
+    analysis = fake_mod_root / "tools" / "analysis"
+    analysis.mkdir(parents=True)
+    (analysis / "find_idea_references.py").write_text(
+        "SEARCH_DIRS = ['events']\n"
+        "REPO_ROOT = None\n"
+        "def extract_idea_names(path):\n"
+        "    return ['planted_idea']\n"
+        "def make_idea_searcher(search_dirs):\n"
+        "    def search(names):\n"
+        "        return {name: [('events/upstream.txt', 3, 'upstream hit')] for name in names}\n"
+        "    return search\n",
+        encoding="utf-8",
+    )
+    _write(fake_mod_root, "common/ideas/extra.txt", IDEAS)
+
+    result = _run(fake_mod_root, "idea", "common/ideas/extra.txt", include_hits=True)
+
+    assert result["unreferenced"] == []
+    assert result["hits"] == [
+        {
+            "name": "planted_idea",
+            "count": 1,
+            "samples": [{"file": "events/upstream.txt", "line": 3, "snippet": "upstream hit"}],
+        }
+    ]
+
+
 def test_idea_meta_prefix_counts_without_treating_the_definition_as_a_pattern(fake_mod_root):
     _write(
         fake_mod_root,

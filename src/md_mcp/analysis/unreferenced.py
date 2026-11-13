@@ -1,11 +1,10 @@
 """Reverse query: names defined in one file that nothing references.
 
-`idea` and `scripted_loc` port the matching of upstream `find_idea_references.py` and
-`find_scripted_loc_references.py` so counts agree with those scripts, quirks included
-(a commented reference counts; a definition line does not). `scripted_effect` and
-`scripted_trigger` have no upstream finder: they use the `find_references` semantics
-plus the tooltip, meta template, and allowlist rules of `validate_unused_scripted`,
-in one pass over all names.
+`idea` and `scripted_loc` use the checkout's own finder when it is present, so a
+matching change upstream does not need a port here. Fixtures without those scripts
+fall back to the last known matching rules. `scripted_effect` and `scripted_trigger`
+have no upstream finder: they use the `find_references` semantics plus the tooltip,
+meta template, and allowlist rules of `validate_unused_scripted`.
 """
 
 from __future__ import annotations
@@ -16,15 +15,17 @@ import os
 import re
 import stat
 from bisect import bisect_right
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 
 from ..content_registry import REFERENCE_PATTERNS
 from ..indexes.base import GenericTxtIndex
 from ..util.line_numbers import line_starts, pos_to_line
 from ..util.pathing import roots_for, validate_user_path
 from ..util.response import coerce_int, enforce_budget, paginate
+from ..util.upstream_modules import UpstreamModules
 from .refs import _SCRIPT_TOKEN_RE
 from .text_cache import read_text
 
@@ -118,6 +119,26 @@ _SPECS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
 }
 
 Hit = tuple[str, int, str]
+_FINDERS = UpstreamModules(
+    "analysis",
+    (
+        "find_idea_references",
+        "find_scripted_loc_references",
+        "_shared",
+        "_reference_finder",
+        "shared_utils",
+    ),
+)
+# module, name extractor, searcher factory, whether the factory takes the source file.
+_FINDER_API = {
+    "idea": ("find_idea_references", "extract_idea_names", "make_idea_searcher", False),
+    "scripted_loc": (
+        "find_scripted_loc_references",
+        "extract_scripted_loc_names",
+        "make_scripted_loc_searcher",
+        True,
+    ),
+}
 
 
 @dataclass
@@ -192,6 +213,75 @@ def _index_path(path: str) -> str:
     return Path(path).as_posix()
 
 
+def _load_finder(mod_root: Path, module_name: str):
+    try:
+        return _FINDERS.load(mod_root, (module_name,))[module_name]
+    except (ModuleNotFoundError, ImportError):
+        return None
+
+
+def _upstream_scan(
+    mod_root: Path,
+    submod_root: Path | None,
+    kind: str,
+    path: Path,
+    samples: bool,
+) -> tuple[list[str], dict[str, int], dict[str, list[dict]]] | None:
+    """Count references with the checkout's finder. None when that finder is absent."""
+    spec = _FINDER_API.get(kind)
+    if spec is None:
+        return None
+    module_name, extract_name, factory_name, needs_source = spec
+    module = _load_finder(mod_root, module_name)
+    if module is None:
+        return None
+    extract = getattr(module, extract_name, None)
+    factory = getattr(module, factory_name, None)
+    search_dirs = getattr(module, "SEARCH_DIRS", None)
+    if not callable(extract) or not callable(factory) or not isinstance(search_dirs, (list, tuple)):
+        return None
+    extract_names = cast(Callable[[Path], list[str]], extract)
+    make_searcher = cast(Callable[..., Callable[[list[str]], dict[str, list[Any]]]], factory)
+    names = list(extract_names(path))
+    counts = dict.fromkeys(names, 0)
+    sampled: dict[str, list[dict]] = {name: [] for name in names}
+    if not names:
+        return names, counts, sampled
+    roots = [mod_root] if submod_root is None else [submod_root, mod_root]
+    finder: Any = module
+    previous_root = getattr(finder, "REPO_ROOT", None)
+    try:
+        for scan_root in roots:
+            finder.REPO_ROOT = scan_root.resolve()
+            directories = [scan_root / directory for directory in search_dirs]
+            search = (
+                make_searcher(directories, path) if needs_source else make_searcher(directories)
+            )
+            found = search(names)
+            for name in names:
+                for rel, number, content in found.get(name, ()):
+                    relpath = Path(str(rel)).as_posix()
+                    if (
+                        scan_root is mod_root
+                        and submod_root is not None
+                        and (submod_root / relpath).is_file()
+                    ):
+                        continue
+                    counts[name] += 1
+                    if samples and len(sampled[name]) < MAX_SAMPLES:
+                        sampled[name].append(
+                            {
+                                "file": relpath,
+                                "line": number,
+                                "snippet": str(content).strip()[:SNIPPET_CHARS],
+                            }
+                        )
+    finally:
+        if previous_root is not None:
+            finder.REPO_ROOT = previous_root
+    return names, counts, sampled
+
+
 def analyse(
     mod_root: Path,
     kind: str,
@@ -236,11 +326,15 @@ def analyse(
             if rec["id"] in wanted
         )
     else:
+        upstream = _upstream_scan(mod_root, submod_root, kind, path, samples)
+        if upstream is not None:
+            names, counts, sampled = upstream
+            return Analysis(relpath, names, counts, sampled)
         text = path.read_text(encoding="utf-8", errors="replace")
         names = _idea_names(text) if kind == "idea" else _loc_names(text)
 
     counts = dict.fromkeys(names, 0)
-    sampled: dict[str, list[dict]] = {name: [] for name in names}
+    sampled = {name: [] for name in names}
     if names:
         name_set = frozenset(names)
         lookup = name_set | {f'"{name}"' for name in name_set}

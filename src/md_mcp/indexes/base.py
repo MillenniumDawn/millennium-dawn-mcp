@@ -590,15 +590,18 @@ class GenericTxtIndex:
         return self._duplicates
 
     def ensure_fresh(self) -> None:
-        # One rebuild per shared index: the seq is captured before the admission
-        # checks so any rebuild completing after entry is shared, not repeated.
+        # Cold callers share a load that finishes after they enter. A warm caller
+        # that already observed a due check does not: that load may have
+        # snapshotted disk first. Readers skip an in-flight refresh without
+        # moving the stat clock, so the next due check still sees the new files.
         seq = self._rebuild_seq
-        if self._loaded and not self._stale_check.should_check():
+        was_loaded = self._loaded
+        if was_loaded and self._refreshing:
             return
-        if self._loaded and self._refreshing:
-            return  # in-flight rebuild: serve the current complete generation
+        if was_loaded and not self._stale_check.should_check():
+            return
         with self._refresh_lock:
-            if self._rebuild_seq != seq:
+            if self._rebuild_seq != seq and not was_loaded:
                 return
             self._refreshing = True
             try:

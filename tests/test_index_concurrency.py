@@ -2,8 +2,9 @@
 
 Interleavings are forced with events or barriers and asserted on state — no sleeps.
 Covers one shared rebuild per cold index (including a caller paused across another's
-completion), no partially applied refresh, unique writer temps over real cache JSON,
-and temp cleanup with the previous data intact on a failed write.
+completion), no partially applied refresh, a warm check that is not satisfied by an
+older snapshot, unique writer temps over real cache JSON, and temp cleanup with the
+previous data intact on a failed write.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from md_mcp.indexes import base as base_mod
 from md_mcp.indexes.base import IndexCache
 from tests.support.index_worker import make_index
 from tests.support.indexes import write_stepped
@@ -261,3 +263,142 @@ def test_atomic_write_keeps_previous_data_and_removes_its_temp_on_replace_failur
 
     assert cache.load_data() == previous
     assert not list(tmp_path.rglob("*.tmp"))
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 1_000.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+
+def test_in_flight_refresh_does_not_consume_the_next_stale_check(tmp_path, monkeypatch):
+    """Serving the previous generation must not push the next stat past the new files."""
+    root = make_mod_root(tmp_path / "TTL mod")
+    cache = tmp_path / "TTL cache"
+    _write_focus(root, "a", ["TST_a"], 1)
+    index = make_index("focus", root, cache)
+    clock = _Clock()
+    monkeypatch.setattr(base_mod, "time", clock)
+    index.ensure_fresh()
+
+    clock.now = 1_003.0
+    at_gate = threading.Event()
+    release = threading.Event()
+    real_plan = base_mod.plan_rebuild
+
+    def gated_plan(*args, **kwargs):
+        plan = real_plan(*args, **kwargs)
+        at_gate.set()
+        assert release.wait(GATE_TIMEOUT), "test harness never released the snapshot"
+        return plan
+
+    monkeypatch.setattr(base_mod, "plan_rebuild", gated_plan)
+    errors: list[Exception] = []
+
+    def refresh() -> None:
+        try:
+            index.ensure_fresh()
+        except Exception as exc:  # pragma: no cover - surfaced by `errors` below
+            errors.append(exc)
+
+    refresher = threading.Thread(target=refresh)
+    refresher.start()
+    try:
+        assert at_gate.wait(GATE_TIMEOUT), "refresh never snapshotted disk"
+        _write_focus(root, "b", ["TST_b"], 2)
+        # Outside the refresher's stat window, so a due reader must not burn it.
+        clock.now = 1_005.5
+        assert index.list_keys() == ["TST_a"]
+    finally:
+        release.set()
+        refresher.join(GATE_TIMEOUT)
+    assert not refresher.is_alive()
+    assert errors == []
+    # 1005.5 is outside the refresher's stat window and inside the window a
+    # mid-refresh reader would burn by calling should_check before returning.
+    assert index.list_keys() == ["TST_a", "TST_b"]
+
+
+def test_warm_caller_does_not_share_a_rebuild_snapshotted_before_its_check(tmp_path, monkeypatch):
+    """A due warm check must rebuild when the completed load snapshotted earlier."""
+    root = make_mod_root(tmp_path / "Predate mod")
+    cache = tmp_path / "Predate cache"
+    _write_focus(root, "a", ["TST_a"], 1)
+    index = make_index("focus", root, cache)
+    clock = _Clock()
+    monkeypatch.setattr(base_mod, "time", clock)
+    index.ensure_fresh()
+
+    waiter_box: dict[str, threading.Thread] = {}
+    seen = threading.Event()
+    release_waiter = threading.Event()
+
+    class _SeqGate:
+        def __get__(self, obj, objtype=None):
+            if obj is None:
+                return self
+            value = obj.__dict__.get("_rebuild_seq", 0)
+            if threading.current_thread() is waiter_box.get("thread") and not seen.is_set():
+                seen.set()
+                assert release_waiter.wait(GATE_TIMEOUT), "test harness never released the waiter"
+                return value
+            return obj.__dict__.get("_rebuild_seq", 0)
+
+        def __set__(self, obj, value) -> None:
+            obj.__dict__["_rebuild_seq"] = value
+
+    monkeypatch.setattr(type(index), "_rebuild_seq", _SeqGate(), raising=False)
+
+    snapshotted = threading.Event()
+    release_snapshot = threading.Event()
+    real_plan = base_mod.plan_rebuild
+
+    def gated_plan(*args, **kwargs):
+        plan = real_plan(*args, **kwargs)
+        if not snapshotted.is_set():
+            snapshotted.set()
+            assert release_snapshot.wait(GATE_TIMEOUT), "test harness never released the snapshot"
+        return plan
+
+    monkeypatch.setattr(base_mod, "plan_rebuild", gated_plan)
+    refresher_errors: list[Exception] = []
+
+    def refresh() -> None:
+        try:
+            index.ensure_fresh()
+        except Exception as exc:  # pragma: no cover - surfaced by `refresher_errors` below
+            refresher_errors.append(exc)
+
+    clock.now = 1_003.0
+    refresher = threading.Thread(target=refresh)
+    refresher.start()
+    assert snapshotted.wait(GATE_TIMEOUT), "refresh never snapshotted disk"
+    _write_focus(root, "b", ["TST_b"], 2)
+    clock.now = 1_006.0
+
+    results: dict[str, list] = {}
+    errors: list[Exception] = []
+
+    def wait_then_load() -> None:
+        try:
+            results["keys"] = index.list_keys()
+        except Exception as exc:  # pragma: no cover - surfaced by `errors` below
+            errors.append(exc)
+
+    waiter = threading.Thread(target=wait_then_load)
+    waiter_box["thread"] = waiter
+    waiter.start()
+    try:
+        assert seen.wait(GATE_TIMEOUT), "waiter never reached the seq read"
+        release_snapshot.set()
+        refresher.join(GATE_TIMEOUT)
+        assert not refresher.is_alive()
+    finally:
+        release_waiter.set()
+        waiter.join(GATE_TIMEOUT)
+    assert not waiter.is_alive()
+    assert refresher_errors == []
+    assert errors == []
+    assert results["keys"] == ["TST_a", "TST_b"]

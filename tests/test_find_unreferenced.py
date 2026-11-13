@@ -319,7 +319,7 @@ def test_idea_extraction_keeps_first_seen_order_without_keywords_or_tags(fake_mo
     assert analysis.names == ["used_spirit", "block_spirit", "after_spirit", "lonely_spirit"]
 
 
-def test_idea_commented_reference_and_definition_line_self_match_count(fake_mod_root):
+def test_idea_commented_reference_counts_and_definition_line_does_not(fake_mod_root):
     _write(
         fake_mod_root,
         "common/ideas/extra.txt",
@@ -329,10 +329,30 @@ def test_idea_commented_reference_and_definition_line_self_match_count(fake_mod_
 
     result = _run(fake_mod_root, "idea", "common/ideas/extra.txt", include_hits=True)
 
-    assert result["unreferenced"] == []
+    assert result["unreferenced"] == ["foo_idea"]
     counts = {hit["name"]: hit["count"] for hit in result["hits"]}
-    assert counts == {"foo_idea": 1, "bar_spirit": 1}
-    assert result["hits"][0]["samples"][0]["file"] == "common/ideas/extra.txt"
+    assert counts == {"bar_spirit": 1}
+    assert result["hits"][0]["samples"][0]["file"] == "events/refs.txt"
+
+
+def test_idea_meta_prefix_counts_without_treating_the_definition_as_a_pattern(fake_mod_root):
+    _write(
+        fake_mod_root,
+        "common/ideas/extra.txt",
+        "ideas = {\n\tcountry = {\n\t\ttribute_idea_CZE = {\n\t\t}\n\t\t"
+        "tribute_idea_GER = {\n\t\t}\n\t\tother_idea = {\n\t\t}\n\t}\n}\n",
+    )
+    _write(
+        fake_mod_root,
+        "common/scripted_effects/refs.txt",
+        "remove_ideas = tribute_idea_[THISTAG]\n",
+    )
+
+    result = _run(fake_mod_root, "idea", "common/ideas/extra.txt", include_hits=True)
+
+    counts = {hit["name"]: hit["count"] for hit in result["hits"]}
+    assert counts == {"tribute_idea_CZE": 1, "tribute_idea_GER": 1}
+    assert result["unreferenced"] == ["other_idea"]
 
 
 LOC_DEFINITIONS = """\

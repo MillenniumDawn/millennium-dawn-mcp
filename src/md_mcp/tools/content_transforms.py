@@ -17,11 +17,7 @@ from ..util.upstream_modules import UpstreamModules
 
 _MODULES = (
     "apply_ai_path_weights",
-    "strip_idea_allowed_gates",
-    "strip_dynmod_tag_gates",
-    "add_idea_equipment_bonus_instant",
     "logging_tool",
-    "common_utils",
     "shared_utils",
     "equipment_module_slots",
     "validate_ideas",
@@ -60,22 +56,6 @@ def transform_tool(
                 "notes_truncated": len(notes) > len(note_sample)
                 or any(len(note) > 240 for note in note_sample),
             }
-        elif transform == "strip_idea_allowed_gates":
-            module = _load(mod_root, "strip_idea_allowed_gates")
-            shared = _load(mod_root, "shared_utils")
-            categories = shared.get_slotless_idea_categories(str(mod_root))
-            lines, removed, skipped = module.strip_allowed_blocks(content.split("\n"), categories)
-            output = "\n".join(lines)
-            summary = {"removed": removed, "unbalanced_skipped": skipped}
-        elif transform == "strip_dynmod_tag_gates":
-            module = _load(mod_root, "strip_dynmod_tag_gates")
-            lines, removed, trimmed, skipped = module.strip_enable_gates(content.split("\n"))
-            output = "\n".join(lines)
-            summary = {"removed": removed, "trimmed": trimmed, "unbalanced_skipped": skipped}
-        elif transform == "add_idea_equipment_bonus_instant":
-            module = _load(mod_root, "add_idea_equipment_bonus_instant")
-            output, added = module.add_instant(content)
-            summary = {"added": added}
         elif transform == "logging_tool":
             output, count = _logging_transform(mod_root, content, action, content_type)
             summary = {"action": action, "content_type": content_type, "logs_changed": count}

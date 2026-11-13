@@ -25,6 +25,8 @@ import multiprocessing
 import os
 import re
 import sys
+import tempfile
+import threading
 import time
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
@@ -109,15 +111,20 @@ def compute_staleness(manifest: dict[str, FileSig], current: dict[str, FileSig])
 
 
 def _atomic_write_text(path: Path, text: str) -> None:
-    # Per-process temp name: several warm servers (or a build-index beside one)
-    # may write the same cache file, and a shared `<file>.tmp` collides on
-    # Windows and can be pruned out from under another writer.
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    # IndexCache files are always under cache_dir.
-    # pi-lens-ignore: python-path-traversal
-    with open(tmp, "w", encoding="utf-8") as fh:
-        fh.write(text)
-    os.replace(tmp, path)
+    # Unique temp per call (concurrent writers must not share one); the `.tmp`
+    # suffix keeps `prune_shards` from touching it, and failures leave none behind.
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        # IndexCache files are always under cache_dir.
+        # pi-lens-ignore: python-path-traversal
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
 
 
 _SHARD_STEM_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -326,6 +333,10 @@ def collect_files(
     return results
 
 
+# One generation's derived lookup maps: ids-by-tag, files-by-tag, ids-by-file-tag.
+TagMaps = tuple[dict[str, tuple[str, ...]], dict[str, tuple[str, ...]], dict[str, tuple[Any, ...]]]
+
+
 @dataclass
 class RebuildPlan:
     """The work a rebuild has to do, once the manifest has been diffed against disk."""
@@ -485,6 +496,11 @@ class GenericTxtIndex:
         # refresh diffs disk against these, not against the shared manifest.
         self._sigs: dict[str, FileSig] = {}
         self._loaded = False
+        # Rebuilds are serialised and published as one generation (see ensure_fresh).
+        self._refresh_lock = threading.Lock()
+        self._publish_lock = threading.Lock()
+        self._refreshing = False
+        self._rebuild_seq = 0
 
     # ---------- public API ----------
 
@@ -539,8 +555,10 @@ class GenericTxtIndex:
         self.ensure_fresh()
         canonical = tag.upper()
         if "_" not in canonical and self.source_tag_indexed:
-            keys = set(self._ids_by_tag.get(canonical, ()))
-            keys.update(self._ids_by_file_tag.get(canonical, ()))
+            # Two derivations of one rebuild must be read as one generation.
+            with self._publish_lock:
+                keys = set(self._ids_by_tag.get(canonical, ()))
+                keys.update(self._ids_by_file_tag.get(canonical, ()))
             return sorted(keys, key=str)
         prefix = canonical + "_"
         result = []
@@ -572,10 +590,26 @@ class GenericTxtIndex:
         return self._duplicates
 
     def ensure_fresh(self) -> None:
-        if self._loaded and not self._stale_check.should_check():
+        # Cold callers share a load that finishes after they enter. A warm caller
+        # that already observed a due check does not: that load may have
+        # snapshotted disk first. Readers skip an in-flight refresh without
+        # moving the stat clock, so the next due check still sees the new files.
+        seq = self._rebuild_seq
+        was_loaded = self._loaded
+        if was_loaded and self._refreshing:
             return
-        self._rebuild()
-        self._loaded = True
+        if was_loaded and not self._stale_check.should_check():
+            return
+        with self._refresh_lock:
+            if self._rebuild_seq != seq and not was_loaded:
+                return
+            self._refreshing = True
+            try:
+                self._rebuild()
+                self._loaded = True
+                self._rebuild_seq += 1
+            finally:
+                self._refreshing = False
 
     # ---------- subclass hooks ----------
 
@@ -605,14 +639,11 @@ class GenericTxtIndex:
             self._rebuild_incremental(plan)
         else:
             self._rebuild_full(plan)
-        self._sigs = plan.current_sigs
-        if self.tag_indexed or self.tag_file_indexed or self.source_tag_indexed:
-            self._rebuild_tag_indexes()
 
-    def _rebuild_tag_indexes(self) -> None:
-        """Derive tag maps from the resolved keys after a full or incremental rebuild.
+    def _rebuild_tag_indexes(self, by_key: dict[Any, dict]) -> "TagMaps":
+        """Derive tag maps from one generation's resolved keys, before publishing it.
 
-        Building from `_by_key` (rather than raw per-file records) preserves the
+        Building from `by_key` (rather than raw per-file records) preserves the
         canonical last-write-wins behavior for duplicate IDs. The maps are
         process-local and reconstructed on cache load, so no cache schema bump is
         needed.
@@ -622,7 +653,7 @@ class GenericTxtIndex:
         ids_by_file_tag: dict[str, list[Any]] = {}
         file_tags: dict[str, str] = {}
 
-        for key, record in self._by_key.items():
+        for key, record in by_key.items():
             file = record.get("file")
             if isinstance(key, str):
                 tag, separator, _ = key.partition("_")
@@ -642,11 +673,40 @@ class GenericTxtIndex:
                 if file_tag:
                     ids_by_file_tag.setdefault(file_tag, []).append(key)
 
-        self._ids_by_tag = {tag: tuple(sorted(keys)) for tag, keys in ids_by_tag.items()}
-        self._files_by_tag = {tag: tuple(sorted(files)) for tag, files in files_by_tag.items()}
-        self._ids_by_file_tag = {
-            tag: tuple(sorted(keys, key=str)) for tag, keys in ids_by_file_tag.items()
-        }
+        return (
+            {tag: tuple(sorted(keys)) for tag, keys in ids_by_tag.items()},
+            {tag: tuple(sorted(files)) for tag, files in files_by_tag.items()},
+            {tag: tuple(sorted(keys, key=str)) for tag, keys in ids_by_file_tag.items()},
+        )
+
+    def _publish_maps(
+        self,
+        *,
+        by_file: dict[str, list[dict]],
+        by_key: dict[Any, dict],
+        duplicates: dict[Any, list[str]],
+        parse_errors: dict[str, str],
+        sigs: dict[str, FileSig],
+    ) -> None:
+        """Swap one rebuild's maps into place together.
+
+        Tag maps are derived from `by_key` first and the swap is one locked burst,
+        so a call reading several maps gets one generation's coherent inputs;
+        successive calls may still straddle generations.
+        """
+        tag_maps = (
+            self._rebuild_tag_indexes(by_key)
+            if self.tag_indexed or self.tag_file_indexed or self.source_tag_indexed
+            else None
+        )
+        with self._publish_lock:
+            self._by_file = by_file
+            self._by_key = by_key
+            self._duplicates = duplicates
+            self._parse_errors = parse_errors
+            self._sigs = sigs
+            if tag_maps is not None:
+                self._ids_by_tag, self._files_by_tag, self._ids_by_file_tag = tag_maps
 
     def _parse_results(
         self, relpaths: list[str]
@@ -749,10 +809,13 @@ class GenericTxtIndex:
                     new_duplicates.setdefault(k, []).append(shadowed_file)
                 new_by_key[k] = {**rec, "file": relpath}
 
-        self._by_file = new_by_file
-        self._by_key = new_by_key
-        self._duplicates = new_duplicates
-        self._parse_errors = new_parse_errors
+        self._publish_maps(
+            by_file=new_by_file,
+            by_key=new_by_key,
+            duplicates=new_duplicates,
+            parse_errors=new_parse_errors,
+            sigs=plan.current_sigs,
+        )
 
         if plan.should_save or len(to_parse) > len(plan.to_parse):
             self._persist(plan, parsed, full=True)
@@ -848,10 +911,13 @@ class GenericTxtIndex:
             else:
                 new_duplicates.pop(k, None)
 
-        self._by_file = new_by_file
-        self._by_key = new_by_key
-        self._duplicates = new_duplicates
-        self._parse_errors = new_parse_errors
+        self._publish_maps(
+            by_file=new_by_file,
+            by_key=new_by_key,
+            duplicates=new_duplicates,
+            parse_errors=new_parse_errors,
+            sigs=plan.current_sigs,
+        )
 
         if plan.should_save:
             self._persist(plan, parsed, full=False)

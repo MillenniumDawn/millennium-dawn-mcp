@@ -514,12 +514,18 @@ def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:
             inst.staged_only = original_staged_only
             inst.staged_files = original_staged_files
 
+    initial_attrs: set[str] = set()
+
     def unscoped(method):
         @functools.wraps(method)
         def run_unscoped(*args, **kwargs):
             nonlocal unscoped_depth
-            for attr in _SCOPED_MEMOS:
-                if attr in inst.__dict__:
+            # Drop scans filled by an earlier scoped check, including memos the
+            # current checkout added after this adapter was written.
+            for attr, value in list(inst.__dict__.items()):
+                if callable(value):
+                    continue
+                if attr in _SCOPED_MEMOS or attr not in initial_attrs:
                     inst.__dict__[attr] = None
             unscoped_depth += 1
             try:
@@ -535,6 +541,7 @@ def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:
             if callable(method):
                 setattr(inst, name, unscoped(method))
         inst._collect_files = scoped_collect
+        initial_attrs.update(inst.__dict__)
     except (AttributeError, TypeError):
         return False
     return True

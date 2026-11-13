@@ -278,9 +278,12 @@ class Validator:
 
     def validate_add_resistance_tooltip(self):
         self._scan()
+        self._fresh_scan_memo = ["scoped"]
 
     def validate_orphaned_tooltip_keys(self):
         names = ",".join(self._scan())
+        if getattr(self, "_fresh_scan_memo", None):
+            names = "stale:" + names
         self._issues.append(
             _Issue(severity="warning", category="orphan_scan", message=names, file="")
         )

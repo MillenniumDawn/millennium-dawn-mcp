@@ -9,20 +9,22 @@ fails the call, it pollutes the agent's recovery loop. So tools should:
   3. Wrap their final result in `enforce_budget(result, heavy_keys=...)` as a
      belt-and-braces guard if the caller passes oversized limits.
 
-`BUDGET_BYTES` is the JSON-byte ceiling we self-impose. ~100 KB ≈ 25 K tokens at
-the usual 4-byte/token heuristic, which clears every MCP client cap we've seen
-with headroom for the protocol envelope.
+`BUDGET_BYTES` conservatively measures the SDK-serialized `CallToolResult`,
+including JSON text content and structured content when present. The enclosing
+JSON-RPC response envelope (including its request ID) is outside this budget.
 """
 
 from __future__ import annotations
 
-import json
 from typing import Any, Callable, Sequence
+
+from mcp.types import CallToolResult, TextContent
+from pydantic_core import to_json
 
 BUDGET_BYTES = 100_000
 
 # Cap for a text payload (report, fixed file); leaves room for status fields and warnings.
-MAX_TEXT_BYTES = BUDGET_BYTES - 12_000
+MAX_TEXT_BYTES = BUDGET_BYTES // 2 - 12_000
 
 
 def coerce_int(value: Any, *, name: str, default: int) -> int:
@@ -81,7 +83,7 @@ def enforce_budget(
     budget: int = BUDGET_BYTES,
     heavy_keys: Sequence[str] = (),
 ) -> dict:
-    """If `result` JSON-encodes larger than `budget` bytes, drop heavy list keys.
+    """If the emitted MCP result exceeds `budget` bytes, drop heavy list keys.
 
     Drops in `heavy_keys` order until the result fits or we run out of keys.
     Replaces each dropped key with `<key>_dropped: <original_count>` and sets
@@ -96,7 +98,7 @@ def enforce_budget(
     if dropping every heavy key still leaves it over budget.
     """
     try:
-        if _jsize(result) <= budget:
+        if mcp_result_size(result) <= budget:
             return result
     except (TypeError, ValueError) as exc:
         return _unserializable_result(exc, budget)
@@ -115,7 +117,7 @@ def enforce_budget(
         del result[k]
         result[f"{k}_dropped"] = count
         result["size_truncated"] = True
-        if _jsize(result) <= budget:
+        if mcp_result_size(result) <= budget:
             return result
 
     return _bounded_fallback(result, budget)
@@ -133,12 +135,12 @@ def fit_prefix(
     For keeping a useful prefix of one list or string where `enforce_budget`
     would drop the whole key. `build(n)` must grow with `n`.
     """
-    if _jsize(result) <= budget:
+    if mcp_result_size(result) <= budget:
         return result
     low, high = 0, length
     while low < high:
         middle = (low + high + 1) // 2
-        if _jsize(build(middle)) <= budget:
+        if mcp_result_size(build(middle)) <= budget:
             low = middle
         else:
             high = middle - 1
@@ -176,9 +178,15 @@ def bounded_text(result: dict, txt: str, *, heavy_keys: Sequence[str] = ("txt",)
     return enforce_budget(fit_prefix(result, len(txt), shrunk), heavy_keys=heavy_keys)
 
 
-def _jsize(obj: Any) -> int:
-    """UTF-8 byte length of `obj`'s JSON encoding. Raises on unserializable input."""
-    return len(json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8"))
+def mcp_result_size(obj: Any) -> int:
+    """Conservative SDK tool-result size, including text and structured copies."""
+    text = to_json(obj, fallback=str, indent=2).decode("utf-8")
+    result = CallToolResult(
+        content=[TextContent(type="text", text=text)],
+        structured_content=obj,
+        is_error=False,
+    )
+    return len(result.model_dump_json(by_alias=True, exclude_unset=True).encode("utf-8"))
 
 
 def _unserializable_result(exc: Exception, budget: int) -> dict:
@@ -207,7 +215,7 @@ def _bounded_fallback(result: dict, budget: int) -> dict:
         "dropped_keys": dropped_keys,
         "remaining_key_sizes": remaining_key_sizes,
     }
-    if _jsize(fallback) <= budget:
+    if mcp_result_size(fallback) <= budget:
         return fallback
     return {
         "ok": False,

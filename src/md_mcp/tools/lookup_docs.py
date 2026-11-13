@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import difflib
 import html
-import json
 import re
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from ..config import Settings
-from ..util.response import BUDGET_BYTES, coerce_int, enforce_budget, paginate
+from ..util.response import BUDGET_BYTES, coerce_int, enforce_budget, mcp_result_size, paginate
 
 _DOC_KINDS = frozenset(("effect", "trigger", "modifier"))
 _SYSTEM_DOC_KINDS = {
@@ -264,7 +263,7 @@ def _windowed_page(
         }
 
     def fits(delivered: list[dict]) -> bool:
-        return _json_size(result_with(delivered)) <= BUDGET_BYTES
+        return mcp_result_size(result_with(delivered)) <= BUDGET_BYTES
 
     for item in page:
         window = _windowed_entry(item, content_offset, content_limit)
@@ -316,11 +315,6 @@ def _windowed_entry(entry: dict, offset: int, limit: Optional[int]) -> dict:
         "content_complete": complete,
         "content_next_offset": None if complete else offset + delivered,
     }
-
-
-def _json_size(value: Any) -> int:
-    """UTF-8 byte length of `value`'s JSON encoding (mirrors util.response._jsize)."""
-    return len(json.dumps(value, ensure_ascii=False, default=str).encode("utf-8"))
 
 
 def _read_system_documents(directory: Path, relative_dir: Path) -> list[dict]:

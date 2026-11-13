@@ -9,7 +9,7 @@ import pytest
 from md_mcp.server import build_server
 from md_mcp.tools.lookup_docs import lookup_docs_tool
 from md_mcp.util.response import BUDGET_BYTES
-from tests.support.mcp_protocol import tool_payload
+from tests.support.mcp_protocol import mcp_result_size, tool_payload
 from tests.support.mod import in_process_settings
 from tests.support.stdio import server_parameters
 
@@ -246,7 +246,7 @@ def test_lookup_docs_content_window_shrinks_on_escaping_expansion(fake_mod_root,
     )
 
     assert page["ok"] is True
-    assert len(json.dumps(page, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+    assert mcp_result_size(page) <= BUDGET_BYTES
     entry = page["entries"][0]
     # requested 100_000 characters, but \u0001 escapes need 6 bytes, so fewer delivered
     assert len(entry["content"]) < 100_000
@@ -281,7 +281,7 @@ def test_lookup_docs_content_window_offsets_count_characters(fake_mod_root, cach
             settings, "effect", key="unicode_effect", content_offset=offset, content_limit=25_000
         )
         assert page["ok"] is True
-        assert len(json.dumps(page, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+        assert mcp_result_size(page) <= BUDGET_BYTES
         entry = page["entries"][0]
         assert entry["content_total"] == 60_000
         chunks.append(entry["content"])
@@ -333,20 +333,34 @@ def test_lookup_docs_content_window_multiple_definitions_page_across(
         assert first["truncated"] is True
 
     second = lookup_docs_tool(settings, "effect", key="doubled_effect", offset=1)
-    assert second["entries"][0]["key"] == "doubled_effect"
+    assert second["total"] == 2
+    assert second["returned"] == 0
+    assert second["truncated"] is True
+    assert second["entries_dropped"] == 1
 
-    # with windows, definitions are retrieved one page at a time
-    page0 = lookup_docs_tool(
-        settings, "effect", key="doubled_effect", content_offset=0, content_limit=30_000
-    )
-    assert page0["returned"] >= 1
-    e0 = page0["entries"][0]
-    assert len(e0["content"]) == 30_000
-    assert e0["content_next_offset"] == 30_000
-    tail = lookup_docs_tool(
-        settings, "effect", key="doubled_effect", content_offset=30_000, content_limit=30_000
-    )
-    assert e0["content"] + tail["entries"][0]["content"] == body
+    # Explicit content windows retrieve each oversized unwindowed definition completely.
+    for entry_offset, original in ((0, body), (1, "Z" + body)):
+        chunks = []
+        content_offset = 0
+        while True:
+            page = lookup_docs_tool(
+                settings,
+                "effect",
+                key="doubled_effect",
+                limit=1,
+                offset=entry_offset,
+                content_offset=content_offset,
+                content_limit=30_000,
+            )
+            assert page["total"] == 2
+            assert page["returned"] == 1
+            entry = page["entries"][0]
+            assert entry["content_offset"] == content_offset
+            chunks.append(entry["content"])
+            if entry["content_complete"]:
+                break
+            content_offset = entry["content_next_offset"]
+        assert "".join(chunks) == original
 
 
 def test_lookup_docs_system_doc_content_window(fake_mod_root, cache_dir) -> None:
@@ -358,7 +372,7 @@ def test_lookup_docs_system_doc_content_window(fake_mod_root, cache_dir) -> None
     page = lookup_docs_tool(settings, "doc", key="massive", content_offset=0)
 
     assert page["ok"] is True
-    assert len(json.dumps(page, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+    assert mcp_result_size(page) <= BUDGET_BYTES
     entry = page["entries"][0]
     assert entry["file"] == ".claude/docs/massive.md"
     assert entry["content_total"] == len(original)
@@ -426,7 +440,7 @@ def test_lookup_docs_oversized_metadata_keeps_content_retrievable(
         assert page["ok"] is True
         assert page["total"] == page["returned"] == 1
         assert page["truncated"] is False
-        assert len(json.dumps(page, ensure_ascii=False).encode("utf-8")) <= BUDGET_BYTES
+        assert mcp_result_size(page) <= BUDGET_BYTES
         entry = page["entries"][0]
         assert entry["metadata_dropped"] == dropped
         assert all(field not in entry for field in dropped)

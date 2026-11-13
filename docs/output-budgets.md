@@ -55,18 +55,24 @@ escalating: `summary` → `ids` (with `focus_ids=[...]` if a subset is enough)
 └─────────────────────────────────────────────────────────┘
 ```
 
-The pattern lives in [`src/md_mcp/util/response.py`](../src/md_mcp/util/response.py).
+The pattern lives in [`src/md_mcp/util/response.py`](../src/md_mcp/util/response.py). Its budget measurement uses the SDK's `CallToolResult` serialization, rather than a compact encoding of the dict. It conservatively counts text and structured content together (which is required when structured output is enabled), even though bare-dict tools may currently emit text only. It does not count the enclosing JSON-RPC response envelope.
 
 ## Helpers
 
 ### `BUDGET_BYTES`
 
 ```python
-BUDGET_BYTES = 100_000  # ~25K tokens at 4-bytes/token, with envelope headroom
+BUDGET_BYTES = 100_000
 ```
 
-Self-imposed JSON-byte ceiling. 100 KB clears every MCP client cap we've seen
-and leaves room for protocol framing.
+Self-imposed byte ceiling conservatively measured using the SDK's serialized
+`CallToolResult` with both indented JSON text content and structured content.
+Tools currently returning bare dictionaries may emit content-only results; the
+conservative structured-result estimate still fits the same ceiling. The
+enclosing JSON-RPC response (including its request ID) is explicitly outside
+this budget. Text content uses the SDK's `pydantic_core.to_json(payload,
+fallback=str, indent=2)` conversion, and the enclosing result uses
+`model_dump_json(by_alias=True, exclude_unset=True)`.
 
 ### `paginate(items, offset=0, limit=200) -> (slice, truncated, total)`
 
@@ -80,8 +86,8 @@ return {"total": total, "returned": len(sliced), "truncated": truncated, "matche
 
 ### `enforce_budget(result, *, budget=BUDGET_BYTES, heavy_keys=())`
 
-If `result` JSON-encodes larger than `budget`, drop keys from `heavy_keys` (in
-order) until it fits. Each dropped key gets a `<key>_dropped: <original_count>`
+If the SDK-serialized MCP result exceeds `budget`, drop keys from `heavy_keys`
+(in order) until it fits. Each dropped key gets a `<key>_dropped: <original_count>`
 sibling and the result is tagged `size_truncated=True`.
 Wrappers with pagination metadata should update `returned` and `truncated` after
 a payload is dropped, then check the corrected response against the same budget.

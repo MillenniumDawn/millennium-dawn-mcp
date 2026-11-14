@@ -526,7 +526,7 @@ def test_run_validators_for_lint_forwards_current_upstream_args(real_mod_root):
             "name": "decisions",
             "files": None,
             "post_filter": True,
-            "args": ("--unannounced-categories",),
+            "args": ("--unannounced-categories", "--id-case"),
         }
     ]
 

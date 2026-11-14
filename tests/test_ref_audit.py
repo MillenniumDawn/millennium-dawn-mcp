@@ -448,9 +448,7 @@ def test_usa_focus_duplicate_icons_match_focus_only_oracle(real_mod_root, tmp_pa
         offset += len(page)
     assert len(groups) == result["total_duplicate_icons"]
     actual = Counter(
-        group["icon"].casefold()
-        for group in groups
-        for _ in range(len(group["focuses"]) - 1)
+        group["icon"].casefold() for group in groups for _ in range(len(group["focuses"]) - 1)
     )
     assert actual == _focus_icon_duplicate_occurrences(source.read_text(encoding="utf-8"))
 

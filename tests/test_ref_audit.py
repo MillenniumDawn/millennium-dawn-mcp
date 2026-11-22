@@ -426,17 +426,29 @@ def test_usa_focus_duplicate_icons_match_focus_only_oracle(real_mod_root, tmp_pa
     root = real_mod_root
     source = root / "common" / "national_focus" / "05_usa.txt"
     assert source.is_file()
-    result = check_refs(
-        root,
-        files=["common/national_focus/05_usa.txt"],
-        kinds=["duplicate_icons"],
-        limit=-1,
-        **_indexes(root, tmp_path),
-    )
+    indexes = _indexes(root, tmp_path)
+    groups = []
+    offset = 0
+    while True:
+        result = check_refs(
+            root,
+            files=["common/national_focus/05_usa.txt"],
+            kinds=["duplicate_icons"],
+            limit=25,
+            offset=offset,
+            **indexes,
+        )
+        assert result["ok"]
+        assert not result.get("size_truncated", False)
+        page = result["duplicate_icons"]
+        groups.extend(page)
+        if not result["duplicate_icons_truncated"]:
+            break
+        assert page
+        offset += len(page)
+    assert len(groups) == result["total_duplicate_icons"]
     actual = Counter(
-        group["icon"].casefold()
-        for group in result["duplicate_icons"]
-        for _ in range(len(group["focuses"]) - 1)
+        group["icon"].casefold() for group in groups for _ in range(len(group["focuses"]) - 1)
     )
     assert actual == _focus_icon_duplicate_occurrences(source.read_text(encoding="utf-8"))
 

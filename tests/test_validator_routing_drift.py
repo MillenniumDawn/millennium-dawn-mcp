@@ -256,7 +256,7 @@ def test_impact_exclusions_and_validator_arguments_follow_upstream(real_mod_root
     assert _upstream_args(real_mod_root) == expected_args
     assert expected_args["variables"] == ("--redundant-focus-flags",)
     assert expected_args["math_expressions"] == ("--clamp-bounds",)
-    assert expected_args["decisions"] == ("--unannounced-categories",)
+    assert expected_args["decisions"] == ("--unannounced-categories", "--id-case")
 
 
 @pytest.mark.integration

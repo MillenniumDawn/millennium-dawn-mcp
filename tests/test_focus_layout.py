@@ -26,6 +26,11 @@ from tests.support.stdio import server_parameters
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
 
+# focus_layout pages every list with one limit; the live probe pages them all so
+# a large tree never trips the output budget and loses a heavy key.
+LAYOUT_PAGE = 50
+PAGED_LAYOUT_KEYS = ("positions", "collisions", "spacing_warnings", "chain_errors")
+
 _TREE = """focus_tree = {
     id = TST_tree
     focus = {
@@ -801,14 +806,34 @@ def test_focus_layout_live_stdio_and_brazil_matches_upstream_helper(
             await session.initialize()
 
             async def call_layout(path, include_positions=False):
-                arguments = {"file": path}
-                if include_positions:
-                    arguments.update(include_positions=True, limit=10000)
-                response = await session.call_tool("focus_layout", arguments)
-                assert not response.is_error
-                content = cast(TextContent, response.content[0])
-                assert content.type == "text"
-                return json.loads(content.text)
+                merged = None
+                offset = 0
+                while True:
+                    arguments: dict = {"file": path, "limit": LAYOUT_PAGE, "offset": offset}
+                    if include_positions:
+                        arguments["include_positions"] = True
+                    response = await session.call_tool("focus_layout", arguments)
+                    assert not response.is_error
+                    content = cast(TextContent, response.content[0])
+                    assert content.type == "text"
+                    page = json.loads(content.text)
+                    # A page that exceeds the output budget drops its lists, so
+                    # paging must stay small enough to keep every key.
+                    assert not page.get("size_truncated", False), page.get("positions_dropped")
+                    if merged is None:
+                        merged = page
+                    else:
+                        for key in PAGED_LAYOUT_KEYS:
+                            if key in merged:
+                                merged[key] = [*merged[key], *page[key]]
+                    truncated = [
+                        key for key in PAGED_LAYOUT_KEYS if page.get(f"{key}_truncated", False)
+                    ]
+                    if not truncated:
+                        assert merged is not None
+                        return merged
+                    assert any(page[key] for key in truncated), "a truncated page made no progress"
+                    offset += LAYOUT_PAGE
 
             started = time.perf_counter()
             no_import_cold = await call_layout(no_import_file)

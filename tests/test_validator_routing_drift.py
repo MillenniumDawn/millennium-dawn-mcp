@@ -73,6 +73,13 @@ EXPECTED_REGISTRY = {
         ("localisation/english/", ".yml"),
     ),
     "validate_events": (("common/", ".txt"), ("events/", ".txt"), ("history/", ".txt")),
+    "validate_dynamic_tokens": (
+        ("common/", ".txt"),
+        ("events/", ".txt"),
+        ("history/", ".txt"),
+        ("interface/", ".gui"),
+        ("localisation/english/", ".yml"),
+    ),
     "validate_mios": (
         ("common/military_industrial_organization/organizations/", ".txt"),
         ("common/military_industrial_organization/policies/", ".txt"),

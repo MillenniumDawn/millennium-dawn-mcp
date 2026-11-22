@@ -257,6 +257,7 @@ _BROAD_COMMON = {
     "building_guards",
     "decisions",
     "dlc_guards",
+    "dynamic_tokens",
     "equipment_variants",
     "events",
     "file_paths",
@@ -272,6 +273,7 @@ _BROAD_COMMON = {
 _BROAD_HISTORY = {
     "agency_upgrades",
     "decisions",
+    "dynamic_tokens",
     "equipment_variants",
     "events",
     "file_paths",
@@ -394,6 +396,7 @@ _BROAD_HISTORY = {
             "localisation/english/MD_focus_USA_l_english.yml",
             {
                 "decisions",
+                "dynamic_tokens",
                 "file_paths",
                 "focus_tree",
                 "gfx_references",

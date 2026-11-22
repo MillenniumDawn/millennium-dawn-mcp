@@ -85,6 +85,7 @@ VALIDATOR_AUTO_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
             "building_guards",
             "decisions",
             "dlc_guards",
+            "dynamic_tokens",
             "events",
             "file_paths",
             "gfx_references",
@@ -103,6 +104,7 @@ VALIDATOR_AUTO_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
             "characters",
             "decisions",
             "dlc_guards",
+            "dynamic_tokens",
             "events",
             "file_paths",
             "focus_tree",
@@ -121,6 +123,7 @@ VALIDATOR_AUTO_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "agency_upgrades",
             "decisions",
+            "dynamic_tokens",
             "events",
             "file_paths",
             "gfx_references",
@@ -134,7 +137,7 @@ VALIDATOR_AUTO_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
         "localisation/",
         ("file_paths", "gfx_references", "ideas", "mios", "scripted_gui"),
     ),
-    ("localisation/english/", ("decisions", "focus_tree")),
+    ("localisation/english/", ("decisions", "dynamic_tokens", "focus_tree")),
     (
         "localisation/english/MD_auto_agency_l_english.yml",
         ("agency_upgrades",),
@@ -267,6 +270,9 @@ def _validators_for_path(path: str) -> set[str]:
     # Decision icon checks read interface gfx, not every .gui file.
     if path.startswith("interface/") and path.endswith(".gfx"):
         names.add("decisions")
+    # dynamic_tokens scans .gui definitions, not the interface gfx tree.
+    if path.startswith("interface/") and path.endswith(".gui"):
+        names.add("dynamic_tokens")
     # style scans every .txt in the script dirs; catch-all so any script edit
     # gets a style pass.
     if path.endswith(".txt") and path.startswith(STYLE_PREFIXES):

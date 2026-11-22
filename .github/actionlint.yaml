@@ -1,3 +1,6 @@
 # Runs via the actionlint step in .github/workflows/ci.yml (lint job).
-# Every job in this repo uses GitHub-hosted runners, so there is nothing to
-# declare for self-hosted labels.
+# actionlint's bundled runner list predates GitHub's ubuntu-26.04 image.
+# Remove this override when the pinned actionlint version recognizes the label.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

@@ -363,6 +363,54 @@ def test_idea_references_follow_the_checkout_finder(fake_mod_root):
     ]
 
 
+def test_idea_fast_searcher_reads_the_checkout_primitives(fake_mod_root):
+    analysis = fake_mod_root / "tools" / "analysis"
+    analysis.mkdir(parents=True)
+    (analysis / "find_idea_references.py").write_text(
+        "import re\n"
+        "from pathlib import Path\n"
+        "SEARCH_DIRS = ['events']\n"
+        "REPO_ROOT = None\n"
+        "PATTERNS = ['add_ideas', 'has_idea', 'remove_ideas']\n"
+        "IDEA_BLOCK_RE = re.compile(r'\\b(?:add_ideas|has_idea|remove_ideas)\\b')\n"
+        "META_REF_RE = re.compile(r'=\\s*(\\w+)\\[')\n"
+        "def compile_token_regex(names):\n"
+        "    pattern = r'(?<!\\w)(?:' + '|'.join(map(re.escape, names)) + r')(?!\\w)'\n"
+        "    return re.compile(pattern)\n"
+        "def strip_inline_comment(line):\n"
+        "    return line.split('#', 1)[0]\n"
+        "def extract_idea_names(path):\n"
+        "    return ['used_spirit', 'block_spirit', 'meta_spirit']\n"
+        "def iter_readable_files(search_dirs, patterns):\n"
+        "    for path in sorted(Path(REPO_ROOT, 'events').glob('*.txt')):\n"
+        "        yield path, path.read_text(encoding='utf-8').splitlines()\n"
+        "def make_idea_searcher(search_dirs):\n"
+        "    raise AssertionError('the fast path should run')\n",
+        encoding="utf-8",
+    )
+    _write(fake_mod_root, "common/ideas/extra.txt", IDEAS)
+    _write(
+        fake_mod_root,
+        "events/refs.txt",
+        "add_ideas = used_spirit\n"
+        "add_ideas = {\n"
+        "\tblock_spirit\n"
+        "}\n"
+        "remove_ideas = meta_[THISTAG]\n",
+    )
+    # No "idea" and no "[", so the file prefilter skips it entirely.
+    _write(fake_mod_root, "events/quiet.txt", "used_spirit\n")
+
+    result = _run(fake_mod_root, "idea", "common/ideas/extra.txt", include_hits=True)
+
+    counts = {hit["name"]: hit["count"] for hit in result["hits"]}
+    assert counts == {"used_spirit": 1, "block_spirit": 1, "meta_spirit": 1}
+    samples = {hit["name"]: hit["samples"] for hit in result["hits"]}
+    assert samples["block_spirit"] == [
+        {"file": "events/refs.txt", "line": 3, "snippet": "block_spirit"}
+    ]
+
+
 def test_idea_meta_prefix_counts_without_treating_the_definition_as_a_pattern(fake_mod_root):
     _write(
         fake_mod_root,

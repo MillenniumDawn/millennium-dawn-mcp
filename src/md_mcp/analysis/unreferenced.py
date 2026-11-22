@@ -246,8 +246,6 @@ def _fast_idea_searcher(
 
     def search(names: list[str]) -> dict[str, list[Any]]:
         refs: dict[str, list[Any]] = {name: [] for name in names}
-        if not names:
-            return refs
         wanted = frozenset(names)
         token_re = compile_token(names)
         repo_root = module.REPO_ROOT

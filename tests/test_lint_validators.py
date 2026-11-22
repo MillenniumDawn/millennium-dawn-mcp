@@ -391,6 +391,21 @@ _BROAD_HISTORY = {
                 "scripted_localisation",
             },
         ),
+        (
+            "interface/x.gui",
+            {
+                "agency_upgrades",
+                "dynamic_tokens",
+                "factions",
+                "file_paths",
+                "gfx_references",
+                "ideas",
+                "mios",
+                "scientist_traits",
+                "scripted_gui",
+                "scripted_localisation",
+            },
+        ),
         ("gfx/interface/decisions/category.gfx", {"decisions", "file_paths"}),
         (
             "localisation/english/MD_focus_USA_l_english.yml",

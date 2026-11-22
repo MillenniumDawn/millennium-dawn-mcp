@@ -220,6 +220,62 @@ def _load_finder(mod_root: Path, module_name: str):
         return None
 
 
+def _fast_idea_searcher(
+    module: Any, search_dirs: list[Path]
+) -> Callable[[list[str]], dict[str, list[Any]]] | None:
+    """Build the checkout's idea searcher with whole-file and line prefilters.
+
+    The matching rules stay the finder's (patterns, block and meta refs, comment
+    stripping); only the loop is ours. The checkout's loop spends a token-regex
+    pass over the alternation of every idea name on every line of the whole
+    script corpus, ~16M lines on the real mod, which is what put a warm scan at
+    50s against a 2s budget. Scanning whole tokens and intersecting the name set
+    instead costs the same match with no alternation, and a line that holds
+    neither "idea" (every PATTERN contains it) nor "[" (a meta reference) can
+    never produce one, so the prefilters drop only lines that match nothing.
+    """
+    try:
+        compile_token = module.compile_token_regex
+        patterns = tuple(re.compile(source) for source in module.PATTERNS)
+        block_re = module.IDEA_BLOCK_RE
+        meta_re = module.META_REF_RE
+        strip_comment = module.strip_inline_comment
+        iter_files = module.iter_readable_files
+    except AttributeError:
+        return None
+
+    def search(names: list[str]) -> dict[str, list[Any]]:
+        refs: dict[str, list[Any]] = {name: [] for name in names}
+        wanted = frozenset(names)
+        token_re = compile_token(names)
+        repo_root = module.REPO_ROOT
+        for txt_file, lines in iter_files(search_dirs, ("*.txt",)):
+            text = "\n".join(lines)
+            if "idea" not in text and "[" not in text:
+                continue
+            rel = txt_file.relative_to(repo_root).as_posix()
+            block_depth = 0
+            for number, line in enumerate(lines, 1):
+                in_block = block_depth > 0
+                if not in_block and "idea" not in line and "[" not in line:
+                    continue
+                hits = set(_WORD.findall(line)) & wanted
+                prefixes = tuple(meta_re.findall(line))
+                if prefixes:
+                    hits.update(name for name in names if name.startswith(prefixes))
+                if hits and (
+                    in_block or any(pattern.search(token_re.sub("", line)) for pattern in patterns)
+                ):
+                    for name in hits:
+                        refs[name].append((rel, number, line.strip()))
+                if in_block or block_re.search(line):
+                    code = strip_comment(line)
+                    block_depth = max(block_depth + code.count("{") - code.count("}"), 0)
+        return refs
+
+    return search
+
+
 def _upstream_scan(
     mod_root: Path,
     submod_root: Path | None,
@@ -254,9 +310,11 @@ def _upstream_scan(
         for scan_root in roots:
             finder.REPO_ROOT = scan_root.resolve()
             directories = [scan_root / directory for directory in search_dirs]
-            search = (
-                make_searcher(directories, path) if needs_source else make_searcher(directories)
-            )
+            search = _fast_idea_searcher(module, directories) if kind == "idea" else None
+            if search is None:
+                search = (
+                    make_searcher(directories, path) if needs_source else make_searcher(directories)
+                )
             found = search(names)
             for name in names:
                 for rel, number, content in found.get(name, ()):

@@ -644,13 +644,13 @@ def test_loc_index_against_real_mod(real_mod_root, cache_dir):
 
 @pytest.mark.integration
 def test_idea_index_reads_block_only_lifecycle_ideas(real_mod_root, cache_dir):
-    """Real block-only ideas (EUU_monitor, ITA_wasted_foreign_funds) are indexed; temp cache."""
+    """Real block-only ideas (EUU_monitor, ITA_mafia) are indexed; temp cache."""
     idx = IdeaIndex(real_mod_root, cache_dir, include_vanilla=False)
     idx.ensure_fresh()
 
     real_cases = {
         "EUU_monitor": "common/ideas/EU_ideas.txt",
-        "ITA_wasted_foreign_funds": "common/ideas/Italian.txt",
+        "ITA_mafia": "common/ideas/Italian.txt",
     }
     from md_mcp.paradox import parse_string
     from md_mcp.paradox.nodes import node_line

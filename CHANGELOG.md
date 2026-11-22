@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- `find_unreferenced(kind="idea")` scans a warm corpus in about a second instead of a
+  minute: the reference loop skips files and lines that cannot hold a reference
+  and matches whole tokens instead of an alternation of every idea name. Counts
+  stay the checkout finder's.
+- `lint(validators=["auto"])` routes the `dynamic_tokens` validator to the paths it
+  scans (`.txt` under `common/`, `events/`, `history/`, `.gui` under `interface/`,
+  `.yml` under `localisation/english/`).
+
 ## 1.1.0 - 2026-10-28
 
 ### Added

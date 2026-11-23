@@ -461,7 +461,7 @@ def _focus_source_path(
         try:
             resolved = candidate.resolve(strict=True)
             inside = any(resolved.is_relative_to(root) for root in roots)
-        except (OSError, ValueError):
+        except OSError, ValueError:
             continue
         linked = candidate.is_symlink()
         parent = candidate.parent

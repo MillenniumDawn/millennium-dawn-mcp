@@ -172,7 +172,7 @@ class IndexCache:
             raw = json.loads(text)
             # from_json stays inside the try so a wrong-shape manifest rebuilds, not raises.
             return {path: FileSig.from_json(sig) for path, sig in raw.items()}
-        except (OSError, AttributeError, TypeError, ValueError, IndexError):
+        except OSError, AttributeError, TypeError, ValueError, IndexError:
             return None
 
     def save_manifest(self, sigs: dict[str, FileSig]) -> None:
@@ -190,7 +190,7 @@ class IndexCache:
             # pi-lens-ignore: python-path-traversal
             with open(self.data_path, encoding="utf-8") as fh:
                 return json.loads(fh.read())
-        except (OSError, ValueError):
+        except OSError, ValueError:
             return None
 
     def save_data(self, payload: dict) -> None:
@@ -214,7 +214,7 @@ class IndexCache:
             # pi-lens-ignore: python-path-traversal
             with open(path, encoding="utf-8") as fh:
                 raw = json.loads(fh.read())
-        except (OSError, ValueError):
+        except OSError, ValueError:
             return None
         if not isinstance(raw, dict) or raw.get("relpath") != relpath or "records" not in raw:
             return None

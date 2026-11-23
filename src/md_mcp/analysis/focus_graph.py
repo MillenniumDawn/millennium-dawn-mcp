@@ -190,7 +190,7 @@ def _read_cost(c) -> tuple[float, bool]:
     """Return (numeric cost, defaulted). defaulted is True when c is missing or not numeric."""
     try:
         return float(c), False
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return _DEFAULT_FOCUS_COST, True
 
 

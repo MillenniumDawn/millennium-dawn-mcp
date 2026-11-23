@@ -25,7 +25,7 @@ cd /path/to/millennium-dawn-mcp
 pip install -e .
 ```
 
-Requires Python 3.10+. The wrapped validators are stdlib-only; no extra deps
+Requires Python 3.14 or newer. The wrapped validators are stdlib-only; no extra deps
 needed. `render_focus_tree` needs Pillow for PNG output and focus icons; without
 it the tool still writes HTML with placeholder icons:
 

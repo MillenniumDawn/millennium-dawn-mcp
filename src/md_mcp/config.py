@@ -6,8 +6,8 @@ into the index and tool layers.
 
 from __future__ import annotations
 
-import importlib
 import os
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -117,10 +117,6 @@ def _load_file_config() -> dict:
     """
     if not CONFIG_PATH.exists():
         return {}
-    try:
-        tomllib = importlib.import_module("tomllib")
-    except ModuleNotFoundError:
-        tomllib = importlib.import_module("tomli")
     try:
         with open(CONFIG_PATH, "rb") as f:
             return tomllib.load(f)

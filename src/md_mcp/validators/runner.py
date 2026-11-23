@@ -170,7 +170,7 @@ def available_validators(mod_root: Path) -> list[ValidatorInfo]:
                     continue
                 try:
                     title = ast.literal_eval(match.group("literal"))
-                except (SyntaxError, ValueError):
+                except SyntaxError, ValueError:
                     continue
                 title_source = "scraped"
                 break
@@ -478,7 +478,7 @@ def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:
         return False
     try:
         signature = inspect.signature(collector)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
 
     mod_root = Path(inst.mod_path).resolve()
@@ -489,7 +489,7 @@ def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:
             return False
         try:
             (mod_root / relative).resolve().relative_to(mod_root)
-        except (OSError, RuntimeError, ValueError):
+        except OSError, RuntimeError, ValueError:
             return False
 
     original_staged_only = getattr(inst, "staged_only", False)
@@ -542,7 +542,7 @@ def _configure_file_scope(inst, files: Optional[list[str]]) -> bool:
                 setattr(inst, name, unscoped(method))
         inst._collect_files = scoped_collect
         initial_attrs.update(inst.__dict__)
-    except (AttributeError, TypeError):
+    except AttributeError, TypeError:
         return False
     return True
 
@@ -666,7 +666,7 @@ def _canonical_scope_files(mod_root: Path, files: Optional[list[str]]) -> Option
             if not candidate.is_absolute():
                 candidate = root / candidate
             rel = candidate.resolve().relative_to(root).as_posix()
-        except (OSError, RuntimeError, ValueError):
+        except OSError, RuntimeError, ValueError:
             canonical.append(text)
             continue
         canonical.append(rel)

@@ -122,7 +122,7 @@ def test_lint_changelog_invalid_utf8_fails(tmp_path):
     make_script(
         tmp_path,
         "tools/linting/check_changelog.py",
-        "def check_lines(lines):\n    return []\n" "def order_lines(lines):\n    return lines\n",
+        "def check_lines(lines):\n    return []\ndef order_lines(lines):\n    return lines\n",
     )
     (tmp_path / "Changelog.txt").write_bytes(b"v1.0\n\xff\xfe broken bytes \n")
 
@@ -143,7 +143,7 @@ def test_lint_changelog_unreadable_changelog_fails(tmp_path):
     make_script(
         tmp_path,
         "tools/linting/check_changelog.py",
-        "def check_lines(lines):\n    return []\n" "def order_lines(lines):\n    return lines\n",
+        "def check_lines(lines):\n    return []\ndef order_lines(lines):\n    return lines\n",
     )
     changelog = tmp_path / "Changelog.txt"
     changelog.write_text("v1.0\nCategory:\n- entry\n", encoding="utf-8")

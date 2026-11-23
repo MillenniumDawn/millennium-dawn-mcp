@@ -24,7 +24,7 @@ def _alive(pid: int) -> bool:
     # A killed process stays a zombie until it is reaped, and some sandboxes never reap orphans.
     try:
         status = Path(f"/proc/{pid}/status").read_text()
-    except (FileNotFoundError, ProcessLookupError):
+    except FileNotFoundError, ProcessLookupError:
         # Reaped since the signal check. Without /proc at all, that check is all there is.
         return not Path("/proc/self").exists()
     except OSError:
@@ -54,10 +54,7 @@ def test_alive_treats_a_pid_reaped_between_its_two_checks_as_dead(monkeypatch):
 def test_run_in_group_captures_output_and_exit_code(tmp_path):
     script = tmp_path / "child.py"
     script.write_text(
-        "import sys\n"
-        "print(repr(sys.stdin.read()))\n"
-        "print('err', file=sys.stderr)\n"
-        "sys.exit(3)\n"
+        "import sys\nprint(repr(sys.stdin.read()))\nprint('err', file=sys.stderr)\nsys.exit(3)\n"
     )
 
     proc = run_in_group([sys.executable, str(script)], timeout=30, text=True)
@@ -93,8 +90,8 @@ def test_windows_timeout_kills_tree_and_reaps_child(monkeypatch, failure):
     popen.return_value.__enter__.return_value = child
     taskkill = MagicMock(side_effect=failure)
     monkeypatch.setattr(process, "os", SimpleNamespace(name="nt"))
-    monkeypatch.setattr(process.subprocess, "Popen", popen)
-    monkeypatch.setattr(process.subprocess, "run", taskkill)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    monkeypatch.setattr(subprocess, "run", taskkill)
 
     with pytest.raises(subprocess.TimeoutExpired) as caught:
         run_in_group(["validator"], timeout=1)

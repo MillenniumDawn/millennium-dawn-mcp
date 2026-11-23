@@ -136,7 +136,7 @@ DECISIONS_WITH_DUPES = """TST_category = {
 """
 
 DECISIONS_WITH_COMMENT = (
-    "TST_category = {\n" "\tTST_commented = {\n" "\t\tcost = 30 # important note\n" "\t}\n" "}\n"
+    "TST_category = {\n\tTST_commented = {\n\t\tcost = 30 # important note\n\t}\n}\n"
 )
 
 DECISION_AFTER_SAME_LINE_OPENER = (
@@ -584,7 +584,7 @@ def test_resource_reports_an_indexed_file_missing_on_disk(tmp_path, kind):
     settings = mod_settings(tmp_path, tmp_path / ".cache")
     index = _FakeIndex({"file": "common/gone.txt", "line": 1})
 
-    with pytest.raises(FileNotFoundError, match="common/gone.txt"):
+    with pytest.raises(FileNotFoundError, match=r"common/gone\.txt"):
         KINDS[kind].resource("TST_gone", settings, index)
 
 

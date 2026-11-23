@@ -261,7 +261,7 @@ are smaller than real data.
 Two workflows under `.github/workflows/`:
 
 - **`ci.yml`** (every PR + push to main): ruff check, ruff format check, and
-  mypy on 3.12; `pytest -q -n auto` on a 3.10/3.14 matrix. Integration tests
+  mypy on 3.14; `pytest -q -n auto` on a 3.14/3.15 matrix. Integration tests
   (including the perf budget) skip there — no `MD_MOD_ROOT` on the runner.
 - **`nightly.yml`** (cron + manual dispatch): sparse-clones Millennium-Dawn
   main (~380 MB instead of the 8 GB full tree) and runs every fast validator
@@ -270,6 +270,17 @@ Two workflows under `.github/workflows/`:
   does not persist checkout credentials. A dependent job with only
   `issues: write` opens or updates a `nightly-failure` issue after integration
   failures or job timeouts.
+
+### Required PR checks
+
+[Required PR checks](../.github/rulesets/required-ci.json) is an importable
+GitHub branch ruleset. In **Settings > Rules > Rulesets**, import the JSON as
+an additional ruleset. Keep the existing review and push rules. Committing the
+file does not apply it to GitHub.
+
+The ruleset requires the GitHub Actions jobs listed in the JSON. The Ubuntu
+26.04 trial and nightly integration are not merge gates. If a required job is
+renamed, confirm the new check name on a PR before updating the live ruleset.
 
 ### Future work: differential parser suite
 

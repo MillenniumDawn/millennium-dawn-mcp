@@ -525,7 +525,7 @@ def test_filename_with_special_characters(git_repo: Path, weird: str):
     # skip if we can't create it.
     try:
         _write(git_repo, weird, body)
-    except (OSError, UnicodeEncodeError):
+    except OSError, UnicodeEncodeError:
         pytest.skip(f"filesystem cannot encode path {weird!r}")
     _add_and_commit(git_repo, weird, message=f"add {weird}")
 
@@ -657,9 +657,9 @@ def test_parser_failure_surfaces_in_id_diff_without_false_ids(git_repo: Path):
 
     out = diff_summary(git_repo, base="HEAD~1")
     rec = next(r for r in out["files"] if r["path"] == FOCUS_FILE)
-    assert (
-        "added_ids" not in rec
-    ), f"parser failure was reported as added_ids: {rec.get('added_ids')!r}"
+    assert "added_ids" not in rec, (
+        f"parser failure was reported as added_ids: {rec.get('added_ids')!r}"
+    )
     assert "removed_ids" not in rec
     assert "id_diff" in rec
     assert "error" in rec["id_diff"]

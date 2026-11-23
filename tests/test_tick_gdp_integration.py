@@ -173,9 +173,9 @@ def test_estimate_gdp_matches_upstream_cli_fields(real_mod_root):
         timeout=upstream_analysis._GDP_TIMEOUT,
     )
     out = completed.stdout
-    assert re.search(
-        rf"^\s+{_TAG} - GDP Estimation \(with modifier stack\)$", out, re.MULTILINE
-    ), out
+    assert re.search(rf"^\s+{_TAG} - GDP Estimation \(with modifier stack\)$", out, re.MULTILINE), (
+        out
+    )
 
     def cli_field(pattern: str) -> float:
         match = re.search(pattern, out, re.MULTILINE)

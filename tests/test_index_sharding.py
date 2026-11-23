@@ -410,13 +410,13 @@ def test_incremental_rebuild_matches_scratch_over_random_edits(tmp_path, cache_d
             write_stepped(_loc(root, name), random_text(), step)
             live.add(name)
         idx._stale_check.force_next()
-        assert index_state(idx) == scratch_state(
-            LocalisationIndex, root, tmp_path, f"r{step}"
-        ), f"diverged at step {step}"
+        assert index_state(idx) == scratch_state(LocalisationIndex, root, tmp_path, f"r{step}"), (
+            f"diverged at step {step}"
+        )
         # And what is on disk agrees too.
-        assert index_state(_mk(root, cache_dir)) == index_state(
-            idx
-        ), f"cache diverged at step {step}"
+        assert index_state(_mk(root, cache_dir)) == index_state(idx), (
+            f"cache diverged at step {step}"
+        )
 
 
 def test_incremental_equals_scratch_for_monolithic_index(tmp_path, cache_dir):

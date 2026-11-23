@@ -23,8 +23,7 @@ def server_parameters(mod_root: Path, cache_dir: Path) -> StdioServerParameters:
         }
     )
     code = (
-        f"import sys; sys.path.insert(0, {source_root!r}); "
-        "from md_mcp.server import main; main()"
+        f"import sys; sys.path.insert(0, {source_root!r}); from md_mcp.server import main; main()"
     )
     return StdioServerParameters(
         command=sys.executable,

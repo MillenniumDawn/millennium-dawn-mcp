@@ -43,7 +43,7 @@ def suppressed_count(result: dict) -> int:
     try:
         value = result.get("suppressed_mod_wide", result.get("suppressed", 0))
         return max(0, int(value or 0))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
 
 

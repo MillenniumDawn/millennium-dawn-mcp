@@ -176,7 +176,7 @@ def test_unsupported_upstream_findings_shape_is_not_reported_as_empty(
     }
     body = bodies[result_source]
     helper.write_text(
-        "def classify(line): return None\n" f"def findings(*args): return {body}\n",
+        f"def classify(line): return None\ndef findings(*args): return {body}\n",
         encoding="utf-8",
     )
     result = analyze(helper.parents[2], {"content": "safe"})

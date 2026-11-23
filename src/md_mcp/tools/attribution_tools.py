@@ -46,13 +46,13 @@ def check_attribution_labels_tool(
         )
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "Attribution analysis exceeded its 30 second limit."}
-    except (OSError, ValueError, UnicodeError):
+    except OSError, ValueError, UnicodeError:
         return {"ok": False, "error": "Could not start attribution analysis subprocess."}
     if proc.returncode != 0:
         return {"ok": False, "error": "Attribution analysis subprocess failed."}
     try:
         result = json.loads(proc.stdout)
-    except (TypeError, json.JSONDecodeError):
+    except TypeError, json.JSONDecodeError:
         return {"ok": False, "error": "Attribution analysis returned invalid JSON."}
     if not isinstance(result, dict):
         return {"ok": False, "error": "Attribution analysis returned a non-object response"}

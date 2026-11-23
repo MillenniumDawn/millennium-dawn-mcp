@@ -108,7 +108,7 @@ def test_content_definition_refs_resolve_with_explicit_kinds(fake_mod_root, cach
     )
     scope = root / "common/national_focus/refs.txt"
     scope.write_text(
-        "focus = {\n" " add_dynamic_modifier = { modifier = known_dynamic days = 30 }\n" "}\n",
+        "focus = {\n add_dynamic_modifier = { modifier = known_dynamic days = 30 }\n}\n",
         encoding="utf-8",
     )
     indexes = _indexes(root, cache_dir)
@@ -1060,8 +1060,7 @@ def test_check_refs_does_not_audit_fake_wrapper_calls(fake_mod_root, cache_dir):
     is reported only if it appears as a direct call by key.
     """
     body = (
-        "call_scripted_effect = TST_missing_effect\n"
-        "evaluate_scripted_trigger = TST_missing_trigger"
+        "call_scripted_effect = TST_missing_effect\nevaluate_scripted_trigger = TST_missing_trigger"
     )
     result = _audit_definitions(fake_mod_root, cache_dir, body, _SCRIPTED_KINDS)
 

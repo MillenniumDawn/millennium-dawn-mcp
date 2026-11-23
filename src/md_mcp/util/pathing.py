@@ -116,7 +116,7 @@ def contained(root: Path, path: str | Path) -> Path | None:
             candidate = root / candidate
         candidate = candidate.resolve()
         candidate.relative_to(root.resolve())
-    except (ValueError, OSError, RuntimeError):
+    except ValueError, OSError, RuntimeError:
         return None
     return candidate
 

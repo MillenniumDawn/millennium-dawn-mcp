@@ -12,8 +12,8 @@
         "strict_required_status_checks_policy": false,
         "required_status_checks": [
           { "context": "lint", "integration_id": 15368 },
-          { "context": "test (3.10)", "integration_id": 15368 },
           { "context": "test (3.14)", "integration_id": 15368 },
+          { "context": "test (3.15)", "integration_id": 15368 },
           { "context": "portable-cache (windows-latest)", "integration_id": 15368 },
           { "context": "portable-cache (macos-latest)", "integration_id": 15368 },
           { "context": "runtime-install", "integration_id": 15368 },

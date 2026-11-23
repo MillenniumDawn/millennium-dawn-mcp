@@ -303,7 +303,7 @@ def _classify_scope_files(
     overlay = submod_root
     try:
         distinct_overlay = overlay is not None and overlay.resolve() != mod_root.resolve()
-    except (OSError, RuntimeError):
+    except OSError, RuntimeError:
         return [raw.replace("\\", "/") for raw in files], []
     for raw in files:
         path = raw.replace("\\", "/")
@@ -329,7 +329,7 @@ def _classify_scope_files(
             found = resolve_scope_file(path, mod_root, None)
             if found is None or not found.is_file():
                 missing.append(path)
-        except (OSError, RuntimeError):
+        except OSError, RuntimeError:
             missing.append(path)
     return missing, overlay_files
 

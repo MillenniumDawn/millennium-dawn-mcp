@@ -900,6 +900,10 @@ def test_shim_spot_check_refuses_symlinks_and_bad_pagination(tmp_path):
     invalid = shim.run("tick_spot_check", tmp_path, {"files": ["events/link.txt"]})
     assert invalid["ok"] is False
     assert invalid["invalid_files"] == ["events/link.txt"]
+    target.unlink()
+    dangling = shim.run("tick_spot_check", tmp_path, {"files": ["events/link.txt"]})
+    assert dangling["invalid_files"] == ["events/link.txt"]
+    target.touch()
     bad_page = shim.run(
         "tick_spot_check", tmp_path, {"files": ["events/target.txt"], "limit": "bad"}
     )

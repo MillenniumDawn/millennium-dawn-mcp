@@ -949,7 +949,7 @@ def test_merge_keeps_valid_dense_multiline_strings_and_comments_unchanged():
 
 
 def test_merge_stray_dense_quotes_still_hide_a_block():
-    original = "spriteTypes = {\n" '\tnote = "\n' + "\\a\n" * 1000 + _A + '\tother = "\n}\n'
+    original = 'spriteTypes = {\n\tnote = "\n' + "\\a\n" * 1000 + _A + '\tother = "\n}\n'
 
     with pytest.raises(
         ValueError,

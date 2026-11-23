@@ -261,7 +261,7 @@ are smaller than real data.
 Two workflows under `.github/workflows/`:
 
 - **`ci.yml`** (every PR + push to main): ruff check, ruff format check, and
-  mypy on 3.14; `pytest -q -n auto` on a 3.10/3.14 matrix. Integration tests
+  mypy on 3.14; `pytest -q -n auto` on a 3.14/3.15 matrix. Integration tests
   (including the perf budget) skip there — no `MD_MOD_ROOT` on the runner.
 - **`nightly.yml`** (cron + manual dispatch): sparse-clones Millennium-Dawn
   main (~380 MB instead of the 8 GB full tree) and runs every fast validator

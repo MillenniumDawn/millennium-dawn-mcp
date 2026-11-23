@@ -194,9 +194,9 @@ def test_readers_never_see_a_partially_applied_refresh(tmp_path, monkeypatch):
         reader.join(GATE_TIMEOUT)
         assert not reader.is_alive()
 
-        assert (
-            observed["resolved"] == observed["in_tag_map"]
-        ), f"refresh partially visible to readers: {observed}"
+        assert observed["resolved"] == observed["in_tag_map"], (
+            f"refresh partially visible to readers: {observed}"
+        )
         assert observed["keys"] in (["TST_keep"], ["TST_keep", "TST_new"])
     finally:
         release.set()

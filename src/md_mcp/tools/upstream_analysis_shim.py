@@ -405,7 +405,7 @@ def _validated_spot_files(
             try:
                 resolved = candidate.resolve(strict=True)
                 inside = os.path.commonpath((str(root), str(resolved))) == str(root)
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 invalid.append(value)
                 break
             if inside and not linked and resolved.is_file() and resolved.suffix == ".txt":
@@ -695,7 +695,7 @@ def _focus_overlap_scenarios(mod_root: Path, payload: dict) -> dict:
         candidate = Path(raw_file)
         source = candidate.resolve(strict=True)
         inside = any(source.is_relative_to(root) for root in roots)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return {"ok": False, "file": raw_file, "error": "focus file does not exist"}
     linked = candidate.is_symlink()
     parent = candidate.parent
@@ -1054,7 +1054,7 @@ def _rename_scan_roots(payload: dict) -> list[tuple[Path, str]] | dict:
     for value in raw:
         try:
             root = Path(value).resolve(strict=True)
-        except (OSError, RuntimeError, ValueError):
+        except OSError, RuntimeError, ValueError:
             return {"ok": False, "error": f"scan root does not exist: {value}"}
         if not root.is_dir():
             return {"ok": False, "error": f"scan root is not a directory: {value}"}
@@ -1200,7 +1200,7 @@ def _rename_focus_ids(mod_root: Path, payload: dict) -> dict:
             # directory must never expand into files outside this root.
             try:
                 base_resolved = base.resolve(strict=False)
-            except (OSError, RuntimeError, ValueError):
+            except OSError, RuntimeError, ValueError:
                 base_resolved = None
             if base_resolved is None or not base_resolved.is_relative_to(root):
                 return {
@@ -1218,7 +1218,7 @@ def _rename_focus_ids(mod_root: Path, payload: dict) -> dict:
                 # and lands in one of the four scan trees as a supported file.
                 try:
                     resolved = candidate.resolve(strict=False)
-                except (OSError, RuntimeError, ValueError):
+                except OSError, RuntimeError, ValueError:
                     resolved = None
                 if resolved is None or not resolved.is_relative_to(root):
                     return {

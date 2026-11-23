@@ -790,7 +790,7 @@ def test_integration_styling_roundtrip(upstream_root):
 def test_integration_changelog_lint_and_fix_roundtrip(upstream_root):
     from md_mcp.tools.linting_tools import lint_changelog_tool
 
-    source = "v1.0.0\n\nFeatures:\n" "- [USA] tagged entry\n" "- untagged entry\n"
+    source = "v1.0.0\n\nFeatures:\n- [USA] tagged entry\n- untagged entry\n"
     _write(upstream_root, "Changelog.txt", source)
 
     lint = lint_changelog_tool(upstream_root)
@@ -1095,7 +1095,7 @@ def _plant_event_log_detector(root: Path, findings: list[tuple[str, int]] | None
     validation = root / "tools" / "validation"
     validation.mkdir(parents=True, exist_ok=True)
     (validation / "validate_events.py").write_text(
-        "def find_option_logs_without_effects(text):\n" f"    return {(findings or [])!r}\n",
+        f"def find_option_logs_without_effects(text):\n    return {(findings or [])!r}\n",
         encoding="utf-8",
     )
 

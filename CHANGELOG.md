@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Installation now requires Python 3.14 or newer. Python 3.10 through 3.13 are no longer supported.
+
 ### Fixed
 
 - `find_unreferenced(kind="idea")` scans a warm corpus in about a second instead of a

@@ -1065,8 +1065,9 @@ def test_validate_run_all_excludes_manual_and_commit_only_but_named_calls_remain
     assert calls == ["standardization"]
 
 
+@pytest.mark.parametrize("unresolvable", [".", "events/test_events.txt"])
 def test_unresolvable_overlay_scope_does_not_fall_back_to_base(
-    fake_mod_root, tmp_path, monkeypatch
+    fake_mod_root, tmp_path, monkeypatch, unresolvable
 ):
     overlay = tmp_path / "overlay"
     overlay.mkdir()
@@ -1080,7 +1081,7 @@ def test_unresolvable_overlay_scope_does_not_fall_back_to_base(
     original_resolve = Path.resolve
 
     def fail_overlay(candidate, *args, **kwargs):
-        if candidate == overlay / path:
+        if candidate == overlay / unresolvable:
             raise OSError("cannot resolve overlay path")
         return original_resolve(candidate, *args, **kwargs)
 

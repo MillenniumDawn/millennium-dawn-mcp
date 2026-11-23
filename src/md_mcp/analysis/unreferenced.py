@@ -216,7 +216,7 @@ def _index_path(path: str) -> str:
 def _load_finder(mod_root: Path, module_name: str):
     try:
         return _FINDERS.load(mod_root, (module_name,))[module_name]
-    except (ModuleNotFoundError, ImportError):
+    except ModuleNotFoundError, ImportError:
         return None
 
 
@@ -427,7 +427,7 @@ def _allowlisted(mod_root: Path, names: list[str], relpath: str) -> frozenset[st
             "validate_unused_scripted"
         ]
         patterns = [re.compile(p) for p in config.get("false_positive_patterns", ())]
-    except (OSError, ValueError, KeyError, re.error):
+    except OSError, ValueError, KeyError, re.error:
         return frozenset()
     if Path(relpath).name in config.get("false_positive_files", ()):
         return frozenset(names)

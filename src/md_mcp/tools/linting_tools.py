@@ -467,7 +467,7 @@ def lint_tool(
         return {
             "ok": False,
             "error": (
-                f"Unknown check(s): {unknown}. Valid: " f"{list((*_ALL_CHECKS, *_EXPLICIT_CHECKS))}"
+                f"Unknown check(s): {unknown}. Valid: {list((*_ALL_CHECKS, *_EXPLICIT_CHECKS))}"
             ),
         }
 
@@ -743,7 +743,7 @@ def lint_tool(
     if validator_names and runner is not None and submod_root is not None and relevant is not None:
         try:
             distinct_overlay = submod_root.resolve() != mod_root.resolve()
-        except (OSError, RuntimeError):
+        except OSError, RuntimeError:
             distinct_overlay = True
         if distinct_overlay and files is None:
             # Git scopes come from the overlay worktree, including deleted paths.

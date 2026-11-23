@@ -242,10 +242,13 @@ def check_refs(
         return lambda ref: index is not None and index.resolve(ref) is not None
 
     def _field_index_resolver(index: Any, field: str) -> Callable[[str], bool]:
-        return lambda ref: index is not None and any(
-            record.get(field) == ref
-            for relpath in index.list_files()
-            for record in index.records_for_file(relpath)
+        return lambda ref: (
+            index is not None
+            and any(
+                record.get(field) == ref
+                for relpath in index.list_files()
+                for record in index.records_for_file(relpath)
+            )
         )
 
     resolver_index_attrs = {

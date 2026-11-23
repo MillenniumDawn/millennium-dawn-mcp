@@ -292,7 +292,7 @@ def analyze(root: Path, payload: Any) -> dict:
             raise ValueError
         limit = min(PAGE_SIZE_MAX, max(0, raw_limit))
         offset = max(0, raw_offset)
-    except (TypeError, ValueError, OverflowError):
+    except TypeError, ValueError, OverflowError:
         return {"ok": False, "error": "limit and offset must be integers"}
     include_steps = payload.get("include_steps", False)
     if not isinstance(include_steps, bool):

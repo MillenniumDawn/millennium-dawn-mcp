@@ -275,7 +275,7 @@ def _fix_styling(
     # Upstream displays at most 50 unfixable issues; an unbounded list here
     # could crowd the fixed text out of the response budget.
     if len(warnings) > 50:
-        warnings = warnings[:50] + [f"... and {len(warnings) - 50} more"]
+        warnings = [*warnings[:50], f"... and {len(warnings) - 50} more"]
 
     summary = {"lines_fixed": lines_fixed, "line_fixes": total_fixes}
     return "\n".join(fixed_lines), total_fixes, summary, warnings
